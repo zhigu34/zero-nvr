@@ -131,7 +131,9 @@ Acceptance:
 - [ ] formal recording with configurable 5min default physical segments.
 - [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
 - [ ] single recording-pipeline state transition: idle tmpfs prebuffer → formal recording without recorder restart.
-- [ ] adopt/promote the current idle prebuffer segment as the first formal RecordingSession segment.
+- [ ] model 20s idle MP4 files as temporary PrebufferFragments, not formal RecordingSegments.
+- [ ] anchor the first formal 5min segment window at RecordingSession logical start, including pre-roll.
+- [ ] assemble protected prebuffer prefix + persistent continuation into the first finalized formal RecordingSegment without mandatory video re-encode.
 - [ ] switch subsequent active-session segments to configurable 5min formal segmentation/persistent storage.
 - [ ] finalize the last formal segment early at RecordingSession completion when needed.
 - [ ] resume pre-buffer immediately after recording completion and bridge warm-up from the previous recording tail.
