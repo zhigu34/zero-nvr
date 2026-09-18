@@ -100,6 +100,29 @@ Conceptual response:
 
 The frontend does not need local paths, S3/rclone/OpenList object keys, storage backend names, or human-readable recording filenames.
 
+
+### Segment ordering and lookup
+
+Detailed timeline responses return playable segments ordered by `start_ms` ascending.
+
+The frontend/player maintains this ordered list and uses binary search (or an equivalent indexed lookup) for absolute-time seek:
+
+```text
+target T
+   ↓
+binary search ordered segments
+   ↓
+find start_ms <= T < end_ms
+   ↓
+resolve playback_ref
+   ↓
+seek relative media offset
+```
+
+Do not linearly scan a full-day segment array for every playhead/synchronization tick.
+
+For large ranges, the server may return compact coverage buckets rather than every physical segment; binary segment lookup applies to detailed playback ranges.
+
 ## Segment availability
 
 Initial states:
@@ -172,6 +195,29 @@ interaction overlay
 ```
 
 Exact colors remain a UI/theme decision.
+
+
+### Visual seam smoothing
+
+Adjacent RecordingSegments may have tiny timestamp differences caused by timestamp rounding, container metadata, or capture jitter.
+
+At wide zoom, if the real gap projects to less than approximately one display pixel, the renderer may visually join the adjacent recording blocks to avoid flickering hairline seams.
+
+Conceptually:
+
+```text
+real gap exists in timeline data
+        ↓
+gap width < ~1 px at current zoom
+        ↓
+draw as visually continuous coverage
+```
+
+This is **rendering only**.
+
+The backend/database gap must never be deleted, rounded away, or rewritten merely because it is too small to see at the current zoom. If the user zooms in far enough, the real gap becomes visible again.
+
+Any fixed tolerance such as 500ms is an implementation tuning ceiling, not a rule that converts missing media into continuous media.
 
 ## Time-to-pixel model
 
@@ -312,11 +358,15 @@ old A becomes next preload slot
 
 Requirements:
 
-- preload before boundary;
-- keep mute/volume/rate consistent;
-- seek the new player to the correct logical point;
+- preload/resolve the next segment before the logical boundary;
+- keep mute/volume/rate state consistent across both players;
+- set the standby player to the expected starting offset and wait until it is actually ready enough to switch;
+- switch according to the absolute segment boundary, not only an unreliable browser `duration` value;
+- immediately recycle the old active player as the preload slot for the following segment;
 - do not expose the transition as a new RecordingSession;
 - emit diagnostics if the seam visibly stalls.
+
+Segment selection/seek should use the ordered-segment binary lookup described above.
 
 The product must not promise mathematically perfect gapless playback from independent MP4 files.
 
@@ -379,6 +429,15 @@ Initial behavior:
 
 These thresholds are tuning values, not domain constants.
 
+
+The initial values may be adjusted after real-browser 4/9-camera tests. The desired behavior is stable:
+
+- small drift: leave decoder alone;
+- moderate drift: converge smoothly with a bounded temporary playback-rate adjustment;
+- large drift: hard align by absolute seek.
+
+Do not continuously oscillate playbackRate around the threshold; correction should use hysteresis/cooldown to avoid audible/visual hunting.
+
 Explicit seek, source replacement, segment change, or large gap may require immediate hard correction.
 
 ## Multi-camera synchronized playback
@@ -433,7 +492,9 @@ When a participating camera that should be playing buffers significantly:
 - align all participating playable channels;
 - resume together.
 
-A camera with a legitimate gap at global_time_ms does not block strict mode.
+A camera with a legitimate gap at `global_time_ms` does not participate in the strict buffering barrier and does not block other cameras.
+
+Only a camera that is expected to have playable media at the current absolute time can acquire the strict-mode barrier.
 
 The user may switch modes.
 
@@ -582,6 +643,47 @@ sync_mode
 
 These may be runtime/debug data rather than permanently persisted rows.
 
+
+## Playback acceptance tests
+
+Implementation validation must include at least:
+
+1. **absolute seek**
+   - seek into the first/middle/last second of a segment;
+   - verify the resolved media time maps back to the requested absolute time within expected container/keyframe tolerance;
+
+2. **cross-segment continuation**
+   - play across many consecutive 5-minute boundaries;
+   - verify no logical timeline reset;
+   - measure visible seam/stall and log source-switch diagnostics;
+
+3. **visual gap scaling**
+   - inject small and large real gaps;
+   - verify tiny gaps may visually disappear at day zoom but reappear when zoomed in;
+   - verify source gap data remains unchanged;
+
+4. **event alignment**
+   - place point and stateful events at/between segment boundaries;
+   - verify Marker positions remain aligned through zoom/pan;
+
+5. **tolerant multi-camera sync**
+   - throttle one channel;
+   - verify healthy channels continue;
+   - verify recovered channel rejoins current Master Clock;
+
+6. **strict multi-camera sync**
+   - throttle one playable channel;
+   - verify participating playable channels pause/re-align/resume;
+   - verify a camera with a legitimate gap does not hold the barrier;
+
+7. **remote-only media**
+   - mix local and remote-only segments in one range;
+   - verify the timeline stays fixed while remote media resolves/caches;
+
+8. **storage migration**
+   - move a RecordingSegment from local to verified remote-only;
+   - verify PlaybackTimeline identity/time remains unchanged because playback_ref is stable.
+
 ## Initial V2 implementation choices
 
 - Canvas timeline;
@@ -614,4 +716,7 @@ The implementation must preserve contracts that allow later upgrade to MSE/fMP4/
 13. Purged and unexpectedly missing media are distinct states.
 14. Playback may upgrade beyond dual HTML video without changing timeline/domain contracts.
 15. Real timestamp holes are shown, never hidden by invented continuity.
-16. Non-obvious playback timing/synchronization/buffering logic requires comments per Development Guidelines.
+16. Detailed segment ranges are ordered and absolute-time seek uses indexed/binary lookup rather than repeated full linear scans.
+17. Sub-pixel seam smoothing is a visualization optimization only and never erases a real timestamp gap from authoritative data.
+18. Strict-mode buffering barriers include only channels expected to have playable media at the current absolute time.
+19. Non-obvious playback timing/synchronization/buffering logic requires comments per Development Guidelines.
