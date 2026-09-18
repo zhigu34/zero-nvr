@@ -126,8 +126,10 @@ Acceptance:
 
 - [ ] RecordingSession lifecycle.
 - [ ] segment promotion.
-- [ ] ZLM rolling MP4 pre-buffer with 30s target physical segments.
-- [ ] bounded tmpfs pre-buffer storage.
+- [ ] ZLM rolling MP4 idle pre-buffer with 20s target physical segments.
+- [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
+- [ ] stop duplicate tmpfs buffering during continuous/manual/schedule/event recording.
+- [ ] resume pre-buffer immediately after recording completion and bridge warm-up from the previous recording tail.
 - [ ] on_record_mp4 segment-finalize ingestion.
 - [ ] event-time current/previous segment protection + timestamp-based coverage validation.
 - [ ] 10s default pre-roll buffer.
