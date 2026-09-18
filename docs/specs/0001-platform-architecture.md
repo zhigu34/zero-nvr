@@ -138,6 +138,30 @@ Examples:
 - Home Assistant unavailable affects only HA-triggered automation.
 - MQTT unavailable affects only MQTT-backed integrations.
 
+### R9 — Stateful event recording is lifecycle-driven
+
+Stateful event recording must be driven by canonical event START/END state, not by a fixed recording duration.
+
+RecordingManager is the sole owner of recording lifecycle decisions:
+
+```text
+first event START
+  → pre-roll + event RecordingSession
+
+any ACTIVE event
+  → keep session alive
+
+final event END
+  → begin post-roll
+
+new event during post-roll
+  → cancel pending stop and continue same session
+```
+
+Local RTSP motion detection must infer Motion START/END using detector-level threshold/hold state. Detection timing and recording pre/post-roll are separate concerns.
+
+The accepted behavior is defined in [Spec 0002 — Event Recording Lifecycle](0002-event-recording-lifecycle.md).
+
 ### R8 — Optional integrations are load-on-demand
 
 The default core deployment must not require:
