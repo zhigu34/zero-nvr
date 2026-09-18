@@ -458,6 +458,11 @@ Known gaps distinguish states such as not scheduled, no event, source loss, runt
 
 The initial browser implementation may use dual HTML video players to preload the next 5-minute file, but the timeline/domain contract must allow later upgrade to MSE/fMP4/virtual playlists without redesign.
 
+
+Detailed segment lists are ordered by absolute start time and playback seek uses indexed/binary lookup. At wide zoom, a true gap that is smaller than a display pixel may be visually smoothed so file/timestamp jitter does not create flickering seams; the authoritative gap data is never modified by this rendering optimization.
+
+Dual-player switching preloads the next logical segment and changes players at the absolute segment boundary. Strict synchronization barriers only include cameras expected to have playable media at the current Master Clock time; legitimate timeline gaps never freeze other channels.
+
 See [Spec 0006 — Historical Playback Timeline and Multi-Camera Sync](specs/0006-historical-playback-timeline.md).
 
 ### Recording storage layout
