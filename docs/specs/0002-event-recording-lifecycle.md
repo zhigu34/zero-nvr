@@ -449,3 +449,7 @@ This is especially important once FastAPI, workers, ZLMediaKit callbacks, MQTT/H
 13. Instant events are zero-duration markers and use the normal pre-roll/post-roll policy without an invented event hold duration.
 14. An isolated instant event uses the default 10s pre-roll + 10s post-roll window; later events may extend the same RecordingSession.
 15. Recording/event state-machine implementations must include complete comments explaining non-obvious timing, cancellation, merge, and edge-case behavior, following [Development Guidelines](../DEVELOPMENT_GUIDELINES.md).
+
+## Media implementation reference
+
+The accepted physical pre-buffer, segment protection, cross-segment composition, and export behavior is defined in [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](0003-rolling-mp4-prebuffer.md).
