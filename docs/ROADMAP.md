@@ -9,6 +9,8 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define reuse-first integration policy.
 - [x] Define first canonical domain model.
 - [x] Define stateful event recording lifecycle and RTSP motion state machine.
+- [x] Define instant-event 10s pre-roll + 10s post-roll semantics.
+- [x] Define required code-comment/documentation standard.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -80,7 +82,7 @@ Acceptance:
 ## Phase 5 — Event Detection Platform
 
 - [ ] DetectionProvider contract.
-- [ ] DetectionEvent schema with START/ACTIVE/END lifecycle.
+- [ ] DetectionEvent schema supporting stateful and instant lifecycle kinds.
 - [ ] native camera events.
 - [ ] optional local lightweight motion with hysteresis + START/END hold state machine.
 - [ ] pulse-only source normalization/hold timeout where required.
@@ -124,7 +126,8 @@ Acceptance:
 - [ ] RecordingSession lifecycle.
 - [ ] segment promotion.
 - [ ] 10s default pre-roll buffer.
-- [ ] dynamic event recording with no fixed motion recording duration.
+- [ ] dynamic stateful event recording with no fixed motion recording duration.
+- [ ] instant-event recording as zero-duration Marker with 10s pre-roll + 10s post-roll.
 - [ ] 10s default post-roll after the final active event ends.
 - [ ] cancel/recalculate pending post-roll stop when a new event arrives.
 - [ ] multiple independent Event markers sharing one RecordingSession.
