@@ -205,22 +205,17 @@ The resulting recording duration is determined by the union of active event life
 
 ## Events during non-event recording
 
-When the camera is already being recorded by another recording mode such as:
-
-```text
-continuous
-manual
-schedule
-```
-
-an incoming event:
+When another RecordingIntent such as continuous, manual, or schedule already keeps the camera in formal recording, an incoming event:
 
 - does not restart recording;
-- does not change that recording mode's lifecycle;
 - creates/updates the canonical DetectionEvent;
+- creates/maintains the event RecordingIntent lifecycle;
 - creates the timeline marker;
 - writes EventLog entries;
-- links the event to the relevant recording timeline/session where applicable.
+- adds event retention claims to affected RecordingSegments;
+- links to the existing uninterrupted RecordingSession.
+
+When the event intent completes, recording stops only if no other RecordingIntent remains active.
 
 ## Timeline markers
 
@@ -453,3 +448,7 @@ This is especially important once FastAPI, workers, ZLMediaKit callbacks, MQTT/H
 ## Media implementation reference
 
 The accepted physical pre-buffer, segment protection, cross-segment composition, and export behavior is defined in [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](0003-rolling-mp4-prebuffer.md).
+
+## Recording-mode composition reference
+
+Overlap and arbitration between continuous, schedule, event, manual, and hybrid recording requirements are defined in [Spec 0007 — Recording Intent Arbitration and Mode Composition](0007-recording-intent-arbitration.md).
