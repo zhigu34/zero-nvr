@@ -584,3 +584,7 @@ EventLog details should make it possible to answer:
 13. Manual intent survives control-plane restart until explicitly stopped/recovered.
 14. Per-camera intent transitions are serialized/idempotent to prevent duplicate recorders.
 15. Non-obvious intent arbitration/state-transition/concurrency behavior requires comments per Development Guidelines.
+
+## Transport outage interaction
+
+RecordingIntent expresses the requirement to record, not proof that media is currently available. A camera source outage does not remove active RecordingIntents and does not end RecordingSession while at least one intent remains active. The physical RecordingSegment closes at confirmed media loss and recovery starts a new segment. See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](0008-stream-reconnect-and-recording-recovery.md).
