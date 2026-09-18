@@ -106,6 +106,32 @@ Optional AI provider:
 
 Event bus/integration protocol may use MQTT where it meaningfully decouples external providers. MQTT is not mandatory for internal business calls.
 
+## Integration plane
+
+Home Assistant is a first-class optional integration target.
+
+Loading model:
+
+```text
+Core zero-nvr
+  → no HA dependency
+  → no MQTT dependency
+
+Enable HA REST integration
+  → authenticated external-trigger API only
+
+Enable HA deep integration
+  → optional MQTT broker
+  → MQTT Discovery/state/commands
+
+Future HA Custom Integration
+  → consumes stable zero-nvr API
+```
+
+The core deployment must remain fully functional when Home Assistant and MQTT are absent.
+
+Home Assistant automations should send canonical external events/recording triggers. They must not directly control FFmpeg subprocesses or ZLMediaKit internals.
+
 ## Notification plane
 
 Preferred generic notification integration:
