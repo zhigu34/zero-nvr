@@ -377,17 +377,21 @@ Browser
 
 ### Recording storage layout
 
-Canonical recording storage uses immutable Camera/RecordingSegment identity and UTC start-date partitioning:
+Canonical local recording storage is both database-safe and independently human-browsable:
 
 ```text
-recordings/{camera_id}/{YYYY}/{MM}/{DD}/{start_utc}_{segment_id}.mp4
+recordings/
+  {storage_label}__{camera_short_id}/
+    {YYYY-MM-DD}/
+      {HH}/
+        {local_start+offset}__{local_end+offset}__{segment_short_id}.mp4
 ```
 
-The database timeline is authoritative. File/directory names are storage organization only.
+For example, a user mounting the disk without zero-nvr can browse directly by `客厅 → 日期 → 小时 → 起止时间`. The database timeline remains authoritative for product behavior, while short immutable IDs prevent name/time collisions.
 
-Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a UTC date boundary and remains one file, stored under the date on which it started.
+Canonical database timestamps remain UTC; filesystem presentation uses configurable recording_timezone and embeds the numeric UTC offset in filenames. Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a local date boundary and remains one file under its local start date/hour.
 
-Incomplete media is written under a staging/temp path and published to the canonical key only after finalize/verification.
+Incomplete media is written under a staging/temp path and published to the canonical path only after finalize/verification. Each camera recording directory also keeps a convenience `_camera.json` identity file for detached-disk use.
 
 See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
 
