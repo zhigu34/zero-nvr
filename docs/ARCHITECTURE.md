@@ -267,19 +267,35 @@ This intentionally separates the camera connection from the recorder process.
 ```text
 Camera ONVIF/HIK
       or
+Local RTSP detector
+      or
 Optional AI provider
       or
 Optional IntegrationAdapter
 (Home Assistant / MQTT / Webhook)
       ↓
-DetectionEvent / RecordingTrigger
+Canonical DetectionEvent START / END
+      ↓
+RecordingManager
+      ├── RecordingSession lifecycle
+      ├── Event timeline marker
+      └── EventLog
       ↓
 Recording Policy / AlertRule
       ↓
-Recording Promotion / Notification / Webhook
+RecorderBackend / Notification / Webhook
 ```
 
-Home Assistant and similar systems must not directly start/stop FFmpeg or manipulate ZLMediaKit internals. They express external intent through canonical events/triggers; zero-nvr owns recording execution and lifecycle.
+Event sources report state; zero-nvr alone owns recording execution and lifecycle. Home Assistant, MQTT, ONVIF, local detection, AI providers and similar systems must not directly start/stop FFmpeg or manipulate ZLMediaKit internals.
+
+For stateful event recording, the accepted lifecycle is defined in [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md):
+
+- first event START with no active recording uses the configured pre-roll (V2 default: 10 seconds);
+- any ACTIVE event keeps the same event RecordingSession alive;
+- after the final event END, the configured post-roll begins (V2 default: 10 seconds);
+- a new event during post-roll cancels the pending stop and reuses the same RecordingSession;
+- each event remains an independent timeline marker and EventLog entry even when multiple events share one recording;
+- continuous/manual/schedule recording is annotated by events rather than restarted.
 
 ### Cloud upload
 
@@ -428,25 +444,14 @@ storage/NVR health
 
 MQTT remains optional. A user who does not enable this integration should not need Mosquitto.
 
-### Recording trigger rule
+### External event / trigger rule
 
-External automation must express intent rather than media-process commands.
+External automation must express event state or recording intent rather than media-process commands.
 
-Preferred model:
+Stateful sensor input should normalize into canonical DetectionEvent START/END transitions. RecordingManager then decides whether to start, keep, extend, or leave an existing recording unchanged.
 
-```text
-RecordingTrigger
-  camera_id
-  source
-  external_id
-  event_type
-  state
-  started_at
-  last_active_at
-  ended_at
-  pre_roll_seconds
-  post_roll_seconds
-  metadata
-```
+Repeated sensor activity belonging to the same logical active event must not repeatedly start/stop recorder processes or create duplicate timeline markers.
 
-Repeated sensor activity refreshes the same logical trigger session instead of repeatedly starting/stopping recorder processes.
+Recording policy owns pre-roll/post-roll. Detector/provider-specific thresholds and hold timers belong to detection/event normalization and must not be reused as recording duration.
+
+See [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md).
