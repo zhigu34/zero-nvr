@@ -12,6 +12,7 @@
 ## Specs
 
 - [0001-platform-architecture.md](specs/0001-platform-architecture.md) — initial V2 platform specification
+- [0002-home-assistant-integration.md](specs/0002-home-assistant-integration.md) — optional Home Assistant integration and recording-trigger model
 
 ## Plans
 
