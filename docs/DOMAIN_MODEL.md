@@ -158,6 +158,7 @@ The canonical persisted formal-recording timeline unit.
 id
 camera_id
 stream_role
+sequence
 started_at
 ended_at
 duration
@@ -166,10 +167,13 @@ container
 size
 local_object_id
 integrity_status
+completion_reason     normal_boundary | session_end | manual_stop | schedule_end | source_lost | runtime_restart | media_discontinuity | failure
 created_at
 ```
 
 Segment identity remains stable even if its media object later moves to remote storage.
+
+For a healthy active RecordingSession, intermediate RecordingSegments follow the configured formal segment cadence anchored at `RecordingSession.started_at`. Shorter files are expected only for the final session segment or an explicit interruption/recovery boundary. `completion_reason` makes that distinction queryable.
 
 ## RecordingSessionSegment
 
@@ -503,7 +507,8 @@ created_at
 18. Idle 20-second tmpfs files are temporary PrebufferFragments, not canonical RecordingSegments.
 19. The first event RecordingSegment window starts at RecordingSession.started_at, including pre-roll; a pre-buffer fragment boundary must not restart the 5-minute formal segment clock.
 20. The first formal RecordingSegment may be assembled from one or more protected PrebufferFragment ranges plus persistent continuation media.
-21. Subsequent ongoing formal RecordingSegments use the configured formal segment duration; the final segment may be shorter when a RecordingSession ends.
-22. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
-23. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
-24. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
+21. While a formal RecordingSession remains active and healthy, all intermediate RecordingSegments follow the configured duration from the session-anchored segment clock.
+22. A normal RecordingSession completion may produce a shorter final segment; abnormal interruptions may also produce partial segments and must be identified by `completion_reason`.
+23. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
+24. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
+25. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
