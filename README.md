@@ -87,6 +87,7 @@ Start with:
 - [V2 Platform Spec](docs/specs/0001-platform-architecture.md)
 - [Event Recording Lifecycle](docs/specs/0002-event-recording-lifecycle.md)
 - [Rolling MP4 Pre-buffer](docs/specs/0003-rolling-mp4-prebuffer.md)
+- [Recording Storage Layout](docs/specs/0004-recording-storage-layout.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
