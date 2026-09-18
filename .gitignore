@@ -1,0 +1,46 @@
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/.vite/
+coverage/
+
+# Runtime
+data/
+recordings/
+snapshots/
+cache/
+logs/
+tmp/
+*.db
+*.sqlite
+*.sqlite3
+
+# Containers / generated
+docker-compose.override.yml
