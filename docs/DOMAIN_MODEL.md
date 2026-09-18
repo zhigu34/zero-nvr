@@ -103,9 +103,11 @@ Represents one actual recording lifecycle owned by zero-nvr.
 id
 camera_id
 recording_type      event | continuous | manual | schedule
-started_at
+started_at           logical/business start
 planned_end_at
-ended_at
+ended_at             logical/business end
+actual_media_started_at
+actual_media_ended_at
 status
 created_at
 updated_at
@@ -140,6 +142,25 @@ created_at
 ```
 
 Segment identity remains stable even if its media object later moves to remote storage.
+
+## RecordingSessionSegment
+
+Maps one logical RecordingSession onto the required range of one physical RecordingSegment.
+
+```text
+recording_session_id
+recording_segment_id
+sequence
+use_started_at
+use_ended_at
+created_at
+```
+
+A RecordingSession may span multiple physical MP4 files. The first/last physical files may contain additional footage outside the logical session; `use_started_at` / `use_ended_at` define the business-visible range.
+
+This mapping allows normal playback to cross segment boundaries without first generating a merged MP4. A single-file crop/concat is a derived export operation.
+
+See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
 ## DetectionEvent
 
@@ -447,3 +468,6 @@ created_at
 11. Remote upload requires verification before local purge eligibility.
 12. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
 13. Instant events are zero-duration DetectionEvents; they use recording pre-roll/post-roll without a fabricated event lifetime.
+14. RecordingSession logical boundaries are independent from physical MP4 segment boundaries.
+15. RecordingSessionSegment defines which time range of each physical segment contributes to a logical recording.
+16. Event pre-buffer segment rollover must never require recorder stop/start to preserve correctness.
