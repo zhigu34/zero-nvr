@@ -144,6 +144,58 @@ unknown
 
 Provider metadata may be stored, but UI/business rules should prefer canonical fields.
 
+## RecordingTrigger
+
+Represents an external or internal request to preserve/record a time window without exposing recorder-process commands.
+
+```text
+id
+camera_id
+source
+external_id
+event_type
+state
+started_at
+last_active_at
+ended_at
+pre_roll_seconds
+post_roll_seconds
+metadata
+created_at
+updated_at
+```
+
+Typical sources:
+
+```text
+home_assistant
+onvif
+hik
+frigate
+webhook
+manual
+```
+
+Suggested state direction:
+
+```text
+ACTIVE
+CLOSING
+COMPLETE
+CANCELLED
+```
+
+Repeated activity from the same logical external trigger should refresh/touch the trigger session when appropriate rather than repeatedly starting and stopping recorder processes.
+
+A RecordingTrigger may result in:
+
+- promotion/annotation of already-recorded continuous segments;
+- creation of an event recording window;
+- pre-roll/post-roll retention;
+- linkage to DetectionEvent and alert history.
+
+It does not directly represent an FFmpeg or ZLMediaKit process.
+
 ## AlertRule
 
 ```text
@@ -293,7 +345,8 @@ created_at
 2. External component IDs are never primary business identities.
 3. Recording metadata survives storage movement.
 4. DetectionEvent is provider-neutral.
-5. Credentials do not appear in public read contracts.
-6. Media runtime state is reconstructable and not authoritative metadata.
-7. Remote upload requires verification before local purge eligibility.
-8. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
+5. External automation expresses recording intent through RecordingTrigger, not media-process commands.
+6. Credentials do not appear in public read contracts.
+7. Media runtime state is reconstructable and not authoritative metadata.
+8. Remote upload requires verification before local purge eligibility.
+9. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
