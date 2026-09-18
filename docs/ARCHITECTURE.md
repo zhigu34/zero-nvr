@@ -295,9 +295,11 @@ Playback / export
 
 At event time `T`, the current and previous segment are immediately protected from GC, then the Worker validates actual media timestamps and pins every segment required to cover `T - pre_roll`.
 
-The tmpfs rolling pre-buffer runs only while the camera has no active formal recording. During continuous/manual/schedule/event recording, the existing recording media is reused for event timeline/pre-roll coverage and zero-nvr must not maintain a duplicate tmpfs recording path. When the final formal recording ends, pre-buffering resumes immediately; the tail of the just-finished persistent recording may bridge the first 10 seconds while the tmpfs buffer warms.
+Idle pre-buffering and formal recording are two modes of one recording pipeline, never duplicate parallel recorders. When a formal recording starts during a 20-second tmpfs segment, the current segment is adopted by the RecordingSession and continues to its natural boundary; if the session remains active, the next segment switches to the formal target (default 5 minutes) and persistent storage. The adopted segment is promoted from tmpfs when finalized.
 
-Normal event START/END does not stop/restart ZLM to force MP4 boundaries. Playback may span multiple physical MP4 files. Single-file crop/merge is an asynchronous derived export operation.
+At formal RecordingSession completion, the current formal segment may be finalized early; 5 minutes is the ongoing segment target/maximum, not a minimum recording duration. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
+
+Event START therefore does not stop/restart the recorder. Playback may span multiple physical MP4 files. Single-file crop/merge is an asynchronous derived export operation.
 
 See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
