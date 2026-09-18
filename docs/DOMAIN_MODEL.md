@@ -495,6 +495,72 @@ expires_at
 metadata
 ```
 
+
+## PlaybackTimeline
+
+A non-authoritative read model returned by playback APIs for an absolute time range.
+
+It is composed from RecordingSegment, StorageObject, DetectionEvent, recording policy/runtime history, and retention state rather than persisted as the primary source of truth.
+
+Conceptual shape:
+
+```text
+range_start_ms
+range_end_ms
+
+tracks[]
+  camera_id
+
+  segments[]
+    recording_segment_id
+    start_ms
+    end_ms
+    availability
+    playback_ref
+
+  gaps[]
+    start_ms
+    end_ms
+    reason
+
+  events[]
+    detection_event_id
+    event_type
+    lifecycle_kind
+    start_ms
+    end_ms
+```
+
+Playback API timestamps are UTC Unix milliseconds.
+
+Initial segment availability values:
+
+```text
+local
+remote
+cached_remote
+missing
+corrupted
+purged
+```
+
+Initial gap reasons:
+
+```text
+not_scheduled
+no_event
+source_lost
+runtime_restart
+storage_failure
+missing_media
+purged
+unknown
+```
+
+Playback URLs are resolved lazily from `playback_ref`; the timeline read model must not depend on a permanent storage-specific URL.
+
+See [Spec 0006 — Historical Playback Timeline and Multi-Camera Sync](specs/0006-historical-playback-timeline.md).
+
 ## HealthSample
 
 ```text
@@ -601,3 +667,9 @@ created_at
 32. User-locked media is never automatically purged.
 33. Upload success without verified REMOTE_READY state never permits safe local-source deletion.
 34. Critical disk-pressure purge is priority ordered and explicitly logged; currently writing/finalizing media is never an automatic purge candidate.
+35. Historical playback is absolute-time driven; physical MP4 boundaries and filenames are never the playback clock.
+36. Playback API time values use UTC Unix milliseconds consistently.
+37. PlaybackTimeline is a derived read model with playable segments, explicit gaps, and DetectionEvent markers.
+38. Multi-camera historical playback shares one Master Clock; one camera's gap never shifts another camera to a different absolute time.
+39. Playback references resolve storage lazily so local/remote migration does not rewrite timeline semantics.
+40. Purged, missing, corrupted, source-loss, and intentionally-unrecorded ranges remain distinguishable in playback.
