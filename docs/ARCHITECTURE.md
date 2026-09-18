@@ -383,10 +383,10 @@ Canonical local recording storage is both database-safe and independently human-
 recordings/
   {name_id}/
     {YYYY-MM-DD}/
-      {name_id}_{YYYY-MM-DD}_{HH-MM-SS}-{HH-MM-SS}.mp4
+      {name_id}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
 ```
 
-For example, a user mounting the disk without zero-nvr can browse directly by `摄像头名称ID → 日期 → 起止时间`. The database timeline remains authoritative for product behavior.
+For example, a user mounting the disk without zero-nvr can browse directly by `摄像头名称ID → 日期 → 开始时间`. The database timeline remains authoritative for product behavior.
 
 Canonical database timestamps remain UTC; every directory date and filename time is generated in the effective configured recording timezone so it matches the expected camera wall-clock/OSD time. Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a local date boundary and remains one file under its configured-timezone start date.
 
