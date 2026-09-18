@@ -307,6 +307,35 @@ Event START therefore does not create a new five-minute clock at the next pre-bu
 
 See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
+
+### Recording intent arbitration
+
+Recording modes are additive business intents rather than mutually exclusive recorder states.
+
+```text
+continuous / schedule / event / manual intents
+                    ↓
+             RecordingManager
+                    ↓
+        one RecordingSession per
+      uninterrupted formal interval
+                    ↓
+        one formal media pipeline
+```
+
+The camera remains in formal recording while at least one intent is active. Adding/removing intents does not restart recording or reset the 5-minute segment clock.
+
+Important behavior:
+
+- event during continuous/schedule/manual recording adds event markers and retention without restarting media;
+- manual start during existing recording adds a manual intent only;
+- manual stop removes only the manual intent;
+- schedule end stops media only when no other intent remains;
+- a true interval with no active intents ends the RecordingSession;
+- V2 `hybrid` means scheduled baseline recording plus event-triggered recording outside schedule windows.
+
+See [Spec 0007 — Recording Intent Arbitration and Mode Composition](specs/0007-recording-intent-arbitration.md).
+
 ### Native / AI / external automation events
 
 ```text
