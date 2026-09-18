@@ -6,7 +6,7 @@ Status: **accepted**
 
 Define how zero-nvr turns canonical events into recording behavior without allowing event providers or integrations to control recorder processes directly.
 
-This specification covers **stateful events** such as motion/person presence that have a meaningful START/END lifecycle. Instant-event semantics are intentionally deferred to a follow-up decision.
+This specification covers both **stateful events** such as motion/person presence and **instant events** such as doorbell presses, line crossing, one-shot AI detections, and Webhook alarms.
 
 ## Core ownership rule
 
@@ -54,6 +54,55 @@ While ACTIVE, `ended_at` remains NULL.
 Repeated START/ON notifications for the same logical active event do not create duplicate business events. Repeated activity may refresh provider/runtime metadata, but the timeline keeps one logical event.
 
 An END/OFF received when no matching active event exists is ignored as a state transition and may be recorded as a debug/warning log.
+
+## Instant event model
+
+An instant event has one authoritative occurrence timestamp and no artificial active duration.
+
+Examples include:
+
+```text
+doorbell_pressed
+line_crossing
+one-shot AI detection
+face recognized
+plate recognized
+Webhook alarm
+```
+
+An instant event is represented as a zero-duration logical event:
+
+```text
+started_at = occurred_at
+ended_at   = occurred_at
+status     = completed
+```
+
+The event itself remains a single timeline Marker at `occurred_at`. zero-nvr must not invent a fake 5s/10s event lifetime merely to control recording.
+
+With the default V2 event-recording policy:
+
+```text
+pre_roll  = 10 seconds
+post_roll = 10 seconds
+```
+
+an isolated instant event at time `t` produces the desired recording window:
+
+```text
+recording_start = t - 10s
+planned_end_at  = t + 10s
+```
+
+If an event RecordingSession is already active, the instant event does not restart the recorder. It creates its own DetectionEvent/Marker/EventLog and extends the pending stop boundary only when required:
+
+```text
+planned_end_at = max(current_planned_end_at, t + post_roll)
+```
+
+If one or more stateful events are ACTIVE, they continue to keep the RecordingSession alive. The instant event is still recorded as an independent Marker and EventLog entry; its 10-second post window must be respected when the session later becomes eligible to stop.
+
+Repeated instant events remain separate business events unless a provider-specific deduplication rule explicitly identifies them as the same source event (for example, the same stable `external_id`).
 
 ## Event recording window
 
@@ -302,7 +351,7 @@ When the final active event ends, `planned_end_at` becomes the current post-roll
 
 ## DetectionEvent additions
 
-Stateful event handling requires canonical fields equivalent to:
+Event handling requires canonical fields equivalent to:
 
 ```text
 id
@@ -311,6 +360,7 @@ source_kind
 provider
 external_id
 event_type
+lifecycle_kind      stateful | instant
 status              active | completed
 started_at
 ended_at
@@ -396,9 +446,6 @@ This is especially important once FastAPI, workers, ZLMediaKit callbacks, MQTT/H
 10. RTSP motion detection owns motion-state inference; RecordingManager owns recording policy.
 11. Detector hold/threshold settings and recording pre/post-roll settings are separate concerns.
 12. Absolute event timestamps are authoritative; playback offsets are derived.
-
-## Deferred decision
-
-Instant events that have no explicit END state — for example doorbell press, line crossing, one-shot AI detections, and Webhook alarms — require a separate lifecycle/hold policy.
-
-That policy is intentionally not defined by this specification.
+13. Instant events are zero-duration markers and use the normal pre-roll/post-roll policy without an invented event hold duration.
+14. An isolated instant event uses the default 10s pre-roll + 10s post-roll window; later events may extend the same RecordingSession.
+15. Recording/event state-machine implementations must include complete comments explaining non-obvious timing, cancellation, merge, and edge-case behavior, following [Development Guidelines](../DEVELOPMENT_GUIDELINES.md).
