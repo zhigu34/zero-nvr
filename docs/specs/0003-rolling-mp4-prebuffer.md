@@ -226,6 +226,65 @@ Configuration changes must not create avoidable media gaps:
 
 The UI may show recommended defaults, but defaults and user overrides are domain configuration, not frontend-only state.
 
+## Formal recording segmentation cadence
+
+Once a RecordingSession has established its formal segment clock, normal segmentation is deterministic and duration-based.
+
+With:
+
+```text
+formal_record_segment_seconds = D
+session started_at             = S
+```
+
+the intended formal boundaries are:
+
+```text
+S
+S + D
+S + 2D
+S + 3D
+...
+```
+
+For the default `D = 300s`:
+
+```text
+12:00:07 ─ 12:05:07
+12:05:07 ─ 12:10:07
+12:10:07 ─ 12:15:07
+...
+```
+
+As long as the RecordingSession is still active and the media stream remains healthy, every **intermediate** formal RecordingSegment must follow the configured segment duration. Event activity, markers, detector state changes, and pre-buffer fragment boundaries must not create arbitrary short formal files.
+
+A shorter formal segment is allowed only at a real recording boundary or recovery boundary, including:
+
+- normal RecordingSession completion (the final segment);
+- manual stop;
+- schedule end;
+- source/stream loss;
+- recorder/media-service restart;
+- codec/track discontinuity that requires a new media file;
+- storage/media failure or recovery.
+
+A normal session ending before the next configured boundary produces a shorter **final** segment. That is not a segmentation-policy violation.
+
+Example:
+
+```text
+session start: 12:00:07
+segment size:  5m
+session end:   12:12:30
+
+segments:
+12:00:07 ─ 12:05:07   5m
+12:05:07 ─ 12:10:07   5m
+12:10:07 ─ 12:12:30   final partial segment
+```
+
+The implementation must record why a segment ended early so that an expected final segment can be distinguished from an abnormal partial segment.
+
 ## on_record_mp4 ownership boundary
 
 `on_record_mp4` is the primary finalize signal for a physical ZLM MP4 segment.
@@ -591,8 +650,9 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 16. Idle 20-second files are PrebufferFragments, not canonical formal RecordingSegments.
 17. The current pre-buffer fragment may finish at its natural boundary, but that boundary must not restart the first formal 5-minute clock.
 18. The first finalized formal RecordingSegment is assembled from the required pre-buffer prefix plus only the continuation needed to reach the first formal segment boundary.
-19. Subsequent ongoing formal segments use the configured formal duration; the final segment may be shorter when the RecordingSession ends.
-20. After formal recording ends, idle prebuffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
-21. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
-22. Segment-duration setting changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4 merely to apply configuration.
-23. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
+19. While a RecordingSession remains active and healthy, every intermediate formal RecordingSegment follows the configured formal duration from the session-anchored segment clock; event/marker/prebuffer boundaries do not create arbitrary short formal files.
+20. The final formal segment may be shorter when the RecordingSession ends normally; abnormal source/runtime/media interruptions may also create partial segments and must record an explicit completion reason.
+21. After formal recording ends, idle prebuffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
+22. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
+23. Segment-duration setting changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4 merely to apply configuration.
+24. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
