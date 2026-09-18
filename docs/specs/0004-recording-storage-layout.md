@@ -478,3 +478,7 @@ The browser receives one logical timeline.
 14. Camera folders include convenience _camera.json metadata for detached identification.
 15. Recovery must make partial/missing/orphan media observable rather than silently discarding it.
 16. Non-obvious storage/recovery/path behavior requires comments per Development Guidelines.
+
+## Retention reference
+
+Retention claims, user locks, disk watermarks, verified-remote local purge, and emergency cleanup ordering are defined in [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](0005-recording-retention-and-purge.md).
