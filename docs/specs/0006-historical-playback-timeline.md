@@ -1,0 +1,617 @@
+# Spec 0006 — Historical Playback Timeline and Multi-Camera Sync
+
+Status: **accepted**
+
+## Goal
+
+Define the playback model for:
+
+- continuous playback across 5-minute RecordingSegments;
+- gaps caused by no recording, source loss, purge, corruption, or remote-only media;
+- event Marker rendering and aggregation;
+- local/remote media resolution;
+- single-camera seeking;
+- multi-camera synchronized historical playback;
+- buffering behavior that prioritizes user experience while preserving an optional strict forensic mode.
+
+Core rule:
+
+> Historical playback is driven by an absolute timeline. Physical MP4 boundaries are implementation details.
+
+## User-experience principles
+
+1. Dragging the timeline always selects an absolute time, not a file.
+2. Crossing a 5-minute file boundary should feel like continuing the same recording.
+3. A playback gap should explain why footage is unavailable when that reason is known.
+4. Event markers must remain useful at both 24-hour and second-level zoom.
+5. Multi-camera playback defaults to resilient synchronization: one slow camera must not unnecessarily freeze every other camera.
+6. A strict synchronization mode is available when exact multi-camera temporal comparison matters more than uninterrupted playback.
+7. Local, cached-remote, and remote-only footage share one logical timeline.
+8. The UI never derives recording truth from filenames.
+
+## Canonical time units
+
+PostgreSQL stores authoritative timestamps as UTC datetimes.
+
+Playback API contracts use UTC Unix milliseconds:
+
+```text
+start_ms
+end_ms
+time_ms
+global_time_ms
+```
+
+All frontend timeline/playback calculations use milliseconds.
+
+HTML video currentTime remains seconds because that is the browser API, so conversion is explicit:
+
+```text
+absolute_time_ms =
+    segment.start_ms
+    + video.currentTime * 1000
+
+video.currentTime =
+    (global_time_ms - segment.start_ms) / 1000
+```
+
+Do not mix Unix seconds, Unix milliseconds, and video-relative seconds inside one API/model.
+
+## PlaybackTimeline response
+
+The backend exposes a timeline-oriented view rather than raw filesystem objects.
+
+Conceptual response:
+
+```json
+{
+  "camera_id": "cam_01",
+  "range": {
+    "start_ms": 1790000000000,
+    "end_ms": 1790086400000
+  },
+  "segments": [
+    {
+      "id": "seg_01",
+      "start_ms": 1790000000000,
+      "end_ms": 1790000300000,
+      "availability": "local",
+      "playback_ref": "seg_01"
+    }
+  ],
+  "gaps": [
+    {
+      "start_ms": 1790000300000,
+      "end_ms": 1790000600000,
+      "reason": "source_lost"
+    }
+  ],
+  "events": [
+    {
+      "id": "evt_01",
+      "type": "motion",
+      "lifecycle_kind": "stateful",
+      "start_ms": 1790000100000,
+      "end_ms": 1790000125000
+    }
+  ]
+}
+```
+
+The frontend does not need local paths, S3/rclone/OpenList object keys, storage backend names, or human-readable recording filenames.
+
+## Segment availability
+
+Initial states:
+
+```text
+local
+remote
+cached_remote
+missing
+corrupted
+purged
+```
+
+Meaning:
+
+- local: playable from local storage;
+- remote: valid media exists only on remote storage;
+- cached_remote: remote media is already materialized/cached locally;
+- missing: metadata expects media but no valid object is currently available;
+- corrupted: media exists but failed integrity/playability checks;
+- purged: media was intentionally removed by retention/disk policy.
+
+Purged and unexpectedly missing media are different user-visible conditions.
+
+## Gap model
+
+An empty timeline range is not automatically "camera disconnected".
+
+Initial gap reasons:
+
+```text
+not_scheduled
+no_event
+source_lost
+runtime_restart
+storage_failure
+missing_media
+purged
+unknown
+```
+
+Examples:
+
+- schedule disabled → not_scheduled;
+- event-only mode without event → no_event;
+- RTSP/camera loss → source_lost;
+- runtime/media-service restart → runtime_restart;
+- failed persistence → storage_failure;
+- object unexpectedly absent → missing_media;
+- retention removed media → purged.
+
+The UI renders these as distinct states/tooltips instead of one generic black area.
+
+## Timeline visualization
+
+Use Canvas for high-density timeline rendering, zooming, panning, coverage, gaps, and markers.
+
+DOM may still be used for tooltips, menus, accessible controls, event popovers, and labels outside the high-frequency drawing surface.
+
+Suggested draw order:
+
+```text
+gap/background state
+recording availability
+event ranges / markers
+selection / lock / annotations
+ticks and labels
+playhead
+interaction overlay
+```
+
+Exact colors remain a UI/theme decision.
+
+## Time-to-pixel model
+
+For a viewport:
+
+```text
+view_start_ms
+view_end_ms
+canvas_width_px
+```
+
+calculate:
+
+```text
+ms_per_px =
+    (view_end_ms - view_start_ms) / canvas_width_px
+
+x =
+    (time_ms - view_start_ms) / ms_per_px
+```
+
+All tracks share this mapping.
+
+## Zoom and navigation
+
+Support at least:
+
+- day overview;
+- hour range;
+- minute-level inspection;
+- second-level event inspection.
+
+User actions include click, drag, trackpad/wheel zoom, horizontal pan, previous/next recording, previous/next event, and jump to a selected time.
+
+Zoom should stay centered around the cursor/playhead where practical.
+
+## Event markers
+
+DetectionEvent remains the source of truth.
+
+Instant event:
+
+```text
+time_ms
+```
+
+Render as a point/icon/vertical marker.
+
+Stateful event:
+
+```text
+start_ms
+end_ms
+```
+
+Render as a duration band/range.
+
+## Event aggregation
+
+At wide zoom, hundreds of events must not become hundreds of overlapping marks.
+
+Conceptual behavior:
+
+```text
+24h view:
+  14:00 bucket → 38 events
+
+medium zoom:
+  motion 12
+  person 3
+  vehicle 2
+
+close zoom:
+  individual events/ranges
+```
+
+Aggregation is only a query/render optimization. Canonical DetectionEvents remain independent.
+
+## PlaybackResolver
+
+Timeline media references are stable logical IDs:
+
+```text
+playback_ref = RecordingSegment.id
+```
+
+Resolution:
+
+```text
+PlaybackResolver(segment_id)
+    ↓
+choose valid StorageObject
+    ├─ local
+    ├─ cached remote
+    └─ remote
+    ↓
+authorization / cache / proxy / signed source
+    ↓
+playable media response
+```
+
+Timeline responses do not permanently embed storage-specific URLs. Playback URLs/tokens may expire independently.
+
+## Single-camera seek
+
+When the user selects absolute time T:
+
+1. find a playable segment satisfying start_ms <= T < end_ms;
+2. resolve that segment;
+3. calculate offset;
+4. seek/play;
+5. if no playable segment exists, show its gap/unavailable state.
+
+```text
+offset_seconds = (T - segment.start_ms) / 1000
+```
+
+Clicking a known gap keeps the playhead at T; it must not silently snap elsewhere.
+
+An optional "skip gaps" mode may jump during playback, but explicit seeking remains absolute.
+
+## Continuous cross-segment playback
+
+Initial V2 may use dual-player ping-pong:
+
+```text
+Player A = current segment
+Player B = preload next segment
+
+near boundary:
+  resolve/preload B
+
+boundary:
+  switch active player
+
+old A becomes next preload slot
+```
+
+Requirements:
+
+- preload before boundary;
+- keep mute/volume/rate consistent;
+- seek the new player to the correct logical point;
+- do not expose the transition as a new RecordingSession;
+- emit diagnostics if the seam visibly stalls.
+
+The product must not promise mathematically perfect gapless playback from independent MP4 files.
+
+The timeline contracts must permit later replacement by MSE, fragmented MP4, virtual playlists, or server-side playback assembly without rewriting the domain model.
+
+## Master playback clock
+
+Single- and multi-camera synchronized playback use one absolute Master Clock.
+
+Do not derive global time from whichever video currentTime event fired last.
+
+Runtime clock:
+
+```text
+anchor_media_time_ms
+anchor_monotonic_ms
+playback_rate
+state = playing | paused | seeking
+```
+
+While playing:
+
+```text
+global_time_ms =
+    anchor_media_time_ms
+    +
+    (performance.now() - anchor_monotonic_ms)
+      * playback_rate
+```
+
+Use a monotonic browser timer so operating-system wall-clock corrections cannot jump playback.
+
+Refresh the visual playhead with requestAnimationFrame.
+
+## Player synchronization
+
+For each camera:
+
+```text
+channel_time_ms =
+    current_segment.start_ms
+    + video.currentTime * 1000
+
+drift_ms =
+    channel_time_ms - global_time_ms
+```
+
+Initial behavior:
+
+```text
+|drift| < 250ms
+  → no correction
+
+250ms .. 1000ms
+  → gentle playback-rate correction where safe
+
+> 1000ms
+  → hard seek to global time
+```
+
+These thresholds are tuning values, not domain constants.
+
+Explicit seek, source replacement, segment change, or large gap may require immediate hard correction.
+
+## Multi-camera synchronized playback
+
+All selected cameras share global_time_ms.
+
+At the same T each camera independently resolves:
+
+```text
+playable segment
+OR
+gap/unavailable state
+```
+
+Example:
+
+```text
+Camera A: plays 14:05:00
+Camera B: no recording at 14:05:00
+Camera C: remote-only, loading
+Camera D: plays 14:05:00
+```
+
+The shared playhead remains 14:05:00 for all channels.
+
+A missing camera never shifts another camera to a different time.
+
+## Synchronization modes
+
+### tolerant — default
+
+Optimized for normal review.
+
+When one camera buffers:
+
+- Master Clock continues;
+- healthy cameras continue;
+- buffering camera shows loading;
+- when ready it seeks to current global time and rejoins.
+
+This prevents one slow/remote channel from freezing a 4/9-camera review.
+
+### strict
+
+Optimized for forensic comparison.
+
+When a participating camera that should be playing buffers significantly:
+
+- pause Master Clock;
+- pause healthy playable channels;
+- recover/prebuffer delayed channel;
+- align all participating playable channels;
+- resume together.
+
+A camera with a legitimate gap at global_time_ms does not block strict mode.
+
+The user may switch modes.
+
+## Playback speed
+
+Initial review speeds:
+
+```text
+0.5x
+1x
+2x
+4x
+8x
+```
+
+Higher speeds may be added later.
+
+At elevated rates:
+
+- audio may be muted above a product-defined threshold;
+- sync correction accounts for selected rate;
+- preload distance increases;
+- event timing remains absolute.
+
+## Gap skipping
+
+Optional:
+
+```text
+skip_gaps = off | on
+```
+
+When enabled:
+
+- if every selected camera is in a non-playable gap, jump to the earliest next playable time;
+- in multi-camera playback, do not skip time merely because one camera has a gap while another has media.
+
+## Remote-only playback
+
+Remote media stays on the same timeline:
+
+```text
+REMOTE_READY
+   ↓
+PlaybackResolver
+   ↓
+cache or authorized stream/proxy
+   ↓
+player
+```
+
+UI states include remote available, loading remote media, cached, and remote error.
+
+Remote loading never changes global timeline time by itself.
+
+## API range and detail
+
+Timeline queries are range-based:
+
+```text
+camera_ids
+start_ms
+end_ms
+zoom/detail
+```
+
+Large ranges return compact coverage/aggregation. Close zoom returns detailed events/segments.
+
+The frontend must not download a year of second-level markers merely to draw a daily overview.
+
+## Multi-camera query model
+
+The API may return multiple tracks aligned to one requested range:
+
+```json
+{
+  "range": { "start_ms": 1, "end_ms": 2 },
+  "tracks": [
+    {
+      "camera_id": "cam_01",
+      "segments": [],
+      "gaps": [],
+      "events": []
+    },
+    {
+      "camera_id": "cam_02",
+      "segments": [],
+      "gaps": [],
+      "events": []
+    }
+  ]
+}
+```
+
+## Timeline UI behavior
+
+Recommended UI:
+
+- one shared horizontal time ruler;
+- one track per selected camera;
+- one shared vertical playhead;
+- camera player grid;
+- event filters;
+- visible tolerant/strict sync control for multi-camera mode;
+- gap/event/recording tooltips;
+- clear local/remote/missing/purged states;
+- zoom and quick date/time navigation.
+
+Single-camera playback is the same model with one track.
+
+## Recovery and discontinuity
+
+Use actual:
+
+```text
+started_at
+ended_at
+availability
+completion_reason
+```
+
+Do not assume all segments are exactly five minutes.
+
+If recovery creates slight overlap, select one authoritative ordered playback interval and avoid double-playing it.
+
+If a true hole exists, show the gap. Never stretch/invent timestamps to hide missing media.
+
+## Diagnostics
+
+Useful runtime diagnostics:
+
+```text
+camera_id
+global_time_ms
+segment_id
+segment_start_ms
+segment_end_ms
+availability
+resolved_backend
+buffering_state
+drift_ms
+last_seek_reason
+last_source_switch_reason
+sync_mode
+```
+
+These may be runtime/debug data rather than permanently persisted rows.
+
+## Initial V2 implementation choices
+
+- Canvas timeline;
+- UTC millisecond Playback API;
+- PlaybackResolver by RecordingSegment ID;
+- dual HTML video ping-pong initially;
+- Master Clock from monotonic browser time;
+- tolerant multi-camera sync by default;
+- optional strict sync;
+- event aggregation by zoom;
+- explicit gap reasons;
+- local and remote-only segments on one timeline.
+
+The implementation must preserve contracts that allow later upgrade to MSE/fMP4/virtual playlists without rewriting the timeline/domain model.
+
+## Invariants
+
+1. Absolute time, not MP4 filename/order, controls playback.
+2. Playback API timestamps use UTC Unix milliseconds consistently.
+3. Playback references are stable and storage URLs are resolved lazily.
+4. A 5-minute file boundary does not create a new logical playback session.
+5. Known no-media reasons are explicit gaps rather than all being labeled disconnected.
+6. DetectionEvent is the Marker source of truth.
+7. Wide timeline views aggregate events; close views expose individual markers.
+8. Multi-camera playback uses one Master Clock.
+9. Default tolerant sync lets healthy cameras continue when another buffers.
+10. Strict sync pauses/re-aligns participating playable channels when necessary.
+11. A legitimate gap in one camera never changes another camera's global time.
+12. Local, cached-remote, and remote-only media share the same logical timeline.
+13. Purged and unexpectedly missing media are distinct states.
+14. Playback may upgrade beyond dual HTML video without changing timeline/domain contracts.
+15. Real timestamp holes are shown, never hidden by invented continuity.
+16. Non-obvious playback timing/synchronization/buffering logic requires comments per Development Guidelines.
