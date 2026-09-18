@@ -471,3 +471,6 @@ created_at
 14. RecordingSession logical boundaries are independent from physical MP4 segment boundaries.
 15. RecordingSessionSegment defines which time range of each physical segment contributes to a logical recording.
 16. Event pre-buffer segment rollover must never require recorder stop/start to preserve correctness.
+17. tmpfs event pre-buffering is active only when the camera has no formal RecordingSession.
+18. Active continuous/manual/schedule/event recording media is reused for event timeline/pre-roll coverage instead of duplicated into tmpfs.
+19. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
