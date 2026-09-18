@@ -269,12 +269,12 @@ Event pre-recording uses ZLMediaKit rolling MP4 segments written to a bounded tm
 Initial V2 defaults:
 
 ```text
-physical MP4 segment target = 30s
+physical MP4 segment target = 20s
 event pre-roll              = 10s
 event post-roll             = 10s
 ```
 
-The physical 30-second boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
+The physical 20-second boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
 
 ```text
 ZLMediaKit rolling MP4
@@ -291,6 +291,8 @@ Playback / export
 ```
 
 At event time `T`, the current and previous segment are immediately protected from GC, then the Worker validates actual media timestamps and pins every segment required to cover `T - pre_roll`.
+
+The tmpfs rolling pre-buffer runs only while the camera has no active formal recording. During continuous/manual/schedule/event recording, the existing recording media is reused for event timeline/pre-roll coverage and zero-nvr must not maintain a duplicate tmpfs recording path. When the final formal recording ends, pre-buffering resumes immediately; the tail of the just-finished persistent recording may bridge the first 10 seconds while the tmpfs buffer warms.
 
 Normal event START/END does not stop/restart ZLM to force MP4 boundaries. Playback may span multiple physical MP4 files. Single-file crop/merge is an asynchronous derived export operation.
 
