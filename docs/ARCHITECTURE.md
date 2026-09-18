@@ -401,18 +401,35 @@ See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/000
 
 ### Historical playback
 
+Historical playback is driven by absolute time, not MP4 file order.
+
 ```text
 Timeline Query
      ↓
-RecordingSegments
+PlaybackTimeline
+     ├── playable RecordingSegments
+     ├── explicit Gaps / reasons
+     └── DetectionEvent markers
+     ↓
+Master Playback Clock
      ↓
 Playback Resolver
      ├── Local
      ├── Cached Remote
      └── Remote signed/proxied
      ↓
-Browser
+Single / Multi-camera Browser Players
 ```
+
+Playback API timestamps use UTC Unix milliseconds. The frontend maps absolute time to a RecordingSegment and relative media offset only at the playback boundary.
+
+Multi-camera playback uses one Master Clock. Default `tolerant` synchronization allows healthy cameras to continue when one camera buffers; optional `strict` synchronization pauses/re-aligns participating playable cameras for forensic comparison.
+
+Known gaps distinguish states such as not scheduled, no event, source loss, runtime restart, storage failure, missing media, and purged media. Event markers aggregate at wide zoom and expand to individual events at close zoom.
+
+The initial browser implementation may use dual HTML video players to preload the next 5-minute file, but the timeline/domain contract must allow later upgrade to MSE/fMP4/virtual playlists without redesign.
+
+See [Spec 0006 — Historical Playback Timeline and Multi-Camera Sync](specs/0006-historical-playback-timeline.md).
 
 ### Recording storage layout
 
