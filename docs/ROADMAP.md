@@ -12,6 +12,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define instant-event 10s pre-roll + 10s post-roll semantics.
 - [x] Define required code-comment/documentation standard.
 - [x] Define ZLM rolling MP4/tmpfs event pre-buffer and cross-segment composition.
+- [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -55,7 +56,10 @@ Acceptance:
 - [ ] RecordingPolicy / Recording Settings persistence and API.
 - [ ] Recording Settings UI for prebuffer enable, 20s idle segment default, 5min formal segment default, and pre/post-roll.
 - [ ] segment persistence.
-- [ ] recorder recovery.
+- [ ] UTC canonical recording timestamps and database timeline indexes.
+- [ ] canonical recording object-key layout + staging/atomic finalize.
+- [ ] cross-day segments without midnight force-split.
+- [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] disk capacity guard.
 - [ ] basic timeline.
 
