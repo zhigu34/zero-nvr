@@ -77,23 +77,32 @@ Describes desired recording behavior.
 
 ```text
 camera_id
-mode            continuous | schedule | event | hybrid
+mode                          continuous | schedule | event | hybrid
 schedule
-segment_target
-pre_roll
-post_roll
+prebuffer_enabled
+idle_prebuffer_segment_seconds
+formal_record_segment_seconds
+pre_roll_seconds
+post_roll_seconds
 retention_policy_id
 enabled
 ```
 
-For event recording, V2 defaults are:
+V2 recording defaults are:
 
 ```text
-pre_roll  = 10 seconds
-post_roll = 10 seconds
+prebuffer_enabled               = true
+idle_prebuffer_segment_seconds  = 20
+formal_record_segment_seconds   = 300
+pre_roll_seconds                = 10
+post_roll_seconds               = 10
 ```
 
-Event recording duration is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
+These values are persisted configuration and must be editable from Recording Settings. They are defaults rather than hard-coded runtime constants.
+
+The 20-second segment target applies only to idle tmpfs pre-buffering. Formal continuous/manual/schedule/event recording defaults to 5-minute physical segments.
+
+Event recording duration itself is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
 
 ## RecordingSession
 
@@ -474,3 +483,5 @@ created_at
 17. tmpfs event pre-buffering is active only when the camera has no formal RecordingSession.
 18. Active continuous/manual/schedule/event recording media is reused for event timeline/pre-roll coverage instead of duplicated into tmpfs.
 19. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
+20. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
+21. The default formal recording segment target is 300 seconds; changes apply at a safe next segment boundary without force-cutting the current MP4.
