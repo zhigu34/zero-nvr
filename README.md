@@ -89,6 +89,7 @@ Start with:
 - [Rolling MP4 Pre-buffer](docs/specs/0003-rolling-mp4-prebuffer.md)
 - [Recording Storage Layout](docs/specs/0004-recording-storage-layout.md)
 - [Recording Retention and Safe Purge](docs/specs/0005-recording-retention-and-purge.md)
+- [Historical Playback Timeline](docs/specs/0006-historical-playback-timeline.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
