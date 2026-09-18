@@ -11,6 +11,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define stateful event recording lifecycle and RTSP motion state machine.
 - [x] Define instant-event 10s pre-roll + 10s post-roll semantics.
 - [x] Define required code-comment/documentation standard.
+- [x] Define ZLM rolling MP4/tmpfs event pre-buffer and cross-segment composition.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -125,13 +126,20 @@ Acceptance:
 
 - [ ] RecordingSession lifecycle.
 - [ ] segment promotion.
+- [ ] ZLM rolling MP4 pre-buffer with 30s target physical segments.
+- [ ] bounded tmpfs pre-buffer storage.
+- [ ] on_record_mp4 segment-finalize ingestion.
+- [ ] event-time current/previous segment protection + timestamp-based coverage validation.
 - [ ] 10s default pre-roll buffer.
 - [ ] dynamic stateful event recording with no fixed motion recording duration.
 - [ ] instant-event recording as zero-duration Marker with 10s pre-roll + 10s post-roll.
 - [ ] 10s default post-roll after the final active event ends.
 - [ ] cancel/recalculate pending post-roll stop when a new event arrives.
 - [ ] multiple independent Event markers sharing one RecordingSession.
+- [ ] RecordingSessionSegment logical range links across physical MP4 segments.
 - [ ] event-to-segment/session links.
+- [ ] cross-segment playback without mandatory merge.
+- [ ] asynchronous single-file crop/concat export.
 - [ ] continuous/manual/schedule recording annotation without recorder restart.
 - [ ] hybrid recording policy.
 
