@@ -13,6 +13,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define required code-comment/documentation standard.
 - [x] Define ZLM rolling MP4/tmpfs event pre-buffer and cross-segment composition.
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
+- [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -63,6 +64,12 @@ Acceptance:
 - [ ] staging/atomic finalize and backend object-key mapping.
 - [ ] cross-day segments without midnight force-split.
 - [ ] recorder recovery / orphan and partial-file reconciliation.
+- [ ] RetentionPolicy / RetentionClaim persistence.
+- [ ] normal age-based retention worker.
+- [ ] 80/85/92/96% storage-watermark health and cleanup state machine.
+- [ ] priority-based emergency purge with structured logs.
+- [ ] recording/event/range lock and unlock.
+- [ ] safe local purge only after verified remote readiness where applicable.
 - [ ] disk capacity guard.
 - [ ] basic timeline.
 
