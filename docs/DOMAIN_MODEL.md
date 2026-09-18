@@ -103,7 +103,9 @@ These values are persisted configuration and must be editable from Recording Set
 
 The 20-second segment target applies only to temporary idle tmpfs PrebufferFragments. Formal continuous/manual/schedule/event recording defaults to 5-minute RecordingSegments. For event recording, required pre-roll is included inside the first 5-minute formal segment window.
 
-Event recording duration itself is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
+Event recording duration itself is not fixed in advance. Stateful events keep the event RecordingIntent active until the final event ends, after which post-roll is applied. Other active intents may keep the same RecordingSession alive after the event intent completes.
+
+Initial V2 hybrid semantics are: scheduled baseline recording during configured schedule windows, plus event-triggered recording outside those windows.
 
 
 ## RetentionPolicy
@@ -176,32 +178,64 @@ Finite effective retention is the maximum `retain_until` across active claims. `
 
 This claim model is required because one 5-minute physical segment may simultaneously belong to normal recording and contain one or more events with longer retention.
 
-## RecordingSession
+## RecordingIntent
 
-Represents one actual recording lifecycle owned by zero-nvr.
+Represents one business reason why a camera currently requires formal recording.
 
 ```text
 id
 camera_id
-recording_type      event | continuous | manual | schedule
-started_at           logical/business start
+intent_type          continuous | schedule | event | manual
+source_type
+source_id
+started_at
 planned_end_at
-ended_at             logical/business end
-actual_media_started_at
-actual_media_ended_at
-status
+ended_at
+state                pending | active | post_roll | completed | cancelled
+correlation_id
+metadata
 created_at
 updated_at
 ```
 
-For event recording:
+Recording intents are additive. A camera may have continuous, event, and manual intents active at the same time without creating duplicate media recorders.
 
-- `planned_end_at` may be NULL while any event remains ACTIVE;
-- the final event END sets `planned_end_at = ended_at + post_roll`;
-- a new event before `planned_end_at` cancels/replaces the pending stop decision;
-- multiple events may share one RecordingSession without repeatedly starting the recorder.
+`hybrid` is a RecordingPolicy composition mode rather than a runtime intent type. Initial V2 hybrid semantics are scheduled baseline recording plus event-triggered recording outside the schedule.
 
-RecorderBackend processes are runtime implementations of the session intent, not the business identity of the recording.
+See [Spec 0007 — Recording Intent Arbitration and Mode Composition](specs/0007-recording-intent-arbitration.md).
+
+## RecordingSession
+
+Represents one maximal uninterrupted formal-recording interval owned by zero-nvr.
+
+```text
+id
+camera_id
+started_at
+planned_end_at
+ended_at
+actual_media_started_at
+actual_media_ended_at
+status
+origin_intent_type
+created_at
+updated_at
+```
+
+A RecordingSession remains active while at least one RecordingIntent requires media.
+
+`origin_intent_type` records which intent caused the idle → formal transition for diagnostics/history. It is not a mutually exclusive recording classification.
+
+Adding or removing another intent while the active-intent set remains non-empty:
+
+- does not restart the recorder;
+- does not create a second media pipeline;
+- does not reset the formal segment clock;
+- does not force a physical segment boundary.
+
+A true interval with zero active RecordingIntents ends the RecordingSession. A later intent starts a new RecordingSession.
+
+RecorderBackend processes are runtime implementations of this session/media requirement, not the business identity of individual intents.
 
 ## PrebufferFragment
 
@@ -673,3 +707,8 @@ created_at
 38. Multi-camera historical playback shares one Master Clock; one camera's gap never shifts another camera to a different absolute time.
 39. Playback references resolve storage lazily so local/remote migration does not rewrite timeline semantics.
 40. Purged, missing, corrupted, source-loss, and intentionally-unrecorded ranges remain distinguishable in playback.
+41. Recording reasons are additive RecordingIntents; a camera has at most one formal media pipeline.
+42. RecordingSession spans one uninterrupted formal-recording interval and may contain several overlapping intent types.
+43. Adding/removing an intent while another remains active never restarts the recorder or resets formal segment cadence.
+44. Manual stop removes only the manual intent and never force-stops other active recording reasons.
+45. Initial V2 hybrid mode means scheduled baseline recording plus event-triggered recording outside schedule windows.
