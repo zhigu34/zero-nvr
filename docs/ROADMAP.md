@@ -130,7 +130,10 @@ Acceptance:
 - [ ] ZLM rolling MP4 idle pre-buffer with configurable 20s default physical segments.
 - [ ] formal recording with configurable 5min default physical segments.
 - [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
-- [ ] stop duplicate tmpfs buffering during continuous/manual/schedule/event recording.
+- [ ] single recording-pipeline state transition: idle tmpfs prebuffer → formal recording without recorder restart.
+- [ ] adopt/promote the current idle prebuffer segment as the first formal RecordingSession segment.
+- [ ] switch subsequent active-session segments to configurable 5min formal segmentation/persistent storage.
+- [ ] finalize the last formal segment early at RecordingSession completion when needed.
 - [ ] resume pre-buffer immediately after recording completion and bridge warm-up from the previous recording tail.
 - [ ] on_record_mp4 segment-finalize ingestion.
 - [ ] event-time current/previous segment protection + timestamp-based coverage validation.
