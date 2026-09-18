@@ -49,9 +49,12 @@ External components are replaceable adapters. They are not authoritative busines
        │          │          │          │
  ONVIF lib      ZLM        Native      Worker
  HIK bridge     FFmpeg     AI          Upload
- WVP optional   coturn     MQTT        Export
+ WVP optional   coturn     External    Export
        │          │          │          Notify
        └──────────┴──────────┴──────────┘
+                         │
+                 Integration Plane
+                 HA / MQTT / Webhook
                          │
                       Cameras
 
@@ -200,6 +203,29 @@ health()
 
 Apprise-backed delivery is the preferred generic integration path.
 
+### IntegrationAdapter
+
+Optional external automation/integration features live behind an explicit integration boundary.
+
+Conceptual operations:
+
+```text
+capabilities()
+enable()
+disable()
+status()
+handle_external_event()
+publish_state()
+```
+
+Initial optional implementations may include:
+
+- HomeAssistantAdapter
+- MqttIntegrationAdapter
+- WebhookIntegrationAdapter
+
+Integration adapters are not required for core recording, playback, storage or device management.
+
 ## 6. Core data flows
 
 ### Live view
@@ -236,21 +262,24 @@ Recording metadata
 
 This intentionally separates the camera connection from the recorder process.
 
-### Native/AI events
+### Native / AI / external automation events
 
 ```text
 Camera ONVIF/HIK
       or
 Optional AI provider
+      or
+Optional IntegrationAdapter
+(Home Assistant / MQTT / Webhook)
       ↓
-DetectionProvider
+DetectionEvent / RecordingTrigger
       ↓
-DetectionEvent
+Recording Policy / AlertRule
       ↓
-AlertRule
-      ↓
-Notification / Recording Promotion / Webhook
+Recording Promotion / Notification / Webhook
 ```
+
+Home Assistant and similar systems must not directly start/stop FFmpeg or manipulate ZLMediaKit internals. They express external intent through canonical events/triggers; zero-nvr owns recording execution and lifecycle.
 
 ### Cloud upload
 
@@ -304,10 +333,13 @@ Optional:
 hik-bridge
 frigate
 mosquitto
+home-assistant integration
 openlist
 coturn
 wvp
 ```
+
+Optional means load-on-demand: the core zero-nvr deployment must not require the integration's process, broker, credentials or configuration to boot and record normally.
 
 ## 8. Deployment target
 
@@ -352,3 +384,69 @@ Do not start by implementing:
 - multi-node clustering.
 
 The first slice should establish clean contracts and a working Camera → ZLM → Browser/Recorder path.
+
+
+## 11. Optional Home Assistant integration
+
+Home Assistant is a first-class **optional integration**, not a core dependency.
+
+### Lightweight mode
+
+Home Assistant automations may call authenticated zero-nvr REST endpoints directly.
+
+Example intent:
+
+```text
+PIR / presence / door / smoke sensor
+        ↓
+Home Assistant Automation
+        ↓
+zero-nvr external trigger API
+        ↓
+RecordingTrigger
+        ↓
+Recording Policy
+        ↓
+pre-roll + active period + post-roll
+```
+
+### Deep integration mode
+
+When explicitly enabled, zero-nvr may integrate through MQTT and later a Home Assistant Custom Integration.
+
+Possible HA entities:
+
+```text
+camera online
+recording state
+motion/person event
+recording mode
+snapshot action
+external recording trigger
+storage/NVR health
+```
+
+MQTT remains optional. A user who does not enable this integration should not need Mosquitto.
+
+### Recording trigger rule
+
+External automation must express intent rather than media-process commands.
+
+Preferred model:
+
+```text
+RecordingTrigger
+  camera_id
+  source
+  external_id
+  event_type
+  state
+  started_at
+  last_active_at
+  ended_at
+  pre_roll_seconds
+  post_roll_seconds
+  metadata
+```
+
+Repeated sensor activity refreshes the same logical trigger session instead of repeatedly starting/stopping recorder processes.
