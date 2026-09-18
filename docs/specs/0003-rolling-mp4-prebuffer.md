@@ -95,32 +95,86 @@ zero-nvr must never run both modes in parallel for the same camera merely to mai
 
 ### Transition: idle pre-buffer → formal recording
 
-When an event/manual/schedule/continuous recording request arrives while a pre-buffer segment is already being written, **do not stop or restart the recorder**.
+When an event/manual/schedule/continuous recording request arrives while idle pre-buffering is active, the **formal 5-minute segment window includes the required pre-roll**.
 
-The current pre-buffer segment is adopted by the new RecordingSession:
-
-1. protect the current WRITING segment and required previous segment(s);
-2. create/reuse the RecordingSession;
-3. keep writing the current physical segment until its normal boundary;
-4. when that segment finalizes, promote it from tmpfs to persistent storage if it overlaps the logical RecordingSession;
-5. if the RecordingSession is still active after that boundary, the next physical segment is written directly in FORMAL_RECORDING mode using the formal segment target (default 5 minutes).
-
-Conceptually:
+For an event at `T`:
 
 ```text
-IDLE_PREBUFFER                         FORMAL_RECORDING
-20s tmpfs segment                      5min persistent segments
-
-──── previous ────|──── current ─────|═══════════════════════════>
-                         ↑ event T
-                         │
-                         └─ current segment is adopted;
-                            no stop/start at T
+formal_segment_started_at = T - pre_roll
+formal_segment_target_end = formal_segment_started_at + formal_record_segment_seconds
 ```
 
-The first formal RecordingSession segment may therefore be shorter than the configured 5-minute target because it began life as an idle pre-buffer segment. This is expected.
+With defaults:
 
-If the event/manual request completes before the adopted 20-second segment reaches its natural boundary, the session may be satisfied entirely by that adopted segment; zero-nvr does not create a 5-minute segment merely because formal mode was requested briefly.
+```text
+T = 12:00:17
+pre_roll = 10s
+
+first formal segment window:
+12:00:07 ───────────────────────── 12:05:07
+```
+
+The existing 20-second tmpfs files are only **pre-buffer fragments** that supply the prefix of this first formal segment. They are not themselves the first formal 5-minute RecordingSegment.
+
+Example:
+
+```text
+pre-buffer fragments:
+
+P1  11:59:40 ───── 12:00:00
+P2  12:00:00 ───── 12:00:20   ← event T=12:00:17
+
+first formal segment:
+        12:00:07 ───────────────────────────── 12:05:07
+             └──── from P2 ────┘└─ continuation ──────┘
+```
+
+Transition rules:
+
+1. protect all pre-buffer fragments needed to cover `formal_segment_started_at`;
+2. keep the current 20-second pre-buffer file writing until its natural boundary;
+3. after that boundary, continue capturing the same stream to persistent staging media for the **remaining time of the first 5-minute formal window**, rather than starting a fresh five-minute window from the 20-second boundary;
+4. when the first formal window closes, assemble the required pre-buffer prefix plus the persistent continuation into one finalized formal RecordingSegment;
+5. subsequent formal RecordingSegments use the normal configured 5-minute duration;
+6. if the RecordingSession ends before the first 5-minute window completes, finalize a shorter last/only formal RecordingSegment at the real session end.
+
+No second camera pull and no duplicate parallel recorder is required.
+
+#### First-segment assembly
+
+The transition from 20-second pre-buffer files to a formal 5-minute file is a media assembly concern, not a reason to change the business timeline.
+
+The preferred implementation is:
+
+```text
+required pre-buffer fragment range
+          +
+persistent continuation
+          ↓
+stream-copy/remux/concat when compatible
+          ↓
+final 5-minute RecordingSegment
+```
+
+The first segment should normally be assembled without video re-encoding when codec/track parameters remain compatible. If exact arbitrary trimming cannot be represented safely with stream copy, zero-nvr may retain a small GOP outside the logical boundary while keeping `use_started_at` authoritative.
+
+The raw pre-buffer fragment(s) and staging continuation remain temporary implementation objects until the finalized RecordingSegment is verified.
+
+Do not make event ingestion wait for this assembly; it is finalized asynchronously when the formal segment window closes.
+
+#### Why zero-nvr does not mutate the active 20-second ZLM recorder into 5 minutes
+
+ZLMediaKit's public `startRecord` API accepts `max_second` when the recorder is started, and the MP4 recorder stores that limit when it is constructed. zero-nvr therefore must not depend on an undocumented ability to change the current recorder's segment duration in-place.
+
+The robust rule is:
+
+```text
+20s pre-buffer fragment boundary
+≠
+start of a new 5-minute formal time window
+```
+
+The formal time window was already established from `T - pre_roll`.
 
 ### Transition: formal recording → idle pre-buffer
 
@@ -275,29 +329,37 @@ Therefore event recording does not depend on winning a race against ZLM's segmen
 
 ## Recording boundary behavior
 
-Normal event START must not call `stopRecord → startRecord` merely to force a file boundary. The currently written idle pre-buffer segment is adopted directly by the RecordingSession and continues to its natural boundary.
+Normal event START must not redefine the formal segment clock at the next 20-second pre-buffer boundary.
 
-At the final event END + post-roll, zero-nvr may finalize the current formal recording segment early in order to complete the RecordingSession and immediately return to idle pre-buffer mode. The configured 5-minute formal segment duration is a target/maximum chunk size for an ongoing formal recording, not a requirement to keep recording until the full five minutes elapse.
+The first formal segment clock starts at the logical recording start (for an isolated event, `T - pre_roll`). Any pre-buffer material before the current 20-second boundary counts toward that first formal segment's configured duration.
+
+At the final event END + post-roll, zero-nvr finalizes the current formal segment early if the RecordingSession ends before its next 5-minute boundary.
 
 The preferred behavior is:
 
 ```text
-event START
+event START @ T
    ↓
-adopt current pre-buffer segment
+first formal window starts at T - pre_roll
    ↓
-natural boundary
+protect pre-buffer prefix
    ↓
-continue with 5min formal segments while session remains active
+current 20s pre-buffer fragment naturally finalizes
+   ↓
+capture only the remaining time of the first 5min window
+   ↓
+assemble/finalize first formal segment
+   ↓
+subsequent full 5min formal segments while session remains active
    ↓
 final event END + post-roll
    ↓
-finalize current formal segment if needed
+finalize shorter last segment if needed
    ↓
 resume 20s idle pre-buffer
 ```
 
-No parallel recorder is created during this transition.
+No duplicate recorder is created simply to preserve pre-roll.
 
 ## RecordingSession logical boundaries
 
@@ -329,7 +391,9 @@ That extra media is acceptable and must not change the event timeline presented 
 
 ## RecordingSessionSegment
 
-A RecordingSession may span one or many physical RecordingSegments.
+A RecordingSession may span one or many finalized formal RecordingSegments.
+
+Idle tmpfs pre-buffer files are temporary `PrebufferFragment` media. They become source material for a formal RecordingSegment when an event/session starts; they are not canonical historical RecordingSegments by themselves.
 
 Use an explicit association that records which part of each physical segment belongs to the logical recording.
 
@@ -523,10 +587,12 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 12. GC must re-check retention state immediately before deletion.
 13. tmpfs pressure must degrade observably, never by silently deleting protected media.
 14. Idle tmpfs pre-buffering and formal recording are two modes of one recording pipeline; they must not run as duplicate parallel recorders for the same camera.
-15. A formal recording request adopts the currently written idle pre-buffer segment without stop/start; after its natural boundary, subsequent segments use the formal recording target/destination while the session remains active.
-16. The first segment of a formal RecordingSession may therefore be a promoted idle-prebuffer segment shorter than the formal segment target.
-17. The configured formal segment duration is a target/maximum for ongoing recording, not a minimum; the final segment may be finalized early when the RecordingSession ends.
-18. After formal recording ends, idle prebuffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
-19. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
-20. Segment-duration setting changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4 merely to apply configuration.
-21. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
+15. The first formal segment window begins at the RecordingSession logical start, so required pre-roll counts toward the configured formal segment duration.
+16. Idle 20-second files are PrebufferFragments, not canonical formal RecordingSegments.
+17. The current pre-buffer fragment may finish at its natural boundary, but that boundary must not restart the first formal 5-minute clock.
+18. The first finalized formal RecordingSegment is assembled from the required pre-buffer prefix plus only the continuation needed to reach the first formal segment boundary.
+19. Subsequent ongoing formal segments use the configured formal duration; the final segment may be shorter when the RecordingSession ends.
+20. After formal recording ends, idle prebuffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
+21. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
+22. Segment-duration setting changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4 merely to apply configuration.
+23. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
