@@ -141,9 +141,12 @@ Acceptance:
 - [ ] event Marker ranges/points and zoom-aware aggregation.
 - [ ] PlaybackResolver by RecordingSegment ID.
 - [ ] local playback.
+- [ ] ordered detailed segment ranges + binary absolute-time segment lookup.
 - [ ] dual-player preload/ping-pong cross-segment continuation.
+- [ ] standby-player readiness gating and absolute-boundary source switching.
+- [ ] sub-pixel visual seam smoothing without mutating real gap data.
 - [ ] monotonic Master Clock.
-- [ ] drift correction and hard-seek recovery.
+- [ ] drift correction with bounded rate convergence, hysteresis/cooldown, and hard-seek recovery.
 - [ ] tolerant multi-camera synchronization as default.
 - [ ] optional strict forensic synchronization.
 - [ ] multi-camera aligned timeline query/track response.
@@ -162,7 +165,9 @@ Acceptance:
 - known gaps visibly explain why media is unavailable.
 - events remain readable from day overview to close zoom.
 - one slow channel does not freeze all channels in default tolerant mode.
-- strict mode can pause/re-align playable channels for synchronized review.
+- strict mode can pause/re-align playable channels for synchronized review without treating legitimate gap channels as blockers.
+- tiny real gaps may be visually smoothed at wide zoom but become visible again when zoomed in.
+- cross-segment seek/switch behavior is validated across many consecutive 5-minute files.
 - local and remote-only segments appear on one logical timeline.
 
 ## Phase 9 — Event Recording
