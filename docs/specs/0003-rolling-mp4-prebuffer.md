@@ -664,3 +664,7 @@ Canonical formal RecordingSegment object keys, UTC date partitioning, staging/fi
 ## Recording-intent reference
 
 Mode overlap, manual/schedule/event/continuous arbitration, hybrid semantics, and the rule that intent changes do not reset segment cadence are defined in [Spec 0007 — Recording Intent Arbitration and Mode Composition](0007-recording-intent-arbitration.md).
+
+## Stream-recovery reference
+
+Confirmed source/media loss may end a physical RecordingSegment early. Post-reconnect media starts a new physical segment and a new duration clock at actual recovery time, while the same RecordingSession may continue if RecordingIntent remains active. See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](0008-stream-reconnect-and-recording-recovery.md).
