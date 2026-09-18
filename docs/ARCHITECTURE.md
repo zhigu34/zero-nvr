@@ -381,15 +381,14 @@ Canonical local recording storage is both database-safe and independently human-
 
 ```text
 recordings/
-  {storage_label}__{camera_short_id}/
+  {name_id}/
     {YYYY-MM-DD}/
-      {HH}/
-        {local_start+offset}__{local_end+offset}__{segment_short_id}.mp4
+      {name_id}_{YYYY-MM-DD}_{HH-MM-SS}-{HH-MM-SS}.mp4
 ```
 
-For example, a user mounting the disk without zero-nvr can browse directly by `客厅 → 日期 → 小时 → 起止时间`. The database timeline remains authoritative for product behavior, while short immutable IDs prevent name/time collisions.
+For example, a user mounting the disk without zero-nvr can browse directly by `摄像头名称ID → 日期 → 起止时间`. The database timeline remains authoritative for product behavior.
 
-Canonical database timestamps remain UTC; filesystem presentation uses configurable recording_timezone and embeds the numeric UTC offset in filenames. Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a local date boundary and remains one file under its local start date/hour.
+Canonical database timestamps remain UTC; every directory date and filename time is generated in the effective configured recording timezone so it matches the expected camera wall-clock/OSD time. Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a local date boundary and remains one file under its configured-timezone start date.
 
 Incomplete media is written under a staging/temp path and published to the canonical path only after finalize/verification. Each camera recording directory also keeps a convenience `_camera.json` identity file for detached-disk use.
 
