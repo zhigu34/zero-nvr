@@ -86,6 +86,40 @@ retention_policy_id
 enabled
 ```
 
+For event recording, V2 defaults are:
+
+```text
+pre_roll  = 10 seconds
+post_roll = 10 seconds
+```
+
+Event recording duration is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
+
+## RecordingSession
+
+Represents one actual recording lifecycle owned by zero-nvr.
+
+```text
+id
+camera_id
+recording_type      event | continuous | manual | schedule
+started_at
+planned_end_at
+ended_at
+status
+created_at
+updated_at
+```
+
+For event recording:
+
+- `planned_end_at` may be NULL while any event remains ACTIVE;
+- the final event END sets `planned_end_at = ended_at + post_roll`;
+- a new event before `planned_end_at` cancels/replaces the pending stop decision;
+- multiple events may share one RecordingSession without repeatedly starting the recorder.
+
+RecorderBackend processes are runtime implementations of the session intent, not the business identity of the recording.
+
 ## RecordingSegment
 
 The canonical timeline unit.
@@ -109,21 +143,26 @@ Segment identity remains stable even if its media object later moves to remote s
 
 ## DetectionEvent
 
-All event providers normalize here.
+All event providers normalize here. DetectionEvent is also the authoritative source for event timeline markers.
 
 ```text
 id
 camera_id
 source_kind
 provider
+external_id
 event_type
+status              active | completed
 started_at
 ended_at
 confidence
 zone
 snapshot_object_id
-recording_id
+recording_session_id
+correlation_id
 metadata
+created_at
+updated_at
 ```
 
 Canonical event types should include at least:
@@ -142,59 +181,66 @@ custom
 unknown
 ```
 
-Provider metadata may be stored, but UI/business rules should prefer canonical fields.
+For stateful events:
+
+```text
+START → ACTIVE → END
+```
+
+While ACTIVE, `ended_at` remains NULL.
+
+Repeated activity for the same logical active event must not create duplicate business events or timeline markers. Provider metadata may be stored, but UI/business rules should prefer canonical fields.
+
+Timeline seek offsets are derived from absolute event timestamps rather than stored as authoritative offsets.
 
 ## RecordingTrigger
 
-Represents an external or internal request to preserve/record a time window without exposing recorder-process commands.
+Represents an explicit external or internal **recording intent** when an integration needs to ask zero-nvr to preserve/record something without exposing recorder-process commands.
+
+It is not the canonical model for stateful sensor events. Motion/person/presence-style START/END input should normalize into DetectionEvent and then be evaluated by RecordingManager.
+
+Conceptual fields:
 
 ```text
 id
 camera_id
 source
 external_id
-event_type
-state
-started_at
-last_active_at
-ended_at
-pre_roll_seconds
-post_roll_seconds
+trigger_type
+received_at
+processed_at
+status
+reason
+correlation_id
 metadata
 created_at
-updated_at
 ```
 
-Typical sources:
+Typical sources may include:
 
 ```text
 home_assistant
-onvif
-hik
-frigate
+mqtt
 webhook
 manual
+api
+system
 ```
 
-Suggested state direction:
+Typical processing states may include:
 
 ```text
-ACTIVE
-CLOSING
-COMPLETE
-CANCELLED
+received
+accepted
+ignored
+merged
+rejected
+failed
 ```
 
-Repeated activity from the same logical external trigger should refresh/touch the trigger session when appropriate rather than repeatedly starting and stopping recorder processes.
+RecordingTrigger records what intent was received and how zero-nvr handled it. It never directly represents or controls an FFmpeg/ZLMediaKit process.
 
-A RecordingTrigger may result in:
-
-- promotion/annotation of already-recorded continuous segments;
-- creation of an event recording window;
-- pre-roll/post-roll retention;
-- linkage to DetectionEvent and alert history.
-
-It does not directly represent an FFmpeg or ZLMediaKit process.
+Stateful event-driven recording behavior is defined by DetectionEvent + RecordingSession in [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md).
 
 ## AlertRule
 
@@ -325,6 +371,42 @@ Kinds may include:
 - upload;
 - device protocol.
 
+## EventLog
+
+Persists structured business/runtime events needed to explain recording behavior.
+
+```text
+id
+timestamp
+level
+category
+event_type
+camera_id
+detection_event_id
+recording_session_id
+correlation_id
+action
+reason
+details
+```
+
+Important actions include:
+
+```text
+event_started
+event_ended
+recording_started
+post_roll_started
+post_roll_cancelled
+recording_extended
+marker_created
+recording_completed
+event_ignored
+event_rejected
+```
+
+EventLog complements normal application logs. It should make recording decisions queryable from the product UI/API.
+
 ## AuditEvent
 
 Tracks administrative/business changes.
@@ -344,9 +426,12 @@ created_at
 1. Camera is the stable identity.
 2. External component IDs are never primary business identities.
 3. Recording metadata survives storage movement.
-4. DetectionEvent is provider-neutral.
-5. External automation expresses recording intent through RecordingTrigger, not media-process commands.
-6. Credentials do not appear in public read contracts.
-7. Media runtime state is reconstructable and not authoritative metadata.
-8. Remote upload requires verification before local purge eligibility.
-9. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
+4. DetectionEvent is provider-neutral and is the source of truth for event timeline markers.
+5. zero-nvr alone owns recording lifecycle decisions; event/integration providers never directly control media recorder processes.
+6. Stateful event recording duration is determined by event START/END plus pre-roll/post-roll, not a fixed record duration.
+7. Multiple events may share one RecordingSession while remaining independent DetectionEvents and EventLog records.
+8. External explicit recording intent may enter through RecordingTrigger, but stateful sensor events normalize into DetectionEvent.
+9. Credentials do not appear in public read contracts.
+10. Media runtime state is reconstructable and not authoritative metadata.
+11. Remote upload requires verification before local purge eligibility.
+12. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
