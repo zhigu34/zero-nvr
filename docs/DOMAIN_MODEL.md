@@ -100,7 +100,7 @@ post_roll_seconds               = 10
 
 These values are persisted configuration and must be editable from Recording Settings. They are defaults rather than hard-coded runtime constants.
 
-The 20-second segment target applies only to idle tmpfs pre-buffering. Formal continuous/manual/schedule/event recording defaults to 5-minute physical segments.
+The 20-second segment target applies only to temporary idle tmpfs PrebufferFragments. Formal continuous/manual/schedule/event recording defaults to 5-minute RecordingSegments. For event recording, required pre-roll is included inside the first 5-minute formal segment window.
 
 Event recording duration itself is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
 
@@ -131,9 +131,28 @@ For event recording:
 
 RecorderBackend processes are runtime implementations of the session intent, not the business identity of the recording.
 
+## PrebufferFragment
+
+Temporary media produced only for idle event pre-recording.
+
+```text
+id
+camera_id
+started_at
+ended_at
+duration
+path
+state           writing | ready | protected | consumed | expired
+created_at
+```
+
+Default physical target is 20 seconds.
+
+PrebufferFragment is not a canonical historical recording. When a RecordingSession starts, the required fragment ranges become source material for the first formal RecordingSegment and may be deleted after that formal segment is verified.
+
 ## RecordingSegment
 
-The canonical timeline unit.
+The canonical persisted formal-recording timeline unit.
 
 ```text
 id
@@ -481,9 +500,10 @@ created_at
 15. RecordingSessionSegment defines which time range of each physical segment contributes to a logical recording.
 16. Event pre-buffer segment rollover must never require recorder stop/start to preserve correctness.
 17. Idle tmpfs pre-buffering and formal recording are mutually exclusive modes of one recording pipeline, not duplicate recorders.
-18. A formal RecordingSession adopts the currently written idle-prebuffer segment without stop/start; that segment is promoted when finalized and may be shorter than the formal segment target.
-19. While a formal session continues beyond the adopted segment boundary, subsequent physical segments use the configured formal segment target and persistent destination.
-20. The formal segment target (default 300 seconds) is a maximum/target chunk size for ongoing recording; the final segment may be shorter when a RecordingSession ends.
-21. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
-22. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
-23. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
+18. Idle 20-second tmpfs files are temporary PrebufferFragments, not canonical RecordingSegments.
+19. The first event RecordingSegment window starts at RecordingSession.started_at, including pre-roll; a pre-buffer fragment boundary must not restart the 5-minute formal segment clock.
+20. The first formal RecordingSegment may be assembled from one or more protected PrebufferFragment ranges plus persistent continuation media.
+21. Subsequent ongoing formal RecordingSegments use the configured formal segment duration; the final segment may be shorter when a RecordingSession ends.
+22. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
+23. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
+24. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
