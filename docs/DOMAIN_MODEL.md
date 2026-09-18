@@ -105,6 +105,77 @@ The 20-second segment target applies only to temporary idle tmpfs PrebufferFragm
 
 Event recording duration itself is not fixed in advance. Stateful events keep the recording active until the final event ends, after which post-roll is applied.
 
+
+## RetentionPolicy
+
+Defines media retention and disk-pressure behavior. System defaults may be overridden per camera.
+
+```text
+id
+name
+continuous_keep_days
+schedule_keep_days
+event_keep_days
+manual_keep_days
+warning_usage_percent
+cleanup_start_percent
+critical_usage_percent
+emergency_usage_percent
+cleanup_target_percent
+min_free_bytes
+created_at
+updated_at
+```
+
+Initial defaults:
+
+```text
+continuous_keep_days = 7
+schedule_keep_days   = 7
+event_keep_days      = 30
+manual_keep_days     = 30
+
+warning_usage_percent   = 80
+cleanup_start_percent   = 85
+critical_usage_percent  = 92
+emergency_usage_percent = 96
+cleanup_target_percent  = 80
+```
+
+See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
+
+## RetentionClaim
+
+Represents one reason a RecordingSegment must remain available.
+
+```text
+id
+recording_segment_id
+reason
+priority
+retain_until
+source_type
+source_id
+created_at
+```
+
+Typical reasons:
+
+```text
+continuous_policy
+schedule_policy
+event_policy
+manual_policy
+user_lock
+upload_source
+export_job
+system_recovery
+```
+
+Finite effective retention is the maximum `retain_until` across active claims. `user_lock` is indefinite until explicitly unlocked.
+
+This claim model is required because one 5-minute physical segment may simultaneously belong to normal recording and contain one or more events with longer retention.
+
 ## RecordingSession
 
 Represents one actual recording lifecycle owned by zero-nvr.
@@ -526,3 +597,7 @@ created_at
 28. Camera.storage_label is a stable human-readable storage identity; changing Camera display name does not silently rename historical media.
 29. Local recording paths must remain browseable without zero-nvr by camera/date/start time.
 30. Recording paths/object keys are storage metadata; playback and retention still use database timestamps/relations rather than directory scanning.
+31. Retention is claim-based; a shared physical segment keeps the strongest active retention requirement without duplicating media.
+32. User-locked media is never automatically purged.
+33. Upload success without verified REMOTE_READY state never permits safe local-source deletion.
+34. Critical disk-pressure purge is priority ordered and explicitly logged; currently writing/finalizing media is never an automatic purge candidate.
