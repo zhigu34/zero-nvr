@@ -336,6 +336,40 @@ Important behavior:
 
 See [Spec 0007 — Recording Intent Arbitration and Mode Composition](specs/0007-recording-intent-arbitration.md).
 
+
+### Stream loss and reconnect recovery
+
+Transport/media failure is separated from business recording intent.
+
+```text
+camera/protocol runtime
+        ↓
+ZLMediaKit runtime stream
+        ↓
+RecordingSegment
+        ↓
+RecordingSession / RecordingIntent
+```
+
+A confirmed media break closes the current physical RecordingSegment and marks it with `completion_reason = source_lost` (or another explicit interruption reason). Recovery always writes a new physical file; it never appends new media into the old MP4.
+
+If RecordingIntent still requires recording, the same RecordingSession remains active across the outage:
+
+```text
+RecordingSession  ─────────────────────────────
+
+physical media    [segment A]    [segment B]
+                              gap
+```
+
+After actual media recovery, the formal physical segment clock restarts from the recovery time. This is an exception to the normal healthy-intent rule: intent changes do not reset cadence, but real media discontinuity does.
+
+Camera health may progress through `degraded → reconnecting → offline`, while background retry continues for enabled cameras. Historical playback exposes the actual gap such as `source_lost`.
+
+ZLMediaKit implementation must use source/runtime signals rather than reader-count hooks; `on_stream_none_reader` is not a camera-disconnect signal.
+
+See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](specs/0008-stream-reconnect-and-recording-recovery.md).
+
 ### Native / AI / external automation events
 
 ```text
