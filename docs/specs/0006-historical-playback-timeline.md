@@ -720,3 +720,7 @@ The implementation must preserve contracts that allow later upgrade to MSE/fMP4/
 17. Sub-pixel seam smoothing is a visualization optimization only and never erases a real timestamp gap from authoritative data.
 18. Strict-mode buffering barriers include only channels expected to have playable media at the current absolute time.
 19. Non-obvious playback timing/synchronization/buffering logic requires comments per Development Guidelines.
+
+## Source-loss gap origin
+
+Historical `source_lost` gaps are derived from real RecordingSegment coverage plus source/runtime connectivity evidence. A reconnect creates a new physical RecordingSegment rather than stretching timestamps across the outage. Source-connectivity recovery rules are defined in [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](0008-stream-reconnect-and-recording-recovery.md).
