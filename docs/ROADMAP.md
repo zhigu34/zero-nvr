@@ -14,6 +14,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define ZLM rolling MP4/tmpfs event pre-buffer and cross-segment composition.
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
+- [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -129,13 +130,37 @@ Acceptance:
 
 ## Phase 8 — Historical Playback
 
-- [ ] timeline query API.
+- [ ] UTC-millisecond PlaybackTimeline query API.
+- [ ] range/detail-level timeline responses for day/hour/minute zoom.
+- [ ] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
+- [ ] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
+- [ ] Canvas timeline with pan/zoom/shared playhead.
+- [ ] event Marker ranges/points and zoom-aware aggregation.
+- [ ] PlaybackResolver by RecordingSegment ID.
 - [ ] local playback.
-- [ ] cross-segment continuation.
+- [ ] dual-player preload/ping-pong cross-segment continuation.
+- [ ] monotonic Master Clock.
+- [ ] drift correction and hard-seek recovery.
+- [ ] tolerant multi-camera synchronization as default.
+- [ ] optional strict forensic synchronization.
+- [ ] multi-camera aligned timeline query/track response.
+- [ ] optional skip-gaps playback.
+- [ ] playback speeds 0.5x / 1x / 2x / 4x / 8x.
 - [ ] remote object resolver.
 - [ ] playback cache.
 - [ ] cloud-only playback.
+- [ ] playback diagnostics.
 - [ ] export.
+
+Acceptance:
+
+- seeking is based on absolute time rather than filenames.
+- normal 5-minute boundaries do not look like separate recordings.
+- known gaps visibly explain why media is unavailable.
+- events remain readable from day overview to close zoom.
+- one slow channel does not freeze all channels in default tolerant mode.
+- strict mode can pause/re-align playable channels for synchronized review.
+- local and remote-only segments appear on one logical timeline.
 
 ## Phase 9 — Event Recording
 
