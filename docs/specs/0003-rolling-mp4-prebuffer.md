@@ -25,18 +25,18 @@ Example:
 ```text
 physical segments:
 
-S1: 12:00:00 ───────────── 12:00:30
-S2: 12:00:30 ───────────── 12:01:00
+S1: 12:00:00 ───────────── 12:00:20
+S2: 12:00:20 ───────────── 12:00:40
 
 event:
-                    T=12:00:29
+                    T=12:00:19
                     ↓
 
 logical recording:
-             12:00:19 ───────────────── ...
+             12:00:09 ───────────────── ...
 ```
 
-The logical recording may use only the required range from S1 and continue into S2. A segment rollover at 12:00:30 does not interrupt or invalidate the event recording.
+The logical recording may use only the required range from S1 and continue into S2. A segment rollover at 12:00:20 does not interrupt or invalidate the event recording.
 
 ## Rolling MP4 pre-buffer
 
@@ -45,7 +45,7 @@ For cameras that require event pre-recording, ZLMediaKit continuously produces s
 Initial V2 default:
 
 ```text
-mp4_segment_target = 30 seconds
+mp4_segment_target = 20 seconds
 pre_roll           = 10 seconds
 post_roll          = 10 seconds
 ```
@@ -67,6 +67,59 @@ segment index / retention worker
 ```
 
 tmpfs reduces unnecessary persistent-disk writes for media that is never promoted into a retained recording.
+
+## Pre-buffer only when no formal recording is active
+
+The rolling tmpfs pre-buffer is an **idle/armed-mode optimization**, not a second recording path.
+
+For a camera, zero-nvr runs the ZLM tmpfs pre-buffer only when:
+
+```text
+no active continuous RecordingSession
+AND no active manual RecordingSession
+AND no active schedule RecordingSession
+AND no active event RecordingSession
+AND event pre-recording is enabled
+```
+
+If any formal recording is already active, the separate tmpfs pre-buffer is disabled/stopped for that camera.
+
+During an active formal recording:
+
+- incoming events create/update DetectionEvent, Marker, and EventLog;
+- event recording may extend the current event RecordingSession when applicable;
+- continuous/manual/schedule recordings are annotated rather than duplicated;
+- the already-persisted recording timeline is the source for any required pre-roll;
+- zero-nvr must not write the same camera media a second time into tmpfs merely to maintain pre-buffer.
+
+This prevents duplicate media writes and reduces tmpfs, CPU, hook, inode, and Worker pressure.
+
+### Transition from recording back to idle pre-buffer
+
+When the last formal RecordingSession for a camera ends:
+
+1. immediately re-enable the rolling tmpfs pre-buffer when event pre-recording remains armed;
+2. retain/reuse at least the final `pre_roll` interval of the just-finished persistent recording as eligible historical media;
+3. while tmpfs warms up, compose any new event pre-roll from:
+   - the tail of the previous persistent recording; plus
+   - newly available tmpfs pre-buffer media.
+
+Example:
+
+```text
+formal recording ends at 12:00:00
+prebuffer restarts immediately
+
+new event at 12:00:06
+required pre-roll starts at 11:59:56
+
+11:59:56 .. 12:00:00 → previous persistent recording tail
+12:00:00 .. 12:00:06 → new tmpfs pre-buffer
+```
+
+This avoids a 10-second pre-roll blind period after a recording stops without keeping duplicate buffering active during the recording itself.
+
+The final persistent recording tail must remain referenceable for at least the configured `pre_roll` interval after formal recording completion.
 
 ## on_record_mp4 ownership boundary
 
@@ -152,16 +205,16 @@ The implementation must not assume that "current + previous" is always sufficien
 
 ## No race with segment rollover
 
-If `T` arrives near a natural 30-second rollover, it is acceptable for ZLM to finalize the current segment and begin another segment before zero-nvr finishes event handling.
+If `T` arrives near a natural 20-second rollover, it is acceptable for ZLM to finalize the current segment and begin another segment before zero-nvr finishes event handling.
 
 Correctness is time-based, not filename/current-handle based.
 
 Example:
 
 ```text
-29.000s  event START @ T
-30.xxx   S[n] finalizes
-30.xxx   S[n+1] begins
+19.000s  event START @ T
+20.xxx   S[n] finalizes
+20.xxx   S[n+1] begins
 later    event worker resolves protection
 ```
 
@@ -238,16 +291,18 @@ RecordingSessionSegment
 Example:
 
 ```text
-S1 physical: 12:00:00 ───────── 12:00:30
-S2 physical: 12:00:30 ───────── 12:01:00
+S1 physical: 12:00:00 ───────── 12:00:20
+S2 physical: 12:00:20 ───────── 12:00:40
+S3 physical: 12:00:40 ───────── 12:01:00
 
 logical recording:
-             12:00:19 ───────── 12:00:45
+             12:00:09 ───────────────── 12:00:45
 
 links:
 
-S1 → use 12:00:19 .. 12:00:30
-S2 → use 12:00:30 .. 12:00:45
+S1 → use 12:00:09 .. 12:00:20
+S2 → use 12:00:20 .. 12:00:40
+S3 → use 12:00:40 .. 12:00:45
 ```
 
 The physical MP4 files may remain unchanged.
@@ -343,6 +398,17 @@ The concurrency rule and race rationale must be documented in code according to 
 
 tmpfs must be bounded.
 
+With the 20-second physical segment target, the normal idle pre-buffer retention target is approximately:
+
+```text
+previous finalized segment + current writing segment
+≈ 20s .. 40s of compressed media per camera
+```
+
+The business pre-roll guarantee remains 10 seconds. Retaining roughly 40 seconds gives boundary and normal scheduling margin without intentionally keeping the earlier 90-second cache target.
+
+Late events whose authoritative occurrence time is older than available buffered/persisted coverage are still recorded, but pre-roll degradation must be logged explicitly.
+
 Capacity policy should support at least:
 
 ```text
@@ -388,8 +454,8 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 
 1. A segment rollover never loses an event recording as long as the required physical media still exists in the pre-buffer.
 2. Event START/END do not require exact physical MP4 boundaries.
-3. The default rolling MP4 target is 30 seconds; actual segment timestamps are authoritative.
-4. Event pre-roll/post-roll remain 10 seconds by default and are independent from the 30-second physical segment duration.
+3. The default idle pre-buffer rolling MP4 target is 20 seconds; actual segment timestamps are authoritative.
+4. Event pre-roll/post-roll remain 10 seconds by default and are independent from the 20-second physical segment duration.
 5. Event arrival immediately protects current/previous media and then resolves the complete required interval by actual timestamps.
 6. Normal event handling does not stop/restart ZLM to force MP4 boundaries.
 7. RecordingSession logical time is authoritative for product behavior.
@@ -399,4 +465,7 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 11. Single-file merge/crop is a derived export operation, not part of the recording hot path.
 12. GC must re-check retention state immediately before deletion.
 13. tmpfs pressure must degrade observably, never by silently deleting protected media.
-14. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
+14. The tmpfs pre-buffer runs only while no formal recording is active for that camera.
+15. During continuous/manual/schedule/event recording, existing persisted recording media supplies timeline/pre-roll coverage; duplicate tmpfs buffering is forbidden.
+16. After formal recording ends, tmpfs buffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
+17. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
