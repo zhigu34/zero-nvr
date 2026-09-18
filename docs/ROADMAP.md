@@ -52,7 +52,8 @@ Acceptance:
 
 - [ ] Implement RecorderBackend.
 - [ ] FFmpeg consumes ZLM internal stream.
-- [ ] RecordingPolicy.
+- [ ] RecordingPolicy / Recording Settings persistence and API.
+- [ ] Recording Settings UI for prebuffer enable, 20s idle segment default, 5min formal segment default, and pre/post-roll.
 - [ ] segment persistence.
 - [ ] recorder recovery.
 - [ ] disk capacity guard.
@@ -126,7 +127,8 @@ Acceptance:
 
 - [ ] RecordingSession lifecycle.
 - [ ] segment promotion.
-- [ ] ZLM rolling MP4 idle pre-buffer with 20s target physical segments.
+- [ ] ZLM rolling MP4 idle pre-buffer with configurable 20s default physical segments.
+- [ ] formal recording with configurable 5min default physical segments.
 - [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
 - [ ] stop duplicate tmpfs buffering during continuous/manual/schedule/event recording.
 - [ ] resume pre-buffer immediately after recording completion and bridge warm-up from the previous recording tail.
