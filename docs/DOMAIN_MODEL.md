@@ -152,6 +152,7 @@ source_kind
 provider
 external_id
 event_type
+lifecycle_kind      stateful | instant
 status              active | completed
 started_at
 ended_at
@@ -188,6 +189,16 @@ START → ACTIVE → END
 ```
 
 While ACTIVE, `ended_at` remains NULL.
+
+For instant events, the event is a zero-duration Marker:
+
+```text
+started_at = occurred_at
+ended_at   = occurred_at
+status     = completed
+```
+
+Instant events do not invent an artificial active duration. Recording policy applies the normal pre-roll/post-roll window around the occurrence timestamp.
 
 Repeated activity for the same logical active event must not create duplicate business events or timeline markers. Provider metadata may be stored, but UI/business rules should prefer canonical fields.
 
@@ -435,3 +446,4 @@ created_at
 10. Media runtime state is reconstructable and not authoritative metadata.
 11. Remote upload requires verification before local purge eligibility.
 12. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
+13. Instant events are zero-duration DetectionEvents; they use recording pre-roll/post-roll without a fabricated event lifetime.
