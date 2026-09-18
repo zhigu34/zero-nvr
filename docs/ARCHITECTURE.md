@@ -295,11 +295,13 @@ Playback / export
 
 At event time `T`, the current and previous segment are immediately protected from GC, then the Worker validates actual media timestamps and pins every segment required to cover `T - pre_roll`.
 
-Idle pre-buffering and formal recording are two modes of one recording pipeline, never duplicate parallel recorders. When a formal recording starts during a 20-second tmpfs segment, the current segment is adopted by the RecordingSession and continues to its natural boundary; if the session remains active, the next segment switches to the formal target (default 5 minutes) and persistent storage. The adopted segment is promoted from tmpfs when finalized.
+Idle pre-buffering and formal recording are two modes of one recording pipeline, never duplicate parallel recorders. The 20-second tmpfs files are temporary PrebufferFragments rather than formal RecordingSegments.
 
-At formal RecordingSession completion, the current formal segment may be finalized early; 5 minutes is the ongoing segment target/maximum, not a minimum recording duration. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
+When a formal event recording starts, the first 5-minute formal segment window begins at the RecordingSession logical start (normally `T - pre_roll`). Required pre-buffer media therefore counts toward that first five-minute segment. The current 20-second fragment may finish naturally, but its boundary does not restart the five-minute clock. zero-nvr captures only the remaining time needed to reach that first formal boundary, then assembles the protected pre-buffer prefix plus continuation into the finalized first RecordingSegment.
 
-Event START therefore does not stop/restart the recorder. Playback may span multiple physical MP4 files. Single-file crop/merge is an asynchronous derived export operation.
+At formal RecordingSession completion, the final formal segment may be shorter than five minutes. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
+
+Event START therefore does not create a new five-minute clock at the next pre-buffer boundary. Playback and storage use the formal RecordingSegment timeline; temporary pre-buffer fragments are implementation media.
 
 See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
