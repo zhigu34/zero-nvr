@@ -480,8 +480,10 @@ created_at
 14. RecordingSession logical boundaries are independent from physical MP4 segment boundaries.
 15. RecordingSessionSegment defines which time range of each physical segment contributes to a logical recording.
 16. Event pre-buffer segment rollover must never require recorder stop/start to preserve correctness.
-17. tmpfs event pre-buffering is active only when the camera has no formal RecordingSession.
-18. Active continuous/manual/schedule/event recording media is reused for event timeline/pre-roll coverage instead of duplicated into tmpfs.
-19. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
-20. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
-21. The default formal recording segment target is 300 seconds; changes apply at a safe next segment boundary without force-cutting the current MP4.
+17. Idle tmpfs pre-buffering and formal recording are mutually exclusive modes of one recording pipeline, not duplicate recorders.
+18. A formal RecordingSession adopts the currently written idle-prebuffer segment without stop/start; that segment is promoted when finalized and may be shorter than the formal segment target.
+19. While a formal session continues beyond the adopted segment boundary, subsequent physical segments use the configured formal segment target and persistent destination.
+20. The formal segment target (default 300 seconds) is a maximum/target chunk size for ongoing recording; the final segment may be shorter when a RecordingSession ends.
+21. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
+22. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
+23. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
