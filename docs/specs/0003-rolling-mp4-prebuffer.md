@@ -42,13 +42,18 @@ The logical recording may use only the required range from S1 and continue into 
 
 For cameras that require event pre-recording, ZLMediaKit continuously produces short rolling MP4 segments.
 
-Initial V2 default:
+Initial V2 defaults:
 
 ```text
-mp4_segment_target = 20 seconds
-pre_roll           = 10 seconds
-post_roll          = 10 seconds
+idle_prebuffer_segment_seconds = 20 seconds
+formal_record_segment_seconds  = 300 seconds (5 minutes)
+pre_roll_seconds               = 10 seconds
+post_roll_seconds              = 10 seconds
 ```
+
+These are defaults, not hard-coded constants. They must be persisted as recording settings/policy and exposed in the Recording Settings UI.
+
+The 20-second target applies only to idle tmpfs pre-buffer recording. Once a formal RecordingSession is active (continuous/manual/schedule/event), the normal persistent recording segment target defaults to 5 minutes.
 
 The segment duration is a target, not an authoritative timeline value. zero-nvr always uses the actual timestamps/duration reported or derived for the finalized media.
 
@@ -120,6 +125,30 @@ required pre-roll starts at 11:59:56
 This avoids a 10-second pre-roll blind period after a recording stops without keeping duplicate buffering active during the recording itself.
 
 The final persistent recording tail must remain referenceable for at least the configured `pre_roll` interval after formal recording completion.
+
+## Recording settings and runtime changes
+
+The following recording parameters are user-configurable:
+
+```text
+prebuffer_enabled
+idle_prebuffer_segment_seconds   # default 20
+formal_record_segment_seconds    # default 300
+pre_roll_seconds                 # default 10
+post_roll_seconds                # default 10
+```
+
+The UI must present these under Recording Settings. Backend services must read them from the authoritative RecordingPolicy/RecordingSettings model instead of embedding magic numbers in code.
+
+Configuration changes must not create avoidable media gaps:
+
+- changing `idle_prebuffer_segment_seconds` applies to the next pre-buffer segment/cycle;
+- changing `formal_record_segment_seconds` applies from the next formal physical segment and must not force-cut the current MP4;
+- changing pre/post-roll affects subsequent event-window calculations according to the persisted policy;
+- if the camera is currently in formal recording, an idle-prebuffer setting change is stored and applied when idle pre-buffering resumes;
+- invalid or unsafe values must be rejected by API validation rather than silently coerced.
+
+The UI may show recommended defaults, but defaults and user overrides are domain configuration, not frontend-only state.
 
 ## on_record_mp4 ownership boundary
 
@@ -454,8 +483,8 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 
 1. A segment rollover never loses an event recording as long as the required physical media still exists in the pre-buffer.
 2. Event START/END do not require exact physical MP4 boundaries.
-3. The default idle pre-buffer rolling MP4 target is 20 seconds; actual segment timestamps are authoritative.
-4. Event pre-roll/post-roll remain 10 seconds by default and are independent from the 20-second physical segment duration.
+3. The default idle pre-buffer rolling MP4 target is 20 seconds; the default formal-recording physical segment target is 300 seconds (5 minutes); actual segment timestamps are authoritative.
+4. Event pre-roll/post-roll remain 10 seconds by default and are independent from either physical segment duration.
 5. Event arrival immediately protects current/previous media and then resolves the complete required interval by actual timestamps.
 6. Normal event handling does not stop/restart ZLM to force MP4 boundaries.
 7. RecordingSession logical time is authoritative for product behavior.
@@ -468,4 +497,6 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 14. The tmpfs pre-buffer runs only while no formal recording is active for that camera.
 15. During continuous/manual/schedule/event recording, existing persisted recording media supplies timeline/pre-roll coverage; duplicate tmpfs buffering is forbidden.
 16. After formal recording ends, tmpfs buffering resumes immediately and may reuse the final persistent recording tail to cover the warm-up interval.
-17. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
+17. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
+18. Segment-duration changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4.
+19. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
