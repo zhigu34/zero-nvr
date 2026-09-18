@@ -95,7 +95,7 @@ zero-nvr must never run both modes in parallel for the same camera merely to mai
 
 ### Transition: idle pre-buffer → formal recording
 
-When an event/manual/schedule/continuous recording request arrives while idle pre-buffering is active, the **formal 5-minute segment window includes the required pre-roll**.
+When the active RecordingIntent set transitions from empty to non-empty, zero-nvr enters formal recording. For an event-triggered start, the **first formal 5-minute segment window includes the required event pre-roll**. Manual/schedule/continuous starts begin at their own intent boundary unless a future explicit pre-roll policy says otherwise.
 
 For an event at `T`:
 
@@ -392,7 +392,7 @@ Normal event START must not redefine the formal segment clock at the next 20-sec
 
 The first formal segment clock starts at the logical recording start (for an isolated event, `T - pre_roll`). Any pre-buffer material before the current 20-second boundary counts toward that first formal segment's configured duration.
 
-At the final event END + post-roll, zero-nvr finalizes the current formal segment early if the RecordingSession ends before its next 5-minute boundary.
+At the final event END + post-roll, zero-nvr finalizes the current formal segment early only if the event intent was the last active RecordingIntent and the RecordingSession therefore ends before its next 5-minute boundary. If another intent remains active, the same RecordingSession and segment cadence continue.
 
 The preferred behavior is:
 
@@ -660,3 +660,7 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 ## Storage-layout reference
 
 Canonical formal RecordingSegment object keys, UTC date partitioning, staging/finalize behavior, cross-day segments, and database timeline indexing are defined in [Spec 0004 — Recording Storage Layout and Time Index](0004-recording-storage-layout.md).
+
+## Recording-intent reference
+
+Mode overlap, manual/schedule/event/continuous arbitration, hybrid semantics, and the rule that intent changes do not reset segment cadence are defined in [Spec 0007 — Recording Intent Arbitration and Mode Composition](0007-recording-intent-arbitration.md).
