@@ -299,7 +299,9 @@ Idle pre-buffering and formal recording are two modes of one recording pipeline,
 
 When a formal event recording starts, the first 5-minute formal segment window begins at the RecordingSession logical start (normally `T - pre_roll`). Required pre-buffer media therefore counts toward that first five-minute segment. The current 20-second fragment may finish naturally, but its boundary does not restart the five-minute clock. zero-nvr captures only the remaining time needed to reach that first formal boundary, then assembles the protected pre-buffer prefix plus continuation into the finalized first RecordingSegment.
 
-At formal RecordingSession completion, the final formal segment may be shorter than five minutes. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
+During an active healthy formal RecordingSession, segment boundaries follow one duration-based clock anchored at the session start: with a 5-minute setting, all intermediate segments are 5-minute windows. Event/marker activity and 20-second pre-buffer boundaries do not create short formal files.
+
+At formal RecordingSession completion, only the final segment may normally be shorter than five minutes. Abnormal stream/runtime/media interruptions may also create partial segments and must be recorded with a completion reason. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
 
 Event START therefore does not create a new five-minute clock at the next pre-buffer boundary. Playback and storage use the formal RecordingSegment timeline; temporary pre-buffer fragments are implementation media.
 
