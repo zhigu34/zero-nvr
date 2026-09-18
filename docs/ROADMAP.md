@@ -16,6 +16,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
 - [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
+- [x] Define stream-loss detection, reconnect, physical-segment recovery, and timeline-gap semantics.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -42,6 +43,10 @@ Acceptance:
 - [ ] Implement MediaPlane contract.
 - [ ] Manual RTSP camera creation/probe.
 - [ ] Ensure/remove stream proxy.
+- [ ] per-camera source runtime state machine: streaming / degraded / reconnecting / offline.
+- [ ] ZLM source registration/unregistration + pull-proxy close/error integration.
+- [ ] configurable reconnect backoff/jitter and offline threshold.
+- [ ] infinite/background retry while camera remains enabled.
 - [ ] Stream runtime health.
 - [ ] Live-session API.
 - [ ] Browser WebRTC/fMP4/HLS path.
@@ -67,6 +72,10 @@ Acceptance:
 - [ ] per-camera _camera.json convenience metadata for detached-disk browsing.
 - [ ] staging/atomic finalize and backend object-key mapping.
 - [ ] cross-day segments without midnight force-split.
+- [ ] source-loss segment finalize with completion_reason = source_lost.
+- [ ] post-reconnect new segment clock anchored at actual recovery time.
+- [ ] preserve RecordingSession/RecordingIntent across transport outage.
+- [ ] SourceConnectivityIncident persistence and gap explanation.
 - [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] RetentionPolicy / RetentionClaim persistence.
 - [ ] normal age-based retention worker.
