@@ -615,6 +615,46 @@ Kinds may include:
 - upload;
 - device protocol.
 
+
+## SourceConnectivityIncident
+
+Represents a historical infrastructure/media-source interruption independently from DetectionEvent.
+
+```text
+id
+camera_id
+started_at
+ended_at
+state
+reason
+last_media_at
+recovered_at
+retry_count
+details
+created_at
+updated_at
+```
+
+Typical states/reasons include:
+
+```text
+degraded
+reconnecting
+offline
+recovered
+
+source_lost
+runtime_restart
+media_discontinuity
+storage_failure
+```
+
+SourceConnectivityIncident can explain playback gaps and health history. It must not be modeled as a DetectionEvent.
+
+A connectivity incident may split physical RecordingSegments while the same RecordingSession continues if one or more RecordingIntents remain active.
+
+See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](specs/0008-stream-reconnect-and-recording-recovery.md).
+
 ## EventLog
 
 Persists structured business/runtime events needed to explain recording behavior.
@@ -712,3 +752,8 @@ created_at
 43. Adding/removing an intent while another remains active never restarts the recorder or resets formal segment cadence.
 44. Manual stop removes only the manual intent and never force-stops other active recording reasons.
 45. Initial V2 hybrid mode means scheduled baseline recording plus event-triggered recording outside schedule windows.
+46. Confirmed source/media loss closes the current physical RecordingSegment but does not end RecordingSession while any RecordingIntent remains active.
+47. Post-reconnect media always starts a new RecordingSegment and is never appended into an interrupted MP4.
+48. A real media discontinuity resets the physical formal-segment cadence from actual recovery time.
+49. Infrastructure/source-connectivity incidents are distinct from DetectionEvent and may explain historical playback gaps.
+50. Camera offline/reconnecting state does not cancel enabled RecordingIntents or background source retry by itself.
