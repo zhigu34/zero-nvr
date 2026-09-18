@@ -129,6 +129,8 @@ Acceptance:
 - [ ] segment promotion.
 - [ ] ZLM rolling MP4 idle pre-buffer with configurable 20s default physical segments.
 - [ ] formal recording with configurable 5min default physical segments.
+- [ ] session-anchored formal segment clock: all healthy intermediate segments follow configured duration.
+- [ ] segment completion_reason for normal boundary/session end vs abnormal partial segments.
 - [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
 - [ ] single recording-pipeline state transition: idle tmpfs prebuffer → formal recording without recorder restart.
 - [ ] model 20s idle MP4 files as temporary PrebufferFragments, not formal RecordingSegments.
