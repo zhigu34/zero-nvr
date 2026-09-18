@@ -15,6 +15,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
+- [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -53,6 +54,8 @@ Acceptance:
 
 ## Phase 3 — Recording Plane
 
+- [ ] Implement RecordingManager per-camera intent arbiter.
+- [ ] RecordingIntent persistence/recovery and idempotent transitions.
 - [ ] Implement RecorderBackend.
 - [ ] FFmpeg consumes ZLM internal stream.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
@@ -164,7 +167,11 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
-- [ ] RecordingSession lifecycle.
+- [ ] RecordingSession lifecycle as one uninterrupted formal-recording interval.
+- [ ] additive continuous/schedule/event/manual RecordingIntent arbitration.
+- [ ] hybrid policy: scheduled baseline + outside-schedule event recording.
+- [ ] manual start/stop affects only manual intent.
+- [ ] intent changes must not reset formal segment cadence.
 - [ ] segment promotion.
 - [ ] ZLM rolling MP4 idle pre-buffer with configurable 20s default physical segments.
 - [ ] formal recording with configurable 5min default physical segments.
