@@ -49,6 +49,8 @@ GB28181            → optional WVP + ZLM
 Generic notices    → Apprise
 Cloud transfer     → S3 / rclone / OpenList adapters
 External AI        → optional Frigate/provider adapter
+Home Assistant     → optional IntegrationAdapter
+MQTT               → optional deep-integration transport
 TURN               → optional coturn
 ```
 
@@ -133,6 +135,34 @@ Examples:
 - notification backend down does not erase events;
 - cloud storage down does not stop local recording;
 - HIK bridge down affects only HIK-dependent cameras.
+- Home Assistant unavailable affects only HA-triggered automation.
+- MQTT unavailable affects only MQTT-backed integrations.
+
+### R8 — Optional integrations are load-on-demand
+
+The default core deployment must not require:
+
+- Home Assistant;
+- MQTT broker;
+- Frigate;
+- OpenList;
+- HIK bridge;
+- WVP;
+- coturn.
+
+An integration becomes active only when explicitly enabled/configured.
+
+For Home Assistant, the preferred progression is:
+
+```text
+REST external trigger
+  ↓
+optional MQTT deep integration
+  ↓
+optional Home Assistant Custom Integration
+```
+
+HA-triggered recording must enter the canonical RecordingTrigger/RecordingPolicy path. It must not directly start/stop FFmpeg or manipulate ZLMediaKit runtime objects.
 
 ## Initial service model
 
@@ -175,6 +205,7 @@ MediaStream
 RecordingPolicy
 RecordingSegment
 DetectionEvent
+RecordingTrigger
 AlertRule
 AlertDelivery
 StorageTarget
