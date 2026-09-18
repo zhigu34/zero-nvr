@@ -85,6 +85,7 @@ Start with:
 - [Integrations](docs/INTEGRATIONS.md)
 - [Roadmap](docs/ROADMAP.md)
 - [V2 Platform Spec](docs/specs/0001-platform-architecture.md)
+- [Event Recording Lifecycle](docs/specs/0002-event-recording-lifecycle.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
 ## V1 relationship
