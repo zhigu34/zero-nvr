@@ -179,10 +179,10 @@ For a healthy active RecordingSession, intermediate RecordingSegments follow the
 Canonical RecordingSegment timestamps are UTC. Calendar/day boundaries do not force segment rollover. Physical location belongs to StorageObject and uses a stable object key such as:
 
 ```text
-recordings/{name_id}/{YYYY-MM-DD}/{name_id}_{YYYY-MM-DD}_{HH-MM-SS}-{HH-MM-SS}.mp4
+recordings/{name_id}/{YYYY-MM-DD}/{name_id}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
 ```
 
-The local layout uses the Camera's stable human-readable name/id, configured recording timezone, local start date, and human-readable start/end wall-clock times. See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
+The local layout uses the Camera's stable human-readable name/id, configured recording timezone, local start date, and human-readable recording start time. See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
 
 ## RecordingSessionSegment
 
@@ -524,5 +524,5 @@ created_at
 26. Canonical recording timestamps are UTC; all local directory/file timestamps are generated in the effective configured recording timezone so they align with camera wall-clock/OSD time.
 27. Midnight/date boundaries never force a formal segment split.
 28. Camera.storage_label is a stable human-readable storage identity; changing Camera display name does not silently rename historical media.
-29. Local recording paths must remain browseable without zero-nvr by camera/date/start-end time.
+29. Local recording paths must remain browseable without zero-nvr by camera/date/start time.
 30. Recording paths/object keys are storage metadata; playback and retention still use database timestamps/relations rather than directory scanning.
