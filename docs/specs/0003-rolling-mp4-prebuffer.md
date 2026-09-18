@@ -656,3 +656,7 @@ Incomplete `*.partial` files must be recoverable/cleanable after restart.
 22. Pre-buffer segment duration, formal recording segment duration, pre-roll, and post-roll are persisted user-configurable recording settings; code must not hard-code them.
 23. Segment-duration setting changes take effect at a safe next-boundary transition and must not force-cut the currently written MP4 merely to apply configuration.
 24. Non-obvious state, timing, race, and media-boundary logic requires complete comments per Development Guidelines.
+
+## Storage-layout reference
+
+Canonical formal RecordingSegment object keys, UTC date partitioning, staging/finalize behavior, cross-day segments, and database timeline indexing are defined in [Spec 0004 — Recording Storage Layout and Time Index](0004-recording-storage-layout.md).
