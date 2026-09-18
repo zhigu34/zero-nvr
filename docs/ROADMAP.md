@@ -8,7 +8,8 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define control-plane / device-plane / media-plane ownership.
 - [x] Define reuse-first integration policy.
 - [x] Define first canonical domain model.
-- [ ] Review and refine architecture decisions before implementation.
+- [x] Define stateful event recording lifecycle and RTSP motion state machine.
+- [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
 
@@ -79,11 +80,13 @@ Acceptance:
 ## Phase 5 — Event Detection Platform
 
 - [ ] DetectionProvider contract.
-- [ ] DetectionEvent schema.
+- [ ] DetectionEvent schema with START/ACTIVE/END lifecycle.
 - [ ] native camera events.
-- [ ] optional local lightweight motion.
+- [ ] optional local lightweight motion with hysteresis + START/END hold state machine.
+- [ ] pulse-only source normalization/hold timeout where required.
 - [ ] optional Frigate provider.
-- [ ] event timeline/filtering.
+- [ ] event timeline/filtering using DetectionEvent markers.
+- [ ] structured EventLog persistence/query.
 - [ ] event snapshots.
 
 ## Phase 6 — Alerting
@@ -118,10 +121,15 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
+- [ ] RecordingSession lifecycle.
 - [ ] segment promotion.
-- [ ] pre-roll.
-- [ ] post-roll.
-- [ ] event-to-segment links.
+- [ ] 10s default pre-roll buffer.
+- [ ] dynamic event recording with no fixed motion recording duration.
+- [ ] 10s default post-roll after the final active event ends.
+- [ ] cancel/recalculate pending post-roll stop when a new event arrives.
+- [ ] multiple independent Event markers sharing one RecordingSession.
+- [ ] event-to-segment/session links.
+- [ ] continuous/manual/schedule recording annotation without recorder restart.
 - [ ] hybrid recording policy.
 
 ## Phase 10 — Optional integrations
