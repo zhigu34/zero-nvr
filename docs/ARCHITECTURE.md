@@ -269,12 +269,15 @@ Event pre-recording uses ZLMediaKit rolling MP4 segments written to a bounded tm
 Initial V2 defaults:
 
 ```text
-physical MP4 segment target = 20s
-event pre-roll              = 10s
-event post-roll             = 10s
+idle pre-buffer segment target = 20s
+formal recording segment target = 300s / 5min
+event pre-roll                  = 10s
+event post-roll                 = 10s
 ```
 
-The physical 20-second boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
+The physical pre-buffer boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
+
+All four values above are Recording Settings defaults, not implementation constants. They must be configurable through the backend policy model and Recording Settings UI. Segment-duration changes apply from a safe next physical segment boundary rather than force-cutting the current file.
 
 ```text
 ZLMediaKit rolling MP4
