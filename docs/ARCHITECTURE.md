@@ -375,6 +375,23 @@ Playback Resolver
 Browser
 ```
 
+### Recording storage layout
+
+Canonical recording storage uses immutable Camera/RecordingSegment identity and UTC start-date partitioning:
+
+```text
+recordings/{camera_id}/{YYYY}/{MM}/{DD}/{start_utc}_{segment_id}.mp4
+```
+
+The database timeline is authoritative. File/directory names are storage organization only.
+
+Formal segment cadence is never reset at midnight. A healthy 5-minute RecordingSegment may cross a UTC date boundary and remains one file, stored under the date on which it started.
+
+Incomplete media is written under a staging/temp path and published to the canonical key only after finalize/verification.
+
+See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
+
+
 ## 7. Runtime roles
 
 The initial service split is conceptual and may initially share processes where operationally simpler.
