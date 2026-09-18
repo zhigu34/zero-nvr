@@ -124,13 +124,24 @@ Acceptance:
 - [ ] event-to-segment links.
 - [ ] hybrid recording policy.
 
-## Phase 10 — Advanced integrations
+## Phase 10 — Optional integrations
 
+- [ ] Home Assistant REST integration.
+- [ ] RecordingTrigger external automation flow.
+- [ ] Optional MQTT integration / Home Assistant MQTT Discovery.
+- [ ] Future Home Assistant Custom Integration.
 - [ ] HIK bridge.
 - [ ] GB28181 / WVP.
 - [ ] TURN for remote WebRTC.
 - [ ] advanced AI providers.
 - [ ] advanced PTZ/presets.
+
+Acceptance:
+
+- HA/MQTT remain completely optional at deployment time.
+- external sensor triggers can create/update canonical RecordingTrigger sessions.
+- continuous recording is annotated/promoted instead of duplicated.
+- integration failure does not stop core recording, playback or storage.
 
 ## Phase 11 — Operations and scale
 
