@@ -360,6 +360,45 @@ LOCAL_PURGE_ELIGIBLE
 
 Local files must never be purged merely because an upload command returned success.
 
+
+### Recording retention and disk pressure
+
+Retention is metadata/claim driven rather than file-age driven.
+
+Initial V2 defaults:
+
+```text
+continuous = 7 days
+schedule   = 7 days
+event      = 30 days
+manual     = 30 days
+```
+
+A RecordingSegment may carry several claims at once. For example, a 5-minute continuous segment containing a motion event keeps the stronger event retention without duplicating the MP4.
+
+Disk guard defaults:
+
+```text
+warning   80%
+pressure  85%
+critical  92%
+emergency 96%
+target    80%
+```
+
+Normal cleanup only removes expired/unprotected media. Under critical pressure, zero-nvr may evict unlocked unexpired media in this order:
+
+```text
+verified-remote local copies
+→ continuous/schedule
+→ event
+→ manual
+```
+
+User-locked and currently writing/finalizing media is never automatically purged.
+
+See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
+
 ### Historical playback
 
 ```text
