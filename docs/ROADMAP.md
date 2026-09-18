@@ -57,7 +57,7 @@ Acceptance:
 - [ ] Recording Settings UI for prebuffer enable, 20s idle segment default, 5min formal segment default, and pre/post-roll.
 - [ ] segment persistence.
 - [ ] UTC canonical recording timestamps and database timeline indexes.
-- [ ] compact human-readable local recording layout: name-id / date / name-id_date_start-end.mp4.
+- [ ] compact human-readable local recording layout: name-id / date / name-id_date_start.mp4.
 - [ ] configurable effective recording timezone for all generated path/date/time values while DB stays UTC.
 - [ ] per-camera _camera.json convenience metadata for detached-disk browsing.
 - [ ] staging/atomic finalize and backend object-key mapping.
