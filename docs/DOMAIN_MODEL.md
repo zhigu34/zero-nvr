@@ -175,6 +175,14 @@ Segment identity remains stable even if its media object later moves to remote s
 
 For a healthy active RecordingSession, intermediate RecordingSegments follow the configured formal segment cadence anchored at `RecordingSession.started_at`. Shorter files are expected only for the final session segment or an explicit interruption/recovery boundary. `completion_reason` makes that distinction queryable.
 
+Canonical RecordingSegment timestamps are UTC. Calendar/day boundaries do not force segment rollover. Physical location belongs to StorageObject and uses a stable object key such as:
+
+```text
+recordings/{camera_id}/{YYYY}/{MM}/{DD}/{start_utc}_{segment_id}.mp4
+```
+
+where the date is the segment UTC start date. See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
+
 ## RecordingSessionSegment
 
 Maps one logical RecordingSession onto the required range of one physical RecordingSegment.
@@ -512,3 +520,6 @@ created_at
 23. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
 24. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
 25. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
+26. Canonical recording timestamps are UTC; filesystem date partitions use the RecordingSegment UTC start date.
+27. Midnight/date boundaries never force a formal segment split.
+28. Recording paths/object keys are storage metadata only; playback and retention use database timestamps/relations rather than directory scanning.
