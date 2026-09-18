@@ -157,7 +157,7 @@ Initial implementation:
 FfmpegRecorderBackend
 ```
 
-A future ZLM recorder can be evaluated behind the same contract.
+FFmpeg remains the initial continuous-recording backend. ZLMediaKit's MP4 recorder is also used as the accepted rolling event pre-buffer mechanism defined in Spec 0003; event correctness does not depend on forcing ZLM start/stop at event boundaries.
 
 ### DetectionProvider
 
@@ -261,6 +261,40 @@ Recording metadata
 ```
 
 This intentionally separates the camera connection from the recorder process.
+
+### Event pre-buffer and segment composition
+
+Event pre-recording uses ZLMediaKit rolling MP4 segments written to a bounded tmpfs-backed buffer.
+
+Initial V2 defaults:
+
+```text
+physical MP4 segment target = 30s
+event pre-roll              = 10s
+event post-roll             = 10s
+```
+
+The physical 30-second boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
+
+```text
+ZLMediaKit rolling MP4
+        ↓
+      tmpfs
+        ↓
+  on_record_mp4
+        ↓
+segment index / retention
+        ↓
+RecordingSessionSegment
+        ↓
+Playback / export
+```
+
+At event time `T`, the current and previous segment are immediately protected from GC, then the Worker validates actual media timestamps and pins every segment required to cover `T - pre_roll`.
+
+Normal event START/END does not stop/restart ZLM to force MP4 boundaries. Playback may span multiple physical MP4 files. Single-file crop/merge is an asynchronous derived export operation.
+
+See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
 ### Native / AI / external automation events
 
