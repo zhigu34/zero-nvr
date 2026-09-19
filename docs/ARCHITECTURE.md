@@ -69,7 +69,7 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
                          │
                       Cameras
 
-              PostgreSQL = metadata truth
+       SQLite / PostgreSQL = metadata truth
                          │
           Local / S3 / rclone / OpenList
 ```
@@ -563,6 +563,39 @@ System backups contain recording metadata, not a second copy of all video. After
 Disaster-recovery bootstrap uses an encrypted RecoveryKit so backup-target credentials and SecretStore keyring material are recoverable on a clean host without depending on the lost database.
 
 See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
+
+### Upgrade, schema migration, and rollback
+
+Software upgrade and database-engine migration are separate controlled operations.
+
+```text
+Upgrade
+  current version
+      ↓ preflight
+  verified safety backup
+      ↓
+  maintenance level
+      ↓
+  schema/data migrations
+      ↓
+  target services
+      ↓
+  health + reconciliation
+      ↓
+  commit
+```
+
+Migrations are classified as additive/backward-compatible, transformed-but-compatible, or destructive/incompatible. The first two may allow binary rollback without database restore; destructive/incompatible changes require a verified pre-upgrade recovery point.
+
+SQLite upgrades use safe Online Backup snapshots plus integrity-checked migration/table-rebuild behavior where required. PostgreSQL upgrades use pgBackRest safety points and bounded/restartable migration patterns.
+
+An application process checks application version, selected database engine, schema revision, and migration state before normal startup. Unsupported combinations enter maintenance/recovery mode or refuse normal startup with diagnostics.
+
+Cross-database SQLite ↔ PostgreSQL migration is never silently combined with a normal software update. It uses a separate DatabaseMigrationPlan, verified backup, maintenance freeze, copy/validate, explicit cutover, and rollback grace period.
+
+Database rollback never auto-deletes recording media that became newer than the restored metadata point; those objects enter the same reconciliation path as disaster recovery.
+
+See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](specs/0017-upgrade-migration-and-rollback.md).
 
 ### Historical playback
 
