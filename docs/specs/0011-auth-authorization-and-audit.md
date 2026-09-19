@@ -1049,3 +1049,14 @@ Installing/rolling back software, changing release channel, or performing SQLite
 Update/database migration actions are audited. Backup/RecoveryKit secrets remain governed by backup/secret permissions and are never exposed through update.view.
 
 See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](0017-upgrade-migration-and-rollback.md).
+
+
+## Device discovery and onboarding authorization
+
+Device discovery, manual endpoint probing, onboarding, credential replacement, endpoint changes, capability refresh, profile-role selection, and hardware replacement require `camera.manage`.
+
+Operational PTZ remains separately gated by `camera.ptz`.
+
+Discovery/probe endpoints are administrative and must not become generic server-side network fetch primitives. Credential-bearing RTSP/ONVIF/vendor URIs are redacted and never exposed through ordinary read APIs.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](0018-camera-onboarding-discovery-and-stream-selection.md).
