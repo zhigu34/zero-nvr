@@ -69,7 +69,7 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
                          │
                       Cameras
 
-       SQLite / PostgreSQL = metadata truth
+       SQLite / SQLite / PostgreSQL = metadata truth
                          │
           Local / S3 / rclone / OpenList
 ```
