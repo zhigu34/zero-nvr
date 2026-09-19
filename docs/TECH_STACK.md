@@ -327,3 +327,21 @@ Live transcode can use detected platform acceleration such as VAAPI/QSV/NVENC/Vi
 TURN credentials are short-lived and derived/issued for authenticated MediaSessions rather than exposing permanent coturn credentials.
 
 See [Spec 0020](specs/0020-live-view-media-session-and-talk.md).
+
+
+## Detection and AI providers
+
+First-production-release provider architecture:
+
+- mature ONVIF library event service for native events/PullPoint handling;
+- HIK/vendor event bridge when vendor-native analytics add value;
+- Frigate integration as an optional external DetectionProvider;
+- local lightweight motion provider on the `detection` MediaStream role.
+
+Frigate integration prefers MQTT for tracked-object lifecycle updates and uses the HTTP API for health/detail/snapshot/reconciliation where appropriate. Frigate event/recording storage never replaces zero-nvr's canonical DetectionEvent/Recording models.
+
+High-frequency provider updates normalize into bounded DetectionObservation sampling plus one canonical DetectionEvent aggregate. Cross-provider duplicate/related occurrences use non-destructive EventFusionGroup correlation.
+
+Local/AI detection compute is isolated from FastAPI request handling and is resource-bounded so detector overload cannot starve recording.
+
+See [Spec 0021](specs/0021-detection-providers-ai-events-and-fusion.md).
