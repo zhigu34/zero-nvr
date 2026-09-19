@@ -74,37 +74,30 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
           Local / S3 / rclone / OpenList
 ```
 
-### Production database and SQLite portability
+### Production database modes
 
-PostgreSQL is the only production metadata database.
-
-```text
-Production zero-nvr
-      ↓
- PostgreSQL
-```
-
-SQLite is deliberately not a second live database backend. It is used for selected database-portable unit tests and as a versioned portable/offline index format.
+zero-nvr supports two production database modes behind one persistence/domain contract.
 
 ```text
-PostgreSQL
-   ↓ consistent export
-portable SQLite index
-   ├─ offline inspection
-   ├─ detached-media catalog
-   ├─ support/diagnostics
-   └─ import/migration staging
+                DatabaseCapabilities
+                /                  \
+        SQLite (default)       PostgreSQL
+        lightweight            enhanced concurrency
+        WAL                    client/server
+        Litestream             pgBackRest
 ```
 
-Portable SQLite excludes recoverable secrets and respects authorization scope. Imports validate/map into current domain services and persist to PostgreSQL; zero-nvr never swaps a SQLite file in as the live database.
+SQLite is the default for single-host lightweight deployment. PostgreSQL is available for sustained higher write concurrency and larger installations. User-visible business features stay the same.
 
-See [Spec 0016 — Production Database Policy and SQLite Portable Index](specs/0016-postgresql-and-sqlite-portability.md).
+A separate versioned SQLite portable index remains available for offline inspection/export/import independent from whichever production database is active.
+
+See [Spec 0016 — SQLite and PostgreSQL Production Database Modes](specs/0016-postgresql-and-sqlite-portability.md).
 
 ## 4. Source-of-truth rules
 
-### PostgreSQL
+### Production database
 
-PostgreSQL is the authoritative metadata store for:
+The selected SQLite or PostgreSQL production database is the authoritative metadata store for:
 
 - cameras and connections;
 - stream mappings;
@@ -547,11 +540,12 @@ archive_remote StorageTarget
    ↓
 verified remote media
 
+SQLite
+   ├─ Online Backup snapshots
+   └─ Litestream continuous replica / point-in-time restore
+
 PostgreSQL
-   ↓
-PgBackRestBackupBackend
-   ↓
-full/diff/incr + WAL/PITR repository
+   └─ pgBackRest full/diff/incr + WAL/PITR
 
 System/SecretStore recovery
    ↓
@@ -562,7 +556,7 @@ clean-host restore
 
 A StorageTarget may carry both `archive_remote` and `backup` roles, but recording objects and backup objects use separate prefixes, retention, and permissions.
 
-PostgreSQL PITR is delegated to pgBackRest rather than reimplemented in FastAPI. S3/POSIX targets may expose PITR capability; rclone/OpenList remain valid snapshot/system-backup targets unless their backend is explicitly proven PITR-capable.
+SQLite scheduled snapshots use the Online Backup API and may be uploaded through generic StorageBackends. Litestream provides continuous SQLite replication/point-in-time restore on compatible targets. PostgreSQL PITR is delegated to pgBackRest. The UI exposes point-in-time recovery only when the active database backend and selected target actually support it.
 
 System backups contain recording metadata, not a second copy of all video. After local-disk loss, restoring database + SecretStore keyring can reconnect remote StorageObjects and make cloud-only historical playback available without bulk media download.
 
