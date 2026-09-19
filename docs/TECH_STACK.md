@@ -11,7 +11,8 @@ Status: **recommended defaults, subject to implementation validation**
 - Pydantic
 - SQLAlchemy
 - Alembic
-- PostgreSQL
+- SQLite (default production database)
+- PostgreSQL (optional enhanced production database)
 
 Responsibilities:
 
