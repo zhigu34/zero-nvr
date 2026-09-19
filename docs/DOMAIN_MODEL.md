@@ -165,6 +165,7 @@ formal_record_segment_seconds
 pre_roll_seconds
 post_roll_seconds
 retention_policy_id
+recording_storage_pool_id
 enabled
 ```
 
@@ -297,6 +298,7 @@ actual_media_started_at
 actual_media_ended_at
 status
 origin_intent_type
+active_storage_target_id
 created_at
 updated_at
 ```
@@ -533,6 +535,42 @@ last_error
 delivered_at
 ```
 
+## StoragePool
+
+Groups one or more recording-hot StorageTargets used for direct formal recording.
+
+```text
+id
+name
+enabled
+selection_policy
+failover_enabled
+min_stable_seconds
+created_at
+updated_at
+```
+
+Initial selection policy:
+
+```text
+sticky_balanced
+```
+
+Pool membership:
+
+```text
+StoragePoolTarget
+  storage_pool_id
+  storage_target_id
+  priority
+  weight
+  enabled
+```
+
+A RecordingPolicy may reference `recording_storage_pool_id`; otherwise the system default pool is used.
+
+See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](specs/0010-recording-storage-pool-and-failover.md).
+
 ## StorageTarget
 
 ```text
@@ -553,6 +591,27 @@ local
 s3
 rclone
 openlist
+```
+
+Storage roles:
+
+```text
+recording_hot
+archive_remote
+playback_cache
+```
+
+Recording-related state may include:
+
+```text
+health_state    unknown | healthy | degraded | pressure | critical | offline | read_only
+write_state     eligible | draining | ineligible
+total_bytes
+used_bytes
+free_bytes
+last_health_at
+last_successful_write_at
+last_error
 ```
 
 ## StorageObject
@@ -850,3 +909,9 @@ created_at
 56. SystemTimeSettings owns the default managed-camera NTP source and recording timezone.
 57. A camera may inherit the system managed-camera NTP source or use an explicit camera-specific override.
 58. Host OS time synchronization is monitored separately from managed-camera NTP configuration in initial V2.
+59. Direct formal recording writes only to eligible recording-hot StorageTargets; archive-remote targets are asynchronous.
+60. A RecordingSession has at most one active hot write target at a time, selected through its StoragePool.
+61. Healthy active placement is sticky; soft rebalance happens only at safe boundaries and real storage failure may trigger immediate failover.
+62. Mid-segment storage failure may split physical RecordingSegments while the same RecordingSession/RecordingIntent continues.
+63. Recovered StorageTargets pass a stability period and do not immediately preempt healthy active writers.
+64. StorageTarget removal never silently discards unique retained media.
