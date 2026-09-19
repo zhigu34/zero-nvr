@@ -98,6 +98,8 @@ Start with:
 - [Recording Storage Pool and Failover](docs/specs/0010-recording-storage-pool-and-failover.md)
 - [Authentication, Authorization, and Audit](docs/specs/0011-auth-authorization-and-audit.md)
 - [Configuration, Secrets, and Key Management](docs/specs/0012-config-secrets-key-management.md)
+- [First Production Release Scope](docs/specs/0013-first-production-release-scope.md)
+- [Alerting, Notification, and Escalation](docs/specs/0014-alerting-notification-and-escalation.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
