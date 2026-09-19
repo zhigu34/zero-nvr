@@ -8,16 +8,16 @@ The project intentionally uses mature components for commodity protocol/infrastr
 | FFmpeg / ffprobe | recording, export, inspection, conversion | Core | RecorderBackend / jobs |
 | ONVIF client library | SOAP/WSDL/WS-Security, Device/Media/Events/PTZ protocol | Core | DeviceAdapter |
 | PostgreSQL | authoritative metadata | Core | Persistence |
-| Apprise | generic notifications | Planned | NotificationBackend |
-| S3-compatible storage | remote object storage | Planned | StorageBackend |
-| rclone | generic cloud-drive transfer | Optional | StorageBackend |
-| OpenList | storage gateway/WebDAV | Optional | StorageBackend |
-| Frigate | external AI detection | Optional | DetectionProvider |
-| Home Assistant | home automation / external recording triggers / NVR state exposure | Optional | IntegrationAdapter |
-| MQTT broker | deep integration / event transport / HA MQTT Discovery | Optional | IntegrationAdapter |
-| coturn | WebRTC TURN | Optional | Media infrastructure |
-| HIK vendor SDK | vendor-private device features | Optional | isolated DeviceAdapter bridge |
-| WVP + ZLM | GB28181 | Future optional | DeviceAdapter / media integration |
+| Apprise | generic notifications | First release | NotificationBackend |
+| S3-compatible storage | remote object storage | First release | StorageBackend |
+| rclone | generic cloud-drive transfer | First release · optional runtime | StorageBackend |
+| OpenList | storage gateway/WebDAV | First release · optional runtime | StorageBackend |
+| Frigate | external AI detection | First release · optional runtime | DetectionProvider |
+| Home Assistant | home automation / external recording triggers / NVR state exposure | First release · optional runtime | IntegrationAdapter |
+| MQTT broker | deep integration / event transport / HA MQTT Discovery | First release · optional runtime | IntegrationAdapter |
+| coturn | WebRTC TURN | First release · optional runtime | Media infrastructure |
+| HIK vendor SDK | vendor-private device features | First release · optional runtime | isolated DeviceAdapter bridge |
+| WVP + ZLM | GB28181 | First release · optional runtime | DeviceAdapter / media integration |
 
 ## Rules
 
@@ -120,7 +120,7 @@ These questions matter more than the underlying vendor API.
 
 ## Home Assistant integration
 
-Home Assistant is an optional, load-on-demand integration.
+Home Assistant is implemented in the first production release and remains optional/load-on-demand at runtime.
 
 ### Mode A — REST-only
 
@@ -161,7 +161,7 @@ The MQTT broker is not part of the default deployment.
 
 ### Mode C — Home Assistant Custom Integration
 
-A future `custom_components/zero_nvr` package may provide the best UX:
+The first production release includes a `custom_components/zero_nvr` package for the best UX:
 
 ```text
 HA → Add Integration → Zero NVR → URL + API token
@@ -186,3 +186,30 @@ pre-roll / active / post-roll
 ```
 
 If continuous recording is already active, zero-nvr should normally annotate/promote existing segments instead of launching a duplicate recorder.
+
+
+## SMTP / email integration
+
+SMTP is a first-production-release platform integration.
+
+Uses include:
+
+- self-service password reset;
+- account/security notifications;
+- event/alert email delivery;
+- storage/system health notifications;
+- optional export/report completion notifications.
+
+Configuration includes host, port, STARTTLS/TLS mode, username, SecretStore-backed password, From address/name, Reply-To, timeouts, and feature toggles.
+
+Required behavior:
+
+- test connection;
+- send test email;
+- queue delivery;
+- retry transient failures;
+- retain delivery result/error metadata without logging credentials;
+- support authenticated STARTTLS and implicit TLS;
+- allow explicit no-TLS only for trusted local relays.
+
+SMTP failure never blocks recording or event persistence.
