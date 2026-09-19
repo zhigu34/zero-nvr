@@ -22,12 +22,12 @@ A database backup is not a substitute for remote recording archive, and recordin
        ↓
    verified remote media copy
 
-2. PostgreSQL recovery
+2. Database recovery
+   SQLite
+     ├─ Online Backup snapshot
+     └─ Litestream continuous replica / point-in-time restore
    PostgreSQL
-       ↓
-   mature PostgreSQL backup engine
-       ↓
-   base/full/differential/incremental + WAL/PITR
+     └─ pgBackRest full/diff/incr + WAL/PITR
 
 3. System/configuration recovery
    metadata + selected non-DB state
@@ -128,42 +128,84 @@ Conceptual capabilities:
 
 ```text
 snapshot_backup
-pitr_repository
+sqlite_continuous_replica
+postgres_pitr_repository
 versioned_objects
 object_lock
 checksum_verify
 ```
 
-Initial first-release expectation:
+First-release expectation:
 
-- local/POSIX repository can support snapshot and PITR when configured safely;
-- S3-compatible target can support snapshot and PITR;
-- rclone/OpenList support portable/system snapshot backup through zero-nvr StorageBackend;
-- mounted NAS supports PITR only when presented as a reliable supported POSIX repository.
+- all supported backup targets may receive verified database snapshots through zero-nvr StorageBackend;
+- S3/S3-compatible targets may support SQLite Litestream continuous replication;
+- Litestream-compatible WebDAV/SFTP/local targets may support SQLite continuous replication after capability validation;
+- OpenList may use Litestream through its WebDAV endpoint only when compatibility checks pass; otherwise it remains snapshot-backup capable;
+- rclone remains a generic snapshot/system-backup path unless a tested native continuous-replication integration is added;
+- PostgreSQL pgBackRest supports PITR repositories on supported POSIX/S3-compatible backends.
 
-A snapshot-only target must not be shown as PITR-capable.
+A target must never be advertised as point-in-time capable merely because it can store snapshot files.
 
-## PostgreSQL backup engine
+## Database backup backends
 
-Use a mature PostgreSQL backup engine rather than implementing WAL archive semantics in application code.
-
-Initial first-release backend:
+zero-nvr exposes one BackupPolicy/Restore product model with backend-specific engines.
 
 ```text
-PgBackRestBackupBackend
+SQLite
+  ├─ SqliteSnapshotBackupBackend
+  │    └─ SQLite Online Backup API
+  └─ LitestreamBackupBackend
+       └─ continuous remote replication / restore
+
+PostgreSQL
+  └─ PgBackRestBackupBackend
+       └─ full/diff/incr + WAL archive / PITR
 ```
 
-Responsibilities delegated to the backup engine:
+### SQLite snapshot backup
 
-- full backup;
-- differential/incremental backup;
+Scheduled SQLite snapshots use SQLite's Online Backup API to produce a transactionally consistent standalone database file while the live database remains online.
+
+The snapshot is then:
+
+1. integrity-checked;
+2. checksummed;
+3. wrapped into BackupManifest/system backup metadata;
+4. uploaded through the configured StorageBackend;
+5. remotely verified.
+
+This path works with generic backup targets such as local storage, S3, rclone, and OpenList.
+
+Do not back up SQLite by blindly copying the live `.db`, `-wal`, and `-shm` files independently.
+
+### SQLite continuous replication
+
+For low-RPO remote database protection, initial first-release engine is Litestream.
+
+Litestream continuously replicates the SQLite database changes to supported replicas and can restore the latest state or a selected timestamp/transaction boundary.
+
+Important product semantics:
+
+- zero-nvr displays the actual recoverable range/endpoints reported by the replica;
+- timestamp restore is not described as guaranteed arbitrary-transaction precision;
+- restore granularity depends on retained Litestream LTX file boundaries;
+- restore preflight/dry-run is used before destructive recovery where supported;
+- restored SQLite database receives an integrity check before activation.
+
+### PostgreSQL backup engine
+
+PostgreSQL uses pgBackRest rather than application-owned WAL mechanics.
+
+PgBackRest owns:
+
+- full/differential/incremental backup;
 - WAL archive push/get;
-- backup-repository consistency;
+- repository consistency;
 - restore;
 - point-in-time recovery;
-- backup verification/information.
+- repository/backup verification information.
 
-zero-nvr owns policy, orchestration, authorization, UI, product manifests, health, and clean-host recovery workflow.
+zero-nvr owns policy, orchestration, authorization, UI, manifests, health, and clean-host recovery workflow.
 
 ## Database recovery modes
 
@@ -194,14 +236,15 @@ BackupPolicy
   backup_target_id
 
   database_backup_enabled
-  database_mode             pitr | snapshot_only
+  database_backend          auto | sqlite | postgresql
+  database_mode             continuous_plus_snapshot | pitr | snapshot_only
 
   full_schedule
   differential_schedule
   snapshot_schedule
 
-  pitr_enabled
-  wal_archive_enabled
+  point_in_time_enabled
+  continuous_replication_enabled
 
   retention_daily
   retention_weekly
@@ -241,7 +284,8 @@ BackupSet
 
   app_version
   schema_revision
-  postgres_version
+  database_engine
+  database_engine_version
   instance_id
 
   manifest_object_key
@@ -272,10 +316,11 @@ created_at
 
 zero_nvr_version
 database_schema_revision
-postgres_version
+database_engine
+database_engine_version
 
 database_backup_reference
-pitr_repository_reference
+point_in_time_repository_reference
 
 secretstore_key_ids_required
 recovery_capsule_reference
@@ -294,7 +339,7 @@ The manifest never stores plaintext credentials.
 
 Normal automatic system backup includes or references:
 
-- PostgreSQL recovery state;
+- active database recovery state (SQLite or PostgreSQL);
 - ordinary configuration;
 - Camera/Recording/Event/Alert/User/Role/Audit metadata;
 - RecordingSegment and StorageObject metadata;
@@ -324,7 +369,7 @@ Only non-reconstructable operator-managed state belongs in the system backup.
 
 ## Keyring recovery
 
-SecretRecord ciphertext in PostgreSQL cannot be recovered without the matching SecretStore KEK/keyring.
+SecretRecord ciphertext in the active production database cannot be recovered without the matching SecretStore KEK/keyring.
 
 The keyring is protected independently from the database.
 
@@ -464,7 +509,8 @@ First production release supports periodic automated restore testing.
 
 The test restores into an isolated temporary PostgreSQL instance/environment and verifies at least:
 
-- PostgreSQL starts;
+- restored database opens/starts successfully;
+- SQLite restore passes integrity/quick checks or PostgreSQL restore starts successfully;
 - expected schema revision is present;
 - core tables are readable;
 - BackupManifest matches restored database identity;
@@ -481,7 +527,7 @@ System health exposes:
 last_successful_backup
 last_verified_backup
 last_restore_test
-pitr_wal_archive_lag
+point_in_time_replication_lag
 oldest_recoverable_time
 newest_recoverable_time
 backup_target_health
@@ -518,7 +564,7 @@ but these remain configurable product defaults.
 
 Retention never deletes the only base backup still required by unexpired WAL/PITR history.
 
-The PostgreSQL backup engine's repository-retention rules remain authoritative for repository consistency, while zero-nvr presents policy and status.
+The active database backup engine's retention/dependency rules remain authoritative for repository consistency, while zero-nvr presents policy and status.
 
 ## Backup deletion protection
 
@@ -561,7 +607,7 @@ preflight compatibility checks
    ↓
 restore SecretStore/keyring bootstrap
    ↓
-restore PostgreSQL
+restore active database backend
    ↓
 apply supported schema migration if required
    ↓
@@ -584,7 +630,7 @@ Before destructive/full restore, verify:
 - database backup integrity/status;
 - required RecoveryKit/key IDs;
 - backup-target accessibility;
-- PostgreSQL compatibility;
+- active database-engine compatibility;
 - zero-nvr application/schema compatibility;
 - destination storage paths;
 - enough local free space;
@@ -600,7 +646,7 @@ BackupManifest stores:
 ```text
 zero_nvr_version
 database_schema_revision
-postgres_version
+database_engine_version
 backup_format_version
 ```
 
@@ -609,7 +655,7 @@ Restore rules:
 - same supported version: restore directly;
 - older supported schema into newer zero-nvr: restore then run controlled migrations;
 - newer schema into older zero-nvr: reject unless an explicit compatible downgrade path exists;
-- incompatible PostgreSQL major/version format: use the backup engine's supported migration/restore path rather than copying data directories blindly.
+- incompatible database-engine/version format: use the selected backup engine's supported restore/migration path rather than copying live database files blindly.
 
 Never silently start an older application against a newer incompatible schema.
 
@@ -632,7 +678,7 @@ Media ingest/recording behavior during full control-plane restore must be explic
 
 ## Point-in-time recovery semantics
 
-PITR restores PostgreSQL metadata to a canonical UTC point.
+Point-in-time recovery restores database metadata to the selected recoverable point. PostgreSQL uses WAL/PITR; SQLite uses the nearest valid retained Litestream restore boundary at or before the requested timestamp according to the generated restore plan.
 
 After PITR, physical media/archive may contain objects created after the restored database point.
 
@@ -735,7 +781,8 @@ Possible controls:
 - bandwidth/concurrency limits;
 - I/O priority where available;
 - separate local staging path;
-- WAL archiving remains continuous when PITR is enabled.
+- PostgreSQL WAL archiving remains continuous when its PITR mode is enabled;
+- SQLite Litestream replication remains continuous when its point-in-time mode is enabled.
 
 Recording correctness has priority over non-urgent backup throughput.
 
@@ -751,7 +798,7 @@ backup.overdue
 backup.verification_failed
 backup.restore_test_failed
 backup.target_unavailable
-backup.wal_archive_lag
+backup.point_in_time_replication_lag
 backup.recovery_kit_stale
 backup.no_remote_media_protection
 ```
@@ -830,45 +877,50 @@ Normal configuration/support export remains distinct from disaster-recovery back
    - separate prefixes and retention;
    - recording purge cannot remove backups;
 
-2. database backup:
-   - base/full backup completes and verifies;
-   - WAL archive advances recoverable window;
+2. SQLite backup:
+   - online consistent snapshot completes, integrity-checks, uploads, and verifies;
+   - Litestream replica advances the recoverable window on a supported target;
 
-3. PITR:
-   - restore to a selected UTC time;
+3. PostgreSQL backup:
+   - pgBackRest backup completes and verifies;
+   - WAL archive advances the recoverable window;
+
+4. point-in-time restore:
+   - PostgreSQL restores to the selected PITR time;
+   - SQLite restore plan selects a valid retained Litestream boundary for the requested timestamp;
    - expected database state appears;
    - newer media objects remain reconciliation candidates rather than being deleted;
 
-4. lost local recording disks:
+5. lost local recording disks:
    - restored DB/keyring reconnects remote StorageObjects;
    - remote-only historical playback works without bulk download;
 
-5. lost database host:
+6. lost database host:
    - clean host + RecoveryKit can locate/decrypt required recovery material and restore;
 
-6. missing RecoveryKit/key:
+7. missing RecoveryKit/key:
    - encrypted database secrets remain unavailable;
    - product reports explicit critical recovery problem;
 
-7. snapshot-only rclone/OpenList target:
+8. snapshot-only rclone/OpenList target:
    - portable/system snapshots work;
    - UI does not falsely advertise PITR;
 
-8. backup corruption:
+9. backup corruption:
    - verification fails;
    - backup is not marked READY/healthy;
 
-9. automated restore test:
+10. automated restore test:
    - isolated restore succeeds without changing production database;
 
-10. key rotation:
+11. key rotation:
    - RecoveryKit becomes stale until regenerated;
    - old required key material is not retired prematurely;
 
-11. retention:
+12. retention:
    - repository dependency rules preserve required PITR chain/base backup;
 
-12. backup target outage:
+13. backup target outage:
    - recording continues;
    - backup health/alerts degrade independently.
 
@@ -877,19 +929,20 @@ Normal configuration/support export remains distinct from disaster-recovery back
 1. Recording archive and system/database backup are separate protection layers.
 2. System backup does not duplicate all recording media by default.
 3. Local-only media is never falsely reported as disaster-protected.
-4. PostgreSQL PITR uses a mature database backup engine; zero-nvr does not implement WAL protocol mechanics itself.
-5. Backup target capability determines whether PITR can be offered.
-6. SecretStore ciphertext without matching keyring is not a complete recovery.
-7. A complete disaster-recovery repository must be accessible without first restoring the lost SecretStore.
-8. RecoveryKit is strongly encrypted and controlled outside PostgreSQL.
-9. Backup success distinguishes upload, verification, and restore testing.
-10. PITR/storage reconciliation never automatically deletes unreferenced post-recovery media.
-11. Remote archive can provide playback after local-disk loss without bulk redownload.
-12. Backup and recording objects use separate prefixes/lifecycle rules even on one target.
-13. Full restore uses preflight and maintenance/recovery mode.
-14. Restore compatibility is explicit by app/schema/PostgreSQL version.
-15. Backup retention never breaks a required PITR dependency chain.
-16. Backup credentials/key material never appear in normal APIs/logs/audit.
-17. Backup failures never directly stop healthy recording.
-18. First production release includes UI, alerts, audit, scheduled verification, and clean-host disaster recovery.
-19. Non-obvious backup/PITR/recovery/reconciliation logic requires comments per Development Guidelines.
+4. SQLite backup uses consistent Online Backup snapshots plus Litestream continuous replication where the target is compatible.
+5. PostgreSQL PITR uses pgBackRest; zero-nvr does not implement PostgreSQL WAL backup mechanics itself.
+6. Backup target capability and active database backend determine which point-in-time features can be offered.
+7. SecretStore ciphertext without matching keyring is not a complete recovery.
+8. A complete disaster-recovery repository must be accessible without first restoring the lost SecretStore.
+9. RecoveryKit is strongly encrypted and controlled outside PostgreSQL.
+10. Backup success distinguishes upload, verification, and restore testing.
+11. Point-in-time recovery/storage reconciliation never automatically deletes unreferenced post-recovery media.
+12. Remote archive can provide playback after local-disk loss without bulk redownload.
+13. Backup and recording objects use separate prefixes/lifecycle rules even on one target.
+14. Full restore uses preflight and maintenance/recovery mode.
+15. Restore compatibility is explicit by app/schema/PostgreSQL version.
+16. Backup retention never breaks a required PITR dependency chain.
+17. Backup credentials/key material never appear in normal APIs/logs/audit.
+18. Backup failures never directly stop healthy recording.
+19. First production release includes UI, alerts, audit, scheduled verification, and clean-host disaster recovery.
+20. Non-obvious backup/PITR/recovery/reconciliation logic requires comments per Development Guidelines.
