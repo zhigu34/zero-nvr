@@ -494,6 +494,34 @@ ZLMediaKit implementation must use source/runtime signals rather than reader-cou
 
 See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](specs/0008-stream-reconnect-and-recording-recovery.md).
 
+### Detection providers, observations, and event fusion
+
+Event providers do not directly become recording/alert engines.
+
+```text
+ONVIF / HIK / Frigate / local detector
+                ↓
+        DetectionProvider
+                ↓
+       DetectionObservation
+                ↓
+         EventNormalizer
+                ↓
+         DetectionEvent
+          ↓            ↓
+  EventFusionGroup   DetectionPolicy
+                       ↓
+              RecordingManager / AlertEvaluator
+```
+
+Provider observations are append-oriented source evidence. DetectionEvent is the provider-neutral business/timeline event. Cross-provider EventFusionGroup correlation is deliberately non-destructive so forensic detail can still show every provider report.
+
+A Camera may bind multiple providers with independent timeline/recording/alert eligibility. Frigate is treated as an optional DetectionProvider; its object/event database and recordings are never zero-nvr business authority.
+
+Provider stateful events use START/UPDATE/END with durable idempotency keys, out-of-order protection, timestamp provenance, and bounded liveness on provider disconnect. Zones map through canonical EventZone while preserving external-provider semantics.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
+
 ### Native / AI / external automation events
 
 ```text
