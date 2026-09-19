@@ -69,7 +69,7 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
                          │
                       Cameras
 
-       SQLite / SQLite / PostgreSQL = metadata truth
+       SQLite / PostgreSQL = metadata truth
                          │
           Local / S3 / rclone / OpenList
 ```
@@ -99,7 +99,7 @@ See [Spec 0016 — SQLite and PostgreSQL Production Database Modes](specs/0016-p
 
 The selected SQLite or PostgreSQL production database is the authoritative metadata store for:
 
-- cameras and connections;
+- devices, cameras, endpoints and connections;
 - stream mappings;
 - recording policies;
 - recording segments;
@@ -139,10 +139,15 @@ Conceptual operations:
 ```text
 discover()
 probe()
+identity()
 device_info()
+channels()
 media_profiles()
+stream_uri()
 event_capabilities()
 ptz_capabilities()
+time_capabilities()
+health()
 ```
 
 Implementations may include:
@@ -259,6 +264,37 @@ Initial optional implementations may include:
 Integration adapters are not required for core recording, playback, storage or device management.
 
 ## 6. Core data flows
+
+### Camera/device onboarding and stream selection
+
+Device identity is separate from Camera/channel identity.
+
+```text
+Discovery / Manual endpoint
+        ↓
+DiscoveryCandidate
+        ↓
+identity + credential probe
+        ↓
+Device
+  ├─ DeviceEndpoint
+  ├─ DeviceCredential -> SecretStore
+  └─ Camera channel(s)
+         ↓
+  SourceMediaProfile(s)
+         ↓
+  recording / live_main / live_preview / detection / audio
+```
+
+Discovery only finds candidates; it does not create authoritative cameras. ONVIF, manual RTSP, HIK/vendor bridge, and GB28181/WVP normalize into the same Device/Camera/SourceMediaProfile model.
+
+Stable device identifiers are preferred over IP address so DHCP changes do not duplicate cameras. Weak/ambiguous matches require confirmation.
+
+Onboarding verifies actual media pull in addition to management authentication. Multi-channel NVR/DVR and multi-sensor devices create one Device with several logical Camera channels.
+
+Automatic profile selection is explainable and overrideable. Recording, live-main, preview-grid, detection, and audio roles may map to different source profiles. Browser codec limitations do not force the recording source profile to change globally.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
 ### Live view
 
