@@ -175,11 +175,17 @@ Reasons:
 - JSONB for provider metadata;
 - better growth path than SQLite for the target architecture.
 
-### Development/testing
+### Development/testing and portability
 
-SQLite may be used selectively for lightweight unit tests if the affected behavior is database-portable.
+PostgreSQL is the only supported production metadata database.
 
-PostgreSQL integration tests are required for PostgreSQL-specific behavior.
+SQLite may be used selectively for lightweight unit tests when the affected behavior is database-portable, and as the first-release portable/offline index format for metadata export/import, detached-media inspection, recovery analysis, and migration tooling.
+
+PostgreSQL integration tests are mandatory for production database semantics such as concurrency, locking, JSONB, timestamps, migrations, and worker coordination.
+
+zero-nvr does not expose SQLite as a production runtime database option.
+
+See [Spec 0016](specs/0016-postgresql-and-sqlite-portability.md).
 
 ## Jobs
 
