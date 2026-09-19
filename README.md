@@ -104,6 +104,7 @@ Start with:
 - [SQLite and PostgreSQL Production Modes](docs/specs/0016-postgresql-and-sqlite-portability.md)
 - [Upgrade, Migration, and Rollback](docs/specs/0017-upgrade-migration-and-rollback.md)
 - [Camera Onboarding, Discovery, and Stream Selection](docs/specs/0018-camera-onboarding-discovery-and-stream-selection.md)
+- [Device Runtime Lifecycle and Reconfiguration](docs/specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
