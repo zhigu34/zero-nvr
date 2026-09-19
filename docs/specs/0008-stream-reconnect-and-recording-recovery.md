@@ -414,3 +414,22 @@ Reconnect/offline elapsed timers use monotonic runtime time, while persisted out
 ## Storage-failure recovery reference
 
 A mid-segment recording-hot storage failure follows the same physical-discontinuity principle as source/runtime recovery: the interrupted object is finalized/reconciled where possible, another eligible target may be selected, and the new physical segment clock starts from actual recovered write time while RecordingSession/RecordingIntent may continue. See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
+
+
+## Planned runtime reconfiguration reference
+
+Network/source failure and intentional configuration changes are distinct.
+
+A planned recording-profile/source switch should occur at a safe existing segment boundary where possible and preserve RecordingSession/RecordingIntent.
+
+If the selected source/profile disappears or must switch immediately, finalize the physical segment with:
+
+```text
+completion_reason = source_reconfigured
+```
+
+then start a new physical segment on the verified replacement source. The same logical RecordingSession remains active while RecordingIntent remains active. A forced media discontinuity restarts the physical segment cadence from actual switch/recovery time.
+
+Runtime callbacks are fenced by the current config revision/runtime generation so stale source events cannot overwrite recovered state.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
