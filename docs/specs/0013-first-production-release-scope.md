@@ -326,3 +326,10 @@ See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Dri
 The first production release includes short-lived authorized MediaSessions, multi-camera saved layouts, preview/main promotion, browser capability negotiation, WebRTC/fMP4/HLS fallback, H.265-compatible live resolution without changing recording quality, shared on-demand transcode, authenticated coturn TURN traversal, audio, snapshot, PTZ overlay, and separately authorized two-way talk.
 
 See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](0020-live-view-media-session-and-talk.md).
+
+
+## Detection and AI completeness
+
+The first production release includes provider-neutral DetectionObservation/DetectionEvent handling, ONVIF/HIK native events, local lightweight motion, optional Frigate tracked-object integration, zones/object classes/sub-labels/snapshots, provider reconnect/liveness handling, conservative non-destructive event fusion, per-provider recording/alert eligibility, provider health, and Event Center filtering.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](0021-detection-providers-ai-events-and-fusion.md).
