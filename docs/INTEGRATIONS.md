@@ -237,3 +237,16 @@ Grouping/cooldown/silence affect delivery only; they never remove canonical even
 Each target has independent health, retry, and SecretStore-backed credentials as needed. Webhook payloads carry stable delivery/idempotency identifiers. Home Assistant and MQTT actions continue to go through IntegrationAdapter.
 
 See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
+
+
+## Device identity across protocol adapters
+
+ONVIF, HIK/vendor bridge, and GB28181/WVP are discovery/control sources rather than separate business identities.
+
+If multiple adapters represent the same physical device, zero-nvr correlates them into one canonical Device where stable identity evidence is sufficient.
+
+A Device may use a primary management adapter plus a supplemental vendor adapter. Multi-channel devices normalize into several Camera channels under one Device.
+
+WVP restart/re-registration or DHCP/IP changes must not create new Camera IDs when canonical identity remains the same.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
