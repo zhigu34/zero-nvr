@@ -138,7 +138,11 @@ recording.delete
 
 ```text
 event.view
+alert.view
+alert.acknowledge
 alert.manage
+notification.view
+notification.manage
 ```
 
 ### Storage
@@ -194,6 +198,9 @@ recording.download
 recording.lock
 
 event.view
+alert.view
+alert.acknowledge
+notification.view
 storage.view
 system.view
 ```
@@ -220,6 +227,7 @@ camera.view
 live.view
 recording.view
 event.view
+alert.view
 ```
 
 No recording mutation, export/download, lock, delete, PTZ, or administration by default.
@@ -985,3 +993,20 @@ Administrative account recovery must be an explicit local/operations procedure a
 ## Secret-management reference
 
 Camera/storage/integration recoverable credentials are stored behind SecretStore and never exposed through normal read APIs. Local passwords and verifier-only API/service tokens use one-way hashing. AuditEvent records credential changes without plaintext/ciphertext/key material. See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](0012-config-secrets-key-management.md).
+
+
+## Alert and notification authorization
+
+Alert/notification authorization follows [Spec 0014](0014-alerting-notification-and-escalation.md).
+
+```text
+alert.view
+alert.acknowledge
+alert.manage
+notification.view
+notification.manage
+```
+
+Camera-scoped incidents require both the permission and effective camera scope. Notification target configuration, recipient groups, templates, and channel tests require notification.manage. Secrets remain hidden even from notification.view.
+
+Acknowledgement/resolution actions are audited and never alter source DetectionEvent/RecordingIntent semantics.
