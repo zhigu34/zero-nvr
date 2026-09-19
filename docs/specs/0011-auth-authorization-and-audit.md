@@ -1060,3 +1060,14 @@ Operational PTZ remains separately gated by `camera.ptz`.
 Discovery/probe endpoints are administrative and must not become generic server-side network fetch primitives. Credential-bearing RTSP/ONVIF/vendor URIs are redacted and never exposed through ordinary read APIs.
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](0018-camera-onboarding-discovery-and-stream-selection.md).
+
+
+## Device runtime administration authorization
+
+`camera.manage` is required for Camera/Device enable/disable, maintenance mode, explicit reconnect/reprobe, endpoint or credential application, runtime profile-role changes, capability refresh, and identity-conflict resolution.
+
+Automatic background reconnect/reconciliation does not represent a user-authorized administrative mutation and therefore does not create one AuditEvent per retry; it remains visible through health/runtime logs.
+
+Operational PTZ remains independently gated by `camera.ptz`.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
