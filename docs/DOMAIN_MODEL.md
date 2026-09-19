@@ -16,6 +16,8 @@ Local interactive account.
 id
 username
 display_name
+email
+email_verified_at
 password_hash
 enabled
 must_change_password
@@ -104,6 +106,61 @@ client_info
 ```
 
 Interactive sessions are revocable. Disabling a User revokes active sessions.
+
+
+## PasswordResetToken
+
+```text
+id
+user_id
+token_hash
+requested_at
+expires_at
+used_at
+requested_ip
+created_by_actor_id
+```
+
+Only the reset-token hash is persisted. Reset tokens are expiring and single-use.
+
+## UserMfa
+
+```text
+user_id
+enabled
+totp_secret_ref
+enrolled_at
+last_verified_at
+```
+
+TOTP secret material is stored behind SecretStore.
+
+## MfaRecoveryCode
+
+```text
+id
+user_id
+code_hash
+used_at
+created_at
+```
+
+Recovery codes are verifier-only credentials and are one-way hashed.
+
+## ExternalIdentity
+
+```text
+id
+user_id
+provider
+issuer
+subject
+email
+created_at
+last_login_at
+```
+
+OIDC/SSO identities map to the existing User/Role/Permission/CameraScope authorization model.
 
 See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
 
@@ -1072,6 +1129,10 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 70. AuditEvent is append-oriented actor accountability and remains separate from EventLog runtime/business history.
 71. Disabling a User revokes active interactive sessions.
 72. Domain safety invariants still apply even when the actor is an Administrator.
+73. Password reset tokens are single-use expiring verifier-only credentials; plaintext reset tokens are never persisted.
+74. Successful password reset revokes prior interactive sessions by default.
+75. TOTP MFA secrets are protected through SecretStore while MFA recovery codes are one-way hashed.
+76. OIDC/SSO identities map into the same User/Role/Permission/CameraScope model and never bypass authorization.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
