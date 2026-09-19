@@ -1,6 +1,29 @@
 # Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration
 
-Status: **accepted**
+Status: **accepted with V1 lightweight-baseline override**
+
+## Current V1 lightweight backup baseline
+
+The default V1 disaster-recovery path is intentionally lightweight:
+
+```text
+SQLite -> SQLite Online Backup API -> restic repository
+PostgreSQL -> pg_dump -> restic repository
+```
+
+restic owns encrypted/versioned repository storage, deduplication, retention primitives, and integrity checking. zero-nvr owns scheduling, manifests, policy, UI, verification status, and restore orchestration.
+
+Recording archive remains separate and is handled through RecordingLocation/rclone lifecycle.
+
+**Litestream and pgBackRest/PITR are optional advanced capabilities, not V1 release gates and not mandatory dependencies.** They may be integrated later or exposed when explicitly configured without changing the baseline backup contract.
+
+Disposable/reproducible data such as thumbnail cache, export cache, playback cache, rclone cache, Timeline/Gap projections, and current in-memory health state is excluded from normal system backup.
+
+The SecretStore master/bootstrap recovery material required to decrypt restored credentials must be included in the documented RecoveryKit process.
+
+This section supersedes any lower wording that describes Litestream, pgBackRest, or PITR as mandatory for the first stable release.
+
+See [Project Baseline](../PROJECT_BASELINE.md).
 
 ## Goal
 
@@ -135,7 +158,7 @@ object_lock
 checksum_verify
 ```
 
-First-release expectation:
+Optional advanced capability notes:
 
 - all supported backup targets may receive verified database snapshots through zero-nvr StorageBackend;
 - S3/S3-compatible targets may support SQLite Litestream continuous replication;
@@ -180,7 +203,7 @@ Do not back up SQLite by blindly copying the live `.db`, `-wal`, and `-shm` file
 
 ### SQLite continuous replication
 
-For low-RPO remote database protection, initial first-release engine is Litestream.
+For installations that explicitly require low-RPO SQLite replication, an optional advanced engine may be Litestream.
 
 Litestream continuously replicates the SQLite database changes to supported replicas and can restore the latest state or a selected timestamp/transaction boundary.
 
@@ -194,7 +217,7 @@ Important product semantics:
 
 ### PostgreSQL backup engine
 
-PostgreSQL uses pgBackRest rather than application-owned WAL mechanics.
+When advanced PostgreSQL PITR is explicitly enabled, pgBackRest is the preferred mature engine rather than application-owned WAL mechanics.
 
 PgBackRest owns:
 
