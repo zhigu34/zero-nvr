@@ -51,6 +51,33 @@ Avoid a design that requires the operator to configure the same Camera separatel
 
 zero-nvr should orchestrate integration configuration or clearly document the source of truth.
 
+
+## Integration credentials and SecretStore
+
+Integration configuration separates non-secret endpoint/settings data from credentials.
+
+Examples:
+
+```text
+Home Assistant URL        -> ordinary configuration
+Home Assistant token      -> secret_ref
+
+MQTT host/topic           -> ordinary configuration
+MQTT username/password    -> secret_ref
+
+S3 endpoint/bucket        -> ordinary configuration
+S3 access/secret key      -> secret_ref
+
+OpenList URL/path         -> ordinary configuration
+OpenList token/password   -> secret_ref
+```
+
+Adapters request recoverable credentials through SecretStore only when they need to establish an external connection. Integration credentials are never copied into public API responses, EventLog, AuditEvent, or normal support/config exports.
+
+Dedicated service/API credentials that zero-nvr only needs to verify should be stored as one-way verifiers rather than recoverable plaintext.
+
+See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](specs/0012-config-secrets-key-management.md).
+
 ## Live media integration
 
 ZLMediaKit is expected to expose stable internal stream keys such as:
