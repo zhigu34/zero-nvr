@@ -39,7 +39,8 @@ Examples that are first-release scope:
 - role/permission/camera scope;
 - session management and audit;
 - SecretStore/key rotation/backup;
-- ONVIF discovery/events/PTZ/time management;
+- complete device onboarding: ONVIF discovery, manual RTSP, multi-channel devices, capability/profile probing, stream-role selection, batch add, endpoint rediscovery;
+- ONVIF events/PTZ/time management;
 - HIK vendor bridge;
 - GB28181/WVP integration;
 - live WebRTC/fMP4/HLS and TURN;
@@ -303,3 +304,10 @@ See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-b
 The first production release includes stable/preview release channels, update checking, manual/scheduled upgrade policy, compatibility preflight, verified pre-upgrade safety points, Alembic migration classification, startup schema gates, automatic rollback where lossless, recovery-point rollback for incompatible changes, upgrade history/UI, and separate guided SQLite ↔ PostgreSQL migration.
 
 See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](0017-upgrade-migration-and-rollback.md).
+
+
+## Camera onboarding completeness
+
+The first production release includes staged discovery candidates, stable device identity/deduplication, Device-versus-Camera channel modeling, manual RTSP, ONVIF discovery/probe, HIK/GB28181 identity correlation, multi-channel onboarding, SourceMediaProfile discovery, explainable auto stream-role selection, manual override, actual media verification, batch onboarding, and endpoint/profile refresh handling.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](0018-camera-onboarding-discovery-and-stream-selection.md).
