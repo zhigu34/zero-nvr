@@ -506,6 +506,49 @@ One SourceMediaProfile may satisfy several roles. The MediaPlane maps MediaStrea
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
+## CameraRuntimeStatus
+
+Reconstructable runtime read model for one Camera.
+
+```text
+camera_id
+desired_state             enabled | disabled | maintenance
+config_revision
+applied_revision
+control_health
+media_health
+event_health
+ptz_health
+clock_health
+effective_recording_profile_id
+effective_live_profile_id
+effective_preview_profile_id
+effective_detection_profile_id
+last_transition_at
+last_error_code
+sanitized_error
+updated_at
+```
+
+Overall camera health is a UI summary only. Domain decisions consume the specific component health they need.
+
+## RuntimeGeneration
+
+Short-lived runtime identity used to fence stale asynchronous callbacks.
+
+```text
+camera_id
+role
+config_revision
+runtime_generation
+started_at
+ended_at
+```
+
+Runtime callbacks from an older config revision/generation cannot mutate authoritative current state.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
+
 ## RecordingPolicy
 
 Describes desired recording behavior.
