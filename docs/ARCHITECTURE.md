@@ -577,6 +577,31 @@ Incomplete media is written under a staging/temp path and published to the canon
 See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
 
 
+
+### Authentication, authorization, and audit
+
+Authorization uses two independent dimensions:
+
+```text
+Role / Permission
+      +
+Camera Scope
+      ↓
+effective authorization
+```
+
+Initial built-in roles are Administrator, Operator, and Viewer. Permissions remain action-oriented so viewing footage does not automatically grant export/download, lock, delete, PTZ, camera management, or system administration.
+
+Camera scope may include all cameras, selected CameraGroups, selected Cameras, or none. Backend authorization is authoritative; hiding a button in Vue is only a usability layer.
+
+Live/playback media access uses short-lived scoped media/session authorization rather than exposing permanent stream URLs or camera credentials. Export/download/delete/lock and system/storage/security changes use explicit permissions.
+
+External integrations use dedicated least-privilege service principals rather than administrator browser sessions.
+
+Sensitive actor-driven changes produce append-oriented AuditEvents. Runtime/business behavior remains in EventLog; AuditEvent answers who did what, to which resource, with what result.
+
+See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
+
 ## 7. Runtime roles
 
 The initial service split is conceptual and may initially share processes where operationally simpler.
