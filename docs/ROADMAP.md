@@ -28,16 +28,20 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
 - [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
 - [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
-- [x] Define PostgreSQL-only production database policy and SQLite portable/offline index role.
+- [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
 
 - [ ] Backend project bootstrap.
 - [ ] Frontend project bootstrap.
-- [ ] PostgreSQL + Alembic.
-- [ ] production database guard: PostgreSQL required; no SQLite production mode.
-- [ ] PostgreSQL integration-test harness for locking/concurrency/JSONB/timestamps/migrations.
+- [ ] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
+- [ ] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
+- [ ] PostgreSQL optional bundled/external production profile.
+- [ ] DatabaseCapabilities abstraction for locking/task claiming/indexing/backup.
+- [ ] SQLite and PostgreSQL production integration-test harnesses.
+- [ ] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
+- [ ] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
 - [ ] ordinary configuration + SecretStore abstraction.
 - [ ] SecretRecord persistence with authenticated envelope encryption.
 - [ ] per-record DEK + external/versioned KEK keyring bootstrap.
@@ -336,10 +340,14 @@ Acceptance:
 - [ ] SecretStore KEK rotation workflow and health UI.
 - [ ] BackupPolicy / BackupSet / BackupManifest persistence and APIs.
 - [ ] StorageTarget backup role and capability probing.
+- [ ] SQLite Online Backup API consistent snapshot backend.
+- [ ] SQLite snapshot upload/verification through S3/rclone/OpenList/local StorageBackends.
+- [ ] Litestream continuous SQLite replication for compatible S3/S3-compatible/WebDAV/SFTP/local targets.
+- [ ] SQLite point-in-time restore planning with actual retained restore-boundary visibility.
 - [ ] pgBackRest integration for PostgreSQL full/differential/incremental backup.
-- [ ] continuous WAL archive and PITR window health.
-- [ ] latest / selected backup / point-in-time restore modes.
-- [ ] S3/POSIX PITR repository support.
+- [ ] PostgreSQL continuous WAL archive and PITR-window health.
+- [ ] unified latest / selected backup / point-in-time restore UX.
+- [ ] capability-aware continuous/PITR repository support.
 - [ ] snapshot/system-backup support through S3/rclone/OpenList/local backends.
 - [ ] encrypted RecoveryKit generation/download/staleness tracking.
 - [ ] backup-target bootstrap credential recovery without database dependency.
