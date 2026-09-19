@@ -1097,3 +1097,14 @@ camera in scope
 TalkSession is separate from MediaSession/video lifecycle and defaults to one active talker per Camera. Operational PTZ remains independently gated by `camera.ptz`.
 
 See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](0020-live-view-media-session-and-talk.md).
+
+
+## Detection-provider administration authorization
+
+Viewing DetectionEvents continues to require `event.view` plus Camera scope.
+
+Per-Camera native/local detection configuration and provider bindings require `camera.manage`. System-wide external provider endpoints/credentials such as Frigate require `integration.manage`.
+
+Provider observations, face/LPR/sub-label metadata, snapshots, and linked media remain camera-scoped. External provider credentials are SecretStore-backed and are never returned through ordinary event APIs.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](0021-detection-providers-ai-events-and-fusion.md).
