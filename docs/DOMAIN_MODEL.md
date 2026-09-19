@@ -2036,3 +2036,16 @@ See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](
 - AI/local-detection overload or failure never destabilizes healthy recording/media runtime.
 
 See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
+
+
+## Derived projections are not tables
+
+The following are query/projection concepts rather than authoritative persisted entities:
+
+- Timeline
+- Gap
+- thumbnail cache
+- playback cache
+- current high-frequency health samples
+
+Timeline is derived from RecordingSegment coverage plus Event markers. Gap is the complement of merged recording coverage over a requested wall-clock range.
