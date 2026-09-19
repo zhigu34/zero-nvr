@@ -486,3 +486,7 @@ Retention claims, user locks, disk watermarks, verified-remote local purge, and 
 ## Time-model reference
 
 Recording filenames are generated from canonical RecordingSegment UTC converted into the effective recording timezone; camera wall-clock time is never the filename timestamp authority. Camera OSD alignment and device clock monitoring are defined in [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
+
+## Storage-pool reference
+
+The same human-readable local layout is used independently on every recording-hot target. A camera's history may span multiple disks after balancing/failover, while StorageObject metadata and PlaybackResolver provide one logical timeline. Target selection/failover is defined in [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
