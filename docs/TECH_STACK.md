@@ -195,6 +195,26 @@ Job categories:
 
 Long-running camera/media runtimes are not ordinary queue jobs.
 
+
+## Security / secrets
+
+Initial cryptographic direction:
+
+- Argon2id for local password hashing;
+- authenticated encryption for recoverable managed secrets;
+- AES-256-GCM as the initial envelope-encryption primitive;
+- per-SecretRecord random DEK;
+- external/versioned KEK keyring supplied through Docker secrets/protected files or an equivalent bootstrap provider;
+- opaque/hash-stored authentication tokens where reversible secret recovery is unnecessary.
+
+Python implementation should use a maintained cryptographic library rather than custom cryptography.
+
+SecretStore remains an application abstraction so a later Vault/KMS/secret-manager backend can replace the initial encrypted-database implementation without changing Camera/Storage/Integration domain contracts.
+
+Production deployments should prefer Docker secret files or `*_FILE` bootstrap configuration for the PostgreSQL password and SecretStore key material rather than plaintext environment variables.
+
+See [Spec 0012](specs/0012-config-secrets-key-management.md).
+
 ## Observability
 
 Initial:
