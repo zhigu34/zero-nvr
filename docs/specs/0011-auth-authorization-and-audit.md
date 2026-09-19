@@ -24,7 +24,7 @@ Core rule:
 
 Initial V2 provides local zero-nvr accounts.
 
-Future external identity providers such as OIDC/SSO may be added behind the same Principal/Role/Permission model without changing domain authorization rules.
+The first production release supports both local accounts and OIDC/SSO behind the same Principal/Role/Permission model. Local accounts remain available for bootstrap and break-glass administration.
 
 Anonymous access is disabled by default.
 
@@ -39,6 +39,8 @@ User
   id
   username
   display_name
+  email
+  email_verified_at
   password_hash
   enabled
   must_change_password
@@ -572,6 +574,125 @@ Disabling a user revokes active sessions.
 
 Password change should allow revoking other sessions.
 
+
+## Password reset and account recovery
+
+The first production release includes SMTP-backed self-service password reset, administrator-issued reset tokens, and host-local emergency recovery.
+
+### Self-service email reset
+
+Public reset request behavior is non-enumerating:
+
+```text
+If an eligible account exists, reset instructions have been sent.
+```
+
+For an eligible enabled local account with a usable email address:
+
+1. generate a high-entropy one-time token;
+2. store only a token hash;
+3. persist user_id, expires_at, used_at, requested_at, and safe request metadata;
+4. enqueue an SMTP reset email;
+5. user presents token and new password;
+6. atomically mark token used;
+7. replace Argon2id password hash;
+8. revoke prior sessions by default;
+9. write AuditEvent.
+
+Conceptual model:
+
+```text
+PasswordResetToken
+  id
+  user_id
+  token_hash
+  requested_at
+  expires_at
+  used_at
+  requested_ip
+  created_by_actor_id nullable
+```
+
+A short configurable lifetime such as 15 minutes is the initial default.
+
+### Administrator-issued reset
+
+A user administrator may create an expiring one-time reset token for an account. The administrator never sees the old password and does not receive any reversible password representation.
+
+### Host-local emergency recovery
+
+If all administrators are locked out, zero-nvr exposes a local CLI/break-glass workflow requiring host/container shell access.
+
+Conceptual command:
+
+```text
+zero-nvr admin create-password-reset <username>
+```
+
+or an interactive reset that reads the new password from a TTY rather than process arguments.
+
+No unauthenticated remote administrator-reset endpoint is provided by default.
+
+## SMTP dependency for account recovery
+
+SMTP configuration is a first-production-release platform capability rather than future work.
+
+Password reset email requires a configured/healthy SMTP channel. If SMTP is unavailable, administrators can still use administrator-issued or host-local recovery methods.
+
+SMTP credentials are stored through SecretStore. SMTP delivery and retry semantics are shared with the notification subsystem.
+
+## Multi-factor authentication
+
+The first production release supports TOTP MFA for local interactive users.
+
+Conceptual fields/models:
+
+```text
+UserMfa
+  user_id
+  enabled
+  totp_secret_ref
+  enrolled_at
+  last_verified_at
+
+MfaRecoveryCode
+  id
+  user_id
+  code_hash
+  used_at
+  created_at
+```
+
+Rules:
+
+- TOTP secret is recoverable secret material and is stored through SecretStore;
+- recovery codes are one-way hashed and shown only at creation/regeneration;
+- enabling/disabling MFA is audited;
+- administrators cannot retrieve a user's TOTP secret through normal APIs;
+- high-risk account/security changes may require recent re-authentication/MFA.
+
+## OIDC / SSO
+
+The first production release supports OIDC login as an optional-to-enable deployment capability.
+
+OIDC identity maps into the existing User/Principal authorization model and never bypasses Role/Permission/CameraScope checks.
+
+Conceptual identity link:
+
+```text
+ExternalIdentity
+  id
+  user_id
+  provider
+  issuer
+  subject
+  email
+  created_at
+  last_login_at
+```
+
+Local break-glass administration remains available even when OIDC is configured.
+
 ## CSRF / browser security
 
 If browser authentication uses cookies:
@@ -652,6 +773,12 @@ auth.login_success
 auth.login_failure
 auth.logout
 auth.session_revoked
+auth.password_reset_requested
+auth.password_reset_completed
+auth.mfa_enabled
+auth.mfa_disabled
+auth.mfa_recovery_used
+auth.oidc_login
 
 user.created
 user.updated
@@ -817,6 +944,23 @@ Administrative account recovery must be an explicit local/operations procedure a
    - no default password exists;
    - bootstrap can run only before an administrator exists.
 
+11. SMTP password reset:
+   - public request does not enumerate accounts;
+   - token is one-time, expiring, and stored only as a hash;
+   - successful reset revokes prior sessions and writes audit.
+
+12. administrator/local recovery:
+   - administrator can issue one-time reset without learning old password;
+   - host-local recovery works without SMTP;
+   - no remote unauthenticated admin-reset backdoor exists.
+
+13. TOTP MFA:
+   - enrollment secret is protected by SecretStore;
+   - recovery codes are one-way hashed and single-use.
+
+14. OIDC:
+   - external login maps to the same User/Role/CameraScope authorization path.
+
 ## Invariants
 
 1. Backend authorization, not frontend visibility, is authoritative.
@@ -833,7 +977,10 @@ Administrative account recovery must be an explicit local/operations procedure a
 12. Audit history is append-oriented and not normally editable/deletable through product APIs.
 13. First-run bootstrap never depends on a universal default administrator password.
 14. Authorization must avoid leaking hidden camera/resource existence where practical.
-15. Non-obvious authorization/session/audit/security behavior requires comments per Development Guidelines.
+15. SMTP-backed self-service password reset is a first-production-release capability, with administrator and host-local recovery fallback.
+16. Local-user TOTP MFA and one-time recovery codes are supported in the first production release.
+17. OIDC/SSO authentication maps into the same authorization model and does not bypass camera scope.
+18. Non-obvious authorization/session/audit/security behavior requires comments per Development Guidelines.
 
 ## Secret-management reference
 
