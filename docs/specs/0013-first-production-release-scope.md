@@ -44,7 +44,7 @@ Examples that are first-release scope:
 - ONVIF events/PTZ/time management;
 - HIK vendor bridge;
 - GB28181/WVP integration;
-- live WebRTC/fMP4/HLS and TURN;
+- complete live monitor: multi-camera layouts, preview/main auto switching, WebRTC/fMP4/HLS fallback, H.265 compatibility, TURN, audio, snapshots, PTZ overlay, and two-way talk;
 - continuous/schedule/event/manual/hybrid recording;
 - prebuffer/event lifecycle;
 - retention, locks, disk pressure, multi-disk failover;
@@ -319,3 +319,10 @@ See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Se
 The first production release includes reconstructable Device/Camera runtime supervision, config-revision/runtime-generation fencing, idempotent enable/disable/reconnect, targeted hot reconfiguration, planned and forced source-profile switching, event subscription lifecycle, capability drift handling, layered health, and multi-channel missing/return recovery.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
+
+
+## Live-view completeness
+
+The first production release includes short-lived authorized MediaSessions, multi-camera saved layouts, preview/main promotion, browser capability negotiation, WebRTC/fMP4/HLS fallback, H.265-compatible live resolution without changing recording quality, shared on-demand transcode, authenticated coturn TURN traversal, audio, snapshot, PTZ overlay, and separately authorized two-way talk.
+
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](0020-live-view-media-session-and-talk.md).
