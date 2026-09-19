@@ -410,3 +410,7 @@ Expose enough diagnostics to answer:
 ## Time-source reference
 
 Reconnect/offline elapsed timers use monotonic runtime time, while persisted outage/segment timestamps use canonical UTC. A camera clock must never become the authority for source-loss gap placement. See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
+
+## Storage-failure recovery reference
+
+A mid-segment recording-hot storage failure follows the same physical-discontinuity principle as source/runtime recovery: the interrupted object is finalized/reconciled where possible, another eligible target may be selected, and the new physical segment clock starts from actual recovered write time while RecordingSession/RecordingIntent may continue. See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
