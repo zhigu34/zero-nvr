@@ -296,6 +296,32 @@ Automatic profile selection is explainable and overrideable. Recording, live-mai
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
+### Device runtime lifecycle and reconfiguration
+
+Durable configuration and runtime state are separate.
+
+```text
+Device / Camera / MediaStream config
+             ↓
+       RuntimeSupervisor
+      /      |       \
+ control   media    event/PTZ/time
+            ↓
+       ZLMediaKit
+            ↓
+     RecordingManager
+```
+
+Runtime-relevant changes carry monotonic config revisions and short-lived runtime generations. Late callbacks from an old ZLM stream, event subscription, reconnect timer, or device probe are ignored for current-state mutation once a newer revision is authoritative.
+
+Configuration apply follows prepare/validate/commit/apply. Metadata-only edits do not restart media. Endpoint/credential changes rebuild only affected runtimes when possible. Source-profile switches use shadow verification and safe handoff.
+
+Recording-profile changes preserve RecordingSession and active RecordingIntents. Planned changes switch at a safe formal segment boundary; forced changes close the physical segment with `completion_reason = source_reconfigured` and start a new segment while keeping logical recording intent active.
+
+Capability/profile/channel drift is diffed rather than treated as device deletion. Missing NVR channels keep their Camera identity/history and revive when the same stable channel returns.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
+
 ### Live view
 
 ```text
