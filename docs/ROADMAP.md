@@ -20,6 +20,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
 - [x] Define recording StoragePool placement, disk failover, draining, and remote-archive separation.
 - [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
+- [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -27,10 +28,17 @@ This roadmap describes sequencing, not fixed release dates.
 - [ ] Backend project bootstrap.
 - [ ] Frontend project bootstrap.
 - [ ] PostgreSQL + Alembic.
-- [ ] Configuration/secrets model.
+- [ ] ordinary configuration + SecretStore abstraction.
+- [ ] SecretRecord persistence with authenticated envelope encryption.
+- [ ] per-record DEK + external/versioned KEK keyring bootstrap.
+- [ ] Docker secret / protected-file *_FILE bootstrap support.
+- [ ] secret redaction for logs/errors/traces/AuditEvent.
+- [ ] explicit keep/replace/clear credential update semantics.
+- [ ] credential validation before atomic secret_ref switch where practical.
 - [ ] User / Role / Permission / UserSession persistence.
 - [ ] first-run one-time administrator bootstrap with no default password.
 - [ ] local authentication with modern password hashing and session revocation.
+- [ ] one-way hashing for verifier-only service/API tokens.
 - [ ] built-in Administrator / Operator / Viewer roles.
 - [ ] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
@@ -163,11 +171,11 @@ Acceptance:
 - [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache.
 - [ ] StorageTarget / StorageObject.
 - [ ] local retention.
-- [ ] S3 adapter.
+- [ ] S3 adapter with SecretStore-backed credentials.
 - [ ] upload state machine.
 - [ ] remote verification.
-- [ ] rclone adapter.
-- [ ] OpenList adapter.
+- [ ] rclone adapter with SecretStore-backed credentials.
+- [ ] OpenList adapter with SecretStore-backed credentials.
 - [ ] safe local purge.
 - [ ] archive upload policy independent from hot recording placement.
 - [ ] block destructive StorageTarget removal when unique retained media exists.
@@ -269,6 +277,11 @@ Acceptance:
 
 ## Phase 11 — Operations and scale
 
+- [ ] SecretStore KEK rotation workflow and health UI.
+- [ ] database backup + separately protected keyring recovery procedure.
+- [ ] normal support/config export with secrets excluded.
+- [ ] privileged portable encrypted backup/restore including secrets.
+- [ ] restore diagnostics for missing/wrong keyring and unavailable credentials.
 - [ ] metrics.
 - [ ] user/role/camera-scope administration UI.
 - [ ] audit UI.
