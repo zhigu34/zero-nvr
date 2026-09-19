@@ -208,7 +208,8 @@ The first production release includes operational features needed for long-term 
 - SecretStore/keyring RecoveryKit recovery;
 - encrypted portable backup including secrets;
 - configuration-only export excluding secrets;
-- upgrade/rollback procedure;
+- signed/version-pinned upgrade flow with preflight, verified safety backup, schema migration compatibility gates, and rollback;
+- guided SQLite ↔ PostgreSQL migration with validation/cutover/rollback;
 - database migrations;
 - storage reconciliation;
 - recorder/runtime restart recovery;
@@ -296,3 +297,9 @@ The first production release includes capability-aware backup targets, pgBackRes
 System backup protects metadata/configuration/secrets recovery; remote recording archive protects media. The product must report local-only media separately from verified remote-protected media.
 
 See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md).
+
+## Upgrade and migration completeness
+
+The first production release includes stable/preview release channels, update checking, manual/scheduled upgrade policy, compatibility preflight, verified pre-upgrade safety points, Alembic migration classification, startup schema gates, automatic rollback where lossless, recovery-point rollback for incompatible changes, upgrade history/UI, and separate guided SQLite ↔ PostgreSQL migration.
+
+See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](0017-upgrade-migration-and-rollback.md).
