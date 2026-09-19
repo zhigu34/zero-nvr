@@ -203,8 +203,9 @@ The first production release includes operational features needed for long-term 
 - structured logs;
 - metrics;
 - audit UI;
-- backup/restore;
-- SecretStore/keyring recovery;
+- PostgreSQL full/differential/incremental backup and PITR;
+- backup/restore with scheduled verification and isolated restore testing;
+- SecretStore/keyring RecoveryKit recovery;
 - encrypted portable backup including secrets;
 - configuration-only export excluding secrets;
 - upgrade/rollback procedure;
@@ -270,7 +271,7 @@ The first production release is not declared complete until:
 - failure/recovery paths are tested;
 - security/account recovery works;
 - SMTP/email reset works;
-- backup/restore including credentials is tested;
+- database PITR, clean-host backup/restore including credentials, and RecoveryKit recovery are tested;
 - storage/media recovery is tested;
 - live/recording/playback/event paths pass long-duration validation;
 - optional integrations can be disabled without harming core operation;
@@ -286,3 +287,12 @@ The first production release is not declared complete until:
 6. Security, recovery, backup, monitoring, and upgrade are release features rather than post-release cleanup.
 7. First release may still rely on mature external components; completeness does not mean reimplementing commodity protocols.
 8. Scope reduction requires an explicit product decision, not silent roadmap deferral.
+
+
+## Backup and disaster-recovery completeness
+
+The first production release includes capability-aware backup targets, pgBackRest-backed PostgreSQL PITR, system snapshots, encrypted RecoveryKit, portable migration backup, retention, verification, scheduled restore testing, clean-host restore, and remote-media reconciliation.
+
+System backup protects metadata/configuration/secrets recovery; remote recording archive protects media. The product must report local-only media separately from verified remote-protected media.
+
+See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md).
