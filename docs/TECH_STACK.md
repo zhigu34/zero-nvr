@@ -89,6 +89,16 @@ Use the official/vendor SDK behind an isolated bridge process.
 
 Prefer standard ONVIF onboarding when it provides the required capabilities; HIK may supplement the same canonical Device with vendor-only events/control rather than creating a duplicate device.
 
+### Device runtime supervision
+
+The FastAPI/control-plane side owns a RuntimeSupervisor that reconciles durable Device/Camera configuration into control/media/event/PTZ/time runtimes.
+
+Runtime-relevant configuration uses monotonic revisions and runtime generations so stale ZLM/vendor/ONVIF callbacks cannot overwrite newer state.
+
+External network/media calls occur outside short database transactions. Per-device/camera conflicting reconfiguration is serialized in a backend-compatible way for both SQLite and PostgreSQL.
+
+See [Spec 0019](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
+
 ### GB28181
 
 First-production-release integration, optional to enable at deployment:
