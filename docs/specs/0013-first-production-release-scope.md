@@ -12,6 +12,24 @@ Core rule:
 
 Implementation may still proceed in phases for engineering order, but those phases do not represent separate product releases and do not defer known product-grade capabilities to an unspecified later version.
 
+## Current V1 scope guard
+
+The first production release remains complete rather than MVP-scoped, but completeness is defined by an end-to-end usable NVR lifecycle rather than implementing every possible surveillance integration.
+
+The following do **not** block V1 unless explicitly re-promoted by product decision:
+
+- GB28181/WVP;
+- advanced vendor-private integrations beyond standard onboarding/PTZ/events needed by the target devices;
+- advanced face/LPR AI features;
+- mandatory Prometheus/Grafana deployment;
+- rclone FUSE/VFS streaming as the required remote-playback path;
+- multi-node media topology, clustering, or HA;
+- Kubernetes.
+
+V1 must still ship a complete lifecycle for the supported core: installation/initialization, camera onboarding, live view, continuous/scheduled/event recording, timeline/gaps, events, storage/retention/archive, remote restore playback, users/RBAC, password recovery/SMTP, time/NTP health, audit, export/protection, backup/restore, health, and upgrade.
+
+See [Project Baseline](../PROJECT_BASELINE.md).
+
 ## Release terminology
 
 The repository is a V2 rewrite of the earlier camera-recorder project.
@@ -42,8 +60,6 @@ Examples that are first-release scope:
 - complete device onboarding: ONVIF discovery, manual RTSP, multi-channel devices, capability/profile probing, stream-role selection, batch add, endpoint rediscovery;
 - complete device runtime lifecycle: enable/disable/maintenance, revision-fenced reconnect, hot profile/credential/endpoint reconfiguration, capability drift, channel disappearance/return;
 - ONVIF events/PTZ/time management;
-- HIK vendor bridge;
-- GB28181/WVP integration;
 - complete live monitor: multi-camera layouts, preview/main auto switching, WebRTC/fMP4/HLS fallback, H.265 compatibility, TURN, audio, snapshots, PTZ overlay, and two-way talk;
 - continuous/schedule/event/manual/hybrid recording;
 - prebuffer/event lifecycle;
@@ -191,8 +207,6 @@ First production release implements, while allowing deployment to disable:
 - MQTT integration and Home Assistant MQTT Discovery;
 - Home Assistant custom integration package;
 - Frigate DetectionProvider;
-- HIK vendor bridge;
-- GB28181 through WVP/ZLM;
 - TURN support for remote WebRTC.
 
 A disabled integration has zero runtime requirement where practical.
