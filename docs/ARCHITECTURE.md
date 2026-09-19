@@ -523,6 +523,9 @@ Recording filenames are generated from canonical RecordingSegment UTC converted 
 
 Compatible devices may be monitored through ONVIF device-time APIs. Default mode is monitor-only; optional managed NTP/timezone configuration is an explicit administrative action.
 
+
+System time settings provide a recording timezone plus the default NTP source for managed cameras. Cameras in `manage_ntp` mode inherit these settings unless they have an explicit device override. zero-nvr may configure compatible cameras, but initial V2 only monitors the host operating-system NTP/time-sync state and does not reconfigure chrony/systemd-timesyncd/ntpd itself.
+
 Device event timestamps preserve source time and receive time. A reliable measured camera-clock offset may normalize the canonical event occurrence timestamp. Historical normalized timestamps are not silently rewritten if the camera clock is corrected later.
 
 Schedules retain local wall-clock intent through an explicit schedule timezone. Elapsed timers/retry/post-roll use monotonic clocks so host NTP corrections do not distort durations.
