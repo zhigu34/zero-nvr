@@ -245,6 +245,62 @@ ONVIF provides Get/SetSystemDateAndTime and NTP configuration operations for com
 
 The NTP source is configured explicitly in zero-nvr/system settings. Do not assume the zero-nvr host itself is an NTP server unless the deployment actually provides that service.
 
+### System NTP settings for managed cameras
+
+System Settings must expose a dedicated time section.
+
+Conceptual configuration:
+
+```text
+SystemTimeSettings
+  recording_timezone
+  managed_camera_ntp_mode     manual | dhcp
+  managed_camera_ntp_servers[]
+  clock_warning_threshold_ms
+  clock_critical_threshold_ms
+```
+
+Recommended UI:
+
+```text
+System Settings
+└─ Time
+   ├─ Recording timezone
+   ├─ Managed camera NTP source
+   │    ├─ DHCP
+   │    └─ Manual
+   ├─ NTP server 1
+   ├─ NTP server 2
+   ├─ NTP server 3
+   └─ Clock health thresholds
+```
+
+Rules:
+
+- `managed_camera_ntp_servers` configures the NTP source zero-nvr will attempt to apply to cameras whose `time_sync_mode = manage_ntp`;
+- use hostname or IP according to device capability;
+- allow multiple ordered servers at the zero-nvr configuration level even if some cameras support only one; each adapter applies the subset supported by that device;
+- validate empty/invalid server entries before device changes;
+- changing the system NTP list does not silently rewrite every camera immediately unless the user applies/synchronizes the change;
+- camera-level override may be introduced for devices that must use a different NTP source.
+
+Default inheritance:
+
+```text
+camera time_sync_mode = manage_ntp
+        |
+        +-- camera NTP override exists
+        |      -> use camera override
+        |
+        +-- otherwise
+               -> use SystemTimeSettings managed camera NTP settings
+```
+
+The system NTP setting is for managed cameras. It is **not** automatically the zero-nvr host operating-system NTP configuration.
+
+In initial V2, zero-nvr monitors host clock synchronization/health but does not reconfigure chrony, systemd-timesyncd, ntpd, or equivalent host services. Host time-service management can be added later as an explicit operations feature.
+
+
 ### ignore
 
 Do not probe/manage device clock. Use this for unsupported or intentionally isolated devices.
@@ -549,7 +605,8 @@ System Settings should expose:
 
 ```text
 recording_timezone
-NTP server(s) for managed cameras
+managed_camera_ntp_mode
+managed_camera_ntp_servers[]
 host clock-health status
 clock warning thresholds
 ```
@@ -606,4 +663,6 @@ clock warning thresholds
 12. Device clock skew and media transport latency are separate concepts.
 13. Multi-camera playback remains aligned on canonical UTC.
 14. DST/local-time filename collisions use exceptional suffixing rather than overwriting media.
-15. Non-obvious clock correction/timezone/timer logic requires comments per Development Guidelines.
+15. Managed-camera NTP servers are explicit system configuration and may be inherited/overridden per camera.
+16. Initial V2 monitors host NTP/time-sync health but does not modify the host operating-system time-sync service.
+17. Non-obvious clock correction/timezone/timer logic requires comments per Development Guidelines.
