@@ -174,11 +174,12 @@ First production release notification channels include at minimum:
 - SMTP/email;
 - Apprise-backed providers;
 - webhook;
-- Home Assistant/integration actions where configured.
+- Home Assistant actions;
+- MQTT.
 
-AlertDelivery remains provider-neutral and records attempts/retries/results.
+The complete alerting layer includes AlertIncident grouping, acknowledgement/resolution, severity, recurring quiet periods, temporary silences, escalation policies, notification storm protection, templates, snapshots/deep links, durable AlertDelivery retries, per-attempt diagnostics, target health, and Alert Center UI.
 
-Failure of one notification channel never blocks event persistence or recording.
+Failure of one notification channel never blocks event persistence or recording. See [Spec 0014](0014-alerting-notification-and-escalation.md).
 
 ## Integration completeness
 
