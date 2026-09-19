@@ -1090,6 +1090,90 @@ FAILED
 
 Local-purge eligibility is a policy decision after verified remote readiness.
 
+## UpgradePlan
+
+```text
+id
+source_version
+target_version
+source_schema_revision
+target_schema_revision
+database_engine
+status
+rollback_class
+requires_maintenance
+requires_database_backup
+requires_recovery_kit_current
+estimated_steps
+preflight_result
+created_by
+created_at
+started_at
+completed_at
+```
+
+## UpgradeHistory
+
+```text
+id
+upgrade_plan_id
+source_version
+target_version
+source_schema_revision
+target_schema_revision
+database_engine
+safety_backup_set_id
+result
+rollback_result
+started_at
+committed_at
+completed_at
+error_code
+sanitized_error
+```
+
+## DataMigrationJob
+
+Durable progress for large/restartable data transforms.
+
+```text
+id
+upgrade_plan_id
+migration_id
+state
+cursor
+processed_count
+error_count
+started_at
+updated_at
+completed_at
+```
+
+## DatabaseMigrationPlan
+
+Tracks explicit SQLite ↔ PostgreSQL migration/cutover.
+
+```text
+id
+source_engine
+target_engine
+source_schema_revision
+target_schema_revision
+source_version
+status
+safety_backup_set_id
+validation_summary
+cutover_at
+rollback_deadline
+created_by
+created_at
+completed_at
+```
+
+Software upgrade and cross-database migration are separate operations. Both preserve canonical IDs and use verified safety backups where required.
+
+See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](specs/0017-upgrade-migration-and-rollback.md).
+
 ## BackupPolicy
 
 Defines database/system backup scheduling, retention, verification, and recovery behavior.
