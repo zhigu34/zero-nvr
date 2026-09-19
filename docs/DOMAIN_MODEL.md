@@ -549,6 +549,68 @@ Runtime callbacks from an older config revision/generation cannot mutate authori
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
 
+## MediaSession
+
+Short-lived authorized live-view session.
+
+```text
+id
+principal_id
+camera_id
+requested_purpose        grid | focus | fullscreen | popout | talk
+requested_quality        auto | preview | main
+effective_stream_role
+transport                webrtc | fmp4 | hls
+source_codec
+delivery_codec
+transcoded
+runtime_generation
+issued_at
+expires_at
+last_seen_at
+ended_at
+end_reason
+```
+
+MediaSession never exposes camera credentials or a permanent bearer URL.
+
+## TalkSession
+
+Short-lived camera-audio backchannel session.
+
+```text
+id
+media_session_id
+principal_id
+camera_id
+backend
+codec
+started_at
+last_seen_at
+ended_at
+end_reason
+```
+
+Talk is separately authorized from live viewing and defaults to one active talker per Camera.
+
+## LiveViewLayout
+
+Per-user saved live-monitor layout.
+
+```text
+id
+owner_user_id
+name
+is_default
+grid_definition
+created_at
+updated_at
+```
+
+Layouts reference Camera IDs and presentation preferences, never permanent media URLs.
+
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+
 ## RecordingPolicy
 
 Describes desired recording behavior.
@@ -1768,3 +1830,17 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 - Control, media, recording, event, PTZ, clock, and capability health remain independently observable.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
+
+
+### Live-view invariants
+
+- MediaSession is short-lived authorization/runtime state and never contains reusable camera credentials.
+- Grid viewing prefers live_preview; focused/fullscreen may promote to live_main.
+- Recording source/profile selection remains independent from browser playback compatibility.
+- H.265 live use is capability-dependent; browser incompatibility may trigger an on-demand H.264 live derivative without changing recording.
+- WebRTC is preferred for low-latency viewing; fMP4 and HLS are bounded fallbacks.
+- Compatible viewers share transcode derivatives where practical.
+- TURN credentials are short-lived and issued only for authorized MediaSessions.
+- Talk is separately authorized and isolated from video/recording lifecycle.
+
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
