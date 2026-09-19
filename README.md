@@ -95,6 +95,7 @@ Start with:
 - [Canonical Time and Camera Clock](docs/specs/0009-time-and-camera-clock.md)
 - [Recording Storage Pool and Failover](docs/specs/0010-recording-storage-pool-and-failover.md)
 - [Authentication, Authorization, and Audit](docs/specs/0011-auth-authorization-and-audit.md)
+- [Configuration, Secrets, and Key Management](docs/specs/0012-config-secrets-key-management.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
