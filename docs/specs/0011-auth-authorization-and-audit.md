@@ -834,3 +834,7 @@ Administrative account recovery must be an explicit local/operations procedure a
 13. First-run bootstrap never depends on a universal default administrator password.
 14. Authorization must avoid leaking hidden camera/resource existence where practical.
 15. Non-obvious authorization/session/audit/security behavior requires comments per Development Guidelines.
+
+## Secret-management reference
+
+Camera/storage/integration recoverable credentials are stored behind SecretStore and never exposed through normal read APIs. Local passwords and verifier-only API/service tokens use one-way hashing. AuditEvent records credential changes without plaintext/ciphertext/key material. See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](0012-config-secrets-key-management.md).
