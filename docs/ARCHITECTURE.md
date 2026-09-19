@@ -27,6 +27,17 @@ zero-nvr does not aim to own generic protocol implementations when a mature comp
 
 External components are replaceable adapters. They are not authoritative business databases.
 
+
+## 2.1 First production release policy
+
+The first production release is a complete long-term usable NVR product, not an MVP.
+
+Engineering phases only define implementation order. Known product-grade capabilities such as SMTP/password recovery, MFA, OIDC, cloud storage, ONVIF/PTZ/events, HIK, GB28181, TURN, Home Assistant/MQTT, AI integration, audit, backup/restore, metrics, and upgrade/rollback are part of the first production release.
+
+"Optional" means optional to enable or deploy. It does not mean postponed to a later product release.
+
+See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
+
 ## 3. Logical planes
 
 ```text
