@@ -322,6 +322,36 @@ Capability/profile/channel drift is diffed rather than treated as device deletio
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
 
+### Live view, MediaSession, and adaptive delivery
+
+Live viewing is resolved per browser/session rather than exposing a permanent ZLM/camera URL.
+
+```text
+Browser
+   ↓
+LiveSessionService
+   ↓ auth + browser/network capabilities
+LivePlaybackResolver
+   ↓
+MediaSession
+   ↓
+MediaPlane / ZLMediaKit
+   ↓
+Camera live_preview / live_main
+```
+
+Default transport preference is WebRTC, then fMP4, then HLS when the codec/transport combination is actually supported.
+
+Grid tiles use `live_preview`; focused/fullscreen views may promote to `live_main`. Automatic quality uses viewport/network hints with hysteresis to avoid stream thrash.
+
+H.265 recording remains independent from browser live compatibility. When the browser cannot directly consume the selected H.265 live source, zero-nvr first prefers a compatible H.264 source profile and otherwise may create a shared on-demand H.264 live derivative through TranscodeManager.
+
+Remote WebRTC uses STUN/TURN; coturn is the default TURN implementation. TURN credentials are short-lived and issued only for authorized MediaSessions.
+
+Audio playback and TalkSession are separate from video. Talk uses an adapter-specific TalkBackend for ONVIF/RTSP backchannel, HIK/vendor SDK, GB28181/WVP, or other supported device paths.
+
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+
 ### Live view
 
 ```text
@@ -333,7 +363,7 @@ WebRTC / fMP4 / HLS
   ↓
 Browser
 
-FastAPI issues authorization/session metadata.
+FastAPI issues short-lived MediaSession authorization and transport/profile resolution metadata. Camera/ZLM administrative credentials never reach the browser.
 ```
 
 ### Continuous recording
