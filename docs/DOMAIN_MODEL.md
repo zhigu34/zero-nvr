@@ -164,12 +164,106 @@ OIDC/SSO identities map to the existing User/Role/Permission/CameraScope authori
 
 See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
 
-## Camera
+## Device
 
-Core fields:
+Represents one managed physical/network appliance. A Device may expose one or many Camera channels.
 
 ```text
 id
+display_name
+adapter
+manufacturer
+model
+firmware_version
+serial_number
+hardware_id
+stable_device_uid
+enabled
+onboarding_state
+last_probe_at
+last_seen_at
+created_at
+updated_at
+```
+
+Network address is not the primary identity.
+
+## DeviceEndpoint
+
+```text
+id
+device_id
+scheme
+host
+port
+path
+adapter
+priority
+status
+last_verified_at
+created_at
+updated_at
+```
+
+A DHCP/address change updates endpoint data without recreating the Device/Camera when stable identity proves continuity.
+
+## DeviceCredential
+
+```text
+device_id
+credential_kind
+secret_ref
+verification_status
+verified_at
+updated_at
+```
+
+Credential plaintext lives only behind SecretStore.
+
+## DiscoverySession
+
+```text
+id
+requested_by
+adapters
+interfaces
+target_ranges
+state
+started_at
+completed_at
+candidate_count
+error_summary
+```
+
+## DiscoveryCandidate
+
+Temporary discovery result; never authoritative Camera state.
+
+```text
+id
+discovery_session_id
+adapter_hint
+endpoint
+device_uid_hint
+manufacturer_hint
+model_hint
+channel_count_hint
+matched_device_id
+match_confidence
+state
+first_seen_at
+last_seen_at
+metadata
+```
+
+## Camera
+
+Logical video source/channel owned by or associated with a Device.
+
+```text
+id
+device_id
+channel_key
 name
 enabled
 location
@@ -181,7 +275,11 @@ created_at
 updated_at
 ```
 
-Owns one current CameraConnection.
+A multi-channel NVR/DVR or multi-sensor camera therefore owns several Camera rows while retaining one Device identity.
+
+Changing stream/profile selection does not create a new Camera identity.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
 
 ## SmtpSettings
@@ -321,18 +419,7 @@ See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](spec
 
 ## CameraConnection
 
-Represents the current control/media connection configuration.
-
-```text
-camera_id
-adapter
-host
-credentials_ref
-revision
-verification_status
-verified_at
-config
-```
+Compatibility/read-model view of the currently selected camera/device connection. New implementation should resolve through DeviceEndpoint + DeviceCredential rather than duplicate host/secret state per Camera.
 
 Candidate adapters:
 
@@ -343,26 +430,81 @@ hik_sdk
 gb28181
 ```
 
-Credentials must not be duplicated into public read models.
+Credentials must never be duplicated into public read models.
 
-## MediaStream
+## SourceMediaProfile
 
-Canonical logical stream, independent from external media-engine identifiers.
+Discovered adapter/source profile.
 
 ```text
 id
+device_id
 camera_id
-role            main | preview | detection | audio
+adapter_profile_key
+video_source_key
+name
 codec
 width
 height
 fps
-source_uri_ref
-media_plane_key
+bitrate_kbps
+bitrate_mode
+gop_seconds
+audio_codec
+has_audio
+stream_uri_ref
 status
+discovered_at
+last_verified_at
+metadata
 ```
 
-The MediaPlane maps a MediaStream to a ZLM runtime stream.
+Source profile identity is kept separate from product stream roles.
+
+## DeviceCapabilitySnapshot
+
+```text
+device_id
+probed_at
+supports_events
+event_types
+supports_ptz
+ptz_features
+supports_snapshot
+supports_audio
+supports_two_way_audio
+supports_time_read
+supports_time_write
+supports_ntp_config
+supports_profile_management
+supports_reboot
+vendor_capabilities
+adapter_version
+```
+
+## MediaStream
+
+Canonical logical product stream mapped to a discovered source profile.
+
+```text
+id
+camera_id
+role                    recording | live_main | live_preview | detection | audio
+source_media_profile_id
+codec
+width
+height
+fps
+media_plane_key
+status
+selection_mode          auto | manual
+selected_at
+last_verified_at
+```
+
+One SourceMediaProfile may satisfy several roles. The MediaPlane maps MediaStream to runtime ZLM state; permanent browser URLs are not domain truth.
+
+See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
 ## RecordingPolicy
 
