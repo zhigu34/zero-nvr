@@ -75,7 +75,9 @@ The directories are intentionally lightweight during initialization. Implementat
 
 ## Current status
 
-V2 architecture baseline initialized.
+Architecture baseline is being finalized for the first production release.
+
+The first production release is intentionally complete rather than MVP-scoped: engineering phases are implementation order, and known product-grade capabilities are expected to ship before the first stable release.
 
 Start with:
 
