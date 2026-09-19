@@ -303,3 +303,27 @@ First-production-release upgrade primitives:
 Large backfills are durable resumable DataMigrationJobs rather than opaque startup work.
 
 See [Spec 0017](specs/0017-upgrade-migration-and-rollback.md).
+
+
+## Live delivery and transcoding
+
+First-production-release live stack:
+
+- ZLMediaKit for WebRTC, fMP4/HLS delivery, live protocol conversion, and media-session runtime;
+- coturn for STUN/TURN traversal;
+- FFmpeg for on-demand compatibility transcode when no browser-compatible source profile exists;
+- browser capability probing rather than user-agent-only codec assumptions.
+
+Default transport preference:
+
+```text
+WebRTC -> fMP4 -> HLS
+```
+
+Grid/focused quality primarily switches between `live_preview` and `live_main`. Transcoding is compatibility fallback rather than the default ingest path.
+
+Live transcode can use detected platform acceleration such as VAAPI/QSV/NVENC/VideoToolbox when available; recording correctness has priority over optional live-transcode demand.
+
+TURN credentials are short-lived and derived/issued for authenticated MediaSessions rather than exposing permanent coturn credentials.
+
+See [Spec 0020](specs/0020-live-view-media-session-and-talk.md).
