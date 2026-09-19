@@ -56,15 +56,15 @@ Default media engine for:
 
 ### FFmpeg / ffprobe
 
-Retained for:
+Integrated into the zero-nvr/worker runtime image as an on-demand media toolchain for:
 
-- reliable recording backend during early V2;
-- export;
-- remux/transcode;
+- export and clipping;
+- concat/remux/transcode;
+- historical frame extraction;
 - media inspection;
 - repair/compatibility tasks.
 
-The goal is not to remove FFmpeg. The goal is to stop using FastAPI as a media server.
+FFmpeg is **not** the normal permanent per-camera recorder. Normal continuous/scheduled recording is owned by ZLMediaKit's recorder.
 
 ## Device plane
 
@@ -164,17 +164,14 @@ SMTP credentials are SecretStore-backed. Delivery uses the durable notification 
 
 ## Storage plane
 
-First-class:
+First-class product concepts:
 
-- Local
-- S3-compatible
+- local hot recording storage;
+- remote archive through rclone-supported backends.
 
-Generic integrations:
+rclone is integrated as a worker CLI tool rather than a mandatory sidecar service. OpenList is optional and is used primarily as an aggregation/protocol adapter for storage providers that are awkward to access directly with rclone.
 
-- rclone
-- OpenList
-
-Storage adapters must expose verification semantics; upload success alone is insufficient for local purge eligibility.
+Archive state is product-owned and follows copy -> verify -> mark remote available -> retention may delete local. Upload success alone is insufficient for local purge eligibility.
 
 ## Database
 
@@ -201,24 +198,26 @@ See [Spec 0016](specs/0016-postgresql-and-sqlite-portability.md).
 
 ## Jobs
 
-Worker implementation is intentionally not locked yet.
+Huey is the default background-task and scheduling implementation.
 
-Candidate patterns:
+Deployment rules:
 
-- DB-backed durable job queue for a small deployment;
-- Redis-backed worker when concurrency/throughput justifies it.
+- SQLite deployments use Huey's SQLite-backed mode;
+- PostgreSQL deployments may use the PostgreSQL-backed mode;
+- Redis/RabbitMQ/Celery are not mandatory infrastructure;
+- background work runs in `zero-nvr-worker`, which uses the same image as the API container.
 
-Job categories:
+Job categories include:
 
-- upload;
-- export;
-- thumbnail/snapshot;
+- archive/remote transfer;
+- export and derived media;
 - notification;
 - storage verification;
-- retention;
-- background media processing.
+- retention/cleanup;
+- backup;
+- reconciliation/index repair.
 
-Long-running camera/media runtimes are not ordinary queue jobs.
+Long-lived media runtime and normal camera recording remain ZLMediaKit responsibilities rather than queue jobs.
 
 
 ## Security / secrets
@@ -256,37 +255,52 @@ First production release:
 
 ## Deployment
 
-Initial:
+Primary deployment model:
 
-- Docker Compose on Linux.
+- Docker Compose on Linux;
+- `deploy.sh + .env + Docker Compose Profiles`;
+- Core target: 2 images / 3 containers (zero-nvr API, zero-nvr worker, ZLMediaKit);
+- optional services are not pulled or started unless enabled;
+- the web application does not require direct Docker socket control.
 
-Do not make Kubernetes a V2 prerequisite.
+Small CLI/library dependencies such as FFmpeg, rclone, restic, Apprise, ONVIF libraries, and Authlib are integrated into the zero-nvr runtime/worker image where practical.
+
+Do not make Kubernetes a V1 prerequisite.
 
 ## Implementation choices still requiring validation
 
-These are engineering choices to settle during the first production release, not post-release feature deferrals:
+Architecture ownership is now fixed: ZLM owns normal recording, Huey owns background jobs, and V1 remote-only playback restores media into a bounded local cache before ZLM VOD.
 
-- final recording container/segment format;
-- exact task queue implementation;
-- exact live-player protocol priority under all browsers;
-- ZLM-native recorder vs FFmpeg recorder;
-- cache implementation for remote playback;
-- multi-node media topology.
+Remaining design-freeze validation is intentionally narrow:
+
+- whether ZLM fMP4 recording becomes the default recording container;
+- the exact ZLM-native mechanism for ~10s EVENT_ONLY pre-roll;
+- live-player protocol priority under browser/codec combinations;
+- timeline/VOD seek precision;
+- remote restore/prefetch performance.
+
+Multi-node media topology is outside the V1 freeze gate.
 
 
 ## Backup and recovery
 
-First-production-release database backup engines:
+System/disaster backup is separate from recording archive.
 
-- SQLite Online Backup API for consistent scheduled snapshots;
-- Litestream for continuous SQLite remote replication and point-in-time restore on compatible targets;
-- pgBackRest for PostgreSQL full/differential/incremental backup, WAL archiving, restore, and PITR.
+Default first-release path:
 
-Repository support is capability-based. Generic StorageBackends such as S3/rclone/OpenList/local can receive verified SQLite/system snapshots. Continuous SQLite replication and PostgreSQL PITR are exposed only when the selected backend is compatible.
+- SQLite Online Backup API for consistent SQLite snapshots;
+- `pg_dump` for PostgreSQL logical backup where PostgreSQL is used;
+- restic for encrypted/versioned backup repository storage, deduplication, retention, and integrity checking;
+- RecoveryKit/master-secret preservation as required by SecretStore.
 
-zero-nvr owns BackupPolicy, manifests, RecoveryKit, restore orchestration, health, audit, and UI rather than reimplementing database backup protocols.
+Recording media is normally protected by recording archive/retention policy rather than copied into every system backup.
 
-See [Spec 0015](specs/0015-backup-disaster-recovery-and-pitr.md).
+Disposable data such as playback cache, export cache, thumbnails, rclone cache, and current in-memory health state is excluded.
+
+Advanced PITR engines may be supported later/optionally, but are not mandatory to keep the lightweight V1 deployment complete.
+
+See [Project Baseline](PROJECT_BASELINE.md).
+
 
 ## Upgrade and migration
 
