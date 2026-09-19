@@ -18,6 +18,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
 - [x] Define stream-loss detection, reconnect, physical-segment recovery, and timeline-gap semantics.
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
+- [x] Define recording StoragePool placement, disk failover, draining, and remote-archive separation.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -81,6 +82,12 @@ Acceptance:
 - [ ] configurable effective recording timezone for all generated path/date/time values while DB stays UTC.
 - [ ] per-camera _camera.json convenience metadata for detached-disk browsing.
 - [ ] staging/atomic finalize and backend object-key mapping.
+- [ ] StoragePool / StoragePoolTarget persistence and default pool.
+- [ ] sticky_balanced recording target selection.
+- [ ] per-target health/free-space eligibility and hard reserve.
+- [ ] planned safe-boundary target switch under pressure.
+- [ ] mid-segment storage failover preserving RecordingSession/Intent.
+- [ ] recovered-target stability hysteresis and draining mode.
 - [ ] cross-day segments without midnight force-split.
 - [ ] source-loss segment finalize with completion_reason = source_lost.
 - [ ] post-reconnect new segment clock anchored at actual recovery time.
@@ -142,6 +149,7 @@ Acceptance:
 
 ## Phase 7 — Storage and Cloud
 
+- [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache.
 - [ ] StorageTarget / StorageObject.
 - [ ] local retention.
 - [ ] S3 adapter.
@@ -150,6 +158,9 @@ Acceptance:
 - [ ] rclone adapter.
 - [ ] OpenList adapter.
 - [ ] safe local purge.
+- [ ] archive upload policy independent from hot recording placement.
+- [ ] block destructive StorageTarget removal when unique retained media exists.
+- [ ] playback across multiple local targets + remote archive through PlaybackResolver.
 
 ## Phase 8 — Historical Playback
 
