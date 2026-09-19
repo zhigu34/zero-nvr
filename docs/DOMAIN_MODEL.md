@@ -27,6 +27,64 @@ updated_at
 
 Owns one current CameraConnection.
 
+
+## CameraClockStatus
+
+Current normalized view of a camera/device clock relative to zero-nvr canonical time.
+
+```text
+camera_id
+offset_ms
+uncertainty_ms
+measured_at
+device_timezone
+device_time_source
+sync_mode
+health
+```
+
+Possible sync modes:
+
+```text
+monitor
+manage_ntp
+ignore
+```
+
+Possible health values:
+
+```text
+unknown
+healthy
+warning
+critical
+unsupported
+```
+
+Camera clock status is used for device-originated timestamp normalization and clock-health UI. It does not shift RecordingSegment time or Playback Master Clock.
+
+See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
+
+## CameraClockSample
+
+Historical/diagnostic measurement of device clock offset.
+
+```text
+camera_id
+sampled_at
+device_utc_at_sample
+device_local_at_sample
+device_timezone
+device_time_source
+round_trip_ms
+offset_ms
+uncertainty_ms
+quality
+metadata
+```
+
+Offset measurement should account for request round-trip time rather than comparing only against response receipt time.
+
 ## CameraConnection
 
 Represents the current control/media connection configuration.
@@ -321,6 +379,12 @@ external_id
 event_type
 lifecycle_kind      stateful | instant
 status              active | completed
+source_occurred_at
+received_at
+occurred_at
+timestamp_source
+timestamp_quality
+clock_offset_ms_applied
 started_at
 ended_at
 confidence
@@ -752,8 +816,13 @@ created_at
 43. Adding/removing an intent while another remains active never restarts the recorder or resets formal segment cadence.
 44. Manual stop removes only the manual intent and never force-stops other active recording reasons.
 45. Initial V2 hybrid mode means scheduled baseline recording plus event-triggered recording outside schedule windows.
-46. Confirmed source/media loss closes the current physical RecordingSegment but does not end RecordingSession while any RecordingIntent remains active.
-47. Post-reconnect media always starts a new RecordingSegment and is never appended into an interrupted MP4.
-48. A real media discontinuity resets the physical formal-segment cadence from actual recovery time.
-49. Infrastructure/source-connectivity incidents are distinct from DetectionEvent and may explain historical playback gaps.
-50. Camera offline/reconnecting state does not cancel enabled RecordingIntents or background source retry by itself.
+46. Canonical persisted timestamps are UTC and derive from zero-nvr/server canonical time rather than camera wall-clock time.
+47. Device-originated event timestamps preserve source/receive/correction metadata and may be normalized by a reliable measured camera-clock offset.
+48. Camera-clock correction never directly shifts RecordingSegment time or Playback Master Clock.
+49. Historical normalized timestamps are not silently rewritten when later camera clock measurements change.
+50. Recording schedules carry explicit wall-clock timezone semantics and elapsed runtime timers use monotonic clocks.
+51. Confirmed source/media loss closes the current physical RecordingSegment but does not end RecordingSession while any RecordingIntent remains active.
+52. Post-reconnect media always starts a new RecordingSegment and is never appended into an interrupted MP4.
+53. A real media discontinuity resets the physical formal-segment cadence from actual recovery time.
+54. Infrastructure/source-connectivity incidents are distinct from DetectionEvent and may explain historical playback gaps.
+55. Camera offline/reconnecting state does not cancel enabled RecordingIntents or background source retry by itself.
