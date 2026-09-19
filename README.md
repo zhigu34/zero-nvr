@@ -92,6 +92,7 @@ Start with:
 - [Historical Playback Timeline](docs/specs/0006-historical-playback-timeline.md)
 - [Recording Intent Arbitration](docs/specs/0007-recording-intent-arbitration.md)
 - [Stream Reconnect and Recording Recovery](docs/specs/0008-stream-reconnect-and-recording-recovery.md)
+- [Canonical Time and Camera Clock](docs/specs/0009-time-and-camera-clock.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
