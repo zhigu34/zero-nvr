@@ -209,10 +209,12 @@ Possible implementations:
 
 ```text
 send()
+test()
 health()
+capabilities()
 ```
 
-Apprise-backed delivery is the preferred generic integration path.
+First-production-release routing includes native SMTP/email, Apprise-backed providers, webhook, Home Assistant, and MQTT actions. Channel credentials remain behind SecretStore. Notification network calls run asynchronously and never block recording/event transactions.
 
 ### IntegrationAdapter
 
@@ -415,6 +417,40 @@ For stateful event recording, the accepted lifecycle is defined in [Spec 0002 �
 - a new event during post-roll cancels the pending stop and reuses the same RecordingSession;
 - each event remains an independent timeline marker and EventLog entry even when multiple events share one recording;
 - continuous/manual/schedule recording is annotated by events rather than restarted.
+
+
+### Alert incidents and notification delivery
+
+Alerting consumes canonical event/health/security signals independently from RecordingManager.
+
+```text
+DetectionEvent / Health / Security
+            ↓
+        AlertEvaluator
+            ↓
+         AlertRule
+            ↓
+       AlertIncident
+       ├─ grouping/cooldown
+       ├─ acknowledge/resolve
+       └─ escalation
+            ↓
+       DeliveryPlanner
+            ↓
+       AlertDelivery
+            ↓
+ SMTP / Apprise / Webhook / HA / MQTT
+```
+
+AlertIncident is the human-attention lifecycle. It may group many source events without deleting them. Lifecycle state and acknowledgement are independent.
+
+Quiet schedules and temporary AlertSilence may suppress outbound delivery while preserving source events/incidents. Escalation and retry timers are durable across restart.
+
+AlertDelivery uses stable idempotency keys and per-attempt diagnostics. zero-nvr does not falsely promise exactly-once external delivery when a remote provider cannot guarantee it.
+
+A failing notification channel never blocks recording, event persistence, or another healthy channel.
+
+See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
 
 ### Cloud upload
 
