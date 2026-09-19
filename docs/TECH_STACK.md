@@ -254,3 +254,20 @@ These are engineering choices to settle during the first production release, not
 - ZLM-native recorder vs FFmpeg recorder;
 - cache implementation for remote playback;
 - multi-node media topology.
+
+
+## Backup and recovery
+
+First-production-release PostgreSQL backup engine:
+
+- pgBackRest for full/differential/incremental backup, WAL archiving, restore, and PITR.
+
+Repository support is capability-based:
+
+- local/POSIX and S3-compatible repositories may provide PITR;
+- rclone/OpenList/local/S3 StorageBackends may provide portable/system snapshot backup;
+- a snapshot-only backend must not be presented as PITR-capable.
+
+zero-nvr owns BackupPolicy, manifests, RecoveryKit, restore orchestration, health, audit, and UI rather than implementing PostgreSQL WAL backup mechanics itself.
+
+See [Spec 0015](specs/0015-backup-disaster-recovery-and-pitr.md).
