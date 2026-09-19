@@ -578,6 +578,35 @@ See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording
 
 
 
+
+### Configuration and secret management
+
+Ordinary configuration and recoverable credentials use different storage paths.
+
+```text
+ordinary config
+   → PostgreSQL
+
+recoverable secret
+   → secret_ref
+   → SecretStore
+   → encrypted SecretRecord in PostgreSQL
+   → per-record DEK
+   → externally supplied/persisted KEK keyring
+```
+
+Initial V2 uses authenticated envelope encryption for recoverable secrets. Business rows store only opaque `secret_ref` values; public/read APIs expose configured state rather than plaintext.
+
+Verifier-only credentials such as local user passwords and authentication tokens are one-way hashed instead of reversibly encrypted.
+
+The KEK/keyring that unlocks SecretStore is a bootstrap/deployment secret and never lives in the same PostgreSQL database as the encrypted SecretRecords. Compose deployments prefer secret files/`*_FILE` bootstrap settings over production plaintext environment variables.
+
+Credential replacement preserves the previous working secret until the new value is validated and committed where practical. Logs, traces, EventLog, and AuditEvent redact credentials and credential-bearing URLs.
+
+Database backups contain ciphertext but not the KEK. Normal configuration/support exports exclude secrets. An explicit privileged portable backup may include secrets only inside a separate strongly encrypted export.
+
+See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](specs/0012-config-secrets-key-management.md).
+
 ### Authentication, authorization, and audit
 
 Authorization uses two independent dimensions:
