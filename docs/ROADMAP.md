@@ -27,6 +27,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
 - [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
 - [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
+- [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -219,7 +220,7 @@ Acceptance:
 
 ## Phase 7 — Storage and Cloud
 
-- [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache.
+- [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache / backup.
 - [ ] StorageTarget / StorageObject.
 - [ ] local retention.
 - [ ] S3 adapter with SecretStore-backed credentials.
@@ -327,17 +328,34 @@ Acceptance:
 - continuous recording is annotated/promoted instead of duplicated.
 - integration failure does not stop core recording, playback or storage.
 
-## Phase 11 — Operations and scale
+## Phase 11 — Operations, Backup, Recovery, and Scale
 
 - [ ] SecretStore KEK rotation workflow and health UI.
-- [ ] database backup + separately protected keyring recovery procedure.
+- [ ] BackupPolicy / BackupSet / BackupManifest persistence and APIs.
+- [ ] StorageTarget backup role and capability probing.
+- [ ] pgBackRest integration for PostgreSQL full/differential/incremental backup.
+- [ ] continuous WAL archive and PITR window health.
+- [ ] latest / selected backup / point-in-time restore modes.
+- [ ] S3/POSIX PITR repository support.
+- [ ] snapshot/system-backup support through S3/rclone/OpenList/local backends.
+- [ ] encrypted RecoveryKit generation/download/staleness tracking.
+- [ ] backup-target bootstrap credential recovery without database dependency.
 - [ ] normal support/config export with secrets excluded.
-- [ ] privileged portable encrypted backup/restore including secrets.
+- [ ] privileged portable encrypted migration backup including SecretStore recovery material.
+- [ ] backup verification: checksum/manifest/repository consistency.
+- [ ] isolated scheduled restore-test workflow.
+- [ ] backup retention: daily/weekly/monthly + PITR dependency preservation.
+- [ ] media disaster-protection coverage: local-only vs verified remote.
+- [ ] clean-host guided restore and preflight compatibility checks.
+- [ ] post-PITR non-destructive StorageObject/media reconciliation.
+- [ ] remote-only playback after local-disk disaster without bulk re-download.
+- [ ] backup/PITR/RecoveryKit system-health alerts.
+- [ ] backup.view / backup.manage / backup.restore / backup.export authorization.
+- [ ] Backup & Recovery UI.
 - [ ] restore diagnostics for missing/wrong keyring and unavailable credentials.
 - [ ] metrics.
 - [ ] user/role/camera-scope administration UI.
 - [ ] audit UI.
-- [ ] backup/restore.
 - [ ] upgrade/rollback.
 - [ ] long-duration multi-camera acceptance.
 - [ ] evaluate multi-host media/storage topology.
