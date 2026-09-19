@@ -491,3 +491,405 @@ remote_protected_media_bytes
 ```
 
 Health degrades when backup age, WAL archive lag, failed verification, stale RecoveryKit, or target failures exceed policy thresholds.
+
+## Backup retention
+
+Backup retention is separate from recording retention.
+
+Policy may express:
+
+```text
+daily copies
+weekly copies
+monthly copies
+minimum PITR recovery window
+portable backups pinned by user
+```
+
+Example defaults may be:
+
+```text
+daily   14
+weekly   8
+monthly 12
+```
+
+but these remain configurable product defaults.
+
+Retention never deletes the only base backup still required by unexpired WAL/PITR history.
+
+The PostgreSQL backup engine's repository-retention rules remain authoritative for repository consistency, while zero-nvr presents policy and status.
+
+## Backup deletion protection
+
+Backup deletion is high risk.
+
+Before deleting a BackupSet/repository generation:
+
+- verify retention dependency;
+- verify it is not the only usable recovery point;
+- verify PITR chain requirements;
+- respect user pin/lock;
+- record AuditEvent.
+
+A user-facing delete action must not directly remove arbitrary repository objects.
+
+## Object versioning and immutability
+
+When the remote backend supports versioning/object lock/immutability, zero-nvr may expose and recommend these features for disaster-recovery repositories.
+
+Versioning/immutability state is reported in backup health where discoverable.
+
+zero-nvr does not claim ransomware-proof backup merely because remote storage exists.
+
+## Clean-host restore workflow
+
+Full disaster recovery is explicit and staged.
+
+```text
+new/clean host
+   ↓
+install compatible zero-nvr release
+   ↓
+enter/load RecoveryKit
+   ↓
+connect backup repository
+   ↓
+select recovery point
+   ↓
+preflight compatibility checks
+   ↓
+restore SecretStore/keyring bootstrap
+   ↓
+restore PostgreSQL
+   ↓
+apply supported schema migration if required
+   ↓
+start zero-nvr in recovery/reconciliation mode
+   ↓
+reconcile StorageTargets/StorageObjects
+   ↓
+validate cameras/integrations
+   ↓
+resume normal services
+```
+
+Do not start normal recording workers against a half-restored database.
+
+## Restore preflight
+
+Before destructive/full restore, verify:
+
+- backup manifest checksum;
+- database backup integrity/status;
+- required RecoveryKit/key IDs;
+- backup-target accessibility;
+- PostgreSQL compatibility;
+- zero-nvr application/schema compatibility;
+- destination storage paths;
+- enough local free space;
+- operator authorization/re-authentication;
+- whether a running instance must enter maintenance mode.
+
+Preflight failures stop before overwriting the current system.
+
+## Restore version compatibility
+
+BackupManifest stores:
+
+```text
+zero_nvr_version
+database_schema_revision
+postgres_version
+backup_format_version
+```
+
+Restore rules:
+
+- same supported version: restore directly;
+- older supported schema into newer zero-nvr: restore then run controlled migrations;
+- newer schema into older zero-nvr: reject unless an explicit compatible downgrade path exists;
+- incompatible PostgreSQL major/version format: use the backup engine's supported migration/restore path rather than copying data directories blindly.
+
+Never silently start an older application against a newer incompatible schema.
+
+## Existing-host restore
+
+A full restore over an existing system requires maintenance/recovery mode.
+
+Recommended flow:
+
+```text
+create safety backup of current state where possible
+stop mutating workers
+stop recording control-plane mutations
+restore selected backup
+validate
+restart services
+```
+
+Media ingest/recording behavior during full control-plane restore must be explicit in UI. The product should prefer a controlled maintenance window over pretending there is no interruption.
+
+## Point-in-time recovery semantics
+
+PITR restores PostgreSQL metadata to a canonical UTC point.
+
+After PITR, physical media/archive may contain objects created after the restored database point.
+
+Therefore zero-nvr runs storage reconciliation.
+
+Possible outcomes:
+
+```text
+DB row + media object
+  -> normal
+
+media object newer than restored DB
+  -> orphan/reconcile candidate
+
+DB row but object missing
+  -> missing/error state
+
+remote object exists with valid detached metadata
+  -> reconcile according to safe import rules
+```
+
+Never delete post-recovery "extra" media automatically merely because the restored DB does not yet reference it.
+
+## Storage reconciliation after restore
+
+Reconciliation uses:
+
+- StorageObject metadata;
+- object keys;
+- RecordingSegment IDs;
+- checksums/sizes;
+- detached _camera.json metadata;
+- backup manifest;
+- remote/local storage scans where explicitly supported.
+
+Unknown media first enters a quarantine/reconciliation state.
+
+No automatic destructive cleanup occurs until ownership/identity is established.
+
+## Remote-only playback after disaster recovery
+
+If local recording disks are lost but remote archive survives:
+
+```text
+restore database + keyring
+        ↓
+reconnect archive StorageTarget
+        ↓
+StorageObject = remote
+        ↓
+PlaybackResolver
+        ↓
+timeline/playback available
+```
+
+Local cache may populate on demand.
+
+Historical media does not need to be bulk-downloaded before the NVR becomes usable.
+
+## Reusing one remote target
+
+A single remote target may safely serve both roles when configured:
+
+```text
+archive_remote
+backup
+```
+
+Use separate object prefixes, retention policies, permissions, and lifecycle rules.
+
+Deleting expired recording media must never delete database/system backup objects, and backup retention must never purge recording archive objects.
+
+## Backup repository credentials and least privilege
+
+Where possible, use a dedicated backup credential/policy separate from recording archive credentials even when both use the same S3 endpoint/bucket.
+
+Recommended separation:
+
+```text
+recording archive prefix
+  read/write/delete according to media policy
+
+backup prefix
+  backup-engine permissions
+  optional versioning/object-lock protection
+  stricter delete policy
+```
+
+This reduces the blast radius of one credential compromise.
+
+## Scheduling
+
+Backup jobs use canonical scheduling/timezone rules.
+
+Backup operations must avoid unnecessary contention with recording hot paths.
+
+Possible controls:
+
+- schedule heavy full backups in low-load windows;
+- bandwidth/concurrency limits;
+- I/O priority where available;
+- separate local staging path;
+- WAL archiving remains continuous when PITR is enabled.
+
+Recording correctness has priority over non-urgent backup throughput.
+
+## Alerting
+
+Backup health integrates with Spec 0014.
+
+Alert types include:
+
+```text
+backup.failed
+backup.overdue
+backup.verification_failed
+backup.restore_test_failed
+backup.target_unavailable
+backup.wal_archive_lag
+backup.recovery_kit_stale
+backup.no_remote_media_protection
+```
+
+A backup alert never stops recording by itself.
+
+## Permissions
+
+Initial permissions:
+
+```text
+backup.view
+backup.manage
+backup.restore
+backup.export
+```
+
+Semantics:
+
+- backup.view: view policies/history/health without secrets;
+- backup.manage: configure schedules/targets/retention and trigger backup/test;
+- backup.restore: perform restore/PITR operations;
+- backup.export: create/download encrypted portable backup or RecoveryKit.
+
+Full restore and RecoveryKit export require recent re-authentication and MFA when enabled.
+
+## Audit
+
+Audit at minimum:
+
+```text
+backup.policy_created
+backup.policy_updated
+backup.started_manual
+backup.deleted
+backup.restore_test_started
+backup.restore_test_completed
+backup.restore_started
+backup.restore_completed
+backup.pitr_requested
+backup.portable_export_created
+backup.recovery_kit_exported
+backup.recovery_kit_regenerated
+```
+
+Audit never contains recovery passphrase, repository secret, keyring plaintext, or decrypted secret payload.
+
+## UI
+
+System > Backup & Recovery shows:
+
+```text
+Protection Overview
+  Database: Protected / Warning / Critical
+  PITR window: ...
+  Last verified backup: ...
+  Last restore test: ...
+  RecoveryKit: Current / Stale / Missing
+  Media remote-protection: ...%
+
+Backup Policies
+Backup History
+PITR
+Restore Tests
+RecoveryKit
+Portable Migration Backup
+```
+
+Restore UI uses a guided wizard with preflight and explicit confirmation.
+
+Normal configuration/support export remains distinct from disaster-recovery backup.
+
+## Acceptance tests
+
+1. S3 archive + backup on one target:
+   - separate prefixes and retention;
+   - recording purge cannot remove backups;
+
+2. database backup:
+   - base/full backup completes and verifies;
+   - WAL archive advances recoverable window;
+
+3. PITR:
+   - restore to a selected UTC time;
+   - expected database state appears;
+   - newer media objects remain reconciliation candidates rather than being deleted;
+
+4. lost local recording disks:
+   - restored DB/keyring reconnects remote StorageObjects;
+   - remote-only historical playback works without bulk download;
+
+5. lost database host:
+   - clean host + RecoveryKit can locate/decrypt required recovery material and restore;
+
+6. missing RecoveryKit/key:
+   - encrypted database secrets remain unavailable;
+   - product reports explicit critical recovery problem;
+
+7. snapshot-only rclone/OpenList target:
+   - portable/system snapshots work;
+   - UI does not falsely advertise PITR;
+
+8. backup corruption:
+   - verification fails;
+   - backup is not marked READY/healthy;
+
+9. automated restore test:
+   - isolated restore succeeds without changing production database;
+
+10. key rotation:
+   - RecoveryKit becomes stale until regenerated;
+   - old required key material is not retired prematurely;
+
+11. retention:
+   - repository dependency rules preserve required PITR chain/base backup;
+
+12. backup target outage:
+   - recording continues;
+   - backup health/alerts degrade independently.
+
+## Invariants
+
+1. Recording archive and system/database backup are separate protection layers.
+2. System backup does not duplicate all recording media by default.
+3. Local-only media is never falsely reported as disaster-protected.
+4. PostgreSQL PITR uses a mature database backup engine; zero-nvr does not implement WAL protocol mechanics itself.
+5. Backup target capability determines whether PITR can be offered.
+6. SecretStore ciphertext without matching keyring is not a complete recovery.
+7. A complete disaster-recovery repository must be accessible without first restoring the lost SecretStore.
+8. RecoveryKit is strongly encrypted and controlled outside PostgreSQL.
+9. Backup success distinguishes upload, verification, and restore testing.
+10. PITR/storage reconciliation never automatically deletes unreferenced post-recovery media.
+11. Remote archive can provide playback after local-disk loss without bulk redownload.
+12. Backup and recording objects use separate prefixes/lifecycle rules even on one target.
+13. Full restore uses preflight and maintenance/recovery mode.
+14. Restore compatibility is explicit by app/schema/PostgreSQL version.
+15. Backup retention never breaks a required PITR dependency chain.
+16. Backup credentials/key material never appear in normal APIs/logs/audit.
+17. Backup failures never directly stop healthy recording.
+18. First production release includes UI, alerts, audit, scheduled verification, and clean-host disaster recovery.
+19. Non-obvious backup/PITR/recovery/reconciliation logic requires comments per Development Guidelines.
