@@ -105,6 +105,7 @@ Start with:
 - [Upgrade, Migration, and Rollback](docs/specs/0017-upgrade-migration-and-rollback.md)
 - [Camera Onboarding, Discovery, and Stream Selection](docs/specs/0018-camera-onboarding-discovery-and-stream-selection.md)
 - [Device Runtime Lifecycle and Reconfiguration](docs/specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
+- [Live View, Media Sessions, TURN, and Talk](docs/specs/0020-live-view-media-session-and-talk.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
