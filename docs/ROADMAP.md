@@ -28,6 +28,8 @@ This roadmap describes sequencing, not fixed release dates.
 - [ ] Configuration/secrets model.
 - [ ] Structured logging and health/readiness.
 - [ ] Base Camera / CameraConnection schema.
+- [ ] SystemTimeSettings persistence/API for recording timezone and managed-camera NTP settings.
+- [ ] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [ ] canonical UTC/timezone configuration and host clock-health checks.
 - [ ] Adapter contracts.
 - [ ] Docker Compose development stack.
@@ -46,6 +48,8 @@ Acceptance:
 - [ ] Manual RTSP camera creation/probe.
 - [ ] CameraClockStatus sampling for ONVIF-capable devices.
 - [ ] optional monitor/manage_ntp/ignore device-time mode.
+- [ ] inherit system managed-camera NTP settings with optional per-camera NTP override.
+- [ ] apply/verify managed-camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
 - [ ] Ensure/remove stream proxy.
 - [ ] per-camera source runtime state machine: streaming / degraded / reconnecting / offline.
