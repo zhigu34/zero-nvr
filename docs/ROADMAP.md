@@ -1,6 +1,10 @@
-# zero-nvr V2 Roadmap
+# zero-nvr First Production Release Roadmap
 
-This roadmap describes sequencing, not fixed release dates.
+This roadmap describes implementation sequencing, not separate product releases.
+
+Every task in this roadmap belongs to the first production-ready zero-nvr release unless explicitly marked OUT OF CURRENT PRODUCT SCOPE.
+
+"Optional" means optional to enable/deploy, not deferred implementation.
 
 ## Phase 0 — Repository and architecture baseline
 
@@ -21,6 +25,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define recording StoragePool placement, disk failover, draining, and remote-archive separation.
 - [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
 - [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
+- [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -38,6 +43,18 @@ This roadmap describes sequencing, not fixed release dates.
 - [ ] User / Role / Permission / UserSession persistence.
 - [ ] first-run one-time administrator bootstrap with no default password.
 - [ ] local authentication with modern password hashing and session revocation.
+- [ ] User email field + verification state.
+- [ ] SMTP settings persistence/API and SecretStore-backed credentials.
+- [ ] SMTP connection test + test-email flow.
+- [ ] queued SMTP delivery with retry/backoff/result tracking.
+- [ ] self-service email password reset with non-enumerating public response.
+- [ ] PasswordResetToken persistence using one-way token hashes.
+- [ ] administrator-issued one-time password reset token.
+- [ ] host/Docker CLI emergency administrator password recovery.
+- [ ] TOTP MFA enrollment/challenge/disable flow.
+- [ ] one-time MFA recovery codes stored as hashes.
+- [ ] OIDC/SSO provider configuration and ExternalIdentity mapping.
+- [ ] login rate limiting / brute-force protection.
 - [ ] one-way hashing for verifier-only service/API tokens.
 - [ ] built-in Administrator / Operator / Viewer roles.
 - [ ] CameraGroup + PrincipalCameraScope authorization.
@@ -157,13 +174,17 @@ Acceptance:
 - [ ] structured EventLog persistence/query.
 - [ ] event snapshots.
 
-## Phase 6 — Alerting
+## Phase 6 — Alerting and Notifications
 
 - [ ] AlertRule.
 - [ ] AlertDelivery.
 - [ ] notification worker.
+- [ ] SMTP/email NotificationBackend.
+- [ ] email templates for alerts/security/password reset/system health.
 - [ ] Apprise adapter.
 - [ ] webhook action.
+- [ ] Home Assistant/integration notification actions where configured.
+- [ ] delivery retry/backoff/final result history.
 - [ ] cooldown/deduplication.
 
 ## Phase 7 — Storage and Cloud
@@ -256,17 +277,18 @@ Acceptance:
 - [ ] continuous/manual/schedule recording annotation without recorder restart.
 - [ ] hybrid recording policy.
 
-## Phase 10 — Optional integrations
+## Phase 10 — First-release integrations (optional to enable)
 
 - [ ] Home Assistant REST integration.
 - [ ] RecordingTrigger external automation flow.
-- [ ] Optional MQTT integration / Home Assistant MQTT Discovery.
-- [ ] Future Home Assistant Custom Integration.
+- [ ] MQTT integration / Home Assistant MQTT Discovery.
+- [ ] Home Assistant Custom Integration package.
 - [ ] HIK bridge.
 - [ ] GB28181 / WVP.
 - [ ] TURN for remote WebRTC.
-- [ ] advanced AI providers.
-- [ ] advanced PTZ/presets.
+- [ ] Frigate DetectionProvider.
+- [ ] advanced AI-provider adapter contract + at least one production provider.
+- [ ] advanced PTZ/presets/patrol where device capability allows.
 
 Acceptance:
 
@@ -290,12 +312,15 @@ Acceptance:
 - [ ] long-duration multi-camera acceptance.
 - [ ] evaluate multi-host media/storage topology.
 
-## Explicitly deferred
+## Out of current product scope
 
-Until the relevant phase:
+These are intentionally outside the first production release because mature components already satisfy the need or the capability belongs to a different deployment class:
 
-- do not hand-write ONVIF SOAP;
-- do not build a custom WebRTC server;
-- do not build generic cloud-drive clients;
-- do not make Frigate the main NVR database;
-- do not optimize for Kubernetes or distributed clustering before the single-host product is solid.
+- hand-written general ONVIF SOAP/WSDL stack;
+- a custom WebRTC server replacing ZLMediaKit;
+- custom generic cloud-drive implementations replacing S3/rclone/OpenList adapters;
+- making Frigate a competing NVR/source-of-truth database;
+- Kubernetes-first deployment;
+- distributed multi-site/multi-host clustering/federation.
+
+See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
