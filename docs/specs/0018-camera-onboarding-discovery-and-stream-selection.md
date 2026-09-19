@@ -809,3 +809,9 @@ Secrets and credential-bearing URIs are redacted.
 14. Capability/control/media/event/clock health are separate signals.
 15. Onboarding failures never create silently half-configured production cameras.
 16. Non-obvious identity matching/profile selection/vendor normalization behavior requires comments per Development Guidelines.
+
+## Runtime lifecycle reference
+
+Onboarding commits durable Device/Camera/SourceMediaProfile configuration. Long-term enable/disable/reconnect, configuration revision fencing, endpoint/credential/profile hot reconfiguration, event-subscription recovery, capability drift, and multi-channel disappearance/return behavior are defined in [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
+
+Discovery/onboarding state must not be reused as the permanent runtime state machine.
