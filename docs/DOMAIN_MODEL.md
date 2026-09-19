@@ -184,6 +184,34 @@ updated_at
 Owns one current CameraConnection.
 
 
+## SmtpSettings
+
+System-level SMTP/email delivery configuration.
+
+```text
+enabled
+host
+port
+security_mode              starttls | tls | none
+username
+credential_secret_ref
+from_address
+from_name
+reply_to
+timeout_seconds
+enabled_for_password_reset
+enabled_for_alerts
+updated_at
+```
+
+SMTP credential material is stored behind SecretStore.
+
+SMTP is a first-production-release platform capability used by password reset, security/account notifications, alerts, and system/storage health notifications.
+
+Operational behavior includes connection testing, test email, queued delivery, transient retry/backoff, sanitized errors, and final delivery-result tracking.
+
+See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
+
 ## SystemTimeSettings
 
 System-level time and managed-camera synchronization defaults.
@@ -1133,6 +1161,8 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 74. Successful password reset revokes prior interactive sessions by default.
 75. TOTP MFA secrets are protected through SecretStore while MFA recovery codes are one-way hashed.
 76. OIDC/SSO identities map into the same User/Role/Permission/CameraScope model and never bypass authorization.
+77. SMTP/email delivery is a first-production-release platform capability with SecretStore-backed credentials and durable retry/result tracking.
+78. Self-service password reset depends on SMTP when email recovery is used, but administrator-issued and host-local recovery remain available when SMTP is unavailable.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
