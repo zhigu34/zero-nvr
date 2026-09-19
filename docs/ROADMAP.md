@@ -28,6 +28,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
 - [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
 - [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
+- [x] Define PostgreSQL-only production database policy and SQLite portable/offline index role.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -35,6 +36,8 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [ ] Backend project bootstrap.
 - [ ] Frontend project bootstrap.
 - [ ] PostgreSQL + Alembic.
+- [ ] production database guard: PostgreSQL required; no SQLite production mode.
+- [ ] PostgreSQL integration-test harness for locking/concurrency/JSONB/timestamps/migrations.
 - [ ] ordinary configuration + SecretStore abstraction.
 - [ ] SecretRecord persistence with authenticated envelope encryption.
 - [ ] per-record DEK + external/versioned KEK keyring bootstrap.
@@ -341,6 +344,12 @@ Acceptance:
 - [ ] encrypted RecoveryKit generation/download/staleness tracking.
 - [ ] backup-target bootstrap credential recovery without database dependency.
 - [ ] normal support/config export with secrets excluded.
+- [ ] versioned SQLite portable metadata-index export.
+- [ ] selected-camera/time-range portable SQLite export respecting authorization.
+- [ ] selected-media package: SQLite index + files + manifest/checksums.
+- [ ] sanitized diagnostic SQLite export.
+- [ ] portable SQLite import validation/conflict preview -> PostgreSQL domain writes.
+- [ ] offline/recovery indexing tools for detached media and manifests.
 - [ ] privileged portable encrypted migration backup including SecretStore recovery material.
 - [ ] backup verification: checksum/manifest/repository consistency.
 - [ ] isolated scheduled restore-test workflow.
