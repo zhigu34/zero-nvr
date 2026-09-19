@@ -1100,12 +1100,13 @@ name
 enabled
 backup_target_id
 database_backup_enabled
-database_mode             pitr | snapshot_only
+database_backend          auto | sqlite | postgresql
+database_mode             continuous_plus_snapshot | pitr | snapshot_only
 full_schedule
 differential_schedule
 snapshot_schedule
-pitr_enabled
-wal_archive_enabled
+point_in_time_enabled
+continuous_replication_enabled
 retention_daily
 retention_weekly
 retention_monthly
@@ -1134,7 +1135,8 @@ base_time
 recoverable_until
 app_version
 schema_revision
-postgres_version
+database_engine
+database_engine_version
 instance_id
 manifest_object_key
 size_bytes
