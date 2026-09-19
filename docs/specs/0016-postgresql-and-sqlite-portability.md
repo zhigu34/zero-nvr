@@ -286,3 +286,11 @@ Spec 0015 defines the unified backup product model.
 10. Canonical business identities survive database migration.
 11. Backup implementation is backend-specific while the BackupPolicy/Restore UX remains unified.
 12. Non-obvious cross-database transaction, migration, and retry behavior requires comments per Development Guidelines.
+
+## Software-upgrade relationship
+
+SQLite ↔ PostgreSQL migration is intentionally separate from normal application upgrade. A release upgrade keeps the selected database engine unless the administrator starts a dedicated DatabaseMigrationPlan.
+
+Both engines must pass upgrade/schema migration tests and use their database-specific verified safety-backup path before incompatible changes.
+
+See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](0017-upgrade-migration-and-rollback.md).
