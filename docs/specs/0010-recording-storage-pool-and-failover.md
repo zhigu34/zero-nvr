@@ -646,3 +646,7 @@ Failover records should include camera_id, recording_session_id, old_target_id, 
 ## Authorization reference
 
 Storage health viewing and StorageTarget/StoragePool mutation use separate permissions. Even an authorized storage administrator cannot bypass unique-media safety invariants when draining/removing a target. See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](0011-auth-authorization-and-audit.md).
+
+## Secret-management reference
+
+StorageTarget endpoint/bucket/path configuration remains ordinary metadata while S3/rclone/OpenList credentials are referenced through SecretStore. Archive credential failure affects that target explicitly and never exposes plaintext through StorageTarget read APIs. See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](0012-config-secrets-key-management.md).
