@@ -642,3 +642,7 @@ Failover records should include camera_id, recording_session_id, old_target_id, 
 13. StorageTarget removal never silently forgets unique retained media.
 14. Placement/failover is idempotent and concurrency-safe enough to avoid duplicate writers/paths.
 15. Non-obvious storage placement/failover behavior requires comments per Development Guidelines.
+
+## Authorization reference
+
+Storage health viewing and StorageTarget/StoragePool mutation use separate permissions. Even an authorized storage administrator cannot bypass unique-media safety invariants when draining/removing a target. See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](0011-auth-authorization-and-audit.md).
