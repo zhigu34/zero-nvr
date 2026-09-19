@@ -30,6 +30,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
 - [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
 - [x] Define upgrade preflight, schema/data migration classes, rollback, update channels, and database cutover safety.
+- [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -92,7 +93,15 @@ Acceptance:
 
 - [ ] Add ZLMediaKit service.
 - [ ] Implement MediaPlane contract.
-- [ ] Manual RTSP camera creation/probe.
+- [ ] Device / DeviceEndpoint / DeviceCredential persistence.
+- [ ] DiscoverySession / DiscoveryCandidate staging model.
+- [ ] bounded manual IP/hostname/CIDR probe framework.
+- [ ] Manual RTSP first-class onboarding with URI credential extraction into SecretStore.
+- [ ] actual media pull/ffprobe/ZLM verification before marking Camera verified.
+- [ ] SourceMediaProfile persistence and stream diagnostics.
+- [ ] canonical MediaStream roles: recording / live_main / live_preview / detection / audio.
+- [ ] deterministic auto profile selection with reason/score diagnostics.
+- [ ] manual per-role profile override and invalid-profile fallback warnings.
 - [ ] CameraClockStatus sampling for ONVIF-capable devices.
 - [ ] optional monitor/manage_ntp/ignore device-time mode.
 - [ ] inherit system managed-camera NTP settings with optional per-camera NTP override.
@@ -159,18 +168,29 @@ Acceptance:
 ## Phase 4 — ONVIF Device Plane
 
 - [ ] Integrate mature ONVIF library.
-- [ ] LAN discovery.
-- [ ] Device information.
-- [ ] Media Profiles.
-- [ ] stream selection.
-- [ ] capability persistence.
-- [ ] ONVIF Events.
-- [ ] PTZ after Events.
+- [ ] ONVIF WS-Discovery on selected local interfaces.
+- [ ] stable device-identity correlation/deduplication independent from IP address.
+- [ ] Device information + firmware/serial/stable identifier probe.
+- [ ] multi-channel/video-source enumeration for NVR/DVR/multi-sensor devices.
+- [ ] ONVIF Media Profiles -> SourceMediaProfile normalization.
+- [ ] stream URI retrieval without credential leakage.
+- [ ] per-role stream selection and actual pull verification.
+- [ ] DeviceCapabilitySnapshot persistence/refresh.
+- [ ] ONVIF Events capability + subscription path.
+- [ ] PTZ capability/control after Events.
+- [ ] snapshot/audio/time/NTP capability probing.
+- [ ] DHCP endpoint-change rediscovery without recreating Camera IDs.
+- [ ] identity-conflict UI instead of weak automatic merge.
+- [ ] batch onboarding with shared/default credentials, groups, recording policy, StoragePool and time-sync defaults.
 
 Acceptance:
 
 - no hand-written general SOAP/WSDL stack.
-- ONVIF devices still map into the same Camera/MediaStream model.
+- discovery candidates do not create cameras before validation.
+- one multi-channel recorder maps to one Device plus multiple Camera channels.
+- stable device identity survives DHCP/IP changes.
+- source profiles map into canonical recording/live/preview/detection roles.
+- bad credentials or unpullable media fail onboarding without leaving silent half-configured cameras.
 
 ## Phase 5 — Event Detection Platform
 
