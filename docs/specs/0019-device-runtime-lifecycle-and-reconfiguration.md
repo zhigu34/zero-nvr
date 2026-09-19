@@ -702,3 +702,10 @@ Automatic transient reconnect attempts live in operational runtime logs/health h
 Live browser sessions are not Device/Camera runtime source-of-truth objects. They are short-lived authorized MediaSessions defined in [Spec 0020](0020-live-view-media-session-and-talk.md).
 
 A live_main/live_preview runtime-generation change causes active MediaSessions to re-resolve/reconnect. It does not expose stale camera/ZLM URLs indefinitely and does not recreate Camera identity.
+
+
+## Detection-provider runtime reference
+
+DetectionProvider subscriptions/consumers are reconstructable runtime projections. ONVIF PullPoint, HIK bridge, Frigate MQTT, and local detector runtimes use the same config-revision/runtime-generation fencing principles from this specification.
+
+Provider disconnect/reconnect, event liveness, observation idempotency, and AI/event fusion are defined in [Spec 0021](0021-detection-providers-ai-events-and-fusion.md).
