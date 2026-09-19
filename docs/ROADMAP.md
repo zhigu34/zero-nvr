@@ -33,6 +33,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
 - [x] Define complete live-view MediaSession, multi-grid quality switching, WebRTC/fMP4/HLS fallback, TURN, H.265 compatibility, audio, and talk.
+- [x] Define DetectionProvider observations, AI/object tracking, zones, provider liveness, and non-destructive event fusion.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -235,17 +236,46 @@ Acceptance:
 
 ## Phase 5 — Event Detection Platform
 
-- [ ] DetectionProvider contract.
-- [ ] DetectionEvent schema supporting stateful and instant lifecycle kinds.
+- [ ] DetectionProvider contract and provider capability model.
+- [ ] DetectionProviderInstance persistence/health.
+- [ ] DetectionProviderBinding per Camera with independent timeline / recording / alert eligibility.
+- [ ] DetectionObservation append-oriented provider evidence and durable ingress idempotency.
+- [ ] DetectionEvent provider-neutral aggregate with START / UPDATE / END and instant lifecycle.
 - [ ] source_occurred_at / received_at / occurred_at timestamp provenance and clock-offset correction.
-- [ ] native camera events.
-- [ ] optional local lightweight motion with hysteresis + START/END hold state machine.
-- [ ] pulse-only source normalization/hold timeout where required.
-- [ ] optional Frigate provider.
-- [ ] event timeline/filtering using DetectionEvent markers.
+- [ ] object_class / object_subclass / confidence / bounding-box normalization.
+- [ ] bounded observation sampling/retention to protect SQLite/PostgreSQL write/storage load.
+- [ ] EventZone normalized polygons + ProviderZoneBinding.
+- [ ] DetectionEventZoneInterval entry/exit history.
+- [ ] DetectionPolicy per Camera for provider/filter/snapshot/fusion behavior.
+- [ ] provider disconnect liveness deadlines and provider_lost event completion.
+- [ ] out-of-order provider update protection; completed events cannot be reopened by stale updates.
+- [ ] native ONVIF event provider with PullPoint renew/reconnect/sync handling.
+- [ ] HIK/vendor native event provider through isolated bridge.
+- [ ] optional Frigate provider using MQTT tracked-object lifecycle + API health/detail/snapshot reconciliation.
+- [ ] explicit Frigate Camera -> zero-nvr Camera mapping; Frigate remains non-authoritative.
+- [ ] Frigate zones/object classes/sub-labels/snapshots normalization.
+- [ ] Frigate review-context enrichment without duplicating each underlying tracked-object DetectionEvent.
+- [ ] optional local lightweight motion using detection stream, resource limits, hysteresis + START/END holds.
+- [ ] pulse-only source normalization/hold timeout.
+- [ ] snapshot evidence import into zero-nvr StorageObject with failure isolation.
+- [ ] face/LPR/sub-label metadata handling with redaction/scope/export controls.
+- [ ] EventFusionGroup / EventFusionMember conservative cross-provider correlation.
+- [ ] timeline fusion presentation with provider detail drill-down.
 - [ ] structured EventLog persistence/query.
-- [ ] event snapshots.
+- [ ] Event Center filters for provider / event type / object class / zone / confidence / fusion.
+- [ ] provider health metrics: lag/backlog/reconnect/invalid/deduplicated/active events.
+- [ ] provider settings + per-camera bindings / zone mapping / eligibility UI.
 
+Acceptance:
+
+- replayed/duplicate provider messages do not create duplicate DetectionEvents.
+- Frigate new/update/end for one tracked object maps to one stateful DetectionEvent.
+- ONVIF/HIK state changes normalize into canonical lifecycle semantics.
+- provider outage cannot leave event recording active forever.
+- out-of-order stale updates cannot reopen completed events.
+- multiple provider reports may correlate into one fusion group while every source event remains queryable.
+- provider snapshot/AI failure never interrupts healthy media recording.
+- Frigate/AI remains an optional event provider rather than NVR source of truth.
 ## Phase 6 — Alerting and Notifications
 
 - [ ] AlertSignal normalization for detection / health / security sources.
