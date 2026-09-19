@@ -20,6 +20,7 @@ Initial V2 roles:
 recording_hot
 archive_remote
 playback_cache
+backup
 ```
 
 ### recording_hot
@@ -650,3 +651,8 @@ Storage health viewing and StorageTarget/StoragePool mutation use separate permi
 ## Secret-management reference
 
 StorageTarget endpoint/bucket/path configuration remains ordinary metadata while S3/rclone/OpenList credentials are referenced through SecretStore. Archive credential failure affects that target explicitly and never exposes plaintext through StorageTarget read APIs. See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](0012-config-secrets-key-management.md).
+
+
+## Backup-role reference
+
+StorageTarget may also carry a `backup` role. A target may serve both `archive_remote` and `backup`, but object prefixes, retention, permissions, and lifecycle remain separate. Backup capability is explicit: S3/POSIX may support PITR repositories while rclone/OpenList may be snapshot-only. See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md).
