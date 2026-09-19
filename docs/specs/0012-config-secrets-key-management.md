@@ -702,3 +702,10 @@ Readiness may distinguish core/bootstrap failure from resource-specific credenti
 15. Missing/decryption-failed secrets remain observable resource errors and are not converted into empty values.
 16. Cryptographic keys are separated by purpose.
 17. Non-obvious encryption/key-rotation/secret-lifecycle behavior requires comments per Development Guidelines.
+
+
+## Disaster-recovery RecoveryKit reference
+
+Automatic/system backup and clean-host recovery use the encrypted RecoveryKit model from [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md). RecoveryKit solves the bootstrap dependency by protecting SecretStore keyring material and, when required, backup-target credentials outside the database they are needed to restore.
+
+Key rotation or disaster-recovery repository credential changes make the current RecoveryKit stale until regenerated.
