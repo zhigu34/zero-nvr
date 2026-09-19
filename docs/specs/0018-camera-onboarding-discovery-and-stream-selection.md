@@ -815,3 +815,10 @@ Secrets and credential-bearing URIs are redacted.
 Onboarding commits durable Device/Camera/SourceMediaProfile configuration. Long-term enable/disable/reconnect, configuration revision fencing, endpoint/credential/profile hot reconfiguration, event-subscription recovery, capability drift, and multi-channel disappearance/return behavior are defined in [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
 
 Discovery/onboarding state must not be reused as the permanent runtime state machine.
+
+
+## Live playback role reference
+
+The `live_preview` and `live_main` roles discovered/selected here are consumed by the MediaSession/LivePlaybackResolver defined in [Spec 0020](0020-live-view-media-session-and-talk.md).
+
+Browser compatibility does not redefine the recording profile. If an H.264-compatible live source profile is unavailable, Spec 0020 may create a temporary/shared compatibility transcode derivative for live viewing.
