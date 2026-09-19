@@ -250,3 +250,26 @@ A Device may use a primary management adapter plus a supplemental vendor adapter
 WVP restart/re-registration or DHCP/IP changes must not create new Camera IDs when canonical identity remains the same.
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
+
+
+## Frigate DetectionProvider contract
+
+Frigate is a first-release optional-to-enable AI DetectionProvider.
+
+Primary flow:
+
+```text
+Frigate MQTT tracked-object events
+        ↓
+DetectionObservation
+        ↓
+DetectionEvent
+```
+
+The adapter maps Frigate Camera names explicitly to zero-nvr Camera IDs. Object track IDs are provider event/track identities, so new/update/end for the same tracked object update one canonical DetectionEvent.
+
+Frigate HTTP API may support connection health, event detail/snapshot lookup, and reconciliation after gaps. Frigate review items may enrich context/severity but do not create duplicate zero-nvr events for every underlying tracked object by default.
+
+Frigate zones/sub-labels/model metadata are preserved/mapped where useful. Frigate recordings and retention remain external implementation detail; zero-nvr recording/storage metadata stays authoritative.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
