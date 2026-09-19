@@ -8,6 +8,105 @@ A Camera represents a stable monitoring point.
 
 Changing ONVIF credentials, replacing an RTSP URL, switching adapter implementations, or moving media runtime must not silently create a new Camera identity.
 
+## User
+
+Local interactive account.
+
+```text
+id
+username
+display_name
+password_hash
+enabled
+must_change_password
+last_login_at
+created_at
+updated_at
+```
+
+Passwords are stored only as modern password hashes; initial recommendation is Argon2id.
+
+## Role
+
+```text
+id
+name
+description
+built_in
+created_at
+updated_at
+```
+
+## RolePermission
+
+```text
+role_id
+permission
+```
+
+## UserRole
+
+```text
+user_id
+role_id
+```
+
+## CameraGroup
+
+```text
+id
+name
+description
+created_at
+updated_at
+```
+
+## CameraGroupMember
+
+```text
+camera_group_id
+camera_id
+```
+
+A Camera may belong to multiple CameraGroups.
+
+## PrincipalCameraScope
+
+```text
+principal_type
+principal_id
+scope_mode      all | selected_groups | selected_cameras | none
+created_at
+updated_at
+```
+
+## PrincipalCameraScopeEntry
+
+```text
+principal_type
+principal_id
+camera_id
+camera_group_id
+```
+
+A camera-scoped action requires both the relevant permission and effective Camera scope.
+
+## UserSession
+
+```text
+id
+user_id
+created_at
+last_seen_at
+expires_at
+revoked_at
+client_info
+```
+
+Interactive sessions are revocable. Disabling a User revokes active sessions.
+
+See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
+
 ## Camera
 
 Core fields:
@@ -837,17 +936,37 @@ EventLog complements normal application logs. It should make recording decisions
 
 ## AuditEvent
 
-Tracks administrative/business changes.
+Append-oriented record of actor-driven administrative, destructive, authentication, and security-relevant operations.
 
 ```text
-actor
+id
+occurred_at
+actor_type
+actor_id
+actor_display
 action
 resource_type
 resource_id
+camera_id
+request_id
+correlation_id
+source_ip
+client_info
+result
+reason
 before
 after
+metadata
 created_at
 ```
+
+Sensitive fields are redacted from before/after/metadata.
+
+AuditEvent answers **who did what**. EventLog explains runtime/business behavior. They are separate concerns.
+
+Normal product APIs do not edit/delete historical AuditEvents.
+
+See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
 
 ## Invariants
 
@@ -915,3 +1034,11 @@ created_at
 62. Mid-segment storage failure may split physical RecordingSegments while the same RecordingSession/RecordingIntent continues.
 63. Recovered StorageTargets pass a stability period and do not immediately preempt healthy active writers.
 64. StorageTarget removal never silently discards unique retained media.
+65. Backend authorization is authoritative; frontend visibility alone never grants access.
+66. Camera-scoped actions require both the action permission and effective camera scope.
+67. Viewing does not imply export/download, lock, delete, PTZ, or management permission.
+68. Live/playback media access uses short-lived scoped authorization and never exposes camera credentials.
+69. External integrations use dedicated least-privilege service principals rather than administrator sessions.
+70. AuditEvent is append-oriented actor accountability and remains separate from EventLog runtime/business history.
+71. Disabling a User revokes active interactive sessions.
+72. Domain safety invariants still apply even when the actor is an Administrator.
