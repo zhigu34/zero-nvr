@@ -54,7 +54,8 @@ Before implementing protocol or infrastructure code, ask:
 Default decisions:
 
 - media proxy / WebRTC / HLS / fMP4: **ZLMediaKit**;
-- recording/transcode/export primitives: **FFmpeg / ffprobe**;
+- normal recording/VOD/media runtime: **ZLMediaKit**;
+- derived-media/export/transcode/inspection: **FFmpeg / ffprobe**;
 - ONVIF SOAP/WSDL/WS-Security: **mature ONVIF library**;
 - HIK private protocol: **vendor SDK through an isolated bridge**;
 - GB28181: **optional WVP + ZLMediaKit integration**;
@@ -81,8 +82,10 @@ The first production release is intentionally complete rather than MVP-scoped: e
 
 Start with:
 
+- [Project Baseline](docs/PROJECT_BASELINE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Technology Stack](docs/TECH_STACK.md)
+- [Deployment Architecture](docs/DEPLOYMENT.md)
 - [Domain Model](docs/DOMAIN_MODEL.md)
 - [Integrations](docs/INTEGRATIONS.md)
 - [Roadmap](docs/ROADMAP.md)
@@ -109,6 +112,7 @@ Start with:
 - [Detection Providers, AI Events, Zones, and Fusion](docs/specs/0021-detection-providers-ai-events-and-fusion.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
+- [V1 Design-Freeze POC Plan](docs/plans/01-design-freeze-poc.md)
 
 ## V1 relationship
 
