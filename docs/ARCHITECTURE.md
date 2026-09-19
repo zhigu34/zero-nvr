@@ -509,6 +509,41 @@ User-locked and currently writing/finalizing media is never automatically purged
 
 See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
 
+
+### Backup, PITR, and disaster recovery
+
+Recording archive and system backup are separate protection layers.
+
+```text
+Recording media
+   ↓
+archive_remote StorageTarget
+   ↓
+verified remote media
+
+PostgreSQL
+   ↓
+PgBackRestBackupBackend
+   ↓
+full/diff/incr + WAL/PITR repository
+
+System/SecretStore recovery
+   ↓
+BackupManifest + encrypted RecoveryKit
+   ↓
+clean-host restore
+```
+
+A StorageTarget may carry both `archive_remote` and `backup` roles, but recording objects and backup objects use separate prefixes, retention, and permissions.
+
+PostgreSQL PITR is delegated to pgBackRest rather than reimplemented in FastAPI. S3/POSIX targets may expose PITR capability; rclone/OpenList remain valid snapshot/system-backup targets unless their backend is explicitly proven PITR-capable.
+
+System backups contain recording metadata, not a second copy of all video. After local-disk loss, restoring database + SecretStore keyring can reconnect remote StorageObjects and make cloud-only historical playback available without bulk media download.
+
+Disaster-recovery bootstrap uses an encrypted RecoveryKit so backup-target credentials and SecretStore keyring material are recoverable on a clean host without depending on the lost database.
+
+See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
+
 ### Historical playback
 
 Historical playback is driven by absolute time, not MP4 file order.
