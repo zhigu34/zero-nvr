@@ -728,3 +728,7 @@ Historical `source_lost` gaps are derived from real RecordingSegment coverage pl
 ## Canonical clock reference
 
 Historical playback and the multi-camera Master Clock remain aligned to canonical UTC RecordingSegment time. Camera clock skew affects device-originated event normalization/OSD agreement, not the playback clock itself. See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
+
+## Authorization reference
+
+Timeline queries and PlaybackResolver media access require backend permission plus effective camera scope. Playback URLs/tokens are short-lived/scoped and losing camera scope must not leave permanent media access behind. See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](0011-auth-authorization-and-audit.md).
