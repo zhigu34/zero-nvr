@@ -40,6 +40,7 @@ Examples that are first-release scope:
 - session management and audit;
 - SecretStore/key rotation/backup;
 - complete device onboarding: ONVIF discovery, manual RTSP, multi-channel devices, capability/profile probing, stream-role selection, batch add, endpoint rediscovery;
+- complete device runtime lifecycle: enable/disable/maintenance, revision-fenced reconnect, hot profile/credential/endpoint reconfiguration, capability drift, channel disappearance/return;
 - ONVIF events/PTZ/time management;
 - HIK vendor bridge;
 - GB28181/WVP integration;
@@ -311,3 +312,10 @@ See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](
 The first production release includes staged discovery candidates, stable device identity/deduplication, Device-versus-Camera channel modeling, manual RTSP, ONVIF discovery/probe, HIK/GB28181 identity correlation, multi-channel onboarding, SourceMediaProfile discovery, explainable auto stream-role selection, manual override, actual media verification, batch onboarding, and endpoint/profile refresh handling.
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](0018-camera-onboarding-discovery-and-stream-selection.md).
+
+
+## Device runtime completeness
+
+The first production release includes reconstructable Device/Camera runtime supervision, config-revision/runtime-generation fencing, idempotent enable/disable/reconnect, targeted hot reconfiguration, planned and forced source-profile switching, event subscription lifecycle, capability drift handling, layered health, and multi-channel missing/return recovery.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
