@@ -482,3 +482,7 @@ The browser receives one logical timeline.
 ## Retention reference
 
 Retention claims, user locks, disk watermarks, verified-remote local purge, and emergency cleanup ordering are defined in [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](0005-recording-retention-and-purge.md).
+
+## Time-model reference
+
+Recording filenames are generated from canonical RecordingSegment UTC converted into the effective recording timezone; camera wall-clock time is never the filename timestamp authority. Camera OSD alignment and device clock monitoring are defined in [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
