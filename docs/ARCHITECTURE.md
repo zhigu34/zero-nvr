@@ -499,6 +499,36 @@ Dual-player switching preloads the next logical segment and changes players at t
 
 See [Spec 0006 — Historical Playback Timeline and Multi-Camera Sync](specs/0006-historical-playback-timeline.md).
 
+
+### Canonical time and camera clock handling
+
+zero-nvr uses server/NVR UTC as canonical business/media time. Camera clocks are measured external clocks, not timestamp authority.
+
+```text
+canonical UTC
+   ├─ RecordingSegment / RecordingSession / DetectionEvent
+   ├─ historical playback / multi-camera Master Clock
+   └─ storage/index metadata
+
+camera clock
+   ├─ monitored offset/quality
+   ├─ optional ONVIF/NTP management
+   └─ device-originated event timestamp correction
+
+recording timezone
+   └─ human filename / UI / wall-clock schedule presentation
+```
+
+Recording filenames are generated from canonical RecordingSegment UTC converted to the effective recording timezone; they are never generated from camera wall-clock time.
+
+Compatible devices may be monitored through ONVIF device-time APIs. Default mode is monitor-only; optional managed NTP/timezone configuration is an explicit administrative action.
+
+Device event timestamps preserve source time and receive time. A reliable measured camera-clock offset may normalize the canonical event occurrence timestamp. Historical normalized timestamps are not silently rewritten if the camera clock is corrected later.
+
+Schedules retain local wall-clock intent through an explicit schedule timezone. Elapsed timers/retry/post-roll use monotonic clocks so host NTP corrections do not distort durations.
+
+See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
+
 ### Recording storage layout
 
 Canonical local recording storage is both database-safe and independently human-browsable:
