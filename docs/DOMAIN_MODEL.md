@@ -205,6 +205,35 @@ metadata
 
 Offset measurement should account for request round-trip time rather than comparing only against response receipt time.
 
+## SecretRecord
+
+Encrypted recoverable secret managed by SecretStore.
+
+```text
+id
+kind
+owner_type
+owner_id
+algorithm
+encrypted_payload
+payload_nonce
+wrapped_data_key
+wrap_nonce
+wrapping_key_id
+version
+created_at
+updated_at
+last_used_at
+```
+
+Each record uses a random per-secret data-encryption key (DEK). The DEK is wrapped by a key-encryption key (KEK) that is stored outside PostgreSQL.
+
+Business rows reference secrets through opaque `secret_ref` fields. Normal read APIs never return SecretRecord plaintext.
+
+Verifier-only credentials such as User passwords and authentication tokens use one-way hashing instead.
+
+See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](specs/0012-config-secrets-key-management.md).
+
 ## CameraConnection
 
 Represents the current control/media connection configuration.
@@ -679,6 +708,7 @@ name
 enabled
 priority
 config
+credential_secret_ref
 quota
 health
 ```
@@ -1042,3 +1072,12 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 70. AuditEvent is append-oriented actor accountability and remains separate from EventLog runtime/business history.
 71. Disabling a User revokes active interactive sessions.
 72. Domain safety invariants still apply even when the actor is an Administrator.
+73. Ordinary configuration and recoverable secrets are separate storage concerns.
+74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
+75. Verifier-only credentials use one-way hashing rather than reversible encryption.
+76. Recoverable SecretRecords use authenticated envelope encryption with per-record DEKs.
+77. SecretStore KEK/keyring material is external to PostgreSQL and versioned for rotation.
+78. Normal APIs, logs, traces, EventLog, and AuditEvent never expose secret plaintext.
+79. Existing encrypted SecretRecords plus a missing/wrong keyring are an explicit critical error, never converted to blank credentials.
+80. Normal configuration/support exports exclude secrets; portable secret backups require explicit encrypted export.
+81. Cryptographic key material is separated by purpose and rotated without silently invalidating active secrets.
