@@ -31,6 +31,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
 - [x] Define upgrade preflight, schema/data migration classes, rollback, update channels, and database cutover safety.
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
+- [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -107,6 +108,20 @@ Acceptance:
 - [ ] inherit system managed-camera NTP settings with optional per-camera NTP override.
 - [ ] apply/verify managed-camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
+- [ ] RuntimeSupervisor for reconstructing desired Device/Camera runtimes after restart.
+- [ ] monotonic config_revision + runtime_generation fencing for ZLM/probe/event callbacks.
+- [ ] idempotent enable / disable / maintenance / reconnect operations.
+- [ ] prepare -> validate -> commit -> apply runtime configuration pipeline.
+- [ ] metadata-only change classification with zero media restart.
+- [ ] endpoint/credential hot revalidation and targeted reconnect.
+- [ ] SourceMediaProfile refresh/diff and capability-drift detection.
+- [ ] planned recording-profile switch at safe formal segment boundary.
+- [ ] forced source/profile switch with completion_reason = source_reconfigured while preserving RecordingSession/Intent.
+- [ ] live_main/live_preview shadow-runtime handoff.
+- [ ] detection runtime generation handoff and stale stateful-event closure.
+- [ ] event-subscription lifecycle/renew/reconnect with generation fencing.
+- [ ] multi-channel missing/return lifecycle without Camera identity loss.
+- [ ] layered runtime health: control / media / recording / events / PTZ / clock / capability.
 - [ ] Ensure/remove stream proxy.
 - [ ] per-camera source runtime state machine: streaming / degraded / reconnecting / offline.
 - [ ] ZLM source registration/unregistration + pull-proxy close/error integration.
