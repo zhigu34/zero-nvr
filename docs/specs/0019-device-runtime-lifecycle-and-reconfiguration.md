@@ -696,3 +696,9 @@ Automatic transient reconnect attempts live in operational runtime logs/health h
 13. SQLite and PostgreSQL modes preserve the same lifecycle correctness.
 14. Automatic retries are observable but do not flood AuditEvent.
 15. Non-obvious revision fencing, handoff, idempotency, race, and recovery logic requires comments per Development Guidelines.
+
+## MediaSession runtime reference
+
+Live browser sessions are not Device/Camera runtime source-of-truth objects. They are short-lived authorized MediaSessions defined in [Spec 0020](0020-live-view-media-session-and-talk.md).
+
+A live_main/live_preview runtime-generation change causes active MediaSessions to re-resolve/reconnect. It does not expose stale camera/ZLM URLs indefinitely and does not recreate Camera identity.
