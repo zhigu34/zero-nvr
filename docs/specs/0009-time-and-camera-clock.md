@@ -666,3 +666,12 @@ clock warning thresholds
 15. Managed-camera NTP servers are explicit system configuration and may be inherited/overridden per camera.
 16. Initial V2 monitors host NTP/time-sync health but does not modify the host operating-system time-sync service.
 17. Non-obvious clock correction/timezone/timer logic requires comments per Development Guidelines.
+
+
+## Runtime capability-drift reference
+
+If a device loses time-read/NTP-management capability after onboarding, zero-nvr does not silently change the user's configured time policy.
+
+`manage_ntp` becomes ineffective/needs-attention when the capability is unavailable; monitoring may continue if time-read remains supported. Reprobe/recovery may restore the capability.
+
+All device-time runtime results are config-revision/runtime-generation fenced as defined in [Spec 0019](0019-device-runtime-lifecycle-and-reconfiguration.md).
