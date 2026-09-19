@@ -102,6 +102,7 @@ Start with:
 - [Alerting, Notification, and Escalation](docs/specs/0014-alerting-notification-and-escalation.md)
 - [Backup, Disaster Recovery, and PITR](docs/specs/0015-backup-disaster-recovery-and-pitr.md)
 - [SQLite and PostgreSQL Production Modes](docs/specs/0016-postgresql-and-sqlite-portability.md)
+- [Upgrade, Migration, and Rollback](docs/specs/0017-upgrade-migration-and-rollback.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
