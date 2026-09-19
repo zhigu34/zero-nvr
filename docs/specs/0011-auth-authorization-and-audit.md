@@ -161,6 +161,10 @@ user.manage
 role.manage
 audit.view
 integration.manage
+backup.view
+backup.manage
+backup.restore
+backup.export
 ```
 
 Permissions may be refined later only when a real security boundary requires it. Avoid creating dozens of nearly identical permissions prematurely.
@@ -1010,3 +1014,21 @@ notification.manage
 Camera-scoped incidents require both the permission and effective camera scope. Notification target configuration, recipient groups, templates, and channel tests require notification.manage. Secrets remain hidden even from notification.view.
 
 Acknowledgement/resolution actions are audited and never alter source DetectionEvent/RecordingIntent semantics.
+
+
+## Backup and recovery authorization
+
+Backup/recovery uses:
+
+```text
+backup.view
+backup.manage
+backup.restore
+backup.export
+```
+
+Full restore, PITR, RecoveryKit export, and portable encrypted system backup are high-risk operations. They require the corresponding permission, recent re-authentication, and MFA when enabled.
+
+Recovery material and backup-target secrets are never exposed by backup.view.
+
+See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md).
