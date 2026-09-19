@@ -165,25 +165,22 @@ Storage adapters must expose verification semantics; upload success alone is ins
 
 ### Production
 
-PostgreSQL.
+Two supported production modes:
 
-Reasons:
+- SQLite — default lightweight single-host mode;
+- PostgreSQL — optional enhanced mode for higher write concurrency/larger deployments.
 
-- multiple runtime/worker writers;
-- strong relational integrity;
-- richer indexing;
-- JSONB for provider metadata;
-- better growth path than SQLite for the target architecture.
+SQLite production uses WAL mode, short transactions, bounded busy retry, controlled checkpointing, and a local filesystem.
+
+PostgreSQL remains available as bundled or external service.
+
+Both modes provide the same product capabilities; backend-specific locking, queue coordination, indexing, and backup behavior stay behind persistence/database capabilities.
 
 ### Development/testing and portability
 
-PostgreSQL is the only supported production metadata database.
+CI includes shared domain tests plus production integration tests for both SQLite and PostgreSQL.
 
-SQLite may be used selectively for lightweight unit tests when the affected behavior is database-portable, and as the first-release portable/offline index format for metadata export/import, detached-media inspection, recovery analysis, and migration tooling.
-
-PostgreSQL integration tests are mandatory for production database semantics such as concurrency, locking, JSONB, timestamps, migrations, and worker coordination.
-
-zero-nvr does not expose SQLite as a production runtime database option.
+A separate versioned SQLite portable/offline index format remains available for metadata export/import, detached-media inspection, recovery analysis, and migration tooling.
 
 See [Spec 0016](specs/0016-postgresql-and-sqlite-portability.md).
 
@@ -264,16 +261,14 @@ These are engineering choices to settle during the first production release, not
 
 ## Backup and recovery
 
-First-production-release PostgreSQL backup engine:
+First-production-release database backup engines:
 
-- pgBackRest for full/differential/incremental backup, WAL archiving, restore, and PITR.
+- SQLite Online Backup API for consistent scheduled snapshots;
+- Litestream for continuous SQLite remote replication and point-in-time restore on compatible targets;
+- pgBackRest for PostgreSQL full/differential/incremental backup, WAL archiving, restore, and PITR.
 
-Repository support is capability-based:
+Repository support is capability-based. Generic StorageBackends such as S3/rclone/OpenList/local can receive verified SQLite/system snapshots. Continuous SQLite replication and PostgreSQL PITR are exposed only when the selected backend is compatible.
 
-- local/POSIX and S3-compatible repositories may provide PITR;
-- rclone/OpenList/local/S3 StorageBackends may provide portable/system snapshot backup;
-- a snapshot-only backend must not be presented as PITR-capable.
-
-zero-nvr owns BackupPolicy, manifests, RecoveryKit, restore orchestration, health, audit, and UI rather than implementing PostgreSQL WAL backup mechanics itself.
+zero-nvr owns BackupPolicy, manifests, RecoveryKit, restore orchestration, health, audit, and UI rather than reimplementing database backup protocols.
 
 See [Spec 0015](specs/0015-backup-disaster-recovery-and-pitr.md).
