@@ -1749,8 +1749,22 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
 76. Recoverable SecretRecords use authenticated envelope encryption with per-record DEKs.
-77. SecretStore KEK/keyring material is external to PostgreSQL and versioned for rotation.
+77. SecretStore KEK/keyring material is external to the active production database and versioned for rotation.
 78. Normal APIs, logs, traces, EventLog, and AuditEvent never expose secret plaintext.
 79. Existing encrypted SecretRecords plus a missing/wrong keyring are an explicit critical error, never converted to blank credentials.
 80. Normal configuration/support exports exclude secrets; portable secret backups require explicit encrypted export.
 81. Cryptographic key material is separated by purpose and rotated without silently invalidating active secrets.
+
+
+### Device runtime lifecycle invariants
+
+- Runtime-relevant configuration is revisioned; stale asynchronous results from older revisions/generations cannot mutate current authoritative runtime state.
+- Runtime state is reconstructable projection state rather than business source of truth.
+- Enable, disable, reconnect, and reconciliation operations are idempotent.
+- Metadata-only edits do not restart media.
+- Planned recording-profile changes preserve RecordingSession/RecordingIntent and switch at safe segment boundaries when possible.
+- Forced source/profile reconfiguration records an explicit physical-media discontinuity while preserving logical recording intent when still active.
+- Capability/profile/channel drift never silently deletes user configuration or historical Camera identity.
+- Control, media, recording, event, PTZ, clock, and capability health remain independently observable.
+
+See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
