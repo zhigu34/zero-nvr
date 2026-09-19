@@ -437,3 +437,7 @@ User lock is per recording/event/range and is not a global day-count setting.
 15. Directory age/name alone never authorizes deletion.
 16. Media purge and metadata-history deletion are separate concerns.
 17. Non-obvious retention/race/pressure behavior requires comments per Development Guidelines.
+
+## Storage-pool pressure reference
+
+Retention watermarks apply per StorageTarget. Placement may move future segments away from a pressured target at a safe boundary, while critical write failure may trigger target failover. Remote archive targets are not direct recording-hot fallbacks. See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
