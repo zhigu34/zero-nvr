@@ -86,7 +86,7 @@ Use the official/vendor SDK behind an isolated bridge process.
 
 ### GB28181
 
-Future optional integration:
+First-production-release integration, optional to enable at deployment:
 
 - WVP for SIP/device protocol;
 - ZLMediaKit for media.
@@ -100,9 +100,11 @@ Priority:
 3. optional external AI provider;
 4. local lightweight detection where appropriate.
 
-Optional AI provider:
+First-production-release AI provider integration:
 
 - Frigate via integration boundary, not as the zero-nvr system of record.
+
+AI remains optional to enable, but the integration is implemented before the first production release.
 
 Event bus/integration protocol may use MQTT where it meaningfully decouples external providers. MQTT is not mandatory for internal business calls.
 
@@ -124,8 +126,8 @@ Enable HA deep integration
   → optional MQTT broker
   → MQTT Discovery/state/commands
 
-Future HA Custom Integration
-  → consumes stable zero-nvr API
+HA Custom Integration
+  → ships in the first production release and consumes the stable zero-nvr API
 ```
 
 The core deployment must remain fully functional when Home Assistant and MQTT are absent.
@@ -134,11 +136,16 @@ Home Assistant automations should send canonical external events/recording trigg
 
 ## Notification plane
 
-Preferred generic notification integration:
+First-production-release notification capabilities:
 
-- Apprise
+- native SMTP/email backend;
+- Apprise generic provider backend;
+- webhook delivery;
+- integration actions such as Home Assistant where configured.
 
-Native adapters may still exist for channels that require zero-nvr-specific behavior.
+SMTP is also used for self-service password reset, security/account notifications, and system-health notification.
+
+SMTP credentials are SecretStore-backed. Delivery uses the durable notification worker with retry/result tracking.
 
 ## Storage plane
 
@@ -223,11 +230,11 @@ Initial:
 - health/readiness endpoints;
 - runtime state APIs.
 
-Later:
+First production release:
 
 - Prometheus-compatible metrics;
 - OpenTelemetry tracing where useful;
-- Grafana optional.
+- Grafana optional to deploy.
 
 ## Deployment
 
@@ -237,9 +244,9 @@ Initial:
 
 Do not make Kubernetes a V2 prerequisite.
 
-## Deliberately deferred choices
+## Implementation choices still requiring validation
 
-The following should be validated before being locked:
+These are engineering choices to settle during the first production release, not post-release feature deferrals:
 
 - final recording container/segment format;
 - exact task queue implementation;
