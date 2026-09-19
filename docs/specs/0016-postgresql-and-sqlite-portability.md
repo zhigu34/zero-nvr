@@ -1,379 +1,288 @@
-# Spec 0016 — Production Database Policy and SQLite Portable Index
+# Spec 0016 — SQLite and PostgreSQL Production Database Modes
 
 Status: **accepted**
 
 ## Goal
 
-Define the database support policy for zero-nvr and the formal role of SQLite in the first production release.
+Define the first-production-release database strategy for zero-nvr.
 
 Core rule:
 
-> PostgreSQL is the only supported production metadata database. SQLite is a first-class portable/offline data format and development/test tool, not a second production database backend.
+> SQLite is the default lightweight production database. PostgreSQL is an optional enhanced production database. Both support the same product features; they differ in scale, concurrency behavior, backup engine, and operational profile.
 
-## Production database policy
-
-zero-nvr has concurrent writers and transactional workflows across camera/device state, RecordingManager, DetectionEvent/EventLog, alert/notification workers, upload/archive workers, retention/purge, audit, backup metadata, and health jobs.
-
-The production model benefits from PostgreSQL semantics and features:
+## Production modes
 
 ```text
-concurrent write handling
-transactional row locking
-JSONB/provider metadata
-rich indexing
-timestamptz / UTC semantics
-coordination primitives where useful
-WAL / PITR backup ecosystem
+Database Mode
+
+SQLite
+  default
+  lightweight single-host
+  no separate DB service
+  WAL mode
+  SQLite Online Backup + Litestream
+
+PostgreSQL
+  optional enhanced mode
+  higher write concurrency
+  larger installations
+  external/managed DB support
+  pgBackRest + WAL/PITR
 ```
 
-Supporting SQLite as an equal production backend would permanently create duplicate compatibility work for locking, types, indexes, migrations, worker concurrency, and recovery.
+The product must not artificially disable camera, recording, alert, storage, authentication, integration, playback, or backup features merely because SQLite is selected.
 
-Therefore:
+## Default deployment
+
+The default zero-nvr deployment uses SQLite.
 
 ```text
-Production runtime database
-  PostgreSQL only
-
-Development/unit testing
-  SQLite allowed for database-portable behavior
-
-Integration/system testing
-  PostgreSQL required
-
-Offline portable index/export
-  SQLite supported
-
-Recovery/analysis tooling
-  SQLite supported
+zero-nvr
+  web
+  api
+  worker
+  zlmediakit
+  /data/zero-nvr/zero-nvr.db
 ```
 
-The installer/UI does not offer a PostgreSQL-vs-SQLite production selector.
+No PostgreSQL container is required in the default lightweight stack.
 
-## Deployment experience
+The PostgreSQL deployment profile adds an internal PostgreSQL service or points to an external PostgreSQL instance.
 
-Mandatory PostgreSQL must not make standard installation complicated.
+## SQLite production requirements
 
-Default Docker Compose deployment includes PostgreSQL inside the zero-nvr stack.
+SQLite production mode uses:
 
 ```text
-docker compose up -d
-        ↓
-zero-nvr web
-zero-nvr api
-zero-nvr worker
-postgresql
-zlmediakit
-...
+journal_mode = WAL
+foreign_keys = ON
+busy timeout / bounded retry
+short write transactions
+controlled checkpointing
+batched metadata writes where useful
 ```
 
-Advanced deployments may point zero-nvr at an external PostgreSQL service.
+The SQLite database file must live on a supported local filesystem.
 
-## ORM and migration policy
+Do not place the live SQLite database/WAL on NFS, SMB, WebDAV, OpenList, or object storage.
 
-SQLAlchemy/Alembic target PostgreSQL production semantics first.
+Recording media may still use mounted/local/remote storage independently.
 
-Rules:
+## Write-concurrency strategy
 
-- do not weaken production schema merely to retain SQLite compatibility;
-- PostgreSQL-specific indexes/data types/locking are allowed when product value requires them;
-- portable domain logic should remain testable without unnecessary DB coupling;
-- PostgreSQL integration tests are mandatory for concurrency, locking, JSONB, timestamps, migrations, and worker coordination.
+SQLite allows many readers but serializes writers.
 
-SQLite unit tests are convenience tests, not proof of production database correctness.
+zero-nvr therefore designs the persistence layer so SQLite mode:
 
-## SQLite Portable Index
+- keeps write transactions short;
+- avoids network/media operations inside transactions;
+- batches high-frequency metadata where safe;
+- retries bounded SQLITE_BUSY conditions;
+- monitors write latency, busy count, WAL size, checkpoint duration, and write backlog;
+- does not require long-lived database locks for worker orchestration.
 
-The first production release provides a portable SQLite export for offline inspection, migration, recovery, and analysis.
+When the observed workload outgrows SQLite, the product recommends PostgreSQL rather than silently degrading correctness.
 
-Example:
+## PostgreSQL mode
+
+PostgreSQL is recommended when the installation has sustained high metadata write concurrency, many workers, heavy AI/event streams, large multi-user workloads, or future deployment requirements that benefit from client/server database semantics.
+
+PostgreSQL-specific implementation may use richer locking/indexing features internally, but user-visible domain behavior remains the same.
+
+## Database abstraction
+
+Do not scatter dialect branches throughout business code.
 
 ```text
-zero-nvr-index-2026-09-19.sqlite
+Domain / Application Services
+          ↓
+Repository + Unit of Work
+          ↓
+DatabaseCapabilities
+      ┌──────────────┐
+      │              │
+SQLiteBackend   PostgreSQLBackend
 ```
 
-This is a read-oriented/export database and never becomes the live production source of truth.
+DatabaseCapabilities owns backend-specific infrastructure behavior such as:
 
-## Portable index content
+- task claiming/coordination;
+- locking strategy;
+- JSON/index optimizations;
+- backup adapter;
+- health metrics;
+- migration/export mechanics.
 
-Default safe metadata may include:
+Business invariants remain database-independent.
+
+## Schema policy
+
+Use a common logical schema wherever practical:
 
 ```text
-Camera
-CameraGroup
-RecordingSession
-RecordingSegment
-RecordingSessionSegment
-StorageObject
-DetectionEvent
-AlertIncident
-AlertIncidentSource
-SourceConnectivityIncident
-retention summary
-export metadata
-backup/export manifest metadata
+UUID/string IDs
+UTC timestamps
+JSON metadata
+foreign keys
+unique constraints
+normal relational indexes
 ```
 
-Portable export excludes or sanitizes:
+Do not weaken correctness simply to force identical physical SQL.
+
+Backend-specific indexes/locking/DDL are allowed behind migrations/capability code.
+
+## Testing policy
+
+Both production modes are supported, therefore both receive production integration tests.
+
+Required CI categories:
 
 ```text
-password hashes where not needed
-SecretRecord ciphertext/key material
-camera/storage credentials
-SMTP credentials
-API/service token verifiers
-MFA secret material
-RecoveryKit contents
-sensitive audit/user data outside selected export profile
+shared domain tests
+SQLite production-mode integration tests
+PostgreSQL production-mode integration tests
+cross-backend migration tests
+backup/restore tests for each backend
 ```
 
-Portable SQLite is not a credential backup.
+SQLite-only tests never substitute for PostgreSQL tests and vice versa.
 
-## Portable schema
+## Database selection UI
 
-The export uses its own versioned schema.
+Initial setup includes:
 
 ```text
-portable_format_version
-source_zero_nvr_version
-source_schema_revision
-exported_at
-instance_id
-timezone/display metadata
+Database
+
+● SQLite
+  Recommended for most single-host installations
+  Lowest resource usage
+
+○ PostgreSQL
+  Recommended for high write concurrency / larger installations
 ```
 
-Do not mirror every PostgreSQL implementation detail blindly.
+Advanced PostgreSQL settings may select:
 
-The portable schema is designed for stable offline querying, detached-media inspection, migration tooling, support, and future import compatibility.
+- bundled PostgreSQL deployment;
+- external PostgreSQL connection.
 
-## Media references
+Changing database mode after initialization is handled through the migration workflow, not by editing a connection string behind the product.
 
-The SQLite export does not embed all media files.
+## SQLite to PostgreSQL migration
 
-It records logical references such as:
+First production release supports guided migration.
 
 ```text
-recording_segment_id
-camera_id
-started_at
-ended_at
-availability
-storage target/type
-object key or detached relative path where safe
-checksum / size
-completion_reason
+preflight
+  ↓
+create verified safety backup
+  ↓
+maintenance mode
+  ↓
+quiesce DB-mutating workers
+  ↓
+consistent SQLite snapshot
+  ↓
+create/migrate PostgreSQL schema
+  ↓
+copy canonical data
+  ↓
+validate row counts / relations / critical invariants
+  ↓
+switch active backend
+  ↓
+restart/reconcile
 ```
 
-When exported together with selected media, relative paths can point to the included files.
+Failure before cutover leaves SQLite authoritative and usable.
 
-Metadata-only exports keep descriptive StorageObject references.
+## PostgreSQL to SQLite migration
 
-## Detached media use
+Reverse migration is supported when the current data/workload fits SQLite constraints and no unsupported backend-specific operational dependency blocks the move.
 
-A useful workflow is:
+Preflight checks:
+
+- database size;
+- write rate/history;
+- worker topology;
+- schema compatibility;
+- pending jobs;
+- JSON/data conversion;
+- available local disk;
+- backup health.
+
+The UI may warn strongly when metrics indicate SQLite is a poor fit, but it does not arbitrarily remove business features.
+
+## Migration identity
+
+Database migration must preserve canonical IDs and timestamps.
+
+Do not create new Camera/Recording/Event identities merely because the database backend changes.
+
+## Automatic recommendation
+
+SQLite health exposes at least:
 
 ```text
-recording disk / exported media
-        +
-zero-nvr-index.sqlite
-        ↓
-offline inspection tool
+write_latency
+busy_retry_count
+write_queue_depth
+wal_size
+checkpoint_duration
+database_size
+transaction_latency
 ```
 
-This complements the per-camera detached metadata from Spec 0004.
-
-Offline search can cover camera, time range, event type, incident, segment availability, and session relationships.
-
-## Export modes
-
-### Metadata-only
-
-Produces a compact portable SQLite index containing safe selected metadata.
-
-### Selected media package
-
-User selects cameras/time range/event or incident range.
-
-The package contains:
+If sustained thresholds are exceeded, the UI can recommend:
 
 ```text
-portable SQLite index
-selected media files
-manifest
-checksums
+Database write pressure is high.
+Consider migrating to PostgreSQL.
 ```
 
-This is distinct from normal single-file playback export.
+Thresholds are tuning/health settings, not hard camera-count limits.
 
-### Support/diagnostic export
+## SQLite portable index
 
-Produces sanitized metadata for troubleshooting while excluding secrets and unnecessary personal/security data.
+SQLite production support does not remove the separate portable-index concept.
 
-## Consistent export snapshot
+A metadata-only or selected-media export may still produce a versioned standalone SQLite package for:
 
-Portable index generation must represent a transactionally consistent logical view.
+- detached-media inspection;
+- support diagnostics;
+- migration/import;
+- offline analysis.
 
-For PostgreSQL:
-
-- use a consistent transaction/snapshot;
-- do not mix unrelated capture moments without explicitly recording the limitation;
-- large exports may stream/chunk while preserving the same logical snapshot where practical.
-
-Media files are separately verified against the export manifest.
-
-## Import role
-
-Portable SQLite is never attached directly as the production database.
-
-Import flow:
-
-```text
-portable SQLite
-      ↓
-Importer
-      ↓
-schema/version validation
-      ↓
-mapping and conflict preview
-      ↓
-PostgreSQL domain writes
-```
-
-Imports pass through current validation, authorization, and migration logic.
-
-Never replace PostgreSQL data files with SQLite content.
-
-## Legacy migration role
-
-Portable SQLite may serve as an intermediate format for migration from:
-
-- previous camera-recorder metadata;
-- offline recovered metadata;
-- supported third-party exports.
-
-Legacy importers normalize into the portable/import model, then current zero-nvr domain services persist canonical PostgreSQL records.
-
-## Recovery tooling
-
-SQLite may be used by offline recovery tools to:
-
-- inspect restored PostgreSQL backup content through a portable catalog;
-- reconstruct a browsable index from recording directories/manifests;
-- compare metadata with detached media;
-- generate reconciliation reports.
-
-This does not make SQLite the production source of truth.
-
-## SQLite concurrency policy
-
-Do not rely on SQLite for production worker coordination or high-write runtime state.
-
-Even if SQLite WAL mode is used in tests/tools, production correctness must not depend on SQLite locking behavior.
-
-No production feature may be declared supported solely because it works against SQLite.
-
-## Database abstraction boundaries
-
-Domain/application code should avoid gratuitous database coupling, while production semantics take priority.
-
-```text
-Domain services
-     ↓
-Repository/query interfaces
-     ↓
-PostgreSQL implementation
-```
-
-SQLite-specific code belongs in portable export/import, offline tools, and test fixtures.
-
-Avoid production branching that weakens semantics just to support two live database engines.
+Portable exports remain separate from the live SQLite production file and follow export authorization/sanitization rules.
 
 ## Backup relationship
 
-Spec 0015 remains authoritative for production backup:
+Database backup is selected by active backend:
 
 ```text
+SQLite
+  ├─ SQLite Online Backup API -> consistent snapshots
+  └─ Litestream -> continuous remote replication / point-in-time restore
+
 PostgreSQL
-   ↓
-pgBackRest
-   ↓
-WAL / PITR / disaster recovery
+  └─ pgBackRest -> full/diff/incr + WAL/PITR
 ```
 
-SQLite portable export does not replace PostgreSQL backup, PITR, RecoveryKit, or system disaster recovery.
-
-It is an additional portability artifact.
-
-## Permissions
-
-Initial permissions:
-
-```text
-data_export.create
-data_export.download
-data_import.manage
-```
-
-Export scope must also respect camera/resource authorization unless an explicitly privileged full-system export is requested.
-
-Portable export must never become an authorization bypass.
-
-## Audit
-
-Audit at minimum:
-
-```text
-data_export.created
-data_export.downloaded
-data_import.started
-data_import.completed
-data_import.failed
-```
-
-Audit records scope/profile/results without exported secrets.
-
-## UI
-
-System > Data Export / Import:
-
-```text
-Export metadata index
-  Format: SQLite
-  Scope: all / group / selected cameras
-  Time range
-  Include events/incidents
-  Include selected media
-  Sanitize user/audit data
-
-Import
-  Upload portable index/package
-  Validate
-  Preview conflicts
-  Import
-```
-
-Recording/event pages may provide context-specific export shortcuts.
-
-## Acceptance tests
-
-1. production startup requires PostgreSQL and exposes no SQLite production mode;
-2. portable domain unit tests may use SQLite only where DB-specific behavior is irrelevant;
-3. concurrency/worker/database integration tests run against PostgreSQL;
-4. metadata export produces a valid versioned SQLite artifact without recoverable credentials;
-5. scoped users cannot export hidden-camera metadata/media;
-6. selected-media package references/checksums match included media;
-7. portable index can be queried without running zero-nvr/PostgreSQL;
-8. import validates schema/version, previews conflicts, and persists through PostgreSQL domain logic;
-9. portable export is never reported as PITR/system disaster-recovery protection.
+Spec 0015 defines the unified backup product model.
 
 ## Invariants
 
-1. PostgreSQL is the only supported production metadata database.
-2. SQLite is not exposed as a production runtime option.
-3. SQLite remains supported for portable export/import, offline tooling, and selected unit tests.
-4. PostgreSQL-specific product features are not weakened merely for SQLite compatibility.
-5. PostgreSQL integration tests are mandatory for production database semantics.
-6. Portable SQLite schema is explicitly versioned and independent from raw PostgreSQL implementation details.
-7. Portable exports exclude secrets and respect authorization/camera scope.
-8. SQLite portable export is not a replacement for pgBackRest/PITR/RecoveryKit.
-9. Imports flow through validation/domain persistence into PostgreSQL.
-10. Non-obvious export/import/snapshot/schema-mapping logic requires comments per Development Guidelines.
+1. SQLite is the default supported production database.
+2. PostgreSQL is an optional fully supported enhanced production database.
+3. User-visible product features are not intentionally reduced in SQLite mode.
+4. SQLite production uses WAL mode, short transactions, bounded retry, and a local filesystem.
+5. PostgreSQL remains available for workloads needing greater concurrent-write capacity.
+6. Backend-specific behavior stays behind database/persistence capabilities rather than leaking into domain logic.
+7. Both database modes receive production integration, migration, and backup/restore testing.
+8. Guided SQLite-to-PostgreSQL migration is part of the first production release.
+9. Reverse migration performs compatibility/load preflight rather than blindly copying data.
+10. Canonical business identities survive database migration.
+11. Backup implementation is backend-specific while the BackupPolicy/Restore UX remains unified.
+12. Non-obvious cross-database transaction, migration, and retry behavior requires comments per Development Guidelines.
