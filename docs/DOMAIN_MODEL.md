@@ -28,6 +28,25 @@ updated_at
 Owns one current CameraConnection.
 
 
+## SystemTimeSettings
+
+System-level time and managed-camera synchronization defaults.
+
+```text
+recording_timezone
+managed_camera_ntp_mode       manual | dhcp
+managed_camera_ntp_servers
+clock_warning_threshold_ms
+clock_critical_threshold_ms
+updated_at
+```
+
+`managed_camera_ntp_servers` is an ordered list of NTP hostnames/IPs used when a camera is configured with `time_sync_mode = manage_ntp` and has no camera-specific override.
+
+This configuration does not automatically reconfigure the zero-nvr host's own OS time service. Host NTP/time-sync state is monitored separately.
+
+See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
+
 ## CameraClockStatus
 
 Current normalized view of a camera/device clock relative to zero-nvr canonical time.
@@ -40,6 +59,8 @@ measured_at
 device_timezone
 device_time_source
 sync_mode
+ntp_override_mode
+ntp_servers_override
 health
 ```
 
@@ -826,3 +847,6 @@ created_at
 53. A real media discontinuity resets the physical formal-segment cadence from actual recovery time.
 54. Infrastructure/source-connectivity incidents are distinct from DetectionEvent and may explain historical playback gaps.
 55. Camera offline/reconnecting state does not cancel enabled RecordingIntents or background source retry by itself.
+56. SystemTimeSettings owns the default managed-camera NTP source and recording timezone.
+57. A camera may inherit the system managed-camera NTP source or use an explicit camera-specific override.
+58. Host OS time synchronization is monitored separately from managed-camera NTP configuration in initial V2.
