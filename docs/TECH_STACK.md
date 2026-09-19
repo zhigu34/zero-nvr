@@ -273,3 +273,19 @@ Repository support is capability-based. Generic StorageBackends such as S3/rclon
 zero-nvr owns BackupPolicy, manifests, RecoveryKit, restore orchestration, health, audit, and UI rather than reimplementing database backup protocols.
 
 See [Spec 0015](specs/0015-backup-disaster-recovery-and-pitr.md).
+
+## Upgrade and migration
+
+First-production-release upgrade primitives:
+
+- Alembic for schema coordination across SQLite and PostgreSQL;
+- explicit migration compatibility classes and expand/contract preference;
+- SQLite Online Backup safety point before schema-rebuild/incompatible changes;
+- pgBackRest safety point for PostgreSQL incompatible migrations;
+- version/digest-pinned container/package releases rather than mutable latest tags;
+- persisted UpgradePlan/UpgradeHistory and startup schema-compatibility gate;
+- separate guided DatabaseMigrationPlan for SQLite ↔ PostgreSQL cutover.
+
+Large backfills are durable resumable DataMigrationJobs rather than opaque startup work.
+
+See [Spec 0017](specs/0017-upgrade-migration-and-rollback.md).
