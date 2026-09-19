@@ -532,6 +532,31 @@ Schedules retain local wall-clock intent through an explicit schedule timezone. 
 
 See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
 
+
+### Recording storage pools and failover
+
+Direct formal recording writes only to `recording_hot` targets grouped into a StoragePool. Remote S3/rclone/OpenList targets are asynchronous archive targets, not automatic live-recording fallbacks.
+
+```text
+RecordingManager
+      ↓
+StoragePlacementManager
+      ↓
+StoragePool
+  ├─ Disk A
+  └─ Disk B
+      ↓
+one sticky active target per RecordingSession
+```
+
+The default `sticky_balanced` policy selects a healthy target with usable free space, then keeps that target while it remains healthy. Soft pressure may trigger a planned target change at a safe segment boundary. Hard storage failure can move recording to another target immediately, producing an explicit `storage_failure` interruption/gap while preserving RecordingIntent and RecordingSession.
+
+Recovered targets pass a stability period and do not immediately preempt a healthy current writer. Targets can also enter `draining` state for maintenance without making existing recordings unreadable.
+
+Archive upload starts only after a local RecordingSegment is finalized. Remote archive outage never stops healthy local recording.
+
+See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](specs/0010-recording-storage-pool-and-failover.md).
+
 ### Recording storage layout
 
 Canonical local recording storage is both database-safe and independently human-browsable:
