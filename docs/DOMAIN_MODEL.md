@@ -1029,6 +1029,7 @@ Storage roles:
 recording_hot
 archive_remote
 playback_cache
+backup
 ```
 
 Recording-related state may include:
@@ -1088,6 +1089,87 @@ FAILED
 ```
 
 Local-purge eligibility is a policy decision after verified remote readiness.
+
+## BackupPolicy
+
+Defines database/system backup scheduling, retention, verification, and recovery behavior.
+
+```text
+id
+name
+enabled
+backup_target_id
+database_backup_enabled
+database_mode             pitr | snapshot_only
+full_schedule
+differential_schedule
+snapshot_schedule
+pitr_enabled
+wal_archive_enabled
+retention_daily
+retention_weekly
+retention_monthly
+minimum_recovery_days
+verify_after_backup
+periodic_restore_test_enabled
+periodic_restore_test_schedule
+portable_snapshot_enabled
+created_at
+updated_at
+```
+
+## BackupSet
+
+User-visible backup/recovery point.
+
+```text
+id
+backup_policy_id
+backup_target_id
+type                      database | system_snapshot | portable
+state                     preparing | uploading | verifying | ready | failed | expired
+started_at
+completed_at
+base_time
+recoverable_until
+app_version
+schema_revision
+postgres_version
+instance_id
+manifest_object_key
+size_bytes
+checksum
+verification_state
+last_verified_at
+error_code
+sanitized_error
+created_at
+updated_at
+```
+
+## BackupManifest
+
+Versioned restore metadata describing application/schema/PostgreSQL versions, database repository references, required SecretStore key IDs, recovery capsule reference, storage targets, media-protection summary, included components, and checksums.
+
+It never contains plaintext credentials.
+
+## RecoveryKit
+
+Operator-controlled encrypted bootstrap material for clean-host disaster recovery.
+
+Conceptually protects:
+
+```text
+backup repository identity
+backup target bootstrap credential package
+SecretStore keyring package
+required key ids
+recovery metadata/checksums
+```
+
+RecoveryKit is encrypted outside PostgreSQL using an operator-controlled recovery passphrase/key.
+
+See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
 
 ## PlaybackSession
 
@@ -1385,6 +1467,13 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 82. Escalation and AlertDelivery retry state is durable/recoverable across process restart.
 83. Notification targets are independently healthy and use SecretStore for recoverable credentials.
 84. Per-attempt notification diagnostics are append-style AlertDeliveryAttempt records; exactly-once external delivery is not assumed.
+85. StorageTarget may carry a backup role independently or together with archive_remote.
+86. Backup target capability determines whether snapshot-only or PITR recovery is supported.
+87. Database/system backup never implies local-only recording media is disaster-protected.
+88. SecretStore recovery requires matching keyring/RecoveryKit; encrypted database rows alone are insufficient.
+89. A complete disaster-recovery target must be bootstrap-accessible without first restoring the lost SecretStore.
+90. PITR restore is followed by non-destructive StorageObject/media reconciliation before normal cleanup.
+91. Backup upload, verification, and restore testing are distinct protection states.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
