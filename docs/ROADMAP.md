@@ -6,6 +6,32 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 
 "Optional" means optional to enable/deploy, not deferred implementation.
 
+
+## Design-freeze gate
+
+Current project state: **V1 Design Freeze Candidate**.
+
+Before core architecture is declared frozen, complete the POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md):
+
+1. ZLM continuous recording + hook indexing;
+2. fMP4 abnormal termination recovery;
+3. EVENT_ONLY ~10s pre-roll;
+4. multi-event recording-window extension;
+5. wall-clock/timeline precision;
+6. ZLM VOD seek;
+7. remote restore -> local cache -> ZLM playback;
+8. ZLM stream sharing / camera connection count;
+9. SQLite load at 8-camera baseline and 16-camera extended target;
+10. recovery reconciliation after lost hooks/control-plane restart.
+
+Resource targets to benchmark:
+
+- Core static footprint < 2 GB;
+- Core idle RAM < 1 GB excluding page cache and large ZLM buffers;
+- 8 cameras baseline;
+- 16 cameras extended target.
+
+
 ## Phase 0 — Repository and architecture baseline
 
 - [x] Initialize zero-nvr repository.
