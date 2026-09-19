@@ -724,3 +724,7 @@ The implementation must preserve contracts that allow later upgrade to MSE/fMP4/
 ## Source-loss gap origin
 
 Historical `source_lost` gaps are derived from real RecordingSegment coverage plus source/runtime connectivity evidence. A reconnect creates a new physical RecordingSegment rather than stretching timestamps across the outage. Source-connectivity recovery rules are defined in [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](0008-stream-reconnect-and-recording-recovery.md).
+
+## Canonical clock reference
+
+Historical playback and the multi-camera Master Clock remain aligned to canonical UTC RecordingSegment time. Camera clock skew affects device-originated event normalization/OSD agreement, not the playback clock itself. See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
