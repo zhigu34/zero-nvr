@@ -1151,7 +1151,7 @@ updated_at
 
 ## BackupManifest
 
-Versioned restore metadata describing application/schema/PostgreSQL versions, database repository references, required SecretStore key IDs, recovery capsule reference, storage targets, media-protection summary, included components, and checksums.
+Versioned restore metadata describing application/schema/database-engine versions, database repository references, required SecretStore key IDs, recovery capsule reference, storage targets, media-protection summary, included components, and checksums.
 
 It never contains plaintext credentials.
 
@@ -1169,7 +1169,7 @@ required key ids
 recovery metadata/checksums
 ```
 
-RecoveryKit is encrypted outside PostgreSQL using an operator-controlled recovery passphrase/key.
+RecoveryKit is encrypted outside the active production database using an operator-controlled recovery passphrase/key.
 
 See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
 
