@@ -32,6 +32,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define upgrade preflight, schema/data migration classes, rollback, update channels, and database cutover safety.
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
+- [x] Define complete live-view MediaSession, multi-grid quality switching, WebRTC/fMP4/HLS fallback, TURN, H.265 compatibility, audio, and talk.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -128,14 +129,39 @@ Acceptance:
 - [ ] configurable reconnect backoff/jitter and offline threshold.
 - [ ] infinite/background retry while camera remains enabled.
 - [ ] Stream runtime health.
-- [ ] Live-session API.
-- [ ] Browser WebRTC/fMP4/HLS path.
+- [ ] MediaSession API with short-lived scoped authorization/revocation.
+- [ ] Browser capability report and LivePlaybackResolver.
+- [ ] WebRTC preferred transport with bounded fMP4/HLS fallback.
 - [ ] camera/live authorization before media-session issuance.
-- [ ] Live Monitor MVP.
+- [ ] grid live_preview policy and focus/fullscreen live_main promotion/demotion.
+- [ ] viewport/network-aware auto quality with hysteresis.
+- [ ] live-session telemetry: bitrate/loss/RTT/jitter/first-frame/reconnect/relay.
+- [ ] H.265/H.264 browser compatibility resolution independent from recording profile.
+- [ ] TranscodeManager for on-demand H.265/incompatible-H.264 -> browser-compatible H.264.
+- [ ] shared transcode derivatives with refcount/idle TTL.
+- [ ] hardware-acceleration capability probe and CPU fallback/resource limits.
+- [ ] coturn STUN/TURN deployment and health.
+- [ ] short-lived authenticated TURN credentials.
+- [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.
+- [ ] live audio negotiation and focused-camera audio behavior.
+- [ ] camera.talk permission and TalkSession API.
+- [ ] TalkBackend abstraction for ONVIF/RTSP/HIK/GB28181 backchannels.
+- [ ] push-to-talk + full-duplex where supported; single-talker lease default.
+- [ ] live snapshot action without exposing camera snapshot URL.
+- [ ] PTZ overlay integrated with live view when authorized.
+- [ ] saved LiveViewLayout / grid layouts.
+- [ ] visibility/offscreen idle-session cleanup.
+- [ ] ZLM restart/session reconnect and current runtime-generation re-resolution.
+- [ ] Live Monitor complete UI.
 
 Acceptance:
 
 - one Camera can be added and viewed live without FastAPI decoding frames.
+- multi-camera grid uses preview streams and promotes focused tiles to main quality.
+- WebRTC failure can fall back to fMP4/HLS without exposing source credentials.
+- H.265 recording can remain native while incompatible browsers receive a compatible live path.
+- TURN supports authenticated remote WebRTC and reports relay state.
+- talk is separately authorized and does not affect video/recording on failure.
 - media-engine restart is recoverable without losing Camera metadata.
 
 ## Phase 3 — Recording Plane
