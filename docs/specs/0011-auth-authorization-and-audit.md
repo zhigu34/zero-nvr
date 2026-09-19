@@ -120,6 +120,7 @@ camera.view
 live.view
 camera.manage
 camera.ptz
+camera.talk
 ```
 
 ### Recording
@@ -197,6 +198,7 @@ Recommended permissions:
 camera.view
 live.view
 camera.ptz
+camera.talk
 
 recording.view
 recording.manual
@@ -237,7 +239,7 @@ event.view
 alert.view
 ```
 
-No recording mutation, export/download, lock, delete, PTZ, or administration by default.
+No recording mutation, export/download, lock, delete, PTZ, talk, or administration by default.
 
 Built-in role definitions may be copied into custom roles if more precise policy is needed. Built-in roles themselves should not be silently mutated into unrelated semantics.
 
@@ -1071,3 +1073,27 @@ Automatic background reconnect/reconciliation does not represent a user-authoriz
 Operational PTZ remains independently gated by `camera.ptz`.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
+
+
+## Live MediaSession and talk authorization
+
+Live viewing requires:
+
+```text
+camera.view
+live.view
+camera in scope
+```
+
+The server issues only short-lived camera/session-scoped MediaSession access. Camera RTSP/ONVIF/vendor credentials and ZLMediaKit administrative credentials are never exposed to the browser.
+
+Two-way talk additionally requires:
+
+```text
+camera.talk
+camera in scope
+```
+
+TalkSession is separate from MediaSession/video lifecycle and defaults to one active talker per Camera. Operational PTZ remains independently gated by `camera.ptz`.
+
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](0020-live-view-media-session-and-talk.md).
