@@ -29,6 +29,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
 - [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
 - [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
+- [x] Define upgrade preflight, schema/data migration classes, rollback, update channels, and database cutover safety.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -81,7 +82,8 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 
 Acceptance:
 
-- API + Web + PostgreSQL boot reliably.
+- API + Web + default SQLite boot reliably.
+- optional PostgreSQL profile boots reliably and passes the same core domain acceptance.
 - empty Device Center works.
 - migrations are repeatable.
 - no media-specific code leaks into Camera domain.
@@ -373,6 +375,25 @@ Acceptance:
 - [ ] metrics.
 - [ ] user/role/camera-scope administration UI.
 - [ ] audit UI.
+- [ ] release manifest/version/digest compatibility metadata.
+- [ ] stable/preview update channels and update-availability checks.
+- [ ] update policy: notify/manual/scheduled maintenance window.
+- [ ] persisted UpgradePlan + UpgradeHistory.
+- [ ] upgrade preflight: version/schema/DB/component/free-space/keyring/backup checks.
+- [ ] mandatory verified pre-upgrade safety backup for schema/non-reconstructable changes.
+- [ ] maintenance impact classification: online / control-plane / full.
+- [ ] Alembic migration classes A/B/C with expand-contract preference.
+- [ ] SQLite migration batch/table-rebuild safety and post-migration integrity verification.
+- [ ] PostgreSQL bounded-lock/restartable large migration behavior.
+- [ ] durable DataMigrationJob for large backfills.
+- [ ] startup application/database/schema compatibility gate.
+- [ ] pinned previous artifacts until upgrade commit/rollback window expiry.
+- [ ] post-upgrade readiness/reconciliation validation.
+- [ ] automatic rollback only for unambiguous lossless rollback paths.
+- [ ] recovery-point rollback for incompatible/destructive schema changes.
+- [ ] pre-upgrade backup retention lock through rollback window.
+- [ ] Upgrade UI with release notes, migration class, maintenance impact and step progress.
+- [ ] update.view / update.manage / database.migrate permissions and audit.
 - [ ] upgrade/rollback.
 - [ ] long-duration multi-camera acceptance.
 - [ ] evaluate multi-host media/storage topology.
