@@ -100,6 +100,7 @@ Start with:
 - [Configuration, Secrets, and Key Management](docs/specs/0012-config-secrets-key-management.md)
 - [First Production Release Scope](docs/specs/0013-first-production-release-scope.md)
 - [Alerting, Notification, and Escalation](docs/specs/0014-alerting-notification-and-escalation.md)
+- [Backup, Disaster Recovery, and PITR](docs/specs/0015-backup-disaster-recovery-and-pitr.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
