@@ -849,19 +849,145 @@ This mapping allows normal playback to cross segment boundaries without first ge
 
 See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
 
+## DetectionProviderInstance
+
+Configured event/AI provider.
+
+```text
+id
+type                    onvif_native | hik_native | frigate | local_motion | custom
+name
+enabled
+config
+credential_secret_ref
+health_state
+last_connected_at
+last_observation_at
+last_error_code
+sanitized_error
+created_at
+updated_at
+```
+
+## DetectionProviderBinding
+
+Maps one provider source to a canonical Camera and controls downstream eligibility.
+
+```text
+id
+provider_instance_id
+camera_id
+external_source_key
+enabled
+priority
+timeline_enabled
+recording_enabled
+alert_enabled
+event_type_filter
+object_class_filter
+zone_mapping
+config
+created_at
+updated_at
+```
+
+## DetectionObservation
+
+Append-oriented normalized provider update/evidence.
+
+```text
+id
+provider_instance_id
+binding_id
+camera_id
+provider_event_key
+provider_track_key
+provider_sequence
+transition              start | update | end | pulse | instant
+provider_event_type
+canonical_hint
+source_occurred_at
+received_at
+occurred_at
+timestamp_quality
+object_class
+object_subclass
+confidence
+bounding_box
+provider_zones
+attributes
+snapshot_ref
+payload_digest
+metadata
+created_at
+```
+
+Provider ingress is idempotent; repeated delivery of the same source update must not create duplicate business events.
+
+## EventZone
+
+```text
+id
+camera_id
+name
+enabled
+normalized_polygon
+presentation
+created_at
+updated_at
+```
+
+## ProviderZoneBinding
+
+```text
+detection_provider_binding_id
+provider_zone_key
+event_zone_id
+```
+
+## DetectionEventZoneInterval
+
+```text
+detection_event_id
+event_zone_id
+entered_at
+exited_at
+```
+
+## DetectionPolicy
+
+```text
+camera_id
+enabled
+provider_bindings
+recording_event_filters
+alert_event_filters
+fusion_enabled
+fusion_window_ms
+snapshot_policy
+observation_retention
+updated_at
+```
+
+RecordingPolicy still owns recording pre/post-roll and RecordingIntent behavior.
+
 ## DetectionEvent
 
-All event providers normalize here. DetectionEvent is also the authoritative source for event timeline markers.
+Provider-neutral business event aggregate. Provider updates are retained separately as DetectionObservation.
 
 ```text
 id
 camera_id
 source_kind
 provider
+provider_instance_id
 external_id
 event_type
-lifecycle_kind      stateful | instant
-status              active | completed
+object_class
+object_subclass
+lifecycle_kind          stateful | instant
+status                  active | completed
+end_reason
 source_occurred_at
 received_at
 occurred_at
@@ -869,42 +995,63 @@ timestamp_source
 timestamp_quality
 clock_offset_ms_applied
 started_at
+last_activity_at
 ended_at
 confidence
-zone
+current_zones
 snapshot_object_id
 recording_session_id
 correlation_id
+fusion_group_id
 metadata
 created_at
 updated_at
 ```
 
-Canonical event types should include at least:
+Canonical event-type families include at least:
 
 ```text
 motion
-person
-vehicle
+object
+zone_entry
+zone_exit
 intrusion
+line_crossing
+loitering
 tamper
 digital_input
+audio
 face
 plate
-sound
 custom
 unknown
+```
+
+Object labels/classes remain separate:
+
+```text
+person
+vehicle
+car
+truck
+bicycle
+motorcycle
+animal
+dog
+cat
+package
+provider-defined class
 ```
 
 For stateful events:
 
 ```text
-START → ACTIVE → END
+START -> UPDATE* -> END
 ```
 
-While ACTIVE, `ended_at` remains NULL.
+While ACTIVE, `ended_at` remains NULL. `last_activity_at` advances as the provider updates the same logical event/track.
 
-For instant events, the event is a zero-duration Marker:
+For instant events:
 
 ```text
 started_at = occurred_at
@@ -914,10 +1061,41 @@ status     = completed
 
 Instant events do not invent an artificial active duration. Recording policy applies the normal pre-roll/post-roll window around the occurrence timestamp.
 
-Repeated activity for the same logical active event must not create duplicate business events or timeline markers. Provider metadata may be stored, but UI/business rules should prefer canonical fields.
+Repeated activity for the same provider event/track identity must not create duplicate business events. Late stale updates do not reopen a completed DetectionEvent.
 
 Timeline seek offsets are derived from absolute event timestamps rather than stored as authoritative offsets.
 
+## EventFusionGroup
+
+Non-destructive cross-provider correlation group.
+
+```text
+id
+camera_id
+opened_at
+last_activity_at
+closed_at
+fusion_key
+summary_type
+summary_object_class
+canonical_zone_ids
+created_at
+updated_at
+```
+
+## EventFusionMember
+
+```text
+fusion_group_id
+detection_event_id
+relation                same_occurrence | supports | derived_from | possibly_related
+confidence
+created_at
+```
+
+Fusion helps presentation/alert deduplication but never deletes or rewrites member DetectionEvents.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
 ## RecordingTrigger
 
 Represents an explicit external or internal **recording intent** when an integration needs to ask zero-nvr to preserve/record something without exposing recorder-process commands.
@@ -1844,3 +2022,17 @@ See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Dri
 - Talk is separately authorized and isolated from video/recording lifecycle.
 
 See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+
+
+### Detection-provider invariants
+
+- DetectionProvider produces observations; zero-nvr owns canonical DetectionEvent state.
+- DetectionObservation preserves source evidence while DetectionEvent remains the business/timeline aggregate.
+- Provider ingress is idempotent and tolerant of at-least-once/redelivered messages.
+- Provider loss cannot leave stateful events ACTIVE forever; bounded liveness/reconciliation closes unresolved events.
+- Event fusion is non-destructive correlation and never removes source events.
+- Recording eligibility and alert eligibility are independent from event persistence.
+- ONVIF/HIK/Frigate/local detection normalize into the same event model.
+- AI/local-detection overload or failure never destabilizes healthy recording/media runtime.
+
+See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
