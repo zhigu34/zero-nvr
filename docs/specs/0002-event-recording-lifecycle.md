@@ -452,3 +452,14 @@ The accepted physical pre-buffer, segment protection, cross-segment composition,
 ## Recording-mode composition reference
 
 Overlap and arbitration between continuous, schedule, event, manual, and hybrid recording requirements are defined in [Spec 0007 — Recording Intent Arbitration and Mode Composition](0007-recording-intent-arbitration.md).
+
+
+## Detection-provider normalization reference
+
+Provider ingress and recording lifecycle remain separate.
+
+ONVIF/HIK/Frigate/local detectors first normalize through DetectionObservation -> DetectionEvent as defined in [Spec 0021](0021-detection-providers-ai-events-and-fusion.md). RecordingManager consumes only canonical eligible DetectionEvents.
+
+Provider UPDATE messages refresh the same stateful DetectionEvent rather than repeatedly creating new RecordingIntents. Provider disconnect/liveness timeout may complete unresolved events with an explicit `provider_lost` reason, after which the normal post-roll behavior in this specification applies.
+
+Cross-provider EventFusionGroup correlation does not replace or merge away the member DetectionEvents. RecordingManager's additive-intent arbitration still guarantees one formal media pipeline.
