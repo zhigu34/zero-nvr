@@ -1,6 +1,6 @@
 # zero-nvr Architecture Baseline
 
-Status: **V2 initial baseline**
+Status: **V1 Design Freeze Candidate**
 
 This document defines the architecture direction. Detailed component choices may evolve, but the ownership boundaries should remain stable.
 
@@ -107,7 +107,7 @@ The selected SQLite or PostgreSQL production database is the authoritative metad
 - alert rules and deliveries;
 - storage targets and objects;
 - upload jobs;
-- health samples;
+- meaningful health state transitions/events (not high-frequency telemetry);
 - audit records.
 
 ### ZLMediaKit
@@ -175,24 +175,30 @@ Default implementation:
 ZlmMediaPlane
 ```
 
-### RecorderBackend
+### Recording ownership
 
-Responsible for producing recording media files/segments.
+Normal continuous/scheduled recording is owned by ZLMediaKit.
 
-```text
-start()
-stop()
-status()
-recover()
-```
-
-Initial implementation:
+Conceptual operations exposed through the zero-nvr media/recording adapter:
 
 ```text
-FfmpegRecorderBackend
+start_record()
+stop_record()
+record_status()
+list/reconcile_recordings()
 ```
 
-FFmpeg remains the initial continuous-recording backend. ZLMediaKit's MP4 recorder is also used as the accepted rolling event pre-buffer mechanism defined in Spec 0003; event correctness does not depend on forcing ZLM start/stop at event boundaries.
+Normal media path:
+
+```text
+Camera -> ZLMediaKit -> ZLM MP4 Recorder -> local hot storage
+                                      -> on_record_mp4 -> RecordingCatalog
+```
+
+FFmpeg is not a long-lived RecorderBackend. It is used by worker jobs for derived media such as export, remux/transcode, clipping, frame extraction, inspection, and repair.
+
+See [ADR-0002 — ZLMediaKit Owns Normal Recording](adr/0002-zlm-recording-authority.md).
+
 
 ### DetectionProvider
 
@@ -368,68 +374,40 @@ FastAPI issues short-lived MediaSession authorization and transport/profile reso
 
 ### Continuous recording
 
-Initial V2:
-
 ```text
 Camera
   ↓
 ZLMediaKit
   ↓
-internal RTSP
+ZLM MP4 Recorder
   ↓
-FFmpeg Recorder
+local RecordingLocation
   ↓
-Recording Segments
+on_record_mp4 hook
   ↓
-Recording metadata
+RecordingSegment catalog
 ```
 
-This intentionally separates the camera connection from the recorder process.
+The database is not in the media hot path. If a hook is lost during a control-plane/database outage, reconciliation discovers the file and repairs the catalog later.
 
-### Event pre-buffer and segment composition
 
-Event pre-recording uses ZLMediaKit rolling MP4 segments written to a bounded tmpfs-backed buffer.
+### Event pre-roll and segment composition
 
-Initial V2 defaults:
+Target product semantics are fixed, but the physical pre-roll mechanism is not frozen until the design-freeze POC passes.
+
+Required behavior:
 
 ```text
-idle pre-buffer segment target = 20s
-formal recording segment target = 300s / 5min
-event pre-roll                  = 10s
-event post-roll                 = 10s
+default pre-roll  ≈ 10s
+default post-roll ≈ 10s
+later related triggers may extend planned end time
+events remain independent timeline markers
+one camera does not start duplicate recorders for overlapping intents
 ```
 
-The physical pre-buffer boundary is not the business recording boundary. Event RecordingSessions reference the required time ranges across one or more physical RecordingSegments.
+Preferred implementation candidates reuse ZLMediaKit's existing rolling HLS/fMP4/GOP/recording capabilities. zero-nvr must not implement a custom H.264/H.265 packet ring buffer.
 
-All four values above are Recording Settings defaults, not implementation constants. They must be configurable through the backend policy model and Recording Settings UI. Segment-duration changes apply from a safe next physical segment boundary rather than force-cutting the current file.
-
-```text
-ZLMediaKit rolling MP4
-        ↓
-      tmpfs
-        ↓
-  on_record_mp4
-        ↓
-segment index / retention
-        ↓
-RecordingSessionSegment
-        ↓
-Playback / export
-```
-
-At event time `T`, the current and previous segment are immediately protected from GC, then the Worker validates actual media timestamps and pins every segment required to cover `T - pre_roll`.
-
-Idle pre-buffering and formal recording are two modes of one recording pipeline, never duplicate parallel recorders. The 20-second tmpfs files are temporary PrebufferFragments rather than formal RecordingSegments.
-
-When a formal event recording starts, the first 5-minute formal segment window begins at the RecordingSession logical start (normally `T - pre_roll`). Required pre-buffer media therefore counts toward that first five-minute segment. The current 20-second fragment may finish naturally, but its boundary does not restart the five-minute clock. zero-nvr captures only the remaining time needed to reach that first formal boundary, then assembles the protected pre-buffer prefix plus continuation into the finalized first RecordingSegment.
-
-During an active healthy formal RecordingSession, segment boundaries follow one duration-based clock anchored at the session start: with a 5-minute setting, all intermediate segments are 5-minute windows. Event/marker activity and 20-second pre-buffer boundaries do not create short formal files.
-
-At formal RecordingSession completion, only the final segment may normally be shorter than five minutes. Abnormal stream/runtime/media interruptions may also create partial segments and must be recorded with a completion reason. Idle 20-second pre-buffering then resumes immediately, and the tail of the just-finished persistent recording may bridge the first pre-roll interval while tmpfs warms.
-
-Event START therefore does not create a new five-minute clock at the next pre-buffer boundary. Playback and storage use the formal RecordingSegment timeline; temporary pre-buffer fragments are implementation media.
-
-See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
+The final physical composition and fMP4 choice are validated by [V1 Design-Freeze POC Plan](plans/01-design-freeze-poc.md). Until that POC passes, older rolling-MP4/tmpfs details are candidate implementation notes rather than frozen invariants.
 
 
 ### Recording intent arbitration
@@ -1011,3 +989,22 @@ Repeated sensor activity belonging to the same logical active event must not rep
 Recording policy owns pre-roll/post-roll. Detector/provider-specific thresholds and hold timers belong to detection/event normalization and must not be reused as recording duration.
 
 See [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md).
+
+
+## Deployment runtime boundary
+
+The default non-AI Core is intentionally small:
+
+```text
+zero-nvr        # API
+zero-nvr-worker # same image, different command
+ZLMediaKit
+```
+
+This is 2 images / 3 containers.
+
+FFmpeg, rclone, restic, Apprise, ONVIF libraries, and OIDC/auth libraries are integrated into the zero-nvr runtime/worker image where practical. Frigate, OpenList, PostgreSQL, and Mosquitto are separately deployed only when their independent service boundary is actually needed.
+
+Deployment is driven by `deploy.sh + .env + Docker Compose Profiles`. Disabled optional services are not pulled or started, and the web application does not directly control Docker.
+
+See [Project Baseline](PROJECT_BASELINE.md), [Deployment Architecture](DEPLOYMENT.md), and [ADR-0001](adr/0001-runtime-boundaries-and-container-policy.md).
