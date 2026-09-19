@@ -38,7 +38,7 @@ FastAPI Control Plane
   |
   +-- Storage Plane ----- local / S3 / rclone / OpenList
   |
-PostgreSQL
+SQLite (default) / PostgreSQL (optional)
 ```
 
 The authoritative business model remains inside zero-nvr. External components are adapters, not competing sources of truth.
@@ -101,6 +101,7 @@ Start with:
 - [First Production Release Scope](docs/specs/0013-first-production-release-scope.md)
 - [Alerting, Notification, and Escalation](docs/specs/0014-alerting-notification-and-escalation.md)
 - [Backup, Disaster Recovery, and PITR](docs/specs/0015-backup-disaster-recovery-and-pitr.md)
+- [SQLite and PostgreSQL Production Modes](docs/specs/0016-postgresql-and-sqlite-portability.md)
 - [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
 - [Bootstrap Plan](docs/plans/00-bootstrap.md)
 
