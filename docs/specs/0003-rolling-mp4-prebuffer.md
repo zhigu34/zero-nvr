@@ -1,6 +1,24 @@
 # Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition
 
-Status: **accepted**
+Status: **design candidate — POC required before freeze**
+
+## Current baseline override
+
+This document contains a detailed rolling-MP4/tmpfs candidate design from the earlier architecture pass. It is **not** a frozen implementation contract.
+
+Current accepted product semantics are:
+
+- EVENT_ONLY recording targets ~10s pre-roll and ~10s post-roll by default;
+- overlapping/new triggers may extend one logical recording interval;
+- events remain independent markers;
+- zero-nvr must not run duplicate recorders for overlapping intents;
+- zero-nvr must not implement a custom compressed-video packet ring buffer.
+
+The exact physical pre-roll mechanism must first pass the design-freeze POC using mature ZLMediaKit capabilities (rolling HLS/fMP4, recorder/GOP cache, or another existing ZLM mechanism).
+
+Any invariant below that assumes a specific 20-second rolling MP4/tmpfs composition is therefore **candidate-only** until the POC is accepted.
+
+See [Project Baseline](../PROJECT_BASELINE.md) and [V1 Design-Freeze POC Plan](../plans/01-design-freeze-poc.md).
 
 ## Goal
 
