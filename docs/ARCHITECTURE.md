@@ -74,6 +74,32 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
           Local / S3 / rclone / OpenList
 ```
 
+### Production database and SQLite portability
+
+PostgreSQL is the only production metadata database.
+
+```text
+Production zero-nvr
+      ↓
+ PostgreSQL
+```
+
+SQLite is deliberately not a second live database backend. It is used for selected database-portable unit tests and as a versioned portable/offline index format.
+
+```text
+PostgreSQL
+   ↓ consistent export
+portable SQLite index
+   ├─ offline inspection
+   ├─ detached-media catalog
+   ├─ support/diagnostics
+   └─ import/migration staging
+```
+
+Portable SQLite excludes recoverable secrets and respects authorization scope. Imports validate/map into current domain services and persist to PostgreSQL; zero-nvr never swaps a SQLite file in as the live database.
+
+See [Spec 0016 — Production Database Policy and SQLite Portable Index](specs/0016-postgresql-and-sqlite-portability.md).
+
 ## 4. Source-of-truth rules
 
 ### PostgreSQL
