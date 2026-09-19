@@ -17,6 +17,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
 - [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
 - [x] Define stream-loss detection, reconnect, physical-segment recovery, and timeline-gap semantics.
+- [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -27,6 +28,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [ ] Configuration/secrets model.
 - [ ] Structured logging and health/readiness.
 - [ ] Base Camera / CameraConnection schema.
+- [ ] canonical UTC/timezone configuration and host clock-health checks.
 - [ ] Adapter contracts.
 - [ ] Docker Compose development stack.
 
@@ -42,6 +44,9 @@ Acceptance:
 - [ ] Add ZLMediaKit service.
 - [ ] Implement MediaPlane contract.
 - [ ] Manual RTSP camera creation/probe.
+- [ ] CameraClockStatus sampling for ONVIF-capable devices.
+- [ ] optional monitor/manage_ntp/ignore device-time mode.
+- [ ] device clock offset/RTT/quality health diagnostics.
 - [ ] Ensure/remove stream proxy.
 - [ ] per-camera source runtime state machine: streaming / degraded / reconnecting / offline.
 - [ ] ZLM source registration/unregistration + pull-proxy close/error integration.
@@ -64,6 +69,7 @@ Acceptance:
 - [ ] Implement RecorderBackend.
 - [ ] FFmpeg consumes ZLM internal stream.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
+- [ ] explicit schedule_timezone handling for wall-clock schedules.
 - [ ] Recording Settings UI for prebuffer enable, 20s idle segment default, 5min formal segment default, and pre/post-roll.
 - [ ] segment persistence.
 - [ ] UTC canonical recording timestamps and database timeline indexes.
@@ -112,6 +118,7 @@ Acceptance:
 
 - [ ] DetectionProvider contract.
 - [ ] DetectionEvent schema supporting stateful and instant lifecycle kinds.
+- [ ] source_occurred_at / received_at / occurred_at timestamp provenance and clock-offset correction.
 - [ ] native camera events.
 - [ ] optional local lightweight motion with hysteresis + START/END hold state machine.
 - [ ] pulse-only source normalization/hold timeout where required.
