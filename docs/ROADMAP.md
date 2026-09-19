@@ -26,6 +26,7 @@ Every task in this roadmap belongs to the first production-ready zero-nvr releas
 - [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
 - [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
 - [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
+- [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -176,16 +177,45 @@ Acceptance:
 
 ## Phase 6 — Alerting and Notifications
 
-- [ ] AlertRule.
-- [ ] AlertDelivery.
-- [ ] notification worker.
+- [ ] AlertSignal normalization for detection / health / security sources.
+- [ ] AlertRule persistence/API with camera scope, event/health/security filters, schedules, severity, grouping, cooldown, and resolution mode.
+- [ ] AlertIncident + AlertIncidentSource lifecycle.
+- [ ] active/resolved and acknowledged/unacknowledged state model.
+- [ ] source / auto-timeout / manual incident resolution.
+- [ ] grouping window and notification cooldown semantics without dropping DetectionEvents.
+- [ ] EscalationPolicy / EscalationStep persistence and restart-safe timers.
+- [ ] AlertActionSet / AlertAction reusable routing.
+- [ ] NotificationTarget persistence and independent health.
+- [ ] RecipientGroup and verified-user email recipients.
+- [ ] NotificationTemplate built-ins + sandboxed customization/preview.
+- [ ] AlertSilence temporary maintenance windows.
+- [ ] recurring quiet schedules using explicit timezone/DST semantics.
+- [ ] notification storm/rate protection without dropping incidents/events.
+- [ ] durable AlertDelivery + AlertDeliveryAttempt state.
+- [ ] idempotency-keyed worker processing.
+- [ ] retry classification: transient / permanent / rate-limited / configuration.
+- [ ] persisted retry/backoff/jitter and manual failed-delivery retry.
 - [ ] SMTP/email NotificationBackend.
-- [ ] email templates for alerts/security/password reset/system health.
-- [ ] Apprise adapter.
-- [ ] webhook action.
-- [ ] Home Assistant/integration notification actions where configured.
-- [ ] delivery retry/backoff/final result history.
-- [ ] cooldown/deduplication.
+- [ ] email templates for detection, security, password reset, camera/system/storage health and recovery.
+- [ ] Apprise target.
+- [ ] signed/authenticated webhook target.
+- [ ] Home Assistant notification/action target.
+- [ ] MQTT notification target.
+- [ ] optional event snapshot attachment and authenticated deep links.
+- [ ] rule preview, target test, and template preview.
+- [ ] Alert Center UI with filters, source events, acknowledgement, resolution, delivery history and retry.
+- [ ] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
+- [ ] audit for rule/silence/target/template/human incident actions.
+
+Acceptance:
+
+- repeated motion bursts do not flood notifications while all DetectionEvents remain stored.
+- active/recovered health conditions open/resolve incidents correctly.
+- acknowledgement can stop escalation without pretending the source recovered.
+- SMTP/provider outage never stops recording and other channels continue independently.
+- retry/escalation/silence state survives worker/API restart.
+- scoped users cannot see or acknowledge hidden-camera incidents.
+- no notification exposes camera credentials, SecretStore values, or permanent public playback URLs.
 
 ## Phase 7 — Storage and Cloud
 
