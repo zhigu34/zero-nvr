@@ -503,3 +503,206 @@ Health includes configuration validity, latest test/result, recent failure rate,
 
 One failing target never blocks another target.
 
+
+## Test and preview
+
+First-production-release UI includes:
+
+- rule preview against selected historical/sample signals;
+- target test message;
+- template preview with safe sample data.
+
+Rule preview shows match/no-match, group key, severity, quiet/silence result, and action/escalation plan without sending a real notification.
+
+Externally delivered tests are audited.
+
+## Alert Center UI
+
+Alert Center includes:
+
+- active/unacknowledged incidents;
+- active/acknowledged incidents;
+- resolved history;
+- severity/camera/group/rule/source filters;
+- search;
+- bulk acknowledgement where authorized;
+- incident detail with source events;
+- notification delivery and per-attempt history;
+- retry failed delivery;
+- authenticated deep link to event/playback time.
+
+UI separately displays:
+
+```text
+incident active/resolved
+acknowledged/unacknowledged
+notification delivered/failed/suppressed
+```
+
+A failed email never makes the incident disappear.
+
+## Permissions
+
+Initial permissions:
+
+```text
+alert.view
+alert.acknowledge
+alert.manage
+notification.view
+notification.manage
+```
+
+Semantics:
+
+- alert.view: view incidents within camera scope;
+- alert.acknowledge: acknowledge or manually resolve allowed incidents within camera scope;
+- alert.manage: configure rules, escalation policies, and silences within authorized scope;
+- notification.view: view target health/delivery history without secrets;
+- notification.manage: configure targets/templates/recipient groups and send tests.
+
+System-wide health/security rule management additionally requires the relevant system authorization.
+
+## Audit
+
+Audit at minimum:
+
+```text
+alert.rule_created
+alert.rule_updated
+alert.rule_disabled
+alert.incident_acknowledged
+alert.incident_resolved_manually
+alert.silence_created
+alert.silence_updated
+alert.silence_removed
+alert.delivery_retried
+notification.target_created
+notification.target_updated
+notification.target_disabled
+notification.target_tested
+notification.template_updated
+notification.recipient_group_updated
+```
+
+Automatic worker attempts belong in delivery history and operational logs, not one AuditEvent per retry.
+
+## Interaction with recording
+
+```text
+DetectionEvent
+   ├─ RecordingManager
+   └─ AlertEvaluator
+```
+
+Alerting never owns recording lifecycle.
+
+Therefore:
+
+- disabling an AlertRule does not disable event recording;
+- muting notifications does not disable event recording;
+- SMTP/provider outage does not stop recording;
+- acknowledging an incident does not stop RecordingIntent;
+- resolving/deleting an alert does not delete DetectionEvent or media.
+
+## Interaction with retention
+
+AlertIncident alone does not lock footage forever.
+
+Default media retention remains governed by Spec 0005 and RecordingPolicy. Any rule action that explicitly extends/locks media must use supported RetentionClaim behavior and authorization.
+
+## Security and privacy
+
+- channel credentials use SecretStore;
+- reset/auth secrets follow Specs 0011/0012/0013;
+- logs and errors are sanitized;
+- webhook authentication headers are not exposed through normal APIs;
+- templates cannot access secrets;
+- permanent public playback links are forbidden;
+- camera credentials never enter notifications;
+- recipient/media configuration is privileged because alerts may contain sensitive images.
+
+## Recovery / restart
+
+After restart:
+
+- pending deliveries resume;
+- retry_wait schedules resume;
+- escalation timers reconstruct;
+- expired silences stop applying;
+- active incidents remain based on source/rule lifecycle;
+- in-flight delivery follows idempotency rules before retry;
+- source DetectionEvents are not recreated merely to recover alert state.
+
+## Acceptance tests
+
+1. repeated motion burst:
+   - all DetectionEvents persist;
+   - compatible triggers group into one incident where configured;
+   - cooldown prevents email floods;
+
+2. stateful event:
+   - START opens incident;
+   - END resolves source-mode incident;
+   - configured recovery notice sends once;
+
+3. camera offline/recovered:
+   - incident lifecycle follows health;
+   - reconnect/recording remains independent;
+
+4. escalation:
+   - initial delivery occurs;
+   - unacknowledged incident advances escalation steps;
+   - configured acknowledgement cancels future steps;
+
+5. silence:
+   - event/incident persists;
+   - outbound delivery is explicitly suppressed;
+   - recording is unaffected;
+
+6. SMTP outage:
+   - durable retry occurs;
+   - target becomes unhealthy;
+   - other channels continue;
+   - recording continues;
+
+7. restart:
+   - pending retry and escalation state recover without duplicate incident creation;
+
+8. webhook timeout after possible remote acceptance:
+   - local job remains idempotency-keyed;
+   - external duplicate possibility is not falsely hidden;
+
+9. snapshot failure:
+   - optional snapshot failure does not prevent text delivery;
+
+10. authorization:
+   - scoped user cannot view/acknowledge hidden-camera incidents;
+   - notification secrets remain inaccessible;
+
+11. quiet schedule and DST:
+   - schedule follows Spec 0009 timezone behavior;
+
+12. notification storm:
+   - deliveries suppress/defer explicitly;
+   - source events/incidents remain intact.
+
+## Invariants
+
+1. DetectionEvent/system health remains authoritative regardless of AlertRule state.
+2. AlertIncident and AlertDelivery are separate from source events and recording lifecycle.
+3. Notification failure never blocks recording/event persistence.
+4. Cooldown/grouping/silence never delete or falsify DetectionEvents.
+5. Incident lifecycle and acknowledgement are independent.
+6. Acknowledgement does not imply source recovery and does not stop recording.
+7. Rule schedules and silences use explicit timezone semantics.
+8. Escalation/retry schedules are persistent and recoverable.
+9. Per-attempt diagnostics live in AlertDeliveryAttempt.
+10. Internal delivery is idempotency-keyed; exactly-once external delivery is not falsely guaranteed.
+11. Notification targets are independently healthy; one failure does not block another.
+12. Channel secrets use SecretStore and never appear in normal APIs/logs/audit.
+13. Deep links are authenticated; permanent public playback URLs are forbidden.
+14. Human alert actions are permission- and camera-scope controlled.
+15. Alert configuration changes and human incident actions are audited.
+16. First production release includes SMTP, Apprise, webhook, Home Assistant, and MQTT notification routing.
+17. Non-obvious grouping/cooldown/escalation/retry behavior requires comments per Development Guidelines.
