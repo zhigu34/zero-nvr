@@ -165,6 +165,9 @@ backup.view
 backup.manage
 backup.restore
 backup.export
+update.view
+update.manage
+database.migrate
 ```
 
 Permissions may be refined later only when a real security boundary requires it. Avoid creating dozens of nearly identical permissions prematurely.
@@ -1032,3 +1035,17 @@ Full restore, PITR, RecoveryKit export, and portable encrypted system backup are
 Recovery material and backup-target secrets are never exposed by backup.view.
 
 See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](0015-backup-disaster-recovery-and-pitr.md).
+
+## Upgrade and database-migration authorization
+
+```text
+update.view
+update.manage
+database.migrate
+```
+
+Installing/rolling back software, changing release channel, or performing SQLite ↔ PostgreSQL migration requires the corresponding permission, recent re-authentication, and MFA when enabled.
+
+Update/database migration actions are audited. Backup/RecoveryKit secrets remain governed by backup/secret permissions and are never exposed through update.view.
+
+See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](0017-upgrade-migration-and-rollback.md).
