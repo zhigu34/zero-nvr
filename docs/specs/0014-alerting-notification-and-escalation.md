@@ -706,3 +706,12 @@ After restart:
 15. Alert configuration changes and human incident actions are audited.
 16. First production release includes SMTP, Apprise, webhook, Home Assistant, and MQTT notification routing.
 17. Non-obvious grouping/cooldown/escalation/retry behavior requires comments per Development Guidelines.
+
+
+## Detection fusion reference
+
+AlertRule consumes canonical DetectionEvent transitions from [Spec 0021](0021-detection-providers-ai-events-and-fusion.md).
+
+Rules may filter by event_type, object_class/subclass, provider, zone, confidence, and fusion group. EventFusionGroup may be used as a grouping/deduplication hint so the same physical occurrence reported by several providers does not necessarily create several human notifications.
+
+Fusion never deletes/suppresses the underlying DetectionEvents and does not change RecordingManager ownership.
