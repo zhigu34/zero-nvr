@@ -19,6 +19,7 @@ This roadmap describes sequencing, not fixed release dates.
 - [x] Define stream-loss detection, reconnect, physical-segment recovery, and timeline-gap semantics.
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
 - [x] Define recording StoragePool placement, disk failover, draining, and remote-archive separation.
+- [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -27,6 +28,15 @@ This roadmap describes sequencing, not fixed release dates.
 - [ ] Frontend project bootstrap.
 - [ ] PostgreSQL + Alembic.
 - [ ] Configuration/secrets model.
+- [ ] User / Role / Permission / UserSession persistence.
+- [ ] first-run one-time administrator bootstrap with no default password.
+- [ ] local authentication with modern password hashing and session revocation.
+- [ ] built-in Administrator / Operator / Viewer roles.
+- [ ] CameraGroup + PrincipalCameraScope authorization.
+- [ ] centralized backend authorization dependencies/services.
+- [ ] short-lived scoped live/playback media session authorization.
+- [ ] service-principal credentials for integrations.
+- [ ] append-oriented AuditEvent persistence with secret redaction.
 - [ ] Structured logging and health/readiness.
 - [ ] Base Camera / CameraConnection schema.
 - [ ] SystemTimeSettings persistence/API for recording timezone and managed-camera NTP settings.
@@ -60,6 +70,7 @@ Acceptance:
 - [ ] Stream runtime health.
 - [ ] Live-session API.
 - [ ] Browser WebRTC/fMP4/HLS path.
+- [ ] camera/live authorization before media-session issuance.
 - [ ] Live Monitor MVP.
 
 Acceptance:
@@ -171,6 +182,7 @@ Acceptance:
 - [ ] Canvas timeline with pan/zoom/shared playhead.
 - [ ] event Marker ranges/points and zoom-aware aggregation.
 - [ ] PlaybackResolver by RecordingSegment ID.
+- [ ] playback/timeline camera-scope authorization and short-lived media access.
 - [ ] local playback.
 - [ ] ordered detailed segment ranges + binary absolute-time segment lookup.
 - [ ] dual-player preload/ping-pong cross-segment continuation.
@@ -258,6 +270,7 @@ Acceptance:
 ## Phase 11 — Operations and scale
 
 - [ ] metrics.
+- [ ] user/role/camera-scope administration UI.
 - [ ] audit UI.
 - [ ] backup/restore.
 - [ ] upgrade/rollback.
