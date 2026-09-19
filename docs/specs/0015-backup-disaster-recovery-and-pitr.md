@@ -946,3 +946,9 @@ Normal configuration/support export remains distinct from disaster-recovery back
 18. Backup failures never directly stop healthy recording.
 19. First production release includes UI, alerts, audit, scheduled verification, and clean-host disaster recovery.
 20. Non-obvious backup/PITR/recovery/reconciliation logic requires comments per Development Guidelines.
+
+## Upgrade safety-point reference
+
+Schema/non-reconstructable software upgrades and cross-database migrations use verified BackupSet recovery points as defined in [Spec 0017](0017-upgrade-migration-and-rollback.md). Pre-upgrade safety backups are temporarily protected from retention until the rollback window closes.
+
+If rollback restores an older metadata point, newer recording objects are preserved for reconciliation rather than automatically deleted.
