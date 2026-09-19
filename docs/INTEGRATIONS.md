@@ -213,3 +213,27 @@ Required behavior:
 - allow explicit no-TLS only for trusted local relays.
 
 SMTP failure never blocks recording or event persistence.
+
+
+## Alert and notification routing
+
+External channels are NotificationTargets behind the AlertDelivery pipeline rather than direct side effects inside DetectionEvent/RecordingManager transactions.
+
+```text
+DetectionEvent / health
+        ↓
+AlertRule / AlertIncident
+        ↓
+AlertDelivery
+        ├─ SMTP
+        ├─ Apprise
+        ├─ Webhook
+        ├─ Home Assistant
+        └─ MQTT
+```
+
+Grouping/cooldown/silence affect delivery only; they never remove canonical events or stop recording.
+
+Each target has independent health, retry, and SecretStore-backed credentials as needed. Webhook payloads carry stable delivery/idempotency identifiers. Home Assistant and MQTT actions continue to go through IntegrationAdapter.
+
+See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
