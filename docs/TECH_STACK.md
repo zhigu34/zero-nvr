@@ -74,8 +74,10 @@ Use a maintained ONVIF client library for SOAP/WSDL/WS-Security.
 
 zero-nvr implements:
 
-- adapter mapping;
-- canonical device/profile/capability DTOs;
+- WS-Discovery/onboarding orchestration through the maintained library;
+- stable device/channel identity mapping;
+- canonical Device/Camera/SourceMediaProfile/capability DTOs;
+- source-profile to recording/live/preview/detection role selection;
 - event normalization;
 - business policy.
 
@@ -84,6 +86,8 @@ zero-nvr does not implement a general ONVIF SOAP stack.
 ### HIK
 
 Use the official/vendor SDK behind an isolated bridge process.
+
+Prefer standard ONVIF onboarding when it provides the required capabilities; HIK may supplement the same canonical Device with vendor-only events/control rather than creating a duplicate device.
 
 ### GB28181
 
