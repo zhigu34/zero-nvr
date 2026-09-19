@@ -406,3 +406,7 @@ Expose enough diagnostics to answer:
 13. Runtime restart/discontinuity is explicit through completion_reason.
 14. Recovery is idempotent and serialized per camera to avoid duplicate pullers/recorders.
 15. Non-obvious reconnect/finalization/recovery behavior requires comments per Development Guidelines.
+
+## Time-source reference
+
+Reconnect/offline elapsed timers use monotonic runtime time, while persisted outage/segment timestamps use canonical UTC. A camera clock must never become the authority for source-loss gap placement. See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
