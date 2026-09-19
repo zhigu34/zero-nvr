@@ -321,3 +321,173 @@ derived thumbnails/cache where reproducible
 ```
 
 Only non-reconstructable operator-managed state belongs in the system backup.
+
+## Keyring recovery
+
+SecretRecord ciphertext in PostgreSQL cannot be recovered without the matching SecretStore KEK/keyring.
+
+The keyring is protected independently from the database.
+
+Never store the plaintext keyring beside the database backup in the same ordinary backup repository.
+
+## RecoveryKit
+
+The first production release provides an operator-controlled encrypted RecoveryKit.
+
+Conceptual contents:
+
+```text
+format_version
+instance_id
+
+backup repository identity
+backup target endpoint metadata
+backup target credential package when required
+
+SecretStore keyring package
+key ids
+
+recovery metadata
+checksums
+```
+
+RecoveryKit is encrypted by an operator-controlled recovery passphrase/key.
+
+Use a memory-hard KDF such as Argon2id plus authenticated encryption.
+
+The plaintext recovery passphrase/key is never stored in PostgreSQL.
+
+## Backup-target credential bootstrap
+
+A true disaster-recovery target must be accessible before the lost database/SecretStore is restored.
+
+Supported credential sources:
+
+```text
+ambient/instance IAM
+bootstrap secret file
+operator-entered credential
+encrypted credential package in RecoveryKit
+```
+
+For S3 deployments with platform IAM, temporary/ambient credentials are preferred.
+
+For self-hosted static credentials, RecoveryKit provides the portable recovery path.
+
+A backup target whose only usable credential lives inside the lost SecretStore is not considered fully disaster-recoverable.
+
+## RecoveryKit lifecycle
+
+RecoveryKit must be regenerated or marked stale when any recovery-critical material changes, including:
+
+- SecretStore keyring rotation;
+- disaster-recovery backup-target credentials;
+- repository identity/location;
+- encryption format version.
+
+UI shows:
+
+```text
+RecoveryKit
+  status: current | stale | missing
+  generated_at
+  required_key_ids
+  repository
+```
+
+The operator can download a current encrypted RecoveryKit after re-authentication.
+
+RecoveryKit download is audited.
+
+## Portable encrypted system backup
+
+In addition to scheduled backups, zero-nvr supports a self-contained portable migration backup.
+
+Use cases:
+
+```text
+move to a new server
+offline disaster-recovery copy
+manual before major upgrade
+lab/test restore
+```
+
+The portable backup includes:
+
+- database snapshot;
+- configuration;
+- SecretStore keyring material;
+- recoverable managed secrets;
+- manifest/version metadata.
+
+It excludes recording media by default.
+
+The whole portable artifact is independently encrypted using an operator-supplied recovery passphrase/key.
+
+No plaintext intermediate secret archive is written to persistent disk.
+
+## Recording-media inclusion
+
+Portable/system backup does not include video by default.
+
+An optional selected-media export may exist for a bounded range/camera, but it is an export/archive operation rather than normal system backup.
+
+For full media disaster protection, use verified remote recording archive.
+
+## Backup verification levels
+
+Backup success has multiple states:
+
+```text
+created
+uploaded
+verified
+restore_tested
+```
+
+"Uploaded" alone is not considered sufficient.
+
+### Artifact verification
+
+Verify where supported:
+
+- object existence;
+- size;
+- checksum/digest;
+- manifest consistency;
+- expected database backup metadata;
+- required recovery key IDs.
+
+### Restore test
+
+First production release supports periodic automated restore testing.
+
+The test restores into an isolated temporary PostgreSQL instance/environment and verifies at least:
+
+- PostgreSQL starts;
+- expected schema revision is present;
+- core tables are readable;
+- BackupManifest matches restored database identity;
+- SecretRecord/keyring compatibility can be validated without exposing secrets;
+- a sample of StorageObject references can be resolved/checked.
+
+Restore testing must not modify the production database.
+
+## Backup health
+
+System health exposes:
+
+```text
+last_successful_backup
+last_verified_backup
+last_restore_test
+pitr_wal_archive_lag
+oldest_recoverable_time
+newest_recoverable_time
+backup_target_health
+recovery_kit_status
+local_only_media_bytes
+remote_protected_media_bytes
+```
+
+Health degrades when backup age, WAL archive lag, failed verification, stale RecoveryKit, or target failures exceed policy thresholds.
