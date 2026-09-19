@@ -233,3 +233,273 @@ EscalationStep
 
 Escalation timers are persisted and recover after restart. Acknowledgement or resolution cancels future steps according to policy.
 
+
+## Action sets and notification targets
+
+Reusable routing:
+
+```text
+AlertActionSet
+  id
+  name
+  enabled
+  created_at
+  updated_at
+
+AlertAction
+  id
+  action_set_id
+  notification_target_id
+  template_id nullable
+  send_on             opened | repeat | escalated | resolved
+  include_snapshot
+  include_deep_link
+  enabled
+```
+
+NotificationTarget:
+
+```text
+NotificationTarget
+  id
+  name
+  type
+  enabled
+  config
+  credential_secret_ref nullable
+  health_state
+  last_health_at
+  last_error
+  created_at
+  updated_at
+```
+
+First-production-release target types:
+
+```text
+smtp
+apprise
+webhook
+home_assistant
+mqtt
+```
+
+Optional means optional to enable, not deferred implementation.
+
+SMTP uses system SmtpSettings for transport and target/action configuration for recipients/templates.
+
+Webhook supports URL, an allowed HTTP method, content type, headers, SecretStore-backed authentication, optional HMAC signing secret, timeout, and delivery/idempotency identifiers.
+
+Home Assistant and MQTT actions go through IntegrationAdapter and never directly manipulate FFmpeg or ZLMediaKit internals.
+
+## RecipientGroup
+
+```text
+RecipientGroup
+  id
+  name
+  created_at
+  updated_at
+
+RecipientGroupMember
+  recipient_group_id
+  user_id nullable
+  email_address nullable
+```
+
+User-linked recipients follow the user's current verified email. Explicit external addresses remain literal.
+
+## NotificationTemplate
+
+```text
+NotificationTemplate
+  id
+  name
+  channel_type
+  locale
+  subject_template nullable
+  body_template
+  body_format          text | html | json
+  built_in
+  created_at
+  updated_at
+```
+
+Supported variables are explicit and sandboxed.
+
+Examples:
+
+```text
+incident.id
+incident.title
+incident.severity
+incident.opened_at
+camera.name
+event.type
+event.zone
+event.confidence
+system.name
+deep_link
+```
+
+Templates cannot access arbitrary object attributes, executable expressions, or secrets.
+
+Built-in templates cover camera detection, camera offline/recovery, storage/system critical, security, and resolved notices. Password-reset mail uses the platform mail service but is not an AlertIncident.
+
+## Snapshots and deep links
+
+A rule may include an event snapshot when available.
+
+- missing optional snapshot does not fail the message;
+- snapshot/object retrieval is bounded and separately diagnosed;
+- credentials and secrets never enter the message;
+- normal links point to authenticated zero-nvr UI;
+- permanent public playback URLs are forbidden.
+
+If an external channel requires direct media, use an explicitly short-lived narrowly scoped resource token.
+
+## Quiet periods and AlertSilence
+
+Recurring quiet hours belong to AlertRule and use the explicit timezone semantics from Spec 0009.
+
+```text
+AlertSilence
+  id
+  name
+  enabled
+  starts_at
+  ends_at
+  camera_scope
+  alert_rule_ids
+  signal_types
+  suppress_notifications
+  suppress_incident_creation
+  reason
+  created_by
+  created_at
+  updated_at
+```
+
+Default:
+
+```text
+suppress_notifications = true
+suppress_incident_creation = false
+```
+
+Silence never suppresses DetectionEvent persistence or recording behavior. Silence management is audited.
+
+## Notification storm protection
+
+System and target safety controls include:
+
+```text
+max deliveries per target per minute
+max deliveries per incident per interval
+queue backlog threshold
+global emergency cap
+```
+
+When limits trigger:
+
+- events and incidents continue to persist;
+- delivery is deferred or suppressed with an explicit reason;
+- notification health shows pressure;
+- an aggregated suppression summary may be sent later.
+
+Never drop DetectionEvents to control notification volume.
+
+## Durable delivery
+
+```text
+AlertIncident transition
+       ↓
+DeliveryPlanner
+       ↓
+AlertDelivery
+       ↓
+Notification Worker
+       ↓
+NotificationBackend
+```
+
+Recording and event transactions never wait on SMTP, webhook, or provider network calls.
+
+```text
+AlertDelivery
+  id
+  alert_incident_id nullable
+  alert_rule_id nullable
+  action_id
+  notification_target_id
+  delivery_kind        opened | repeat | escalated | resolved | test | security
+  idempotency_key
+  status               pending | sending | retry_wait | delivered | failed | cancelled | suppressed
+  scheduled_at
+  first_attempt_at nullable
+  delivered_at nullable
+  failed_at nullable
+  attempt_count
+  last_error_code
+  last_error_message
+  rendered_subject nullable
+  rendered_body_digest
+  correlation_id
+  created_at
+  updated_at
+```
+
+```text
+AlertDeliveryAttempt
+  id
+  alert_delivery_id
+  attempt_number
+  started_at
+  finished_at
+  outcome
+  provider_status
+  error_code
+  sanitized_error
+  provider_message_id nullable
+  next_retry_at nullable
+```
+
+Full rendered-body retention is a privacy and diagnostics setting. The default may retain only digest plus safe metadata instead of sensitive message content.
+
+## Delivery and idempotency semantics
+
+Worker processing is at-least-once with a stable idempotency_key.
+
+zero-nvr prevents duplicate local jobs where possible, but it does not promise exactly-once external delivery when a provider or network cannot guarantee it.
+
+Webhook consumers receive the delivery ID/idempotency key so they can deduplicate.
+
+## Retry policy
+
+Classify failures as:
+
+```text
+transient
+permanent
+rate_limited
+configuration
+```
+
+Retry uses persisted backoff plus jitter and maximum attempt/age bounds. Provider retry hints are honored when safe. Configuration failures mark the target unhealthy instead of hammering indefinitely. Failed deliveries can be retried manually after repair.
+
+## Notification backend health
+
+States:
+
+```text
+unknown
+healthy
+degraded
+unhealthy
+disabled
+```
+
+Health includes configuration validity, latest test/result, recent failure rate, queue backlog, and last successful delivery.
+
+One failing target never blocks another target.
+
