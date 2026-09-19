@@ -722,31 +722,247 @@ Stateful event-driven recording behavior is defined by DetectionEvent + Recordin
 
 ## AlertRule
 
+Defines which canonical detection/health/security signals become human-facing alert incidents and how they are grouped/routed.
+
 ```text
 id
 name
+description
 enabled
+signal_kinds
 camera_scope
-event_filters
-time_filters
-actions
-cooldown
+event_types
+health_types
+security_types
+min_confidence
+zones
+severities
+schedule_timezone
+active_schedule
+quiet_schedule
+grouping_mode
+group_window_seconds
+cooldown_seconds
+incident_resolution_mode
+auto_resolve_after_seconds
+escalation_policy_id
+created_at
+updated_at
 ```
 
-## AlertDelivery
+## AlertIncident
 
-Tracks every attempted notification/action.
+Human-facing alert lifecycle, separate from DetectionEvent.
 
 ```text
 id
 alert_rule_id
-detection_event_id
-backend
-status
-attempts
-last_error
-delivered_at
+source_kind
+primary_source_type
+primary_source_id
+camera_id
+group_key
+title
+severity
+lifecycle_state          active | resolved
+acknowledgement_state    unacknowledged | acknowledged
+opened_at
+last_activity_at
+resolved_at
+acknowledged_at
+acknowledged_by
+acknowledgement_note
+trigger_count
+first_snapshot_object_id
+latest_snapshot_object_id
+correlation_id
+created_at
+updated_at
 ```
+
+Incident lifecycle and acknowledgement are independent.
+
+## AlertIncidentSource
+
+```text
+alert_incident_id
+source_type
+source_id
+occurred_at
+transition
+created_at
+```
+
+A single AlertIncident may group many source DetectionEvents/health signals without deleting or rewriting them.
+
+## EscalationPolicy
+
+```text
+id
+name
+enabled
+stop_on_acknowledge
+stop_on_resolve
+created_at
+updated_at
+```
+
+## EscalationStep
+
+```text
+id
+escalation_policy_id
+sequence
+delay_seconds
+repeat_interval_seconds
+max_repeats
+action_set_id
+```
+
+## AlertActionSet
+
+```text
+id
+name
+enabled
+created_at
+updated_at
+```
+
+## AlertAction
+
+```text
+id
+action_set_id
+notification_target_id
+template_id
+send_on
+include_snapshot
+include_deep_link
+enabled
+```
+
+## NotificationTarget
+
+Configured outbound destination.
+
+```text
+id
+name
+type                    smtp | apprise | webhook | home_assistant | mqtt
+enabled
+config
+credential_secret_ref
+health_state
+last_health_at
+last_error
+created_at
+updated_at
+```
+
+## RecipientGroup
+
+```text
+id
+name
+created_at
+updated_at
+```
+
+## RecipientGroupMember
+
+```text
+recipient_group_id
+user_id
+email_address
+```
+
+## NotificationTemplate
+
+```text
+id
+name
+channel_type
+locale
+subject_template
+body_template
+body_format             text | html | json
+built_in
+created_at
+updated_at
+```
+
+Template variables are explicitly whitelisted/sandboxed and cannot access secrets.
+
+## AlertSilence
+
+```text
+id
+name
+enabled
+starts_at
+ends_at
+camera_scope
+alert_rule_ids
+signal_types
+suppress_notifications
+suppress_incident_creation
+reason
+created_by
+created_at
+updated_at
+```
+
+Default silence suppresses delivery while keeping incidents/history.
+
+## AlertDelivery
+
+One logical outbound notification/action.
+
+```text
+id
+alert_incident_id
+alert_rule_id
+action_id
+notification_target_id
+delivery_kind
+idempotency_key
+status                  pending | sending | retry_wait | delivered | failed | cancelled | suppressed
+scheduled_at
+first_attempt_at
+delivered_at
+failed_at
+attempt_count
+last_error_code
+last_error_message
+rendered_subject
+rendered_body_digest
+correlation_id
+created_at
+updated_at
+```
+
+## AlertDeliveryAttempt
+
+Append-style history of each provider/network attempt.
+
+```text
+id
+alert_delivery_id
+attempt_number
+started_at
+finished_at
+outcome
+provider_status
+error_code
+sanitized_error
+provider_message_id
+next_retry_at
+```
+
+DetectionEvent/system health remains authoritative. Grouping, cooldown, silence, acknowledgement, escalation, or delivery failure never deletes source events or changes recording lifecycle.
+
+See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
 
 ## StoragePool
 
@@ -1163,6 +1379,12 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 76. OIDC/SSO identities map into the same User/Role/Permission/CameraScope model and never bypass authorization.
 77. SMTP/email delivery is a first-production-release platform capability with SecretStore-backed credentials and durable retry/result tracking.
 78. Self-service password reset depends on SMTP when email recovery is used, but administrator-issued and host-local recovery remain available when SMTP is unavailable.
+79. AlertIncident is a human-facing grouping/lifecycle layer and never replaces or mutates DetectionEvent/system health truth.
+80. Alert acknowledgement and source resolution are independent states; acknowledgement never stops RecordingIntent.
+81. Alert grouping/cooldown/silence may suppress outbound delivery but never suppress canonical event persistence or recording.
+82. Escalation and AlertDelivery retry state is durable/recoverable across process restart.
+83. Notification targets are independently healthy and use SecretStore for recoverable credentials.
+84. Per-attempt notification diagnostics are append-style AlertDeliveryAttempt records; exactly-once external delivery is not assumed.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
