@@ -107,8 +107,8 @@ def initialize(path: Path) -> None:
             );
             CREATE INDEX idx_segments_camera_start
                 ON recording_segments(camera_id, started_at);
-            CREATE INDEX idx_segments_camera_end
-                ON recording_segments(camera_id, ended_at);
+            CREATE INDEX idx_segments_camera_end_cover
+                ON recording_segments(camera_id, ended_at, started_at, id);
 
             CREATE TABLE storage_targets (
                 id TEXT PRIMARY KEY,
@@ -129,10 +129,18 @@ def initialize(path: Path) -> None:
                 created_at TEXT NOT NULL,
                 deleted_at TEXT
             );
-            CREATE INDEX idx_locations_segment_state
-                ON recording_locations(recording_segment_id, state);
-            CREATE INDEX idx_locations_target_state
-                ON recording_locations(storage_target_id, state);
+            CREATE INDEX idx_locations_segment_target_state
+                ON recording_locations(
+                    recording_segment_id,
+                    storage_target_id,
+                    state
+                );
+            CREATE INDEX idx_locations_target_state_segment
+                ON recording_locations(
+                    storage_target_id,
+                    state,
+                    recording_segment_id
+                );
 
             CREATE TABLE events (
                 id TEXT PRIMARY KEY,
@@ -334,6 +342,12 @@ def preload(path: Path, cameras: int) -> dict[str, int]:
                 """,
                 event_rows,
             )
+
+        # The retention query is sensitive to join-order estimates on a fresh,
+        # large SQLite database. Persist planner statistics after the bulk
+        # historical import, then let PRAGMA optimize maintain them later.
+        conn.execute("ANALYZE")
+        conn.execute("PRAGMA optimize")
 
     return {
         "cameras": cameras,
@@ -585,12 +599,14 @@ def retention_reader(path: Path, cameras: int, stop: threading.Event, metrics: M
                 """
                 SELECT s.id, s.started_at, s.ended_at, l.size_bytes, l.object_path
                 FROM recording_segments s
+                     INDEXED BY idx_segments_camera_end_cover
                 JOIN recording_locations l
+                     INDEXED BY idx_locations_segment_target_state
                   ON l.recording_segment_id = s.id
+                 AND l.storage_target_id = 'local-recording'
+                 AND l.state = 'AVAILABLE'
                 WHERE s.camera_id = ?
                   AND s.ended_at < ?
-                  AND l.storage_target_id = 'local-recording'
-                  AND l.state = 'AVAILABLE'
                   AND NOT EXISTS (
                     SELECT 1
                     FROM recording_protections p
@@ -613,6 +629,41 @@ def retention_reader(path: Path, cameras: int, stop: threading.Event, metrics: M
             conn.close()
         seq += 1
         stop.wait(0.1)
+
+
+def retention_query_plan(path: Path, cameras: int) -> list[str]:
+    camera_id = "cam-00"
+    cutoff = datetime.now(UTC) - timedelta(days=14)
+    conn = connect(path)
+    try:
+        rows = conn.execute(
+            """
+            EXPLAIN QUERY PLAN
+            SELECT s.id, s.started_at, s.ended_at, l.size_bytes, l.object_path
+            FROM recording_segments s
+                 INDEXED BY idx_segments_camera_end_cover
+            JOIN recording_locations l
+                 INDEXED BY idx_locations_segment_target_state
+              ON l.recording_segment_id = s.id
+             AND l.storage_target_id = 'local-recording'
+             AND l.state = 'AVAILABLE'
+            WHERE s.camera_id = ?
+              AND s.ended_at < ?
+              AND NOT EXISTS (
+                SELECT 1
+                FROM recording_protections p
+                WHERE p.camera_id = s.camera_id
+                  AND p.started_at < s.ended_at
+                  AND p.ended_at > s.started_at
+              )
+            ORDER BY s.ended_at
+            LIMIT 500
+            """,
+            (camera_id, iso(cutoff)),
+        ).fetchall()
+        return [" | ".join(str(value) for value in row) for row in rows]
+    finally:
+        conn.close()
 
 
 def backup_worker(path: Path, stop: threading.Event, metrics: Metrics, backups: list[dict]) -> None:
@@ -681,6 +732,7 @@ def run_scenario(cameras: int) -> dict:
     preloaded = preload(path, cameras)
     preload_seconds = time.perf_counter() - preload_started
     sizes_before = file_sizes(path)
+    retention_plan = retention_query_plan(path, cameras)
 
     metrics = Metrics()
     stop = threading.Event()
@@ -746,6 +798,7 @@ def run_scenario(cameras: int) -> dict:
     timeline_p95 = latencies.get("timeline_query", {}).get("p95_ms")
     event_p95 = latencies.get("event_query", {}).get("p95_ms")
     recording_p95 = latencies.get("recording_write", {}).get("p95_ms")
+    retention_p95 = latencies.get("retention_query", {}).get("p95_ms")
 
     hard_pass = (
         integrity == "ok"
@@ -764,11 +817,16 @@ def run_scenario(cameras: int) -> dict:
         and event_p95 < 500
     )
     write_latency_ok = recording_p95 is not None and recording_p95 < 500
+    retention_latency_ok = retention_p95 is not None and retention_p95 < 500
 
     if cameras == 8:
-        classification = "PASS" if hard_pass and interactive and write_latency_ok else "FAIL"
+        classification = (
+            "PASS"
+            if hard_pass and interactive and write_latency_ok and retention_latency_ok
+            else "FAIL"
+        )
     else:
-        if hard_pass and interactive and write_latency_ok:
+        if hard_pass and interactive and write_latency_ok and retention_latency_ok:
             classification = "PASS"
         elif hard_pass:
             classification = "PASS WITH DOCUMENTED HARDWARE/CONFIG REQUIREMENT"
@@ -783,6 +841,7 @@ def run_scenario(cameras: int) -> dict:
         "preload_days": PRELOAD_DAYS,
         "preload": preloaded,
         "preload_seconds": preload_seconds,
+        "retention_query_plan": retention_plan,
         "sqlite_version": sqlite3.sqlite_version,
         "python_sqlite_module_version": sqlite3.version,
         "busy_timeout_ms": BUSY_TIMEOUT_MS,
@@ -807,6 +866,7 @@ def run_scenario(cameras: int) -> dict:
             "timeline_query_p95_ms_lt": 500,
             "event_query_p95_ms_lt": 500,
             "recording_write_p95_ms_lt": 500,
+            "retention_query_p95_ms_lt": 500,
             "final_lock_failures_eq": 0,
             "recording_event_audit_final_failures_eq": 0,
             "backup_integrity_required": True,
