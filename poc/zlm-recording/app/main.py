@@ -81,6 +81,19 @@ def init_db() -> None:
                 payload_json TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS poc_recording_triggers (
+                id TEXT PRIMARY KEY,
+                camera_id TEXT NOT NULL,
+                stream TEXT NOT NULL,
+                source TEXT NOT NULL,
+                source_event_id TEXT,
+                requested_at TEXT NOT NULL,
+                planned_start_at TEXT NOT NULL,
+                planned_end_at TEXT NOT NULL,
+                state TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS poc_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
