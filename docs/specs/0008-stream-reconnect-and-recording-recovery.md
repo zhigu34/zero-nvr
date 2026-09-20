@@ -1,435 +1,257 @@
-# Spec 0008 — Stream Loss, Reconnect, and Recording Recovery
+# Spec 0008 — Stream Loss, Runtime Recovery, and Recording Reconciliation
 
 Status: **accepted**
 
 ## Goal
 
-Define how zero-nvr detects source-stream loss, closes interrupted media safely, retries camera pull, preserves RecordingIntent/RecordingSession semantics, restarts formal segmentation, and exposes the resulting gap on the historical timeline.
+Define how zero-nvr behaves when a camera stream disappears, ZLMediaKit reconnects, a recording is interrupted, or the zero-nvr control plane restarts.
 
 Core rule:
 
-> Network/media transport recovers independently from recording business intent. A source loss may split physical MP4 files without ending the logical RecordingSession.
+> ZLMediaKit owns media transport, source pulling, reconnect behavior, and recorder runtime. zero-nvr owns product intent, health projection, historical catalog reconciliation, and user-visible gap semantics.
 
-## Layer separation
+zero-nvr must not grow a second RTSP reconnect engine or packet-level media state machine beside ZLMediaKit.
 
-Do not conflate:
+See [Project Baseline](../PROJECT_BASELINE.md).
 
-1. camera/protocol session — RTSP connection/session, vendor SDK handle, etc.;
-2. ZLMediaKit runtime stream — transient media source/proxy state;
-3. RecordingSegment — one finalized physical formal MP4;
-4. RecordingSession — one uninterrupted business interval in which at least one RecordingIntent requires recording.
+## Ownership boundary
 
-A transport reconnect rebuilds protocol/runtime state where required.
+### ZLMediaKit owns
 
-A real media break always causes post-recovery footage to use a new physical RecordingSegment.
+- RTSP/source pull lifecycle;
+- protocol-level timeout and reconnect behavior;
+- runtime stream registration/unregistration;
+- media-track and codec runtime;
+- recorder start/stop execution;
+- physical MP4/fMP4 finalization;
+- runtime media state exposed through ZLM APIs/hooks.
 
-A transport reconnect does not end RecordingSession while RecordingIntent still requires recording.
+### zero-nvr owns
 
-## Runtime state machine
+- whether a camera is enabled;
+- desired recording policy;
+- mapping Camera/StreamProfile to ZLM media identifiers;
+- current product health derived from ZLM observations;
+- RecordingSegment catalog entries;
+- Event/SystemEvent state;
+- Timeline/Gap projection;
+- reconciliation after lost hooks or control-plane downtime;
+- alerts when media remains unavailable.
+
+### zero-nvr does not own
+
+- packet starvation detection;
+- RTP/RTCP monitoring;
+- RTSP reconnect backoff;
+- codec-level reconnect handling;
+- a custom STREAMING/DEGRADED/RECONNECTING transport state machine;
+- a second long-lived camera puller.
+
+If ZLM exposes useful reconnect/runtime details, zero-nvr may surface them as diagnostics without becoming their owner.
+
+## Desired state and observed state
+
+The control plane tracks desired product state such as:
 
 ```text
-STREAMING
-   |
-   | temporary media starvation/jitter
-   v
-DEGRADED
-   |
-   +-- media resumes while runtime stream remains valid
-   |      -> STREAMING
-   |      -> current physical RecordingSegment may continue
-   |
-   +-- source/runtime stream confirmed lost
-          |
-          v
-RECONNECTING
-          |
-          +-- finalize interrupted physical segment
-          |      completion_reason = source_lost
-          |
-          +-- retry source pull
-                 |
-                 +-- success -> STREAMING + new physical segment
-                 |
-                 +-- prolonged failure -> OFFLINE
-                                         background retry continues
+camera.enabled = true
+recording_policy = CONTINUOUS
 ```
 
-DEGRADED is a transient runtime condition. It is not automatically a timeline gap unless actual media timestamps show missing footage.
+The ZLM adapter observes current runtime facts such as:
 
-## Detection principle
+```text
+stream_registered
+stream_missing
+recording_active
+media_server_unreachable
+```
 
-Do not classify stream loss only from a fixed wall-clock threshold such as "3 seconds".
+Reconciliation compares desired and observed state and performs only the minimum supported ZLM API operation required to converge.
 
-The decisive question is whether the media source/runtime stream is still valid and whether the recorded media timeline remains continuous.
+It must remain idempotent.
+
+## Product health projection
+
+Recommended product-facing camera/media health:
+
+```text
+ONLINE
+DEGRADED
+OFFLINE
+DISABLED
+```
+
+These are product health summaries, not an independently implemented media transport state machine.
 
 Examples:
 
-- packet jitter while the same source remains alive may continue the current segment;
-- explicit source unregister/close/fatal pull error means physical continuity is broken;
-- reconnecting after a lost source always starts a new physical file.
+- stream present and expected recorder active -> ONLINE;
+- ZLM reachable but one required stream/recorder is unavailable -> DEGRADED;
+- required source remains absent beyond the configured health threshold -> OFFLINE;
+- camera administratively disabled -> DISABLED.
 
-Timeouts remain configurable runtime/health thresholds rather than business truth.
+A temporary ZLM reconnect may be displayed in diagnostics when ZLM exposes it, but zero-nvr does not schedule the reconnect itself.
 
-## ZLMediaKit integration boundary
+## Recording continuity
 
-zero-nvr treats ZLMediaKit as transient media runtime.
+Recording media truth comes from actual finalized media.
 
-For RTSP pull proxy, the deployed adapter should use ZLMediaKit pull timeout/retry controls and preserve a stable logical camera/media-plane key while allowing the underlying player/protocol connection to be rebuilt.
-
-Relevant runtime signals may include:
-
-- on_stream_changed registration/unregistration;
-- pull-proxy close/error state;
-- media-server restart/health state;
-- recorder/finalization callbacks.
-
-on_stream_none_reader must not be used as a camera-disconnect signal because it represents a stream with no readers.
-
-Exact hooks/options are implementation details and must be verified against the deployed ZLMediaKit version.
-
-## Reconnect policy
-
-Recommended V2 behavior:
+A source/runtime interruption may cause:
 
 ```text
-camera enabled
-    -> keep retrying indefinitely
+[ RecordingSegment A ]   gap   [ RecordingSegment B ]
 ```
 
-Retry scheduling should prevent retry storms.
+zero-nvr must not stretch timestamps or fabricate frames to hide the interruption.
 
-Conceptual policy:
+Segment boundaries are not inferred from the nominal 300-second target. Use actual start/end/duration metadata from the normal hook/catalog path, with reconciliation fallback when a hook is missed.
+
+## Gap projection
+
+Gap is not a stored authoritative media row.
+
+For a requested time range:
 
 ```text
-fast initial retry
-then exponential backoff + per-camera jitter
-cap at configurable maximum
-reset retry state after stable recovery
+Gap = requested wall-clock interval - merged available recording coverage
 ```
 
-A reasonable cap may be in the 30–60 second range, but the exact algorithm is runtime tuning rather than a domain invariant.
-
-## Offline classification
-
-RECONNECTING and OFFLINE are health/UI states, not different media-correctness models.
-
-Initial configurable default:
+When reliable system/runtime evidence exists, a projected gap may expose a reason such as:
 
 ```text
-offline_after_seconds = 30
-```
-
-Meaning:
-
-- before threshold: degraded/reconnecting;
-- after threshold: offline;
-- background retry still continues while camera remains enabled.
-
-This threshold does not rewrite RecordingSegment timestamps.
-
-## Physical segment behavior
-
-When source continuity is confirmed lost while a formal MP4 is open:
-
-1. stop accepting media into the old file;
-2. finalize/close it as safely as possible;
-3. persist actual ended_at;
-4. record completion_reason = source_lost;
-5. never append post-reconnect media into the old MP4.
-
-If finalization fails, mark integrity/recovery state explicitly and let reconciliation handle the partial object.
-
-## Segment clock after recovery
-
-A real media discontinuity resets the physical formal segment cadence.
-
-After media resumes at R:
-
-```text
-new segment starts = R
-next boundary      = R + formal_record_segment_seconds
-```
-
-Example:
-
-```text
-segment A
-14:00:00 -------- 14:02:15
-
-gap
-14:02:15 -------- 14:02:23
-
-recovered cadence
-14:02:23 -------- 14:07:23
-14:07:23 -------- 14:12:23
-```
-
-Do not create an artificial short segment at the old planned boundary just to restore the pre-failure clock.
-
-This is an explicit exception to the healthy-session rule: RecordingIntent changes do not reset cadence, but a real media discontinuity does.
-
-## RecordingSession behavior
-
-Source loss does not remove RecordingIntent.
-
-```text
-continuous intent:
-----------------------------------------
-
-RecordingSession:
-----------------------------------------
-
-physical media:
-[======= A =====]        [======= B =====]
-                 gap
-```
-
-If one or more RecordingIntents remain active while source media is unavailable:
-
-- keep the same RecordingSession;
-- keep active intents unchanged;
-- record the real media gap;
-- resume into a new RecordingSegment after recovery.
-
-RecordingSession ends only when the effective active-intent set becomes empty according to Spec 0007.
-
-## Event recording during outage
-
-An event may arrive from an independent source while video is unavailable.
-
-In that case:
-
-- persist DetectionEvent;
-- maintain event RecordingIntent lifecycle normally;
-- keep Event Marker on the timeline;
-- request/maintain formal recording intent;
-- represent unavailable video time as a gap;
-- resume capture when media returns if any intent is still active.
-
-Never fabricate missing pre-roll or duplicate frames to hide the outage.
-
-## Idle prebuffer during disconnect
-
-If source loss happens during IDLE_PREBUFFER:
-
-- finalize/reconcile the current temporary fragment if possible;
-- do not create a formal RecordingSegment merely because of disconnect;
-- pause prebuffer production;
-- after recovery start a fresh prebuffer fragment;
-- later pre-roll degradation must be observable if required footage is unavailable.
-
-## Runtime/server restart
-
-When media continuity cannot be proven across a runtime restart:
-
-```text
-completion_reason = runtime_restart
-```
-
-After recovery:
-
-- reconstruct active RecordingIntents;
-- preserve/reconcile RecordingSession;
-- create a new physical segment from actual media recovery time;
-- show the true gap.
-
-Never stretch timestamps across a restart.
-
-## Codec/track discontinuity
-
-If codec/track parameters change such that the same file cannot safely continue:
-
-- finalize current segment;
-- create a new segment;
-- completion_reason = media_discontinuity;
-- keep RecordingSession alive if intents remain active.
-
-## Timeline representation
-
-Known outage interval:
-
-```text
-gap.reason = source_lost
-```
-
-Example:
-
-```text
-14:00:00      14:02:15   14:02:23       14:07:23
- [segment A]      | gap |   [segment B]
-                      ^
-                 source_lost
-```
-
-At close zoom show the true gap and its reason.
-
-At wide zoom Spec 0006 may visually smooth a sub-pixel gap, but authoritative gap data remains unchanged.
-
-## Playback over outage gaps
-
-Single-camera playback follows Spec 0006:
-
-```text
-skip_gaps = on
-  -> jump to next playable absolute time
-
-skip_gaps = off
-  -> global time continues
-  -> player shows source_lost/no-recording state
-```
-
-Multi-camera playback never skips global time solely because one selected camera has a source-loss gap while another selected camera has media.
-
-## System connectivity history
-
-Infrastructure failures are not DetectionEvents.
-
-Conceptual system/runtime history:
-
-```text
-camera_id
-kind = source_connectivity
-started_at
-ended_at
-state
-reason
-details
-```
-
-Useful actions/states:
-
-```text
-stream_degraded
-stream_lost
-reconnect_started
-reconnect_succeeded
-camera_offline
-camera_online
-recording_segment_interrupted
-```
-
-This data may support health, diagnostics, timeline gap explanations, and optional system markers.
-
-## UI behavior
-
-Live/Device states:
-
-```text
-online
-degraded
-reconnecting
-offline
-disabled
-```
-
-Historical gap reasons remain distinct:
-
-```text
-source_lost
-runtime_restart
-storage_failure
+source_unavailable
+media_server_restart
+storage_unavailable
 missing_media
 purged
 not_scheduled
-no_event
+no_event_recording
 ```
 
-A camera can be online now while its historical timeline still contains old outage gaps.
+The absence of a diagnostic reason must not change the authoritative recording coverage.
 
-## Recovery diagnostics
+## Runtime/server restart
 
-Expose enough diagnostics to answer:
+If ZLM restarts or media continuity cannot be proven:
 
-- when was source media last received?
-- when did runtime declare loss?
-- how long was reconnecting?
-- what retry attempt recovered?
-- which segment was interrupted?
-- did MP4 finalization succeed?
-- what absolute media time resumed?
-- was RecordingSession preserved?
-- was pre-roll coverage degraded?
+- finalized media before the restart remains cataloged;
+- post-recovery media begins from its real timestamp;
+- any real missing interval appears as a gap;
+- zero-nvr re-applies desired product configuration only through supported adapter operations;
+- do not append recovered media to an old file merely to preserve a nominal segment cadence.
+
+## zero-nvr API / worker / database outage
+
+The media hot path is:
+
+```text
+Camera -> ZLMediaKit -> local recording filesystem
+```
+
+The database is not in that hot path.
+
+Where practical, a short FastAPI/worker/database outage must not terminate an already-running ZLM recording.
+
+After recovery:
+
+```text
+load desired state
+-> query ZLM runtime
+-> reconcile stream/recording state
+-> reconcile finalized media catalog
+-> resume normal hooks/tasks
+```
+
+A missed `on_record_mp4` hook is therefore recoverable.
+
+## Event arrival during video outage
+
+An Event/RecordingTrigger may arrive while video is unavailable.
+
+zero-nvr still:
+
+- persists the event/trigger;
+- keeps its real timestamps;
+- applies the recording intent semantics;
+- does not fabricate pre-roll;
+- exposes degraded/missing video coverage;
+- resumes recording when media becomes available if the effective recording intent still requires it.
+
+## Reconciliation sources
+
+Normal path:
+
+```text
+ZLM on_record_mp4
+-> RecordingSegment / RecordingLocation
+```
+
+Recovery sources may include:
+
+1. ZLM recorder/file listing APIs where supported;
+2. known recording-root scan using zero-nvr path identity rules;
+3. ffprobe only as a recovery fallback when authoritative metadata is unavailable.
+
+Do not continuously ffprobe every normal segment.
+
+## Diagnostics
+
+Useful diagnostics include:
+
+- ZLM reachable/unreachable;
+- expected stream present/missing;
+- current recorder active/inactive;
+- last known media registration time;
+- most recent finalized segment time;
+- most recent reconciliation time/result;
+- current camera health;
+- recent system health transitions.
+
+Persist meaningful transitions/events, not high-frequency transport telemetry.
 
 ## Acceptance tests
 
-1. brief jitter without runtime stream loss:
-   - current segment continues if continuity remains valid;
-   - no fake gap appears;
+1. Camera source disappears while continuous recording is active:
+   - ZLM performs its configured reconnect behavior;
+   - zero-nvr does not start its own RTSP retry engine;
+   - real missing coverage appears as a timeline gap.
 
-2. explicit source loss during formal recording:
-   - current MP4 closes early;
-   - completion_reason = source_lost;
-   - finalized file is independently playable when close succeeds;
+2. Camera recovers:
+   - ZLM stream returns;
+   - recording resumes according to desired policy;
+   - post-recovery media uses actual timestamps.
 
-3. recovery:
-   - new physical file begins at actual recovery time;
-   - new 5-minute cadence anchors at recovery;
-   - no append to old MP4;
+3. FastAPI restarts during an active ZLM recording:
+   - the already-running recorder is not deliberately stopped;
+   - after API recovery, runtime state converges through reconciliation.
 
-4. continuous intent across outage:
-   - one RecordingSession remains;
-   - timeline shows true source_lost gap;
+4. Database is temporarily unavailable:
+   - existing ZLM recording continues where practical;
+   - missed catalog work is recovered later.
 
-5. event/manual overlap across outage:
-   - RecordingIntents remain correct;
-   - recovery does not create duplicate intent/session;
+5. An `on_record_mp4` hook is intentionally dropped:
+   - reconciliation discovers the finalized recording;
+   - duplicate RecordingSegment rows are not created.
 
-6. prolonged outage:
-   - health transitions reconnecting -> offline;
-   - retries continue;
+6. ZLM restarts:
+   - zero-nvr detects the runtime loss;
+   - desired configuration is restored;
+   - any true recording gap remains visible.
 
-7. multi-camera playback:
-   - one camera gap does not shift others;
-   - strict barrier excludes legitimate-gap channels;
-
-8. restart:
-   - interrupted segment uses runtime_restart;
-   - active intents/session semantics are reconstructed;
-
-9. codec discontinuity:
-   - new segment uses media_discontinuity.
+7. Event arrives during source outage:
+   - Event and RecordingTrigger remain queryable;
+   - unavailable pre-roll/video is reported rather than fabricated.
 
 ## Invariants
 
-1. Protocol runtime, ZLM runtime stream, RecordingSegment, and RecordingSession are distinct layers.
-2. Real source loss closes the current physical RecordingSegment.
-3. Post-reconnect media is never appended to the old MP4.
-4. Real media discontinuity resets physical formal segment cadence from actual recovery time.
-5. Source loss does not end RecordingSession while any RecordingIntent remains active.
-6. Source loss does not cancel active RecordingIntents.
-7. on_stream_none_reader is not a camera-disconnect signal.
-8. Fixed timeout thresholds are health/runtime tuning, not the definition of media continuity.
-9. Offline state does not stop background reconnect while the camera remains enabled.
-10. Historical playback shows the real gap and reason; timestamps are never stretched to hide it.
-11. Infrastructure connectivity events are not DetectionEvents.
-12. Idle-prebuffer gaps remain observable and are never fabricated over.
-13. Runtime restart/discontinuity is explicit through completion_reason.
-14. Recovery is idempotent and serialized per camera to avoid duplicate pullers/recorders.
-15. Non-obvious reconnect/finalization/recovery behavior requires comments per Development Guidelines.
-
-## Time-source reference
-
-Reconnect/offline elapsed timers use monotonic runtime time, while persisted outage/segment timestamps use canonical UTC. A camera clock must never become the authority for source-loss gap placement. See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
-
-## Storage-failure recovery reference
-
-A mid-segment recording-hot storage failure follows the same physical-discontinuity principle as source/runtime recovery: the interrupted object is finalized/reconciled where possible, another eligible target may be selected, and the new physical segment clock starts from actual recovered write time while RecordingSession/RecordingIntent may continue. See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
-
-
-## Planned runtime reconfiguration reference
-
-Network/source failure and intentional configuration changes are distinct.
-
-A planned recording-profile/source switch should occur at a safe existing segment boundary where possible and preserve RecordingSession/RecordingIntent.
-
-If the selected source/profile disappears or must switch immediately, finalize the physical segment with:
-
-```text
-completion_reason = source_reconfigured
-```
-
-then start a new physical segment on the verified replacement source. The same logical RecordingSession remains active while RecordingIntent remains active. A forced media discontinuity restarts the physical segment cadence from actual switch/recovery time.
-
-Runtime callbacks are fenced by the current config revision/runtime generation so stale source events cannot overwrite recovered state.
-
-See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
+1. ZLMediaKit is the owner of camera media transport/reconnect runtime.
+2. zero-nvr does not implement a competing RTSP reconnect/packet-monitor state machine.
+3. Recording files and catalog are eventually consistent and recoverable.
+4. The database is not placed in the live media write path.
+5. Real gaps are preserved as real wall-clock gaps.
+6. Health state is a product projection over adapter observations.
+7. Reconciliation is idempotent and must not create duplicate pullers, recorders, or catalog rows.
+8. ffprobe is a recovery tool, not the normal per-segment indexing path.
+9. A control-plane restart must not intentionally stop healthy ZLM recording unless a configuration change requires it.
+10. Non-obvious recovery behavior must be documented and tested.
