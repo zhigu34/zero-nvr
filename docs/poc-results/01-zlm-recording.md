@@ -34,8 +34,10 @@ The harness is committed, but no runtime evidence has been produced by this conv
 - one dedicated ZLM recorder is active before FastAPI is stopped;
 - FastAPI stays down for an intentional interval while ZLM keeps recording;
 - after FastAPI restarts, ZLM recorder is still active;
-- at least one reconciled RecordingSegment overlaps the FastAPI downtime window, proving finalized media continued while hooks could not be handled;
-- the post-restart reconciliation is idempotent;
+- at least one finalized RecordingSegment overlaps the FastAPI downtime window, proving media continued while the control plane was unavailable;
+- catalog convergence after restart may occur through either ZLM retry/delayed hook delivery or explicit reconciliation; the evidence records which path happened;
+- if reconciliation is needed, a second reconciliation is idempotent;
+- POC-10 separately proves the deliberate lost-hook case where reconciliation is required;
 - at least three consecutive finalized `cam-main` hook-indexed segments in the normal phase;
 - start/end/duration derived from actual hook metadata;
 - the normal hook phase does not increase the ffprobe fallback counter;
