@@ -1,130 +1,195 @@
 # Plan 00 — Platform Bootstrap
 
-Status: **draft implementation plan**
+Status: **ready after design-freeze gate / safe foundation work may begin**
 
-## Objective
+## Goal
 
-Create the smallest clean zero-nvr foundation that can support later media/device/event/storage adapters without carrying V1 compatibility code.
+Create the minimum project foundation that does not depend on unresolved media POCs.
 
-## Task 1 — Backend scaffold
+## Backend layout
 
-Create:
+Suggested modular-monolith structure:
 
 ```text
 backend/
   app/
     api/
     core/
-    domain/
+    db/
     models/
     schemas/
     services/
     adapters/
-  migrations/
+    jobs/
+    security/
+    main.py
+  alembic/
   tests/
-  pyproject.toml
 ```
 
-Initial capabilities:
+Boundaries matter more than exact folder names.
 
-- FastAPI app;
-- settings/config;
-- PostgreSQL connection;
+## Frontend layout
+
+```text
+frontend/
+  src/
+    api/
+    components/
+    layouts/
+    pages/
+    stores/
+    router/
+    players/
+    types/
+```
+
+Vue is built in a multi-stage image and the final static assets are served through the zero-nvr application/reverse-proxy path. Node/npm build tooling does not remain in the production runtime image.
+
+## Task 1 — Configuration/bootstrap
+
+Implement:
+
+- settings/config loading;
+- `.env` bootstrap contract;
+- `ZERO_NVR_SECRET_KEY` or equivalent protected secret bootstrap;
+- data/config/cache/recording path settings;
+- selected database URL;
+- internal ZLM endpoint configuration;
+- deployment feature availability model.
+
+Do not place product-level user settings into .env when they belong in the database/UI.
+
+## Task 2 — Persistence
+
+Default:
+
+```text
+SQLite
+```
+
+Optional:
+
+```text
+PostgreSQL
+```
+
+Use:
+
+- SQLAlchemy 2.x;
 - Alembic;
-- health/readiness;
-- structured logging.
+- one logical domain/schema contract;
+- SQLite WAL/busy-timeout configuration appropriate to the workload;
+- portability tests for both backends.
 
-Do not add ONVIF, ZLM or FFmpeg logic yet.
+Do not make Redis or PostgreSQL mandatory just to run Core.
 
-## Task 2 — Frontend scaffold
+## Task 3 — Application skeleton
 
-Create Vue 3 + TypeScript application.
+Create:
 
-Initial routes:
+- FastAPI application;
+- `/api/v1` router root;
+- health/readiness endpoints;
+- structured logging;
+- dependency injection/service boundaries;
+- error response conventions;
+- UTC/timezone helpers.
+
+Frontend calls only zero-nvr APIs.
+
+## Task 4 — Security foundation
+
+Create:
+
+- local User model;
+- password hashing;
+- session/auth primitives;
+- SecretStore abstraction;
+- AuditEvent foundation;
+- first-run administrator state.
+
+Do not implement a custom IdP. OIDC is an integration boundary.
+
+## Task 5 — Background jobs
+
+Use Huey.
+
+SQLite deployment uses SQLite-backed Huey mode where appropriate; PostgreSQL mode may use its supported backend.
+
+Initial job shell only:
+
+- notification;
+- archive;
+- export;
+- backup;
+- cleanup;
+- reconciliation.
+
+Do not introduce Celery/Redis/RabbitMQ as mandatory infrastructure.
+
+## Task 6 — Adapter contracts
+
+Define thin contracts before integrations:
+
+- MediaPlane / ZlmAdapter;
+- DeviceAdapter / ONVIF adapter;
+- AIProvider;
+- StorageTransfer adapter around rclone;
+- Notification adapter around Apprise;
+- Backup service around database-native backup + restic.
+
+Do not add a generic RecorderBackend that implies FFmpeg and ZLM are interchangeable normal recorders. Normal recording authority is fixed to ZLM.
+
+## Task 7 — Runtime image
+
+Target one zero-nvr image used by two commands:
 
 ```text
-/devices
-/live
-/recordings
-/events
-/alerts
-/storage
-/system
+zero-nvr-api
+zero-nvr-worker
 ```
 
-Only Device Center needs initial behavior.
+Runtime image may include:
 
-## Task 3 — Core domain
+- Python runtime;
+- built Vue assets;
+- FFmpeg/ffprobe;
+- rclone;
+- restic;
+- required Python libraries.
 
-Implement initial:
-
-- Camera;
-- CameraConnection;
-- MediaStream.
-
-Requirements:
-
-- Camera ID stable;
-- public read models contain no secret;
-- connection revision available for runtime reconciliation;
-- adapter-specific config isolated from generic Camera fields.
-
-## Task 4 — Adapter contracts
-
-Define interfaces/protocols for:
-
-- DeviceAdapter;
-- MediaPlane;
-- RecorderBackend;
-- DetectionProvider;
-- StorageBackend;
-- NotificationBackend.
-
-Provide fake/test adapters before real integrations.
-
-## Task 5 — Runtime intent/reconciliation
-
-Define how persistent desired state becomes external runtime state.
-
-At minimum:
+Core deployment plus ZLM is:
 
 ```text
-Camera enabled
-   ↓
-Runtime coordinator
-   ↓
-MediaPlane.ensure_stream()
+2 images
+3 containers
 ```
 
-Restarting runtime services must reconstruct state from PostgreSQL.
+## Task 8 — Test foundation
 
-## Task 6 — Docker Compose baseline
+Add:
 
-Services:
+- SQLite integration tests;
+- PostgreSQL portability tests;
+- API test harness;
+- migration tests;
+- SecretStore round-trip tests;
+- Huey job test mode;
+- adapter fakes.
 
-- api;
-- web;
-- postgres.
+Media-specific assumptions remain behind the design-freeze POCs.
 
-ZLMediaKit can be introduced in Plan 01 rather than hidden inside bootstrap.
+## Acceptance
 
-## Task 7 — CI baseline
+Bootstrap is complete when:
 
-Require:
-
-- backend lint;
-- backend tests;
-- migration test from empty DB;
-- frontend lint;
-- frontend tests;
-- frontend build;
-- Compose configuration validation.
-
-## Exit criteria
-
-- repository is clone-and-run for development;
-- migrations build an empty database;
-- Device Center can CRUD a Camera without protocol-specific logic;
-- secrets are excluded from read contracts;
-- adapter contracts have fake implementations/tests;
-- no V1 compatibility layer exists.
+- API starts with SQLite and no optional services;
+- worker starts from the same image;
+- schema migration works from an empty DB;
+- first-run state is detectable;
+- secrets can be encrypted/decrypted with the configured master/bootstrap key;
+- health endpoints distinguish API/DB/worker dependency state;
+- frontend build is served;
+- no ZLM/Frigate/OpenList/PostgreSQL/Redis dependency is required merely to open Core;
+- architecture-specific media logic remains behind adapters.
