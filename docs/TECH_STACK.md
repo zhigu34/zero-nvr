@@ -225,20 +225,17 @@ Long-lived media runtime and normal camera recording remain ZLMediaKit responsib
 
 ## Security / secrets
 
-Initial cryptographic direction:
+Use mature libraries rather than custom cryptography:
 
-- Argon2id for local password hashing;
-- authenticated encryption for recoverable managed secrets;
-- AES-256-GCM as the initial envelope-encryption primitive;
-- per-SecretRecord random DEK;
-- external/versioned KEK keyring supplied through Docker secrets/protected files or an equivalent bootstrap provider;
-- opaque/hash-stored authentication tokens where reversible secret recovery is unnecessary.
+- Argon2id through a maintained password library for local password hashing;
+- Python `cryptography` or equivalent for authenticated encryption of recoverable SecretRecords;
+- Fernet/MultiFernet or a similarly small authenticated-encryption/key-rotation approach is preferred for V1 simplicity;
+- stable master/keyring bootstrap through `ZERO_NVR_SECRET_KEY` or protected `*_FILE`;
+- one-way hashes for Personal API Tokens and password-reset tokens.
 
-Python implementation should use a maintained cryptographic library rather than custom cryptography.
+V1 does not require per-record DEK/KEK envelope encryption, Vault, or KMS. Those may be added later behind SecretStore if a deployment class requires them.
 
-SecretStore remains an application abstraction so a later Vault/KMS/secret-manager backend can replace the initial encrypted-database implementation without changing Camera/Storage/Integration domain contracts.
-
-Production deployments should prefer Docker secret files or `*_FILE` bootstrap configuration for the PostgreSQL password and SecretStore key material rather than plaintext environment variables.
+Production deployments should keep the master key outside the product database and preserve it through the RecoveryKit process.
 
 See [Spec 0012](specs/0012-config-secrets-key-management.md).
 
@@ -351,17 +348,17 @@ See [Spec 0020](specs/0020-live-view-media-session-and-talk.md).
 
 ## Detection and AI providers
 
-First-production-release provider architecture:
+V1 event architecture stays narrow:
 
-- mature ONVIF library event service for native events/PullPoint handling;
-- HIK/vendor event bridge when vendor-native analytics add value;
-- Frigate integration as an optional external DetectionProvider;
-- local lightweight motion provider on the `detection` MediaStream role.
+- mature ONVIF library event service for camera-native events;
+- Frigate as the primary optional AI provider;
+- vendor event bridge only when ONVIF cannot expose the required capability;
+- one canonical zero-nvr Event model.
 
-Frigate integration prefers MQTT for tracked-object lifecycle updates and uses the HTTP API for health/detail/snapshot/reconciliation where appropriate. Frigate event/recording storage never replaces zero-nvr's canonical DetectionEvent/Recording models.
+Frigate integration may use MQTT and/or its supported HTTP API according to the deployed version/integration path. Frigate owns detection/tracking/zones; zero-nvr stores only the product fields needed for timeline, search, alerts, recording policy, and permissions.
 
-High-frequency provider updates normalize into bounded DetectionObservation sampling plus one canonical DetectionEvent aggregate. Cross-provider duplicate/related occurrences use non-destructive EventFusionGroup correlation.
+Provider source identity is preserved so repeated new/update/end messages UPSERT the same Event.
 
-Local/AI detection compute is isolated from FastAPI request handling and is resource-bounded so detector overload cannot starve recording.
+V1 does not require DetectionObservation sampling tables, EventFusionGroup, or a local custom detector engine.
 
 See [Spec 0021](specs/0021-detection-providers-ai-events-and-fusion.md).
