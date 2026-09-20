@@ -9,6 +9,7 @@ import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
 import LoginView from "./views/LoginView.vue"
 import LiveView from "./views/LiveView.vue"
+import PlaybackView from "./views/PlaybackView.vue"
 import SetupView from "./views/SetupView.vue"
 import WorkspaceView from "./views/WorkspaceView.vue"
 import { useAuthStore } from "./stores/auth"
@@ -48,11 +49,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: "playback",
         name: "playback",
-        component: WorkspaceView,
+        component: PlaybackView,
         meta: {
-          title: "Playback",
-          description:
-            "Historical playback will use Timeline and PlaybackResolver APIs as the storage-independent source of truth."
+          title: "Playback"
         }
       },
       {

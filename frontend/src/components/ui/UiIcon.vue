@@ -69,7 +69,19 @@ const icons: Record<string, string> = {
   grid9:
     '<path d="M3 3h5v5H3zM9.5 3h5v5h-5zM16 3h5v5h-5zM3 9.5h5v5H3zM9.5 9.5h5v5h-5zM16 9.5h5v5h-5zM3 16h5v5H3zM9.5 16h5v5h-5zM16 16h5v5h-5z"/>',
   warning:
-    '<path d="M12 3 2.8 20h18.4Z"/><path d="M12 9v4M12 17h.01"/>'
+    '<path d="M12 3 2.8 20h18.4Z"/><path d="M12 9v4M12 17h.01"/>',
+  play:
+    '<path d="m9 7 8 5-8 5Z"/>',
+  pause:
+    '<path d="M9 7v10M15 7v10"/>',
+  previous:
+    '<path d="M6 6v12M18 7l-8 5 8 5Z"/>',
+  next:
+    '<path d="M18 6v12M6 7l8 5-8 5Z"/>',
+  calendar:
+    '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
+  "chevron-right":
+    '<path d="m9 6 6 6-6 6"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)
