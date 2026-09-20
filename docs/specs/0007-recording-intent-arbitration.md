@@ -131,7 +131,7 @@ Closing one trigger must not stop recording while another trigger/reason still r
 
 The product semantics may request about 10 seconds of EVENT_ONLY pre-roll.
 
-The physical mechanism is not part of RecordingIntent arbitration.
+The physical mechanism is not part of recording-requirement arbitration.
 
 It is resolved by the design-freeze POC using mature ZLM capabilities.
 
@@ -144,11 +144,13 @@ Recording arbitration only requests/records:
 
 Do not encode a specific tmpfs/rolling-MP4 implementation into the intent state model.
 
-## RecordingSession
+## Derived active recording interval
 
-A RecordingSession may represent one continuous business interval during which `should_record=true`.
+For reasoning and UI, zero-nvr may refer to a continuous interval during which `should_record=true`.
 
-It can span several physical RecordingSegments because of:
+This is a derived interval, not a required persisted entity.
+
+It may span several physical RecordingSegments because of:
 
 - normal segmentation;
 - source outage/recovery;
@@ -156,9 +158,7 @@ It can span several physical RecordingSegments because of:
 - storage interruption;
 - profile reconfiguration.
 
-RecordingSession is product/business structure; actual RecordingSegment times remain media truth.
-
-If implementation can express the required behavior without persisting a separate RecordingSession table, persistence should remain as simple as possible.
+Actual RecordingSegment times remain media truth. If a feature later proves that a persisted logical interval adds real product value, introduce it through a separate schema/ADR rather than making it a V1 prerequisite.
 
 ## Interaction with source outages
 
