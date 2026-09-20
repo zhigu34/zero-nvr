@@ -1,6 +1,6 @@
 # POC-02 — fMP4 Abnormal Termination Recovery
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
@@ -19,7 +19,7 @@ enableFmp4=1
 poc/zlm-recording/scripts/run-fmp4-crash.sh
 ~~~
 
-No runtime evidence has been produced by this conversation environment yet.
+A full A/B SIGKILL comparison completed successfully in GitHub Actions run `35490249085`, job `POC 02`.
 
 ## Test design
 
@@ -130,15 +130,77 @@ If fMP4 improves crash recovery but causes unacceptable normal VOD/browser/expor
 
 ## Tested versions
 
-Pending execution.
+~~~text
+GitHub Actions run: 35490249085
+job: POC 02
+ZLMediaKit:
+  branch: master
+  commit: b794772
+  buildTime: 2026-09-20T02:21:00
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+runner: Ubuntu 24.04.5 / linux amd64
+~~~
 
 ## Test environment
 
-Pending execution.
+Deterministic MediaMTX H.264 source on a GitHub-hosted Ubuntu 24.04.5 x86_64 Docker runner.
+
+The same source/write/SIGKILL pattern was executed first with ordinary MP4 and then with `record.enableFmp4=1`.
 
 ## Evidence
 
-Pending execution.
+Ordinary MP4 interrupted-file baseline:
+
+~~~text
+ffprobe = FAIL
+FFmpeg decode = FAIL
+FFmpeg stream-copy/remux = FAIL
+error includes: moov atom not found / invalid data
+all equivalent interrupted-file recovery checks passed = false
+~~~
+
+fMP4 interrupted file:
+
+~~~text
+surviving size = 1,441,792 bytes
+ffprobe = PASS
+surviving duration = 7.999 s
+FFmpeg decode = PASS
+FFmpeg stream-copy/remux = PASS
+remuxed duration = 7.679 s
+ZLM HTTP MP4 after restart = PASS
+ZLM RTSP VOD after restart = PASS
+~~~
+
+Normally finalized fMP4:
+
+~~~text
+duration ≈ 8.000 s
+ffprobe = PASS
+ZLM HTTP MP4 = PASS
+ZLM RTSP MP4 VOD = PASS
+~~~
+
+Comparator:
+
+~~~text
+ordinary_mp4_all_recovery_checks_passed = false
+fmp4_all_recovery_checks_passed = true
+fmp4_materially_better_in_this_sigkill_test = true
+result = PASS
+~~~
+
+Primary artifact:
+
+~~~text
+GitHub Actions run: 35490249085
+artifact: poc-02-evidence
+artifact id: 10598643747
+runtime/mp4-vs-fmp4-comparison.json
+runtime/mp4-baseline-evidence.json
+runtime/fmp4-evidence.json
+~~~
 
 ## Known limitations
 
@@ -148,6 +210,8 @@ Browser-specific codec/container compatibility is also covered by the later live
 
 ## Architecture impact
 
-Pending execution.
+**Accepted:** ZLM fMP4 recording becomes the V1 default recording container mode because the tested interrupted ordinary MP4 was unreadable while the equivalent interrupted fMP4 remained inspectable, decodable, remuxable, and playable through ZLM VOD.
 
-Do not change the project baseline from “fMP4 preferred candidate” to “fMP4 default” until this POC passes with recorded evidence.
+This does not require a repair daemon.
+
+Direct browser-file compatibility remains separate from recording authority: zero-nvr historical playback resolves finalized recordings through ZLM VOD/player descriptors. If later browser/player integration exposes a concrete incompatibility, the format decision may be revisited through the normal architecture-change process.
