@@ -649,6 +649,7 @@ def _frigate_backfill(
                 if not items:
                     break
 
+                reconcile_cameras: set[uuid.UUID] = set()
                 with database.session() as session:
                     for payload in items:
                         result = FrigateEventIngestService.http(
@@ -662,7 +663,19 @@ def _frigate_backfill(
                             created += 1
                         else:
                             updated += 1
+                        if (
+                            result.trigger_changed
+                            and result.trigger_camera_id is not None
+                        ):
+                            reconcile_cameras.add(
+                                result.trigger_camera_id
+                            )
                     session.commit()
+
+                for camera_id in reconcile_cameras:
+                    reconcile_camera_prebuffer(
+                        str(camera_id)
+                    )
 
                 if len(items) < batch_size:
                     break
