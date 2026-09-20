@@ -39,6 +39,7 @@ EXPECTED_FOUNDATION_TABLES = {
     "recording_triggers",
     "recording_segments",
     "recording_locations",
+    "events",
 }
 
 
@@ -93,3 +94,4 @@ def test_alembic_downgrade_base_sqlite(tmp_path, monkeypatch) -> None:
     assert "recording_protections" not in tables
     assert "recording_segments" not in tables
     assert "recording_locations" not in tables
+    assert "events" not in tables
