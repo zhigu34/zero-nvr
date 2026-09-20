@@ -45,3 +45,49 @@ class SessionSummary(BaseModel):
     expires_at: datetime
     current: bool
     client_info: dict[str, object] | None
+
+
+class RoleSummary(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    built_in: bool
+
+
+class RoleView(RoleSummary):
+    permissions: list[str]
+
+
+class RoleCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=2048)
+    permissions: list[str] = Field(default_factory=list)
+
+
+class RoleUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=64)
+    description: str | None = Field(default=None, max_length=2048)
+    permissions: list[str] | None = None
+
+
+class UserAdminView(BaseModel):
+    id: uuid.UUID
+    username: str
+    display_name: str
+    email: str | None
+    enabled: bool
+    roles: list[RoleSummary]
+
+
+class UserCreate(BaseModel):
+    username: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
+    display_name: str = Field(min_length=1, max_length=128)
+    email: EmailStr | None = None
+    password: str = Field(min_length=12, max_length=256)
+    role_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class UserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=128)
+    email: EmailStr | None = None
+    role_ids: list[uuid.UUID] | None = None
