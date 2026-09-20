@@ -5,7 +5,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -23,7 +23,11 @@ from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.service import CameraService
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
-from .models import RecordingPolicy, RecordingTrigger
+from .models import (
+    RecordingPolicy,
+    RecordingProtection,
+    RecordingTrigger,
+)
 from .playback import (
     GapPlan,
     PendingPlan,
@@ -31,6 +35,7 @@ from .playback import (
     PlaybackResolverService,
 )
 from .policy import RecordingPolicyService
+from .protection import RecordingProtectionService
 from .query import RecordingCatalogQueryService
 from .runtime import RecordingRuntimeService
 from .schemas import (
@@ -42,6 +47,8 @@ from .schemas import (
     PlaybackTimelineView,
     RecordingPolicyPut,
     RecordingLocationView,
+    RecordingProtectionCreate,
+    RecordingProtectionView,
     RecordingPolicyView,
     RecordingRuntimeView,
     RecordingSegmentPage,
@@ -173,6 +180,43 @@ def _require_segment_scope(
             code="recording_not_found",
             message="Recording segment was not found.",
         )
+
+
+def _protection_view(
+    protection: RecordingProtection,
+) -> RecordingProtectionView:
+    return RecordingProtectionView(
+        id=protection.id,
+        camera_id=protection.camera_id,
+        started_at=protection.started_at,
+        ended_at=protection.ended_at,
+        reason=protection.reason,
+        created_by=protection.created_by,
+        expires_at=protection.expires_at,
+        created_at=protection.created_at,
+        updated_at=protection.updated_at,
+    )
+
+
+def _protection_audit_snapshot(
+    protection: RecordingProtection,
+) -> dict[str, Any]:
+    return {
+        "camera_id": str(protection.camera_id),
+        "started_at": protection.started_at.isoformat(),
+        "ended_at": protection.ended_at.isoformat(),
+        "reason": protection.reason,
+        "created_by": (
+            str(protection.created_by)
+            if protection.created_by is not None
+            else None
+        ),
+        "expires_at": (
+            protection.expires_at.isoformat()
+            if protection.expires_at is not None
+            else None
+        ),
+    }
 
 
 def _trigger_view(
@@ -438,6 +482,126 @@ def put_recording_policy(
     )
 
 
+
+
+
+
+
+@router.post(
+    "/cameras/{camera_id}/recording-protections",
+    response_model=RecordingProtectionView,
+    status_code=201,
+)
+def create_recording_protection(
+    camera_id: uuid.UUID,
+    body: RecordingProtectionCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("recording.protect")
+    ),
+    session: Session = Depends(get_db_session),
+) -> RecordingProtectionView:
+    try:
+        protection = RecordingProtectionService.create(
+            session,
+            camera_id=camera_id,
+            started_at=body.started_at,
+            ended_at=body.ended_at,
+            reason=body.reason,
+            created_by=context.user.id,
+            expires_at=body.expires_at,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="recording_protection.create",
+            resource_type="recording_protection",
+            resource_id=protection.id,
+            camera_id=camera_id,
+            after=_protection_audit_snapshot(protection),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _protection_view(protection)
+
+
+@router.get(
+    "/cameras/{camera_id}/recording-protections",
+    response_model=list[RecordingProtectionView],
+)
+def list_recording_protections(
+    camera_id: uuid.UUID,
+    _context: AuthContext = Depends(
+        require_camera_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[RecordingProtectionView]:
+    CameraService.get_camera(session, camera_id)
+    return [
+        _protection_view(item)
+        for item in RecordingProtectionService.list_for_camera(
+            session,
+            camera_id=camera_id,
+        )
+    ]
+
+
+@router.delete(
+    "/recording-protections/{protection_id}",
+    status_code=204,
+)
+def delete_recording_protection(
+    protection_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.protect")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    protection = RecordingProtectionService.get(
+        session,
+        protection_id,
+    )
+    scope = get_effective_camera_scope(
+        context,
+        session,
+    )
+    if not scope.allows(protection.camera_id):
+        session.commit()
+        raise ApiError(
+            status_code=404,
+            code="recording_protection_not_found",
+            message="Recording protection was not found.",
+        )
+
+    before = _protection_audit_snapshot(protection)
+    resource_id = protection.id
+    camera_id = protection.camera_id
+    try:
+        RecordingProtectionService.delete(
+            session,
+            protection=protection,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="recording_protection.delete",
+            resource_type="recording_protection",
+            resource_id=resource_id,
+            camera_id=camera_id,
+            before=before,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return Response(status_code=204)
 
 
 @router.post(
