@@ -318,6 +318,23 @@ class NotificationTargetService:
         *,
         target: NotificationTarget,
     ) -> None:
+        from app.modules.alerts.models import AlertPolicy
+
+        for policy in session.scalars(select(AlertPolicy)):
+            raw_ids = (policy.action_json or {}).get(
+                "notification_target_ids",
+                [],
+            )
+            if (
+                isinstance(raw_ids, list)
+                and str(target.id) in raw_ids
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="notification_target_in_policy",
+                    message="Notification target is referenced by an alert policy.",
+                )
+
         in_use = session.scalar(
             select(NotificationDelivery.id)
             .where(
