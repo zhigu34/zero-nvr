@@ -128,7 +128,6 @@ def make_database(tmp_path: Path) -> tuple[Settings, Database]:
         cache_dir=tmp_path / "cache",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
-        recordings_dir=tmp_path / "recordings",
         prebuffer_require_tmpfs=False,
     )
     database = Database(settings)
