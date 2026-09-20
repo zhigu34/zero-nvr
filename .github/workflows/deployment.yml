@@ -65,6 +65,13 @@ jobs:
             bash -n "$script"
           done
 
+      - name: Validate database migration CLI surface
+        shell: bash
+        run: |
+          ./scripts/database-migrate.sh sqlite --help >/tmp/database-migrate-help
+          grep -Fq "postgres|sqlite" /tmp/database-migrate-help
+          ./deploy.sh help | grep -Fq "database migrate"
+
       - name: Test deployment state helpers
         shell: bash
         run: |

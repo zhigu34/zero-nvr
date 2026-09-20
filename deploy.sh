@@ -18,6 +18,7 @@ Usage:
   ./deploy.sh status
   ./deploy.sh doctor
   ./deploy.sh migrate
+  ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>]
   ./deploy.sh backup [reason] [policy-id-or-name]
   ./deploy.sh restore list
   ./deploy.sh restore [snapshot-id|latest] --force
@@ -544,6 +545,20 @@ case "$command" in
   migrate)
     ensure_env
     "$SCRIPT_DIR/migrate.sh"
+    ;;
+  database)
+    subcommand="${1:-}"
+    shift || true
+    case "$subcommand" in
+      migrate)
+        "$SCRIPT_DIR/database-migrate.sh" "$@"
+        ;;
+      *)
+        echo "error: unsupported database command: $subcommand" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
     ;;
   backup)
     ensure_env
