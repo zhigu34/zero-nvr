@@ -2,7 +2,7 @@
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-POC_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+POC_DIR=$SCRIPT_DIR
 cd "$POC_DIR"
 
 rm -rf runtime
