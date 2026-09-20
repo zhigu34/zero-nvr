@@ -16,6 +16,8 @@ from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import Camera, CameraStreamBinding, CameraStreamProfile
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
+from .prebuffer import validate_prebuffer_root
+
 from .catalog import RecordingCatalogService
 from .models import RecordingPolicy
 
@@ -171,7 +173,7 @@ class RecordingRuntimeService:
             max_second = policy.segment_target_seconds
         elif event_prebuffer:
             mode = "prebuffer"
-            root = str(settings.prebuffer_dir)
+            root = str(validate_prebuffer_root(settings))
             max_second = settings.prebuffer_fragment_seconds
         else:
             mode = "off"
