@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -91,3 +92,15 @@ class UserUpdate(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=128)
     email: EmailStr | None = None
     role_ids: list[uuid.UUID] | None = None
+
+
+class CameraScopeView(BaseModel):
+    mode: Literal["inherit", "all", "selected", "none"]
+    camera_ids: list[uuid.UUID] = Field(default_factory=list)
+    camera_group_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class CameraScopeUpdate(BaseModel):
+    mode: Literal["inherit", "all", "selected", "none"]
+    camera_ids: list[uuid.UUID] = Field(default_factory=list)
+    camera_group_ids: list[uuid.UUID] = Field(default_factory=list)
