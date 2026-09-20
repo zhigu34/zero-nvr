@@ -268,6 +268,53 @@ def test_database_transfer_sqlite_to_postgresql(
             assert user is not None
             assert str(user.id) == user_id
             assert str(user.roles[0].id) == role_id
+
+        reverse_url = (
+            f"sqlite:///{tmp_path / 'reverse-from-postgres.db'}"
+        )
+        _upgrade(reverse_url)
+        reverse = _database(
+            tmp_path,
+            reverse_url,
+        )
+        try:
+            reverse_result = (
+                DatabaseTransferService().transfer(
+                    source=target,
+                    target=reverse,
+                )
+            )
+            assert (
+                reverse_result.source_backend
+                == "postgresql"
+            )
+            assert (
+                reverse_result.target_backend
+                == "sqlite"
+            )
+            assert (
+                reverse_result.table_counts[
+                    "users"
+                ]
+                == 1
+            )
+
+            with reverse.session() as session:
+                reverse_user = session.scalar(
+                    select(User).where(
+                        User.username
+                        == "portable-user"
+                    )
+                )
+                assert reverse_user is not None
+                assert str(reverse_user.id) == user_id
+                assert len(reverse_user.roles) == 1
+                assert (
+                    str(reverse_user.roles[0].id)
+                    == role_id
+                )
+        finally:
+            reverse.close()
     finally:
         source.close()
         target.close()
