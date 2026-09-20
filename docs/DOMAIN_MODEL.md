@@ -624,6 +624,7 @@ baseline_mode                 continuous | schedule | disabled
 schedule                      nullable
 schedule_timezone             nullable
 event_recording_enabled
+event_filter                   nullable JSON/object: labels/zones/confidence/types
 segment_target_seconds        default 300
 pre_roll_seconds              default 10
 post_roll_seconds             default 10
@@ -710,6 +711,147 @@ system_recovery
 ```
 
 Protection is metadata. zero-nvr does not copy footage into a separate protected-video directory just to retain it.
+
+## RecordingTrigger
+
+Represents a durable event/manual/external request that affects recording behavior.
+
+```text
+id
+camera_id
+type                          motion | ai_object | onvif_event | vendor_event | home_assistant | api | manual
+source
+source_event_id               nullable
+requested_at
+pre_roll_seconds
+post_roll_seconds
+planned_start_at
+planned_end_at                nullable for manual-until-stop
+state                         active | completed | cancelled | ignored | failed
+reason                        nullable
+correlation_id
+metadata
+created_at
+updated_at
+```
+
+RecordingTrigger records product intent/evidence, not a recorder process.
+
+Continuous and scheduled requirements are derived from RecordingPolicy and wall-clock time. Event/manual/API requirements are derived from active RecordingTriggers. A separate persistent RecordingIntent table is not required in V1.
+
+Multiple overlapping triggers remain independent rows while extending one effective recording window.
+
+See [Spec 0002 — Event Recording Lifecycle and RecordingTrigger](specs/0002-event-recording-lifecycle.md) and [Spec 0007 — Recording Intent Arbitration](specs/0007-recording-intent-arbitration.md).
+
+## RecordingSegment
+
+The canonical finalized recording timeline unit.
+
+```text
+id
+camera_id
+stream_profile_id
+started_at
+ended_at
+duration_ms
+size_bytes
+codec
+container
+source_media_server_id
+source_app
+source_stream
+integrity_status
+completion_reason             normal_boundary | policy_stop | source_lost | runtime_restart | media_discontinuity | storage_failure | failure
+created_at
+```
+
+Important rules:
+
+- timestamps are actual finalized-media times in UTC;
+- nominal 300-second segmentation is never assumed to be exact;
+- RecordingSegment contains no authoritative filesystem/cloud path;
+- one segment may have multiple physical RecordingLocations;
+- source outage/restart may create shorter segments and true timeline gaps;
+- adjacent segments are merged into recording ranges at query time rather than through a persisted Timeline/RecordingSession table.
+
+Recommended local human-readable path:
+
+```text
+recordings/{name_id}/{YYYY-MM-DD}/{name_id}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
+```
+
+The path belongs to RecordingLocation, not RecordingSegment.
+
+See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
+
+## AIProviderInstance
+
+Optional configured AI provider. V1's primary provider is Frigate.
+
+```text
+id
+type                          frigate
+mode                          managed | external
+name
+enabled
+config
+credential_secret_ref
+health_state
+last_connected_at
+last_event_at
+last_error
+created_at
+updated_at
+```
+
+Provider-specific advanced configuration may remain in generated/raw provider configuration rather than becoming dozens of zero-nvr columns.
+
+## AIProviderCameraBinding
+
+Maps an external AI-provider camera/source to a canonical Camera.
+
+```text
+id
+provider_instance_id
+camera_id
+external_camera_key
+enabled
+created_at
+updated_at
+```
+
+One zero-nvr Camera may receive ordinary ONVIF events and optional Frigate AI events without creating duplicate Camera identities.
+
+## Event
+
+Canonical product event produced from AI, camera-native, system, or manual sources.
+
+```text
+id
+source                        frigate | onvif | vendor | system | manual | api | ...
+source_event_id               nullable
+camera_id                     nullable for system-wide events
+category
+label                         nullable
+started_at
+ended_at                      nullable
+confidence                    nullable
+severity                      nullable
+zone                          nullable
+snapshot_ref                  nullable
+correlation_id                nullable
+metadata
+created_at
+updated_at
+```
+
+For provider-tracked events, `(source/provider instance, source_event_id)` is idempotent: provider new/update/end messages update the same Event rather than creating duplicates.
+
+V1 does not require raw DetectionObservation, EventZoneInterval, DetectionPolicy, or EventFusionGroup tables. Provider-specific detail that is useful for search/display remains in normalized fields or bounded metadata.
+
+Frigate owns detection/tracking/zones; zero-nvr owns Event normalization, search, alert/recording policy linkage, timeline markers, and permissions.
+
+See [Spec 0021 — Detection Providers, AI Events, and Frigate Integration](specs/0021-detection-providers-ai-events-and-fusion.md).
 
 ## AlertRule
 
