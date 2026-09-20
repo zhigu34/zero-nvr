@@ -44,6 +44,28 @@ Current status:
 V1 Design Freeze Candidate
 ```
 
+## Design-freeze POC results
+
+All result documents remain **NOT RUN** until real runtime evidence is produced.
+
+- [POC-01 — ZLM recording/indexing](poc-results/01-zlm-recording.md)
+- [POC-02 — fMP4 abnormal termination](poc-results/02-fmp4-crash.md)
+- [POC-03 — EVENT_ONLY pre-roll](poc-results/03-event-preroll.md)
+- [POC-04 — multi-event extension](poc-results/04-multi-event-extension.md)
+- [POC-05 — timeline precision](poc-results/05-timeline-precision.md)
+- [POC-06 — ZLM VOD seek](poc-results/06-zlm-vod-seek.md)
+- [POC-07 — remote restore playback](poc-results/07-remote-restore.md)
+- [POC-08 — stream sharing / connection count](poc-results/08-stream-sharing.md)
+- [POC-09 — SQLite load](poc-results/09-sqlite-load.md)
+- [POC-10 — recovery reconciliation](poc-results/10-reconciliation.md)
+
+Executable harnesses live under:
+
+~~~text
+poc/zlm-recording/
+poc/sqlite-load/
+~~~
+
 ## Architecture Decision Records
 
 - [ADR 0001](adr/0001-runtime-boundaries-and-container-policy.md) — runtime/container boundary policy
