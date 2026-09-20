@@ -3,7 +3,7 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     environment: str = "production"
 
     secret_key: SecretStr
+    secret_key_previous: list[SecretStr] = Field(default_factory=list)
 
     data_dir: Path = Path("/var/lib/zero-nvr")
     cache_dir: Path = Path("/var/cache/zero-nvr")
@@ -44,6 +45,19 @@ class Settings(BaseSettings):
         if len(raw.encode("utf-8")) < 32:
             raise ValueError("ZERO_NVR_SECRET_KEY must be at least 32 bytes")
         return value
+
+    @field_validator("secret_key_previous")
+    @classmethod
+    def validate_previous_secret_keys(
+        cls,
+        values: list[SecretStr],
+    ) -> list[SecretStr]:
+        for value in values:
+            if len(value.get_secret_value().encode("utf-8")) < 32:
+                raise ValueError(
+                    "every ZERO_NVR_SECRET_KEY_PREVIOUS entry must be at least 32 bytes"
+                )
+        return values
 
     @field_validator("sqlite_synchronous")
     @classmethod
