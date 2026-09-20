@@ -12,6 +12,12 @@ class ZlmStreamIdentity:
     stream: str
 
 
+@dataclass(slots=True)
+class _ActiveContinuity:
+    generation: uuid.UUID
+    last_segment_id: uuid.UUID | None = None
+
+
 class ZlmContinuityTracker:
     """In-memory proof of one currently observed ZLM stream continuity.
 
@@ -21,7 +27,7 @@ class ZlmContinuityTracker:
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._active: dict[ZlmStreamIdentity, uuid.UUID] = {}
+        self._active: dict[ZlmStreamIdentity, _ActiveContinuity] = {}
 
     def registered(
         self,
@@ -34,9 +40,9 @@ class ZlmContinuityTracker:
         with self._lock:
             continuity = self._active.get(identity)
             if continuity is None:
-                continuity = uuid.uuid4()
+                continuity = _ActiveContinuity(generation=uuid.uuid4())
                 self._active[identity] = continuity
-            return continuity
+            return continuity.generation
 
     def unregistered(
         self,
@@ -47,7 +53,8 @@ class ZlmContinuityTracker:
     ) -> uuid.UUID | None:
         identity = ZlmStreamIdentity(vhost, app, stream)
         with self._lock:
-            return self._active.pop(identity, None)
+            continuity = self._active.pop(identity, None)
+            return continuity.generation if continuity is not None else None
 
     def current(
         self,
@@ -58,4 +65,43 @@ class ZlmContinuityTracker:
     ) -> uuid.UUID | None:
         identity = ZlmStreamIdentity(vhost, app, stream)
         with self._lock:
-            return self._active.get(identity)
+            continuity = self._active.get(identity)
+            return continuity.generation if continuity is not None else None
+
+
+    def last_segment(
+        self,
+        *,
+        vhost: str,
+        app: str,
+        stream: str,
+    ) -> uuid.UUID | None:
+        identity = ZlmStreamIdentity(vhost, app, stream)
+        with self._lock:
+            continuity = self._active.get(identity)
+            if continuity is None:
+                return None
+            return continuity.last_segment_id
+
+    def remember_segment(
+        self,
+        *,
+        vhost: str,
+        app: str,
+        stream: str,
+        segment_id: uuid.UUID,
+    ) -> bool:
+        """Remember a segment only when continuity is currently proven.
+
+        Returns False when the stream has no active registration proof. In that
+        case callers must keep timing provisional and must not create a new
+        continuity generation implicitly from a recording hook.
+        """
+
+        identity = ZlmStreamIdentity(vhost, app, stream)
+        with self._lock:
+            continuity = self._active.get(identity)
+            if continuity is None:
+                return False
+            continuity.last_segment_id = segment_id
+            return True
