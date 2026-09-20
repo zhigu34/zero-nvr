@@ -123,29 +123,23 @@ created_by_actor_id
 
 Only the reset-token hash is persisted. Reset tokens are expiring and single-use.
 
-## UserMfa
+## PersonalApiToken
 
-```text
-user_id
-enabled
-totp_secret_ref
-enrolled_at
-last_verified_at
-```
-
-TOTP secret material is stored behind SecretStore.
-
-## MfaRecoveryCode
-
-```text
+~~~text
 id
 user_id
-code_hash
-used_at
+name
+token_hash
+permission_scope
 created_at
-```
+expires_at
+last_used_at
+revoked_at
+~~~
 
-Recovery codes are verifier-only credentials and are one-way hashed.
+The plaintext token is shown only at creation and is never persisted.
+
+TOTP MFA is an optional enhancement rather than a required V1 entity. If added later, use a mature OTP library, SecretStore for the TOTP secret, and one-way hashes for recovery codes.
 
 ## ExternalIdentity
 
@@ -392,30 +386,27 @@ Offset measurement should account for request round-trip time rather than compar
 
 Encrypted recoverable secret managed by SecretStore.
 
-```text
+~~~text
 id
 kind
 owner_type
 owner_id
-algorithm
+key_id
 encrypted_payload
-payload_nonce
-wrapped_data_key
-wrap_nonce
-wrapping_key_id
 version
 created_at
 updated_at
-last_used_at
-```
+~~~
 
-Each record uses a random per-secret data-encryption key (DEK). The DEK is wrapped by a key-encryption key (KEK) that is stored outside PostgreSQL.
+Use a mature authenticated-encryption library such as Python cryptography/Fernet/MultiFernet or equivalent. V1 does not require per-record DEK/KEK envelope encryption.
 
-Business rows reference secrets through opaque `secret_ref` fields. Normal read APIs never return SecretRecord plaintext.
+The encryption key/keyring is deployment bootstrap state outside the active product database.
 
-Verifier-only credentials such as User passwords and authentication tokens use one-way hashing instead.
+Business rows reference secrets through opaque secret_ref fields. Normal APIs never return SecretRecord plaintext.
 
-See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](specs/0012-config-secrets-key-management.md).
+Verifier-only credentials such as User passwords, Personal API Tokens, and password-reset tokens use one-way hashing instead.
+
+See [Spec 0012 — Configuration and Secret Storage](specs/0012-config-secrets-key-management.md).
 
 ## CameraConnection
 
@@ -854,249 +845,101 @@ Frigate owns detection/tracking/zones; zero-nvr owns Event normalization, search
 
 See [Spec 0021 — Detection Providers, AI Events, and Frigate Integration](specs/0021-detection-providers-ai-events-and-fusion.md).
 
-## AlertRule
+## AlertPolicy
 
-Defines which canonical detection/health/security signals become human-facing alert incidents and how they are grouped/routed.
+Defines which canonical Events require user attention and where notifications should be delivered.
 
-```text
+~~~text
 id
 name
-description
 enabled
-signal_kinds
 camera_scope
-event_types
-health_types
-security_types
-min_confidence
+event_categories
+labels
 zones
+min_confidence
+min_duration
 severities
-schedule_timezone
 active_schedule
-quiet_schedule
-grouping_mode
-group_window_seconds
+schedule_timezone
 cooldown_seconds
-incident_resolution_mode
-auto_resolve_after_seconds
-escalation_policy_id
+notification_target_ids
+protect_recording
+publish_webhook_or_mqtt
 created_at
 updated_at
-```
+~~~
 
-## AlertIncident
+The predicate set is intentionally NVR-specific rather than a general rule-expression language.
 
-Human-facing alert lifecycle, separate from DetectionEvent.
+## Alert
 
-```text
+Human-facing attention item derived from one Event/condition.
+
+~~~text
 id
-alert_rule_id
-source_kind
-primary_source_type
-primary_source_id
+alert_policy_id
+event_id
 camera_id
-group_key
-title
 severity
-lifecycle_state          active | resolved
-acknowledgement_state    unacknowledged | acknowledged
+title
+message
+state                         active | acknowledged | resolved
 opened_at
 last_activity_at
-resolved_at
 acknowledged_at
 acknowledged_by
-acknowledgement_note
-trigger_count
-first_snapshot_object_id
-latest_snapshot_object_id
+resolved_at
 correlation_id
 created_at
 updated_at
-```
+~~~
 
-Incident lifecycle and acknowledgement are independent.
-
-## AlertIncidentSource
-
-```text
-alert_incident_id
-source_type
-source_id
-occurred_at
-transition
-created_at
-```
-
-A single AlertIncident may group many source DetectionEvents/health signals without deleting or rewriting them.
-
-## EscalationPolicy
-
-```text
-id
-name
-enabled
-stop_on_acknowledge
-stop_on_resolve
-created_at
-updated_at
-```
-
-## EscalationStep
-
-```text
-id
-escalation_policy_id
-sequence
-delay_seconds
-repeat_interval_seconds
-max_repeats
-action_set_id
-```
-
-## AlertActionSet
-
-```text
-id
-name
-enabled
-created_at
-updated_at
-```
-
-## AlertAction
-
-```text
-id
-action_set_id
-notification_target_id
-template_id
-send_on
-include_snapshot
-include_deep_link
-enabled
-```
+Acknowledgement does not mean the underlying condition recovered and never changes recording truth.
 
 ## NotificationTarget
 
 Configured outbound destination.
 
-```text
+~~~text
 id
 name
-type                    smtp | apprise | webhook | home_assistant | mqtt
+type                          smtp | apprise | webhook | mqtt
 enabled
 config
 credential_secret_ref
 health_state
-last_health_at
+last_test_at
 last_error
 created_at
 updated_at
-```
+~~~
 
-## RecipientGroup
+Apprise is preferred for supported channels rather than custom provider implementations.
 
-```text
+## NotificationDelivery
+
+Product-visible delivery/retry state for an Alert and target.
+
+~~~text
 id
-name
-created_at
-updated_at
-```
-
-## RecipientGroupMember
-
-```text
-recipient_group_id
-user_id
-email_address
-```
-
-## NotificationTemplate
-
-```text
-id
-name
-channel_type
-locale
-subject_template
-body_template
-body_format             text | html | json
-built_in
-created_at
-updated_at
-```
-
-Template variables are explicitly whitelisted/sandboxed and cannot access secrets.
-
-## AlertSilence
-
-```text
-id
-name
-enabled
-starts_at
-ends_at
-camera_scope
-alert_rule_ids
-signal_types
-suppress_notifications
-suppress_incident_creation
-reason
-created_by
-created_at
-updated_at
-```
-
-Default silence suppresses delivery while keeping incidents/history.
-
-## AlertDelivery
-
-One logical outbound notification/action.
-
-```text
-id
-alert_incident_id
-alert_rule_id
-action_id
+alert_id
 notification_target_id
-delivery_kind
-idempotency_key
-status                  pending | sending | retry_wait | delivered | failed | cancelled | suppressed
-scheduled_at
-first_attempt_at
-delivered_at
-failed_at
+state                         pending | sending | sent | failed | suppressed
 attempt_count
-last_error_code
-last_error_message
-rendered_subject
-rendered_body_digest
-correlation_id
+last_attempt_at
+sent_at
+last_error
+provider_message_id
 created_at
 updated_at
-```
+~~~
 
-## AlertDeliveryAttempt
+Huey performs delivery/retry. Cooldown may suppress repeated NotificationDelivery creation but never suppresses Event persistence or recording behavior.
 
-Append-style history of each provider/network attempt.
+V1 does not require AlertIncidentSource, EscalationPolicy/Step, ActionSet, RecipientGroup, AlertSilence, or per-attempt delivery tables.
 
-```text
-id
-alert_delivery_id
-attempt_number
-started_at
-finished_at
-outcome
-provider_status
-error_code
-sanitized_error
-provider_message_id
-next_retry_at
-```
-
-DetectionEvent/system health remains authoritative. Grouping, cooldown, silence, acknowledgement, escalation, or delivery failure never deletes source events or changes recording lifecycle.
-
-See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
+See [Spec 0014 — Alerts and Notifications](specs/0014-alerting-notification-and-escalation.md).
 
 ## Recording storage routing
 
