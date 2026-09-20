@@ -208,6 +208,31 @@ Conceptually:
 
 Remote-playback cache must be bounded and automatically cleaned. It is not part of the disaster backup.
 
+## Log and cache bounds
+
+The default Compose deployment must configure bounded container logging rather than relying on unlimited Docker json-file growth.
+
+Use an appropriate platform-supported rotation policy such as:
+
+~~~text
+max-size
+max-file
+~~~
+
+Exact defaults may be tuned, but unattended logs must not be able to consume the system disk.
+
+Disposable cache is also byte-bounded:
+
+~~~text
+/cache/playback
+/cache/exports
+/cache/thumbnails
+~~~
+
+Cache quota is deployment/product configuration and is **not** counted as static application footprint.
+
+See [Plan 04 — V1 Resource Budget](plans/04-v1-resource-budget.md).
+
 ## Remote playback baseline
 
 V1 does not require FUSE.
