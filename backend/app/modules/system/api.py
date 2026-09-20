@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 import json
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
 from .camera_ntp import CameraNtpService
+from .config_export import ConfigurationExportService
 from .health import SystemHealthService
 from .frigate_managed import ManagedFrigateConfigService
 from .settings import SystemSettingsService
@@ -445,6 +446,78 @@ def queue_frigate_backfill(
         lookback_seconds=body.lookback_seconds,
     )
 
+
+
+
+
+
+@router.get("/configuration/export")
+def export_configuration(
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> Response:
+    bundle = ConfigurationExportService.build(
+        session,
+        settings=request.app.state.settings,
+    )
+    section_counts = {
+        key: (
+            len(value)
+            if isinstance(value, list)
+            else len(value)
+            if isinstance(value, dict)
+            else 0
+        )
+        for key, value
+        in bundle["sections"].items()
+    }
+    try:
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="system.configuration.export",
+            resource_type="system_configuration",
+            metadata={
+                "format": bundle["format"],
+                "format_version": (
+                    bundle["format_version"]
+                ),
+                "secrets_included": False,
+                "section_counts": (
+                    section_counts
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    payload = json.dumps(
+        bundle,
+        indent=2,
+        sort_keys=True,
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={
+            "Content-Disposition": (
+                'attachment; filename='
+                '"zero-nvr-configuration-v1.json"'
+            ),
+            "Cache-Control": (
+                "no-store, max-age=0"
+            ),
+        },
+    )
 
 
 @router.get(

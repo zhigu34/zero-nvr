@@ -228,6 +228,12 @@ const latestBackupByPolicy = computed(() => {
   return map
 })
 
+function exportConfiguration(): void {
+  window.location.assign(
+    "/api/v1/system/configuration/export"
+  )
+}
+
 function statusClass(value: string): string {
   const normalized = value.toUpperCase()
   if (
@@ -1467,15 +1473,27 @@ onBeforeUnmount(() => {
             <strong>Backup</strong>
             <span>Restic-backed configuration, database and recovery backups.</span>
           </div>
-          <button
+          <div
             v-if="auth.hasPermission('system.manage')"
-            class="button button--primary"
-            type="button"
-            @click="openBackupPanel"
+            class="system-page-actions"
           >
-            <UiIcon name="plus" :size="14" />
-            Add policy
-          </button>
+            <button
+              class="button button--ghost"
+              type="button"
+              @click="exportConfiguration"
+            >
+              <UiIcon name="download" :size="14" />
+              Export configuration
+            </button>
+            <button
+              class="button button--primary"
+              type="button"
+              @click="openBackupPanel"
+            >
+              <UiIcon name="plus" :size="14" />
+              Add policy
+            </button>
+          </div>
         </header>
 
         <div class="backup-policy-grid">
