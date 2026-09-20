@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass(frozen=True, slots=True)
@@ -12,22 +13,35 @@ class ZlmStreamIdentity:
     stream: str
 
 
-@dataclass(slots=True)
-class _ActiveContinuity:
-    generation: uuid.UUID
-    last_segment_id: uuid.UUID | None = None
+@dataclass(frozen=True, slots=True)
+class ZlmContinuityResolution:
+    continuity_id: uuid.UUID
+    closed_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ContinuityState:
+    continuity_id: uuid.UUID
+    registered_at: datetime
+    closed_at: datetime | None = None
 
 
 class ZlmContinuityTracker:
-    """In-memory proof of one currently observed ZLM stream continuity.
+    """In-memory proof of observed ZLM stream continuity.
 
-    Missing tracker state means continuity is unproven; callers must keep
-    segment timing provisional rather than joining across a possible outage.
+    One recently closed generation is retained per stream so a finalized MP4
+    hook that arrives just after unregister/reconnect can still be assigned to
+    the old continuity rather than the new one.
     """
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._active: dict[ZlmStreamIdentity, _ActiveContinuity] = {}
+        self._active: dict[ZlmStreamIdentity, _ContinuityState] = {}
+        self._closed: dict[ZlmStreamIdentity, _ContinuityState] = {}
+
+    @staticmethod
+    def _now() -> datetime:
+        return datetime.now(UTC)
 
     def registered(
         self,
@@ -35,14 +49,21 @@ class ZlmContinuityTracker:
         vhost: str,
         app: str,
         stream: str,
+        at: datetime | None = None,
     ) -> uuid.UUID:
         identity = ZlmStreamIdentity(vhost, app, stream)
+        registered_at = at or self._now()
         with self._lock:
-            continuity = self._active.get(identity)
-            if continuity is None:
-                continuity = _ActiveContinuity(generation=uuid.uuid4())
-                self._active[identity] = continuity
-            return continuity.generation
+            active = self._active.get(identity)
+            if active is not None:
+                return active.continuity_id
+
+            state = _ContinuityState(
+                continuity_id=uuid.uuid4(),
+                registered_at=registered_at,
+            )
+            self._active[identity] = state
+            return state.continuity_id
 
     def unregistered(
         self,
@@ -50,11 +71,22 @@ class ZlmContinuityTracker:
         vhost: str,
         app: str,
         stream: str,
+        at: datetime | None = None,
     ) -> uuid.UUID | None:
         identity = ZlmStreamIdentity(vhost, app, stream)
+        closed_at = at or self._now()
         with self._lock:
-            continuity = self._active.pop(identity, None)
-            return continuity.generation if continuity is not None else None
+            active = self._active.pop(identity, None)
+            if active is None:
+                return None
+
+            closed = _ContinuityState(
+                continuity_id=active.continuity_id,
+                registered_at=active.registered_at,
+                closed_at=closed_at,
+            )
+            self._closed[identity] = closed
+            return closed.continuity_id
 
     def current(
         self,
@@ -65,43 +97,43 @@ class ZlmContinuityTracker:
     ) -> uuid.UUID | None:
         identity = ZlmStreamIdentity(vhost, app, stream)
         with self._lock:
-            continuity = self._active.get(identity)
-            return continuity.generation if continuity is not None else None
+            state = self._active.get(identity)
+            return state.continuity_id if state else None
 
-
-    def last_segment(
+    def resolve_record(
         self,
         *,
         vhost: str,
         app: str,
         stream: str,
-    ) -> uuid.UUID | None:
-        identity = ZlmStreamIdentity(vhost, app, stream)
-        with self._lock:
-            continuity = self._active.get(identity)
-            if continuity is None:
-                return None
-            return continuity.last_segment_id
-
-    def remember_segment(
-        self,
-        *,
-        vhost: str,
-        app: str,
-        stream: str,
-        segment_id: uuid.UUID,
-    ) -> bool:
-        """Remember a segment only when continuity is currently proven.
-
-        Returns False when the stream has no active registration proof. In that
-        case callers must keep timing provisional and must not create a new
-        continuity generation implicitly from a recording hook.
-        """
+        started_at: datetime,
+    ) -> ZlmContinuityResolution | None:
+        """Resolve a record hook to an active or just-closed generation."""
 
         identity = ZlmStreamIdentity(vhost, app, stream)
         with self._lock:
-            continuity = self._active.get(identity)
-            if continuity is None:
-                return False
-            continuity.last_segment_id = segment_id
-            return True
+            active = self._active.get(identity)
+            closed = self._closed.get(identity)
+
+            # A late old-generation MP4 hook has a file-creation/start evidence
+            # before the old unregister boundary and before a newer register.
+            if (
+                closed is not None
+                and closed.closed_at is not None
+                and started_at <= closed.closed_at
+                and (
+                    active is None
+                    or started_at < active.registered_at
+                )
+            ):
+                return ZlmContinuityResolution(
+                    continuity_id=closed.continuity_id,
+                    closed_at=closed.closed_at,
+                )
+
+            if active is not None and started_at >= active.registered_at:
+                return ZlmContinuityResolution(
+                    continuity_id=active.continuity_id,
+                )
+
+            return None
