@@ -135,7 +135,7 @@ Acceptance:
 - [ ] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
 - [ ] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
 - [ ] ONVIF profile/capability discovery first, ZLM actual-stream verification second, ffprobe only as fallback/recovery inspection.
-- [ ] SourceMediaProfile persistence and stream diagnostics.
+- [ ] CameraStreamProfile persistence and stream diagnostics.
 - [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
 - [ ] deterministic default profile binding with user override.
 - [ ] CameraClockStatus sampling for ONVIF-capable devices.
@@ -146,7 +146,7 @@ Acceptance:
 - [ ] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
 - [ ] idempotent enable / disable / maintenance / configuration apply.
 - [ ] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
-- [ ] SourceMediaProfile refresh/diff and capability-drift detection.
+- [ ] CameraStreamProfile refresh/diff and capability-drift detection.
 - [ ] planned recording-profile switch at a safe segment boundary where practical.
 - [ ] ONVIF event-subscription lifecycle using mature client-library facilities.
 - [ ] multi-channel missing/return lifecycle without Camera identity loss.
@@ -201,10 +201,9 @@ Acceptance:
 - [ ] Recording Settings UI for recording mode, nominal segment duration, and pre/post-roll; exact EVENT_ONLY pre-roll implementation follows the accepted POC result.
 - [ ] segment persistence.
 - [ ] UTC canonical recording timestamps and database timeline indexes.
-- [ ] compact human-readable local recording layout: name-id / date / name-id_date_start.mp4.
-- [ ] configurable effective recording timezone for all generated path/date/time values while DB stays UTC.
-- [ ] per-camera _camera.json convenience metadata for detached-disk browsing.
-- [ ] staging/atomic finalize and backend object-key mapping.
+- [ ] map ZLM-native finalized recording paths into RecordingLocation without making filenames authoritative identity.
+- [ ] keep all canonical DB timestamps UTC; UI/path display timezone is presentation/configuration, not recording truth.
+- [ ] respect ZLM's own temporary-file/finalize semantics; zero-nvr must not add a second local media writer.
 - [ ] StorageTarget persistence and system default LOCAL_RECORDING target.
 - [ ] optional per-camera/policy explicit storage_target_id routing.
 - [ ] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
@@ -239,7 +238,7 @@ Acceptance:
 - [ ] stable device-identity correlation/deduplication independent from IP address.
 - [ ] Device information + firmware/serial/stable identifier probe.
 - [ ] multi-channel/video-source enumeration for NVR/DVR/multi-sensor devices.
-- [ ] ONVIF Media Profiles -> SourceMediaProfile normalization.
+- [ ] ONVIF Media Profiles -> CameraStreamProfile normalization.
 - [ ] stream URI retrieval without credential leakage.
 - [ ] per-role stream selection and actual pull verification.
 - [ ] DeviceCapabilitySnapshot persistence/refresh.
@@ -326,7 +325,7 @@ Acceptance:
 
 ## Phase 8 — Historical Playback
 
-- [ ] UTC-millisecond PlaybackTimeline query API.
+- [ ] timezone-aware ISO 8601 PlaybackTimeline query API; frontend converts to milliseconds internally.
 - [ ] range/detail-level timeline responses for day/hour/minute zoom.
 - [ ] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
 - [ ] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
@@ -368,7 +367,7 @@ Acceptance:
 
 - [ ] RecordingTrigger lifecycle for AI/ONVIF/HA/API/manual event recording requests.
 - [ ] derive desired recording state from baseline policy + active trigger windows.
-- [ ] overlapping triggers extend one effective recording interval without duplicate recorders.
+- [ ] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [ ] continuous/scheduled/manual existing recording is annotated rather than restarted.
 - [ ] POC-approved ZLM-native EVENT_ONLY pre-roll mechanism.
 - [ ] configurable pre_roll_seconds / post_roll_seconds.
@@ -382,8 +381,8 @@ Acceptance:
 Acceptance:
 
 - one camera has one normal ZLM recorder;
-- two overlapping Events remain independent Events/Triggers and extend the same recorder window;
-- a new Event during post-roll extends the stop deadline;
+- two overlapping Events remain independent Events/Triggers and extend the same required media/promotion window;
+- a new Event during post-roll extends the effective coverage deadline;
 - continuous recording is never duplicated for Event clips;
 - pre-roll behavior matches the accepted design-freeze POC.
 
@@ -416,8 +415,8 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 
 ## Phase 11 — Operations, Backup, Recovery, and Release
 
-- [ ] SecretStore KEK rotation workflow and health UI.
-- [ ] lightweight BackupPolicy / BackupSet / BackupManifest persistence and APIs.
+- [ ] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
+- [ ] lightweight BackupPolicy / BackupSet persistence and APIs; BackupManifest remains a versioned artifact inside backup payloads.
 - [ ] SQLite Online Backup API consistent snapshot backend.
 - [ ] PostgreSQL pg_dump backup backend.
 - [ ] restic backup repository integration, retention, snapshot identity, and periodic check.
