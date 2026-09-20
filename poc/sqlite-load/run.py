@@ -110,6 +110,30 @@ def initialize(path: Path) -> None:
             CREATE INDEX idx_segments_camera_end
                 ON recording_segments(camera_id, ended_at);
 
+            CREATE TABLE storage_targets (
+                id TEXT PRIMARY KEY,
+                type TEXT NOT NULL,
+                role TEXT NOT NULL,
+                name TEXT NOT NULL,
+                enabled INTEGER NOT NULL
+            );
+
+            CREATE TABLE recording_locations (
+                id TEXT PRIMARY KEY,
+                recording_segment_id TEXT NOT NULL REFERENCES recording_segments(id),
+                storage_target_id TEXT NOT NULL REFERENCES storage_targets(id),
+                object_path TEXT NOT NULL UNIQUE,
+                state TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                verified_at TEXT,
+                created_at TEXT NOT NULL,
+                deleted_at TEXT
+            );
+            CREATE INDEX idx_locations_segment_state
+                ON recording_locations(recording_segment_id, state);
+            CREATE INDEX idx_locations_target_state
+                ON recording_locations(storage_target_id, state);
+
             CREATE TABLE events (
                 id TEXT PRIMARY KEY,
                 source TEXT NOT NULL,
@@ -160,11 +184,6 @@ def initialize(path: Path) -> None:
             );
             CREATE INDEX idx_audit_occurred
                 ON audit_events(occurred_at);
-
-            CREATE TABLE runtime_counters (
-                name TEXT PRIMARY KEY,
-                value INTEGER NOT NULL
-            );
             """
         )
 
@@ -175,12 +194,19 @@ def preload(path: Path, cameras: int) -> dict[str, int]:
     camera_ids = [f"cam-{idx:02d}" for idx in range(cameras)]
 
     with connect(path) as conn:
+        conn.execute(
+            """
+            INSERT INTO storage_targets(id, type, role, name, enabled)
+            VALUES('local-recording', 'local', 'recording', 'Local Recording', 1)
+            """
+        )
         conn.executemany(
             "INSERT INTO cameras(id, name) VALUES(?, ?)",
             [(camera_id, camera_id) for camera_id in camera_ids],
         )
 
         segment_rows = []
+        location_rows = []
         event_rows = []
         segment_count_per_camera = PRELOAD_DAYS * 24 * 60 * 60 // SEGMENT_SECONDS
         event_count_per_camera = PRELOAD_DAYS * EVENTS_PER_CAMERA_PER_DAY
@@ -193,14 +219,28 @@ def preload(path: Path, cameras: int) -> dict[str, int]:
                 jitter_ms = ((seq + cam_idx) % 5 - 2) * 40
                 duration_ms = SEGMENT_SECONDS * 1000 + jitter_ms
                 seg_end = seg_start + timedelta(milliseconds=duration_ms)
+                segment_id = f"{camera_id}-hist-seg-{seq}"
+                size_bytes = 18_000_000 + ((seq + cam_idx) % 1000) * 4096
                 segment_rows.append(
                     (
-                        f"{camera_id}-hist-seg-{seq}",
+                        segment_id,
                         camera_id,
                         iso(seg_start),
                         iso(seg_end),
                         duration_ms,
-                        18_000_000 + ((seq + cam_idx) % 1000) * 4096,
+                        size_bytes,
+                        iso(seg_end),
+                    )
+                )
+                location_rows.append(
+                    (
+                        f"loc-{segment_id}",
+                        segment_id,
+                        "local-recording",
+                        f"/recordings/{camera_id}/{seq:08d}.mp4",
+                        "AVAILABLE",
+                        size_bytes,
+                        iso(seg_end),
                         iso(seg_end),
                     )
                 )
@@ -214,7 +254,17 @@ def preload(path: Path, cameras: int) -> dict[str, int]:
                         """,
                         segment_rows,
                     )
+                    conn.executemany(
+                        """
+                        INSERT INTO recording_locations(
+                            id, recording_segment_id, storage_target_id,
+                            object_path, state, size_bytes, verified_at, created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        location_rows,
+                    )
                     segment_rows.clear()
+                    location_rows.clear()
 
             spacing = (PRELOAD_DAYS * 86400) / max(event_count_per_camera, 1)
             for seq in range(event_count_per_camera):
@@ -262,6 +312,15 @@ def preload(path: Path, cameras: int) -> dict[str, int]:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 segment_rows,
+            )
+            conn.executemany(
+                """
+                INSERT INTO recording_locations(
+                    id, recording_segment_id, storage_target_id,
+                    object_path, state, size_bytes, verified_at, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                location_rows,
             )
         if event_rows:
             conn.executemany(
@@ -325,6 +384,8 @@ def recording_writer(path: Path, cameras: int, stop: threading.Event, metrics: M
         duration_ms = SEGMENT_SECONDS * 1000 + ((seq % 7) - 3) * 30
 
         def op(conn: sqlite3.Connection) -> None:
+            segment_id = f"live-seg-{time.time_ns()}-{seq}"
+            size_bytes = 20_000_000 + seq % 100_000
             conn.execute(
                 """
                 INSERT INTO recording_segments(
@@ -333,12 +394,28 @@ def recording_writer(path: Path, cameras: int, stop: threading.Event, metrics: M
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    f"live-seg-{time.time_ns()}-{seq}",
+                    segment_id,
                     camera_id,
                     iso(now),
                     iso(now + timedelta(milliseconds=duration_ms)),
                     duration_ms,
-                    20_000_000 + seq % 100_000,
+                    size_bytes,
+                    iso(now),
+                ),
+            )
+            conn.execute(
+                """
+                INSERT INTO recording_locations(
+                    id, recording_segment_id, storage_target_id,
+                    object_path, state, size_bytes, verified_at, created_at
+                ) VALUES (?, ?, 'local-recording', ?, 'AVAILABLE', ?, ?, ?)
+                """,
+                (
+                    f"loc-{segment_id}",
+                    segment_id,
+                    f"/recordings/live/{camera_id}/{segment_id}.mp4",
+                    size_bytes,
+                    iso(now),
                     iso(now),
                 ),
             )
@@ -506,10 +583,14 @@ def retention_reader(path: Path, cameras: int, stop: threading.Event, metrics: M
             started = time.perf_counter()
             rows = conn.execute(
                 """
-                SELECT id, started_at, ended_at, size_bytes
+                SELECT s.id, s.started_at, s.ended_at, l.size_bytes, l.object_path
                 FROM recording_segments s
+                JOIN recording_locations l
+                  ON l.recording_segment_id = s.id
                 WHERE s.camera_id = ?
                   AND s.ended_at < ?
+                  AND l.storage_target_id = 'local-recording'
+                  AND l.state = 'AVAILABLE'
                   AND NOT EXISTS (
                     SELECT 1
                     FROM recording_protections p
@@ -648,6 +729,7 @@ def run_scenario(cameras: int) -> dict:
         integrity = conn.execute("PRAGMA integrity_check").fetchone()[0]
         counts = {
             "segments": conn.execute("SELECT COUNT(*) FROM recording_segments").fetchone()[0],
+            "locations": conn.execute("SELECT COUNT(*) FROM recording_locations").fetchone()[0],
             "events": conn.execute("SELECT COUNT(*) FROM events").fetchone()[0],
             "audit": conn.execute("SELECT COUNT(*) FROM audit_events").fetchone()[0],
         }
