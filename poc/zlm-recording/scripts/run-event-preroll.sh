@@ -40,6 +40,11 @@ docker compose exec -T poc-api python /app/event_preroll.py \
   --label gop2 \
   --gop-seconds 2
 
+# The first proxy has been removed by the verifier. Give ZLM time to close
+# its last fragment, then reset only the ephemeral tmpfs buffer so the second
+# GOP test measures its own memory/file footprint.
+docker compose exec -T poc-api sh -c 'sleep 2; find /prebuffer -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
 echo "Running rolling tmpfs EVENT_ONLY test with ~5s GOP..."
 docker compose exec -T poc-api python /app/event_preroll.py \
   --stream event-gop5 \
@@ -47,10 +52,14 @@ docker compose exec -T poc-api python /app/event_preroll.py \
   --label gop5 \
   --gop-seconds 5
 
+echo "Recording comparison evidence for startRecordTask and GOP-ring startRecord..."
+docker compose exec -T poc-api python /app/record_task_compare.py
+
 collect_evidence
 
 echo
 echo "EVENT_ONLY evidence:"
 echo "  $POC_DIR/runtime/event-preroll-gop2.json"
 echo "  $POC_DIR/runtime/event-preroll-gop5.json"
+echo "  $POC_DIR/runtime/pre-roll-candidate-comparison.json"
 echo "  $POC_DIR/runtime/event-docker-compose.log"
