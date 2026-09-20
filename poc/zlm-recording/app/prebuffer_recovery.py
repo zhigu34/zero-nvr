@@ -284,13 +284,15 @@ def recover() -> None:
         raise AssertionError("ZLM prebuffer recorder stopped during FastAPI restart")
 
     # Give the fragment containing required_end time to finalize normally.
+    def finalized_through_required_end() -> list[dict[str, Any]] | None:
+        files = scan_filesystem()
+        if any(item["end"] >= trigger["required_end"] for item in files):
+            return files
+        return None
+
     wait_until(
         "filesystem coverage through trigger post-roll",
-        lambda: (
-            files
-            if any(item["end"] >= trigger["required_end"] for item in (files := scan_filesystem()))
-            else None
-        ),
+        finalized_through_required_end,
         timeout=max(45, SEGMENT_SECONDS * 8),
     )
 
