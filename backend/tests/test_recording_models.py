@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -13,12 +12,11 @@ from app.core.db import Base, Database
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import (
-    RecordingLocation,
     RecordingPolicy,
     RecordingSegment,
     RecordingTrigger,
 )
-from app.modules.storage.models import StorageTarget
+from app.modules.storage.models import RecordingLocation, StorageTarget
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
@@ -51,10 +49,10 @@ def seed_camera_and_target(
         )
         target = StorageTarget(
             name="Local Recording",
-            kind="LOCAL_RECORDING",
+            type="local",
+            role="recording",
             enabled=True,
             config_json={"path": "/recordings"},
-            health_state="OK",
         )
         session.add(target)
         session.flush()
@@ -81,7 +79,8 @@ def test_one_recording_policy_per_camera(tmp_path: Path) -> None:
             session.add(
                 RecordingPolicy(
                     camera_id=camera_id,
-                    mode="CONTINUOUS",
+                    baseline_mode="continuous",
+                    event_recording_enabled=False,
                     storage_target_id=target_id,
                 )
             )
@@ -91,7 +90,8 @@ def test_one_recording_policy_per_camera(tmp_path: Path) -> None:
             session.add(
                 RecordingPolicy(
                     camera_id=camera_id,
-                    mode="EVENT_ONLY",
+                    baseline_mode="disabled",
+                    event_recording_enabled=True,
                     storage_target_id=target_id,
                 )
             )
@@ -120,9 +120,12 @@ def test_trigger_source_event_identity_is_unique_when_present(
                     type="AI_OBJECT",
                     source="frigate",
                     source_event_id="event-123",
+                    pre_roll_seconds=10,
+                    post_roll_seconds=10,
                     planned_start_at=start,
                     planned_end_at=start + timedelta(seconds=20),
                     state="ACTIVE",
+                    correlation_id="event-123",
                 )
             )
             session.commit()
@@ -134,16 +137,19 @@ def test_trigger_source_event_identity_is_unique_when_present(
                     type="AI_OBJECT",
                     source="frigate",
                     source_event_id="event-123",
+                    pre_roll_seconds=10,
+                    post_roll_seconds=10,
                     planned_start_at=start + timedelta(seconds=1),
                     planned_end_at=start + timedelta(seconds=30),
                     state="ACTIVE",
+                    correlation_id="event-123-retry",
                 )
             )
             with pytest.raises(IntegrityError):
                 session.commit()
             session.rollback()
 
-        # Triggers without source_event_id remain valid independent rows.
+        # Triggers without source_event_id remain independent rows.
         with database.session() as session:
             session.add_all(
                 [
@@ -152,18 +158,24 @@ def test_trigger_source_event_identity_is_unique_when_present(
                         type="API",
                         source="api",
                         source_event_id=None,
+                        pre_roll_seconds=0,
+                        post_roll_seconds=5,
                         planned_start_at=start,
                         planned_end_at=start + timedelta(seconds=5),
                         state="COMPLETED",
+                        correlation_id="manual-1",
                     ),
                     RecordingTrigger(
                         camera_id=camera_id,
                         type="API",
                         source="api",
                         source_event_id=None,
+                        pre_roll_seconds=0,
+                        post_roll_seconds=5,
                         planned_start_at=start,
                         planned_end_at=start + timedelta(seconds=5),
                         state="COMPLETED",
+                        correlation_id="manual-2",
                     ),
                 ]
             )
@@ -182,7 +194,6 @@ def test_physical_location_identity_is_target_plus_object_path(
             database,
         )
         start = datetime.now(UTC)
-        continuity_id = uuid.uuid4()
 
         with database.session() as session:
             segment = RecordingSegment(
@@ -191,7 +202,7 @@ def test_physical_location_identity_is_target_plus_object_path(
                 started_at=start,
                 ended_at=start + timedelta(seconds=10),
                 duration_ms=10_000,
-                recording_reasons=["continuous"],
+                recording_reasons_json=["continuous"],
                 size_bytes=1_000_000,
                 codec="h264",
                 container="fmp4",
@@ -202,7 +213,6 @@ def test_physical_location_identity_is_target_plus_object_path(
                 completion_reason="NORMAL",
                 timing_status="PROVISIONAL",
                 timing_source="HOOK_RAW",
-                continuity_id=continuity_id,
             )
             session.add(segment)
             session.flush()
@@ -239,10 +249,9 @@ def test_physical_location_identity_is_target_plus_object_path(
     "changes",
     [
         {"ended_at_delta": 0},
-        {"duration_ms": 0},
+        {"duration_ms": -1},
         {"timing_status": "BROKEN"},
         {"timing_source": "MADE_UP"},
-        {"integrity_status": "MAGIC"},
     ],
 )
 def test_recording_segment_constraints_are_database_enforced(
@@ -262,7 +271,6 @@ def test_recording_segment_constraints_are_database_enforced(
             "duration_ms": 10_000,
             "timing_status": "PROVISIONAL",
             "timing_source": "HOOK_RAW",
-            "integrity_status": "OK",
         }
         values.update(changes)
 
@@ -275,18 +283,17 @@ def test_recording_segment_constraints_are_database_enforced(
                     ended_at=start
                     + timedelta(seconds=int(values["ended_at_delta"])),
                     duration_ms=int(values["duration_ms"]),
-                    recording_reasons=["continuous"],
+                    recording_reasons_json=["continuous"],
                     size_bytes=1_000,
                     codec="h264",
                     container="fmp4",
                     source_media_server_id="default",
                     source_app="zero-nvr",
                     source_stream=f"profile-{profile_id.hex}",
-                    integrity_status=str(values["integrity_status"]),
-                    completion_reason="NORMAL",
+                    integrity_status="UNKNOWN",
+                    completion_reason=None,
                     timing_status=str(values["timing_status"]),
                     timing_source=str(values["timing_source"]),
-                    continuity_id=uuid.uuid4(),
                 )
             )
             with pytest.raises(IntegrityError):
