@@ -48,10 +48,14 @@ def _set_session_cookie(
     token: str,
 ) -> None:
     settings = request.app.state.settings
-    _set_session_cookie(
-        request=request,
-        response=response,
-        token=token,
+    response.set_cookie(
+        key=settings.session_cookie_name,
+        value=token,
+        max_age=settings.session_ttl_hours * 3600,
+        httponly=True,
+        secure=settings.session_cookie_secure,
+        samesite="lax",
+        path="/",
     )
 
 
@@ -61,9 +65,12 @@ def _clear_session_cookie(
     response: Response,
 ) -> None:
     settings = request.app.state.settings
-    _clear_session_cookie(
-        request=request,
-        response=response,
+    response.delete_cookie(
+        settings.session_cookie_name,
+        path="/",
+        secure=settings.session_cookie_secure,
+        httponly=True,
+        samesite="lax",
     )
 
 
@@ -141,14 +148,10 @@ def login(
         session.rollback()
         raise
 
-    response.set_cookie(
-        key=settings.session_cookie_name,
-        value=token,
-        max_age=settings.session_ttl_hours * 3600,
-        httponly=True,
-        secure=settings.session_cookie_secure,
-        samesite="lax",
-        path="/",
+    _set_session_cookie(
+        request=request,
+        response=response,
+        token=token,
     )
 
     context = service.resolve_session(session, token)
@@ -164,22 +167,16 @@ def logout(
     service = _service(request)
     service.revoke_session(session, _cookie_token(request))
     session.commit()
-    response.delete_cookie(
-        settings.session_cookie_name,
-        path="/",
-        secure=settings.session_cookie_secure,
-        httponly=True,
-        samesite="lax",
+    _clear_session_cookie(
+        request=request,
+        response=response,
     )
 
 
 @router.get("/auth/me", response_model=AuthUser)
 def me(
-    request: Request,
-    session: Session = Depends(get_db_session),
+    context: AuthContext = Depends(get_auth_context),
 ) -> AuthUser:
-    service = _service(request)
-    context = service.resolve_session(session, _cookie_token(request))
     return _auth_user(context)
 
 
