@@ -1,4 +1,4 @@
 # Design-freeze runtime trigger
 
-reason: final baseline matrix after fMP4 default alignment, POC-01 convergence fix, POC-05 ZLM session boundaries, and POC-09 retention optimization
-trigger_revision: 2026-09-20T05:04Z
+reason: rerun full runtime matrix after ZLM on_stream_changed timing-session evidence and EVENT_ONLY H.265/restart hardening
+trigger_revision: 2026-09-20-session-boundary-rerun-2
