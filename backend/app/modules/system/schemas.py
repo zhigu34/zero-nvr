@@ -73,3 +73,37 @@ class FrigateBackfillRequest(BaseModel):
 class FrigateBackfillQueuedView(BaseModel):
     queued: bool = True
     lookback_seconds: int
+
+
+
+class GeneralSystemSettingsView(BaseModel):
+    system_name: str
+    display_timezone: str
+    camera_ntp_servers: list[str]
+
+
+class GeneralSystemSettingsPatch(BaseModel):
+    system_name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
+    display_timezone: str | None = None
+    camera_ntp_servers: list[str] | None = None
+
+
+class SystemSettingsView(BaseModel):
+    general: GeneralSystemSettingsView
+
+
+class SystemSettingsPatch(BaseModel):
+    general: GeneralSystemSettingsPatch | None = None
+
+
+class SystemUpdateInfoView(BaseModel):
+    current_version: str
+    latest_version: str | None = None
+    status: Literal["unknown", "current", "update_available"] = "unknown"
+    deployment_method: Literal["deploy.sh"] = "deploy.sh"
+    automatic_host_mutation: bool = False
+    update_command: str = "./deploy.sh update"
