@@ -1,10 +1,12 @@
 # Design-Freeze POC Status
 
-Project status remains:
+Project status:
 
 ~~~text
-V1 Design Freeze Candidate
+V1 Architecture Frozen
 ~~~
+
+All numbered design-freeze POCs have accepted runtime PASS results. The final aggregate regression workflow `35490737812` completed successfully on head SHA `20ae4741b480269bb61b69a8b4b123a46163af02`.
 
 A committed harness is **not** a passing result. A POC moves to PASS only from reviewed runtime evidence; rerun-required harness failures are recorded separately from architecture failures.
 
@@ -75,13 +77,7 @@ The quantitative pass criteria are defined in:
 
 ## Architecture freeze rule
 
-The project may move to:
-
-~~~text
-V1 Architecture Frozen
-~~~
-
-only after:
+The freeze gate is satisfied. It required:
 
 1. all Core architecture freeze gates have real PASS or accepted PASS WITH CONSTRAINTS results;
 2. failed/conditional results have their constraints reflected in product/deployment docs;
@@ -89,6 +85,8 @@ only after:
 4. any result that changes component ownership, recording authority, Core container boundaries, storage lifecycle, or database-default policy is resolved through an ADR;
 5. [V1 Schema Freeze](../plans/02-v1-schema-freeze.md) remains consistent with the measured architecture;
 6. [V1 API / Module Freeze](../plans/03-v1-api-module-freeze.md) remains consistent with the measured architecture.
+
+[ADR 0011](../adr/0011-v1-architecture-freeze.md) records the resulting architecture freeze and post-freeze change-control policy.
 
 ## Current architecture assumptions under test
 
