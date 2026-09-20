@@ -39,11 +39,10 @@ mode="$(stat -c '%a' "$state")"
 [[ "$mode" == "600" ]]
 
 marker="$tmp/should-not-exist"
-cat >> "$state" <<EOF
-EVIL=$(touch "$marker")
-EOF
+malicious="\$(touch \"$marker\")"
+printf 'EVIL=%s\n' "$malicious" >> "$state"
 value="$(deployment_state_get EVIL)"
-[[ "$value" == "$(touch "$marker")" ]]
+[[ "$value" == "$malicious" ]]
 [[ ! -e "$marker" ]]
 
 write_deployment_state "$prev" "$dep" "$pending_snap"
