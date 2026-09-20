@@ -502,7 +502,9 @@ Playback Resolver
 Single / Multi-camera Browser Players
 ```
 
-Playback API timestamps use UTC Unix milliseconds. The frontend maps absolute time to a RecordingSegment and relative media offset only at the playback boundary.
+The remote branch above is validated by [POC-07 — Remote Restore Playback](poc-results/07-remote-restore.md). V1 does not require FUSE/rclone mount for remote-only playback.
+
+Playback API timestamps use timezone-aware ISO 8601 strings. The frontend converts them to epoch milliseconds internally for timeline math, then maps absolute time to a RecordingSegment and relative media offset only at the playback boundary.
 
 Multi-camera playback uses one Master Clock. Default `tolerant` synchronization allows healthy cameras to continue when one camera buffers; optional `strict` synchronization pauses/re-aligns participating playable cameras for forensic comparison.
 
