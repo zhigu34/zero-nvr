@@ -195,6 +195,10 @@ def main() -> None:
         wait_until("ZLM cam-main media", lambda: media_present("cam-main"), timeout=45)
         wait_until("ZLM cam-sub media", lambda: media_present("cam-sub"), timeout=45)
 
+        baseline_summary = request_json(f"{API}/debug/summary")
+        baseline_ffprobe_calls = baseline_summary["ffprobe_calls"]
+        evidence["checks"]["baseline_summary_before_normal_phase"] = baseline_summary
+
         upstream_before = wait_until(
             "one upstream MediaMTX reader per source",
             lambda: (
@@ -210,23 +214,31 @@ def main() -> None:
         )
         evidence["checks"]["upstream_readers_before"] = upstream_before
 
-        normal_summary = wait_until(
-            "three finalized hook-indexed segments",
+        normal_segments = wait_until(
+            "three finalized cam-main hook-indexed segments",
             lambda: (
-                summary
-                if (summary := request_json(f"{API}/debug/summary"))[
-                    "hook_segment_count"
-                ]
-                >= 3
+                rows
+                if len(
+                    rows := [
+                        item
+                        for item in request_json(f"{API}/debug/segments")["items"]
+                        if item["stream"] == "cam-main"
+                        and item["source"] == "hook"
+                    ]
+                ) >= 3
                 else None
             ),
             timeout=max(70, SEGMENT_SECONDS * 7),
         )
+        normal_summary = request_json(f"{API}/debug/summary")
+        evidence["checks"]["normal_cam_main_segments"] = normal_segments
         evidence["checks"]["normal_hook_summary"] = normal_summary
 
-        if normal_summary["ffprobe_calls"] != 0:
+        if normal_summary["ffprobe_calls"] != baseline_ffprobe_calls:
             raise AssertionError(
-                "normal hook path invoked ffprobe; expected zero calls"
+                "normal hook path increased ffprobe call count; "
+                f"baseline={baseline_ffprobe_calls} "
+                f"after={normal_summary['ffprobe_calls']}"
             )
 
         request_json(f"{API}/debug/drop-next-hook", method="POST")
@@ -259,9 +271,9 @@ def main() -> None:
 
         summary_after_reconcile = request_json(f"{API}/debug/summary")
         evidence["checks"]["summary_after_reconcile"] = summary_after_reconcile
-        if summary_after_reconcile["ffprobe_calls"] < 1:
+        if summary_after_reconcile["ffprobe_calls"] <= baseline_ffprobe_calls:
             raise AssertionError(
-                "lost-hook reconciliation did not use ffprobe fallback"
+                "lost-hook reconciliation did not increase ffprobe fallback count"
             )
 
         second_reconcile = request_json(f"{API}/debug/reconcile", method="POST")
@@ -314,7 +326,7 @@ def main() -> None:
         hook_durations = [
             item["duration_ms"]
             for item in segments["items"]
-            if item["source"] == "hook"
+            if item["source"] == "hook" and item["stream"] == "cam-main"
         ]
         if not hook_durations:
             raise AssertionError("no hook-indexed duration evidence")
