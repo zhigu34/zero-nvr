@@ -115,6 +115,12 @@ def prime_frame_ring(stream: str) -> dict[str, Any]:
     )
     started = time.time()
     body = request_bytes(f"{ZLM}/index/api/getSnap?{query}", timeout=15)
+    if len(body) < 1024 or not body.startswith(b"\xff\xd8"):
+        preview = body[:160].decode("utf-8", errors="replace")
+        raise RuntimeError(
+            "getSnap did not return a non-trivial JPEG; "
+            f"bytes={len(body)} preview={preview!r}"
+        )
     return {
         "requested_at": iso(started),
         "bytes": len(body),
