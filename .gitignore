@@ -47,3 +47,7 @@ docker-compose.override.yml
 
 # POC aggregate runtime evidence
 poc/runtime-results/
+
+# Generated deployment state / recovery secrets
+deploy/zlm/config.ini
+deploy/recovery.env
