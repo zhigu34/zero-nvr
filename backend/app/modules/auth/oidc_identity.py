@@ -176,6 +176,11 @@ class OidcIdentityService:
             claims.get("email_verified")
             is True
         )
+        verified_email = (
+            email
+            if email_verified
+            else None
+        )
         now = utc_now()
 
         identity = session.scalar(
@@ -259,7 +264,7 @@ class OidcIdentityService:
             user = User(
                 username=username,
                 display_name=display_name,
-                email=email,
+                email=verified_email,
                 password_hash=None,
                 enabled=True,
             )

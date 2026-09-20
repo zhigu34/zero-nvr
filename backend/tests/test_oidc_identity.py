@@ -218,3 +218,46 @@ def test_oidc_rejects_issuer_mismatch_and_missing_role(
             role_error.value.code
             == "oidc_default_role_unavailable"
         )
+
+
+
+def test_oidc_auto_provision_does_not_trust_unverified_email(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with app.state.database.session() as session:
+        role = Role(
+            name="OIDC Limited",
+            description="test",
+            built_in=False,
+        )
+        session.add(role)
+        session.flush()
+
+        configured = provider(
+            auto_provision=True,
+            email_linking=False,
+            role_ids=(role.id,),
+        )
+        user = OidcIdentityService.login(
+            session,
+            provider=configured,
+            claims={
+                "iss": configured.issuer,
+                "sub": "unverified-auto",
+                "email": "unverified@example.com",
+                "email_verified": False,
+                "preferred_username": "unverified-user",
+            },
+        )
+        assert user.email is None
+
+        identity = session.scalar(
+            select(ExternalIdentity).where(
+                ExternalIdentity.subject
+                == "unverified-auto"
+            )
+        )
+        assert identity is not None
+        assert identity.email == "unverified@example.com"

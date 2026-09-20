@@ -107,6 +107,7 @@ def _remote_client(
         ),
         client_kwargs={
             "scope": "openid profile email",
+            "code_challenge_method": "S256",
         },
     )
     client = oauth.create_client(

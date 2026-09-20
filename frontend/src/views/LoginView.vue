@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { ref } from "vue"
+import { onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import {
   completePasswordReset,
-  requestPasswordReset
+  listOidcProviders,
+  requestPasswordReset,
+  type OidcPublicProvider
 } from "../api/auth"
 import { errorMessage } from "../api/client"
 import ThemeControl from "../components/ui/ThemeControl.vue"
@@ -26,6 +28,32 @@ const confirmPassword = ref("")
 const submitting = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
+const oidcProviders = ref<OidcPublicProvider[]>([])
+
+function oidcLogin(provider: OidcPublicProvider): void {
+  const redirect =
+    typeof route.query.redirect === "string" &&
+    route.query.redirect.startsWith("/") &&
+    !route.query.redirect.startsWith("//")
+      ? route.query.redirect
+      : "/dashboard"
+  window.location.assign(
+    `/api/v1/auth/oidc/${encodeURIComponent(provider.key)}/login?next=${encodeURIComponent(redirect)}`
+  )
+}
+
+onMounted(async () => {
+  if (typeof route.query.oidc_error === "string") {
+    error.value =
+      "OIDC sign-in failed. Check the provider configuration or account access."
+  }
+  try {
+    oidcProviders.value =
+      await listOidcProviders()
+  } catch {
+    oidcProviders.value = []
+  }
+})
 
 function setMode(next: AuthMode): void {
   mode.value = next
@@ -174,6 +202,24 @@ async function submitResetComplete(): Promise<void> {
           {{ submitting ? "Signing in…" : "Sign in" }}
         </button>
 
+        <div
+          v-if="oidcProviders.length"
+          class="auth-oidc-providers"
+        >
+          <div class="auth-oidc-providers__divider">
+            <span>or continue with</span>
+          </div>
+          <button
+            v-for="provider in oidcProviders"
+            :key="provider.key"
+            class="button button--ghost button--wide"
+            type="button"
+            @click="oidcLogin(provider)"
+          >
+            {{ provider.name }}
+          </button>
+        </div>
+
         <div class="auth-recovery-actions">
           <button
             class="button button--ghost button--wide"
@@ -284,3 +330,26 @@ async function submitResetComplete(): Promise<void> {
     </section>
   </div>
 </template>
+
+<style scoped>
+.auth-oidc-providers {
+  display: grid;
+  gap: 6px;
+}
+
+.auth-oidc-providers__divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.auth-oidc-providers__divider::before,
+.auth-oidc-providers__divider::after {
+  height: 1px;
+  flex: 1;
+  background: var(--border-subtle);
+  content: "";
+}
+</style>

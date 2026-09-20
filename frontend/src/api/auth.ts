@@ -85,3 +85,16 @@ export function revokeApiToken(tokenId: string): Promise<void> {
     { method: "DELETE" }
   )
 }
+
+
+
+export interface OidcPublicProvider {
+  key: string
+  name: string
+}
+
+export function listOidcProviders(): Promise<OidcPublicProvider[]> {
+  return apiRequest<OidcPublicProvider[]>(
+    "/auth/oidc/providers"
+  )
+}
