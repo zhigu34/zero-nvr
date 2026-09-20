@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
+. "$SCRIPT_DIR/feature-profiles.sh"
 
 cd "$ROOT_DIR"
 
@@ -22,6 +23,10 @@ Usage:
   ./deploy.sh restore [snapshot-id|latest] --force
   ./deploy.sh recovery-kit export [directory] [policy-id-or-name]
   ./deploy.sh admin reset-password <username>
+  ./deploy.sh feature list
+  ./deploy.sh feature enable <frigate|mqtt|openlist|postgres>
+  ./deploy.sh feature disable <frigate|mqtt|openlist|postgres>
+  ./deploy.sh feature restart <frigate|mqtt|openlist|postgres>
 
 Core deployment is intentionally three containers:
   zero-nvr API + zero-nvr worker + ZLMediaKit
@@ -291,6 +296,189 @@ update_stack() {
   fi
 }
 
+feature_set_profile() {
+  local action="$1"
+  local profile="$2"
+  local current next
+
+  current="$(env_get COMPOSE_PROFILES "")"
+  case "$action" in
+    enable)
+      next="$(profiles_enable "$current" "$profile")"
+      ;;
+    disable)
+      next="$(profiles_disable "$current" "$profile")"
+      ;;
+    *)
+      echo "error: invalid profile action: $action" >&2
+      return 2
+      ;;
+  esac
+  set_env_value COMPOSE_PROFILES "$next"
+}
+
+feature_prepare() {
+  local profile="$1"
+  local data_root cache_root
+  data_root="$(host_path "$(env_get ZERO_NVR_DATA_PATH)")"
+  cache_root="$(host_path "$(env_get ZERO_NVR_CACHE_PATH)")"
+
+  case "$profile" in
+    frigate)
+      mkdir -p         "$data_root/managed/frigate"         "$cache_root/frigate"
+      if [[ ! -f "$data_root/managed/frigate/config.yml" ]]; then
+        cat > "$data_root/managed/frigate/config.yml" <<'EOF'
+mqtt:
+  enabled: false
+record:
+  enabled: false
+cameras: {}
+EOF
+        chmod 640 "$data_root/managed/frigate/config.yml"
+      fi
+      ;;
+    mqtt)
+      local image username password config_dir
+      image="$(env_get ZERO_NVR_MQTT_IMAGE "eclipse-mosquitto:2.1.2-alpine")"
+      username="$(env_get ZERO_NVR_MQTT_USERNAME "zero-nvr")"
+      password="$(env_get ZERO_NVR_MQTT_PASSWORD "")"
+      if [[ -z "$password" ]]; then
+        password="$(random_hex_32)"
+        set_env_value ZERO_NVR_MQTT_PASSWORD "$password"
+        echo "generated: ZERO_NVR_MQTT_PASSWORD"
+      fi
+      config_dir="$data_root/managed/mosquitto/config"
+      mkdir -p "$config_dir"
+      cat > "$config_dir/mosquitto.conf" <<'EOF'
+listener 1883 0.0.0.0
+allow_anonymous false
+password_file /mosquitto/config/password
+persistence true
+persistence_location /mosquitto/data/
+log_dest stdout
+EOF
+      chmod 644 "$config_dir/mosquitto.conf"
+      docker pull "$image"
+      docker run --rm         --user 0:0         --entrypoint sh         -e MQTT_USERNAME="$username"         -e MQTT_PASSWORD="$password"         -v "$config_dir:/work"         "$image"         -ec 'mosquitto_passwd -b -c /work/password "$MQTT_USERNAME" "$MQTT_PASSWORD"; chmod 600 /work/password'
+      ;;
+    openlist)
+      :
+      ;;
+    postgres)
+      local pg_password
+      pg_password="$(env_get ZERO_NVR_POSTGRES_PASSWORD "")"
+      if [[ -z "$pg_password" ]]; then
+        pg_password="$(random_hex_32)"
+        set_env_value ZERO_NVR_POSTGRES_PASSWORD "$pg_password"
+        echo "generated: ZERO_NVR_POSTGRES_PASSWORD"
+      fi
+      ;;
+    *)
+      echo "error: unsupported feature profile: $profile" >&2
+      return 2
+      ;;
+  esac
+}
+
+feature_enable() {
+  local name="$1"
+  local profile service original_profiles
+  profile="$(feature_profile_name "$name" 2>/dev/null || true)"
+  service="$(feature_service_name "$name" 2>/dev/null || true)"
+  if [[ -z "$profile" || -z "$service" ]]; then
+    echo "error: unsupported feature: $name" >&2
+    return 2
+  fi
+
+  preflight
+  ensure_env
+  ensure_host_dirs
+  original_profiles="$(env_get COMPOSE_PROFILES "")"
+  feature_prepare "$profile"
+  feature_set_profile enable "$profile"
+
+  if ! compose pull "$service"; then
+    set_env_value COMPOSE_PROFILES "$original_profiles"
+    return 1
+  fi
+  if ! compose up -d --wait --wait-timeout 180 "$service"; then
+    compose rm -sf "$service" >/dev/null 2>&1 || true
+    set_env_value COMPOSE_PROFILES "$original_profiles"
+    return 1
+  fi
+
+  echo "feature enabled: $profile"
+  case "$profile" in
+    frigate)
+      echo "managed Frigate API: http://frigate:5000 (inside zero-nvr network)"
+      echo "configure zero-nvr System > Integrations > Frigate with mode=managed"
+      ;;
+    mqtt)
+      echo "managed MQTT username: $(env_get ZERO_NVR_MQTT_USERNAME "zero-nvr")"
+      echo "managed MQTT password is stored in .env as ZERO_NVR_MQTT_PASSWORD"
+      ;;
+    postgres)
+      echo "managed PostgreSQL is running but the active zero-nvr database was not changed"
+      echo "database-engine migration remains an explicit operation"
+      ;;
+  esac
+}
+
+feature_disable() {
+  local name="$1"
+  local profile service
+  profile="$(feature_profile_name "$name" 2>/dev/null || true)"
+  service="$(feature_service_name "$name" 2>/dev/null || true)"
+  if [[ -z "$profile" || -z "$service" ]]; then
+    echo "error: unsupported feature: $name" >&2
+    return 2
+  fi
+
+  preflight
+  ensure_env
+  compose stop "$service" >/dev/null 2>&1 || true
+  compose rm -f "$service" >/dev/null 2>&1 || true
+  feature_set_profile disable "$profile"
+  echo "feature disabled: $profile"
+  echo "persistent feature data was retained"
+}
+
+feature_restart() {
+  local name="$1"
+  local profile service
+  profile="$(feature_profile_name "$name" 2>/dev/null || true)"
+  service="$(feature_service_name "$name" 2>/dev/null || true)"
+  if [[ -z "$profile" || -z "$service" ]]; then
+    echo "error: unsupported feature: $name" >&2
+    return 2
+  fi
+
+  ensure_env
+  if ! profile_is_enabled "$(env_get COMPOSE_PROFILES "")" "$profile"; then
+    echo "error: feature is not enabled: $profile" >&2
+    return 1
+  fi
+
+  preflight
+  ensure_host_dirs
+  feature_prepare "$profile"
+  compose up -d --force-recreate --wait --wait-timeout 180 "$service"
+  echo "feature restarted: $profile"
+}
+
+feature_list() {
+  local current profile
+  ensure_env
+  current="$(env_get COMPOSE_PROFILES "")"
+  for profile in frigate mqtt openlist postgres; do
+    if profile_is_enabled "$current" "$profile"; then
+      printf '%-10s enabled\n' "$profile"
+    else
+      printf '%-10s disabled\n' "$profile"
+    fi
+  done
+}
+
 command="${1:-install}"
 shift || true
 
@@ -422,9 +610,30 @@ case "$command" in
     esac
     ;;
   feature)
-    echo "error: managed optional service profiles are not yet present in docker-compose.yml" >&2
-    echo "External Frigate/OpenList/MQTT integrations remain configurable in the product UI." >&2
-    exit 2
+    subcommand="${1:-list}"
+    shift || true
+    case "$subcommand" in
+      list|status)
+        if [[ "$#" -ne 0 ]]; then
+          echo "error: feature list accepts no arguments" >&2
+          exit 2
+        fi
+        feature_list
+        ;;
+      enable|disable|restart)
+        feature_name="${1:-}"
+        if [[ -z "$feature_name" || "$#" -ne 1 ]]; then
+          echo "error: feature $subcommand requires exactly one feature name" >&2
+          exit 2
+        fi
+        "feature_$subcommand" "$feature_name"
+        ;;
+      *)
+        echo "error: unsupported feature command: $subcommand" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
     ;;
   -h|--help|help)
     usage

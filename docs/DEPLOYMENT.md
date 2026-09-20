@@ -97,10 +97,19 @@ The web/API container does not require unrestricted access to `/var/run/docker.s
 If the user enables a missing managed feature, the UI should show an actionable command such as:
 
 ```bash
-./deploy.sh feature enable ai
+./deploy.sh feature enable frigate
 ```
 
-The deployment script performs the Compose operation.
+The deployment script performs the Compose operation. Supported managed deployment profiles are:
+
+```text
+frigate   -> Frigate 0.18.0
+mqtt      -> Eclipse Mosquitto 2.1.2
+openlist  -> OpenList 4.2.6
+postgres  -> PostgreSQL 17.11
+```
+
+Image references are configurable through `.env`, but the shipped defaults are version-pinned. Disabled profiles are not started or pulled by normal core install/update flows.
 
 ## Expected deploy.sh surface
 
@@ -112,8 +121,10 @@ update
 rollback [version]
 status
 doctor
+feature list
 feature enable <name>
 feature disable <name>
+feature restart <name>
 admin reset-password
 backup
 restore
@@ -196,6 +207,26 @@ If an update exits after its rollback point has been recorded but before health 
 Automatic version rollback becomes available only after deployment-state support has recorded a known previous revision. An installation upgraded from an older release with no deployment state may require one successful state-aware install/update before version rollback can be automated.
 
 Local safety snapshots live under the zero-nvr data directory and are restored only through the host-local CLI. The restore command rejects paths outside `safety-backups`, takes another rollback-of-rollback database snapshot first, and never touches `/recordings`.
+
+### feature
+
+Managed service lifecycle is explicit:
+
+```bash
+./deploy.sh feature list
+./deploy.sh feature enable frigate
+./deploy.sh feature enable mqtt
+./deploy.sh feature enable openlist
+./deploy.sh feature enable postgres
+./deploy.sh feature restart frigate
+./deploy.sh feature disable mqtt
+```
+
+The command edits only `COMPOSE_PROFILES` plus feature-specific bootstrap secrets/configuration, then targets that service. Disabling a feature removes its container but retains persistent data.
+
+Managed PostgreSQL startup does not silently switch an existing SQLite deployment to PostgreSQL. Database-engine migration remains a separate, explicit workflow.
+
+Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
 
 ### doctor
 

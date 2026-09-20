@@ -67,6 +67,99 @@ services:
       zero-nvr:
         condition: service_healthy
 
+  frigate:
+    profiles:
+      - frigate
+    image: ${ZERO_NVR_FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:0.18.0}
+    shm_size: ${ZERO_NVR_FRIGATE_SHM_SIZE:-256mb}
+    stop_grace_period: 30s
+    volumes:
+      - zero-nvr-frigate-config:/config
+      - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}/managed/frigate/config.yml:/config/config.yml:ro
+      - ${ZERO_NVR_CACHE_PATH:-./data/cache}/frigate:/media/frigate
+    tmpfs:
+      - /tmp/cache:size=1073741824
+    ports:
+      - "${ZERO_NVR_FRIGATE_BIND:-127.0.0.1}:${ZERO_NVR_FRIGATE_PORT:-8971}:8971"
+    depends_on:
+      zlmediakit:
+        condition: service_healthy
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - zero-nvr
+
+  mosquitto:
+    profiles:
+      - mqtt
+    image: ${ZERO_NVR_MQTT_IMAGE:-eclipse-mosquitto:2.1.2-alpine}
+    volumes:
+      - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}/managed/mosquitto/config:/mosquitto/config:ro
+      - zero-nvr-mosquitto-data:/mosquitto/data
+    ports:
+      - "${ZERO_NVR_MQTT_BIND:-127.0.0.1}:${ZERO_NVR_MQTT_PORT:-1883}:1883"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - zero-nvr
+
+  openlist:
+    profiles:
+      - openlist
+    image: ${ZERO_NVR_OPENLIST_IMAGE:-openlistteam/openlist:v4.2.6}
+    environment:
+      UMASK: "022"
+    volumes:
+      - zero-nvr-openlist-data:/opt/openlist/data
+    ports:
+      - "${ZERO_NVR_OPENLIST_BIND:-127.0.0.1}:${ZERO_NVR_OPENLIST_PORT:-5244}:5244"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - zero-nvr
+
+  postgres:
+    profiles:
+      - postgres
+    image: ${ZERO_NVR_POSTGRES_IMAGE:-postgres:17.11-alpine3.24}
+    environment:
+      POSTGRES_DB: ${ZERO_NVR_POSTGRES_DB:-zero_nvr}
+      POSTGRES_USER: ${ZERO_NVR_POSTGRES_USER:-zero_nvr}
+      POSTGRES_PASSWORD: ${ZERO_NVR_POSTGRES_PASSWORD:-}
+    volumes:
+      - zero-nvr-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          pg_isready
+          -U "$POSTGRES_USER"
+          -d "$POSTGRES_DB"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - zero-nvr
+
   zlmediakit:
     image: ${ZERO_NVR_ZLM_IMAGE:-zlmediakit/zlmediakit:master}
     env_file:
@@ -100,6 +193,11 @@ services:
       - zero-nvr
 
 volumes:
+  zero-nvr-frigate-config:
+  zero-nvr-mosquitto-data:
+  zero-nvr-openlist-data:
+  zero-nvr-postgres-data:
+
   zero-nvr-prebuffer:
     driver: local
     driver_opts:

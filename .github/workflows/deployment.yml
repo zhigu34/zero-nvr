@@ -67,6 +67,7 @@ jobs:
         shell: bash
         run: |
           bash scripts/test-deployment-state.sh
+          bash scripts/test-feature-profiles.sh
 
       - name: Validate Compose model
         shell: bash
@@ -89,6 +90,14 @@ jobs:
           assert "alembic upgrade head" not in api_command
           assert "uvicorn app.main:app" in api_command
           assert "python -m app.cli check-schema" in worker_command
+
+          assert model["services"]["frigate"]["profiles"] == ["frigate"]
+          assert model["services"]["mosquitto"]["profiles"] == ["mqtt"]
+          assert model["services"]["openlist"]["profiles"] == ["openlist"]
+          assert model["services"]["postgres"]["profiles"] == ["postgres"]
+          assert "profiles" not in model["services"]["zero-nvr"]
+          assert "profiles" not in model["services"]["zero-nvr-worker"]
+          assert "profiles" not in model["services"]["zlmediakit"]
           PY
 
       - name: Build zero-nvr image
