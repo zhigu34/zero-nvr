@@ -280,6 +280,8 @@ Targets to validate, not assumptions:
 - Core idle RAM target: **< 1 GB**, excluding Linux page cache and large ZLM media buffers;
 - SQLite must remain a first-class supported production mode.
 
+Measurement/accounting rules and the 2–4 camera small-host soak are defined in [Plan 04 — V1 Resource Budget](plans/04-v1-resource-budget.md). Recording media and configured disposable cache capacity are reported separately from static Core footprint.
+
 ## V1 scope guard
 
 Do not block the first stable release on infrastructure that is not required for a complete lightweight NVR, including:
