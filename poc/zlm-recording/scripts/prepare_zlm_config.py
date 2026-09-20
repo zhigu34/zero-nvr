@@ -70,6 +70,12 @@ def main() -> None:
             "on_record_mp4",
             f"http://poc-api:8000/internal/hooks/zlm/record-mp4?token={hook_token}",
         ),
+        (
+            "hook",
+            "on_stream_changed",
+            f"http://poc-api:8000/internal/hooks/zlm/stream-changed?token={hook_token}",
+        ),
+        ("hook", "stream_changed_schemas", "rtsp"),
         ("record", "enableFmp4", enable_fmp4),
         ("record", "fastStart", "1"),
         ("rtp_proxy", "gop_cache", gop_cache),
