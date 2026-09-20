@@ -156,3 +156,82 @@ export function importOnvif(
     json: body
   })
 }
+
+
+export interface CameraStreamProfile {
+  id: string
+  name: string
+  adapter_profile_key: string
+  codec: string | null
+  width: number | null
+  height: number | null
+  fps: number | null
+  bitrate_kbps: number | null
+  gop_seconds: number | null
+  audio_codec: string | null
+  has_audio: boolean
+  status: string
+}
+
+export interface CameraStreamBinding {
+  purpose:
+    | "RECORD"
+    | "LIVE_HIGH"
+    | "LIVE_LOW"
+    | "AI_DETECT"
+    | "SNAPSHOT"
+    | "AUDIO"
+  stream_profile_id: string
+  selection_mode: "auto" | "manual"
+}
+
+export interface CameraDetail extends CameraSummary {
+  streams: CameraStreamProfile[]
+  bindings: CameraStreamBinding[]
+}
+
+export function getCamera(cameraId: string): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}`
+  )
+}
+
+export function updateCamera(
+  cameraId: string,
+  changes: {
+    name?: string
+    location?: string | null
+    storage_label?: string | null
+  }
+): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function setCameraEnabled(
+  cameraId: string,
+  enabled: boolean
+): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}/${enabled ? "enable" : "disable"}`,
+    { method: "POST" }
+  )
+}
+
+export function replaceCameraBindings(
+  cameraId: string,
+  bindings: CameraStreamBinding[]
+): Promise<CameraStreamBinding[]> {
+  return apiRequest<CameraStreamBinding[]>(
+    `/cameras/${encodeURIComponent(cameraId)}/stream-bindings`,
+    {
+      method: "PUT",
+      json: { bindings }
+    }
+  )
+}
