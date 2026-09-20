@@ -459,8 +459,10 @@ def prepare() -> None:
         upload_remote("remote-2.mp4", Path(chosen[1]["object_path"])),
     ]
 
+    zlm_version = zlm_api("version")
     state = {
         "prepared_at": iso(time.time()),
+        "zlm_version": zlm_version,
         "proxy_key": proxy_key,
         "segment_count": len(items),
         "source_segments": chosen,
