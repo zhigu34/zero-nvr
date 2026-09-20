@@ -436,7 +436,7 @@ POC-03 confirmed repeated `startRecordTask` calls create independent fixed clips
 
 zero-nvr must not implement a custom H.264/H.265 packet ring buffer or a second permanent event recorder.
 
-The mechanism, H.264/H.265 coverage, overlapping-trigger behavior, tmpfs boundedness, and control-plane-restart reconstruction are validated by POC-03/04 and frozen in [Spec 0003](specs/0003-rolling-mp4-prebuffer.md). The exact production fragment target and per-deployment tmpfs size remain configurable operational parameters; MP4 vs fMP4 remains governed by POC-02.
+The mechanism, H.264/H.265 coverage, overlapping-trigger behavior, tmpfs boundedness, and control-plane-restart reconstruction are validated by POC-03/04 and frozen in [Spec 0003](specs/0003-rolling-mp4-prebuffer.md). The exact production fragment target and per-deployment tmpfs size remain configurable operational parameters. POC-02 separately selected fMP4 as the V1 default recorder container mode.
 
 
 ### Recording arbitration
