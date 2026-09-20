@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import json
 from pathlib import Path
 
@@ -117,8 +118,8 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
 
         first_json = first.json()
         second_json = second.json()
-        first_id = first_json["id"]
-        second_id = second_json["id"]
+        first_id = uuid.UUID(first_json["id"])
+        second_id = uuid.UUID(second_json["id"])
 
         serialized = json.dumps(first_json)
         assert "super-secret" not in serialized
