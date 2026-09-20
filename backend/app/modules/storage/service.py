@@ -39,10 +39,30 @@ class ResolvedRcloneTarget:
 
     def object_path(self, object_path: str) -> str:
         relative = object_path.strip("/")
+        parts = [
+            part
+            for part in relative.split("/")
+            if part
+        ]
+        if (
+            not parts
+            or any(
+                part in {".", ".."}
+                or ":" in part
+                or "\\" in part
+                for part in parts
+            )
+        ):
+            raise ApiError(
+                status_code=409,
+                code="recording_object_path_invalid",
+                message="Recording object path is invalid.",
+            )
+
         prefix = self.base_path.strip("/")
         joined = "/".join(
             part
-            for part in (prefix, relative)
+            for part in (prefix, "/".join(parts))
             if part
         )
         return f"{self.remote}:{joined}"
