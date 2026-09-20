@@ -204,7 +204,29 @@ Why this rule is used:
 
 POC-05 validated this rule on the tested ZLM build, including a post-reconnect raw Hook bias of about 1.04 seconds. Same-session normalization reduced measured boundary deltas to approximately 40 ms / 40 ms / 0 / 41 ms / 0 without bridging the real source outage.
 
-Boundary evidence may come from the already-created next ZLM file/path or the next finalized hook. The implementation should prefer an immediately visible proven next-file boundary so a normal finalized segment does not need to wait an entire additional segment duration before appearing in the catalog.
+A finalized segment does **not** wait for the next segment to be catalogued.
+
+When the next proven boundary is not yet available:
+
+~~~text
+timing_status = PROVISIONAL
+started_at    = raw hook start
+ended_at      = raw hook start + actual duration
+timing_source = HOOK_RAW
+~~~
+
+When the next finalized segment/boundary becomes proven, zero-nvr updates the preceding segment in place:
+
+~~~text
+timing_status = FINAL
+timing_source = NEXT_SEGMENT_BOUNDARY
+ended_at      = next proven boundary
+started_at    = ended_at - actual duration
+~~~
+
+This update is idempotent and remains inside the recording-catalog service.
+
+Do not claim that filesystem birth/mtime or a hidden next-file path is a high-precision creation timestamp unless a separate runtime test proves that behavior on the supported filesystem/platform.
 
 For the tail of a continuity session:
 
@@ -215,7 +237,9 @@ For the tail of a continuity session:
 
 A source unregister/reconnect always splits continuity sessions. **Never use a post-reconnect segment boundary to normalize a pre-disconnect segment.**
 
-The raw Hook payload remains useful diagnostic/reconciliation evidence. Canonical RecordingSegment `started_at/ended_at` represents projected actual media coverage through the accepted continuity resolver. Raw source fields should remain available in sanitized adapter/debug evidence when diagnosing timing behavior.
+The raw Hook payload remains useful diagnostic/reconciliation evidence. RecordingSegment carries a small `timing_status` / `timing_source` marker so the product can distinguish a provisional session tail from final normalized coverage without introducing a separate timing-history table.
+
+Canonical RecordingSegment `started_at/ended_at` represents the best currently proven media coverage through the accepted continuity resolver. Raw source fields may remain in sanitized adapter/debug evidence when diagnosing timing behavior.
 
 The accepted resolver does not require ffprobe on every successful normal hook. ffprobe remains a recovery/ambiguity fallback.
 
