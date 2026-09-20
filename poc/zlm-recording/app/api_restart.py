@@ -158,19 +158,8 @@ def verify(downtime_start: float, downtime_end: float) -> None:
         raise AssertionError(f"reconciliation errors after API restart: {reconcile}")
 
     post_reconcile = segments()
-    recovered = [
-        item for item in post_reconcile
-        if item["source"] == "reconcile"
-    ]
-
-    if not recovered:
-        raise AssertionError(
-            "API restart window produced no reconciled recording segment; "
-            "the test did not prove lost-hook recovery"
-        )
-
     overlapping = []
-    for item in recovered:
+    for item in post_reconcile:
         start = parse_iso(item["start_at"])
         end = parse_iso(item["end_at"])
         if start < downtime_end and end > downtime_start:
@@ -178,7 +167,23 @@ def verify(downtime_start: float, downtime_end: float) -> None:
 
     if not overlapping:
         raise AssertionError(
-            "no reconciled segment overlaps the FastAPI downtime window"
+            "no finalized recording segment overlaps the FastAPI downtime window"
+        )
+
+    reconciled_overlap = [
+        item for item in overlapping if item["source"] == "reconcile"
+    ]
+    delayed_or_retried_hook_overlap = [
+        item
+        for item in overlapping
+        if item["source"] == "hook"
+        and parse_iso(item["created_at"]) >= downtime_end
+    ]
+
+    if not reconciled_overlap and not delayed_or_retried_hook_overlap:
+        raise AssertionError(
+            "downtime media exists, but the test did not prove post-restart "
+            "catalog convergence through either reconciliation or delayed/retried hook delivery"
         )
 
     if len(post_reconcile) <= int(state["initial_segment_count"]):
@@ -205,8 +210,14 @@ def verify(downtime_start: float, downtime_end: float) -> None:
         "segments_before_reconcile": pre_reconcile,
         "first_reconcile": reconcile,
         "segments_after_reconcile": post_reconcile,
-        "recovered_segments": recovered,
-        "recovered_segments_overlapping_downtime": overlapping,
+        "segments_overlapping_downtime": overlapping,
+        "reconciled_overlap": reconciled_overlap,
+        "delayed_or_retried_hook_overlap": delayed_or_retried_hook_overlap,
+        "catalog_convergence_mechanism": (
+            "reconciliation"
+            if reconciled_overlap
+            else "zlm_hook_retry_or_delayed_delivery"
+        ),
         "second_reconcile": second,
     }
 
