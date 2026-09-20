@@ -123,39 +123,29 @@ Acceptance:
 - [ ] Add ZLMediaKit service.
 - [ ] Implement MediaPlane contract.
 - [ ] Device / DeviceEndpoint / DeviceCredential persistence.
-- [ ] DiscoverySession / DiscoveryCandidate staging model.
-- [ ] bounded manual IP/hostname/CIDR probe framework.
-- [ ] Manual RTSP first-class onboarding with URI credential extraction into SecretStore.
-- [ ] actual media pull/ffprobe/ZLM verification before marking Camera verified.
+- [ ] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
+- [ ] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
+- [ ] ONVIF profile/capability discovery first, ZLM actual-stream verification second, ffprobe only as fallback/recovery inspection.
 - [ ] SourceMediaProfile persistence and stream diagnostics.
-- [ ] canonical MediaStream roles: recording / live_main / live_preview / detection / audio.
-- [ ] deterministic auto profile selection with reason/score diagnostics.
-- [ ] manual per-role profile override and invalid-profile fallback warnings.
+- [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
+- [ ] deterministic default profile binding with user override.
 - [ ] CameraClockStatus sampling for ONVIF-capable devices.
-- [ ] optional monitor/manage_ntp/ignore device-time mode.
-- [ ] inherit system managed-camera NTP settings with optional per-camera NTP override.
-- [ ] apply/verify managed-camera NTP configuration without modifying host OS NTP service.
+- [ ] monitor/manage_ntp/ignore device-time mode where supported.
+- [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
-- [ ] RuntimeSupervisor for reconstructing desired Device/Camera runtimes after restart.
-- [ ] monotonic config_revision + runtime_generation fencing for ZLM/probe/event callbacks.
-- [ ] idempotent enable / disable / maintenance / reconnect operations.
-- [ ] prepare -> validate -> commit -> apply runtime configuration pipeline.
-- [ ] metadata-only change classification with zero media restart.
-- [ ] endpoint/credential hot revalidation and targeted reconnect.
+- [ ] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
+- [ ] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
+- [ ] idempotent enable / disable / maintenance / configuration apply.
+- [ ] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
 - [ ] SourceMediaProfile refresh/diff and capability-drift detection.
-- [ ] planned recording-profile switch at safe formal segment boundary.
-- [ ] forced source/profile switch with completion_reason = source_reconfigured while preserving RecordingSession/Intent.
-- [ ] live_main/live_preview shadow-runtime handoff.
-- [ ] detection runtime generation handoff and stale stateful-event closure.
-- [ ] event-subscription lifecycle/renew/reconnect with generation fencing.
+- [ ] planned recording-profile switch at a safe segment boundary where practical.
+- [ ] ONVIF event-subscription lifecycle using mature client-library facilities.
 - [ ] multi-channel missing/return lifecycle without Camera identity loss.
-- [ ] layered runtime health: control / media / recording / events / PTZ / clock / capability.
-- [ ] Ensure/remove stream proxy.
-- [ ] per-camera source runtime state machine: streaming / degraded / reconnecting / offline.
-- [ ] ZLM source registration/unregistration + pull-proxy close/error integration.
-- [ ] configurable reconnect backoff/jitter and offline threshold.
-- [ ] infinite/background retry while camera remains enabled.
-- [ ] Stream runtime health.
+- [ ] capability-specific health projection: control / media / recording / events / PTZ / clock.
+- [ ] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
+- [ ] consume ZLM registration/unregistration/recorder signals for observed media health.
+- [ ] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
+- [ ] recovery reconciliation after ZLM/API/control-plane restart.
 - [ ] MediaSession API with short-lived scoped authorization/revocation.
 - [ ] Browser capability report and LivePlaybackResolver.
 - [ ] WebRTC preferred transport with bounded fMP4/HLS fallback.
@@ -172,7 +162,7 @@ Acceptance:
 - [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.
 - [ ] live audio negotiation and focused-camera audio behavior.
 - [ ] camera.talk permission and TalkSession API.
-- [ ] TalkBackend abstraction for ONVIF/RTSP/HIK/GB28181 backchannels.
+- [ ] TalkBackend abstraction for supported ONVIF/RTSP backchannels; vendor/GB28181 adapters remain optional extensions.
 - [ ] push-to-talk + full-duplex where supported; single-talker lease default.
 - [ ] live snapshot action without exposing camera snapshot URL.
 - [ ] PTZ overlay integrated with live view when authorized.
@@ -249,7 +239,7 @@ Acceptance:
 - [ ] snapshot/audio/time/NTP capability probing.
 - [ ] DHCP endpoint-change rediscovery without recreating Camera IDs.
 - [ ] identity-conflict UI instead of weak automatic merge.
-- [ ] batch onboarding with shared/default credentials, groups, recording policy, StoragePool and time-sync defaults.
+- [ ] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
 
 Acceptance:
 
