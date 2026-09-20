@@ -59,6 +59,40 @@ class AlertEvaluationResult:
 
 class AlertPolicyService:
     @staticmethod
+    def list(session: Session) -> list[AlertPolicy]:
+        return list(
+            session.scalars(
+                select(AlertPolicy).order_by(
+                    AlertPolicy.name,
+                    AlertPolicy.id,
+                )
+            )
+        )
+
+    @staticmethod
+    def get(
+        session: Session,
+        policy_id: uuid.UUID,
+    ) -> AlertPolicy:
+        policy = session.get(AlertPolicy, policy_id)
+        if policy is None:
+            raise ApiError(
+                status_code=404,
+                code="alert_policy_not_found",
+                message="Alert policy was not found.",
+            )
+        return policy
+
+    @staticmethod
+    def delete(
+        session: Session,
+        *,
+        policy: AlertPolicy,
+    ) -> None:
+        session.delete(policy)
+        session.flush()
+
+    @staticmethod
     def _uuid_list(
         value: object,
         *,
