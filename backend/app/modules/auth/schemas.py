@@ -198,3 +198,9 @@ class OidcProviderView(BaseModel):
     auto_provision: bool
     email_linking: bool
     default_role_ids: list[uuid.UUID]
+
+
+
+class OidcProviderPublicView(BaseModel):
+    key: str
+    name: str

@@ -4,6 +4,7 @@ from app.modules.alerts.api import router as alerts_router
 from app.modules.audit.api import router as audit_router
 from app.modules.auth.admin_api import router as auth_admin_router
 from app.modules.auth.api import router as auth_router
+from app.modules.auth.oidc_api import router as oidc_router
 from app.modules.backups.api import router as backups_router
 from app.modules.cameras.api import router as cameras_router
 from app.modules.events.api import router as events_router
@@ -15,6 +16,7 @@ from app.modules.system.api import router as system_router
 
 router = APIRouter(prefix="/api/v1")
 router.include_router(auth_router, tags=["auth"])
+router.include_router(oidc_router, tags=["auth"])
 router.include_router(audit_router, prefix="/audit", tags=["audit"])
 router.include_router(backups_router, prefix="/backups", tags=["backups"])
 router.include_router(alerts_router, tags=["alerts"])
