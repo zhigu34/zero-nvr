@@ -245,6 +245,63 @@ def boundary_deltas(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
         )
     return out
 
+def normalize_continuity_session(
+    items: list[dict[str, Any]],
+    session_name: str,
+) -> list[dict[str, Any]]:
+    """Normalize finalized segment wall-clock coverage within one known-continuous source session.
+
+    Current ZLM MP4Recorder sets hook.start_time when it creates the file on the
+    first received frame, while the MP4 muxer can discard leading non-keyframes.
+    Therefore the first finalized segment after recorder/source start may have a
+    hook start that is early by roughly one GOP.
+
+    For every segment that has a following segment in the same proven-continuous
+    session, the next segment's file-creation boundary is a better absolute end
+    anchor. We derive:
+
+        normalized_end   = next.raw_hook_start
+        normalized_start = normalized_end - actual_muxed_duration
+
+    The final segment in a session keeps the raw hook fallback because there is
+    no following boundary. A production implementation should prefer an explicit
+    recorder-stop/source-unregister boundary for that tail when available.
+    """
+    if not items:
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        raw_start = parse_iso(item["start_at"])
+        duration = item["duration_ms"] / 1000.0
+        raw_end = raw_start + duration
+
+        if index + 1 < len(items):
+            next_boundary = parse_iso(items[index + 1]["start_at"])
+            start = next_boundary - duration
+            end = next_boundary
+            timing_source = "next_segment_boundary"
+        else:
+            start = raw_start
+            end = raw_end
+            timing_source = "hook_tail_fallback"
+
+        normalized.append(
+            {
+                **item,
+                "raw_hook_start_at": item["start_at"],
+                "raw_hook_end_at": iso(raw_end),
+                "start_at": iso(start),
+                "end_at": iso(end),
+                "timing_source": timing_source,
+                "timing_session": session_name,
+                "start_correction_ms": round((start - raw_start) * 1000),
+                "end_correction_ms": round((end - raw_end) * 1000),
+            }
+        )
+    return normalized
+
+
 
 def dst_roundtrip_evidence() -> dict[str, Any]:
     zone = ZoneInfo("America/Los_Angeles")
@@ -383,37 +440,78 @@ def verify(outage_start: float, outage_end: float) -> None:
     state = json.loads(STATE.read_text(encoding="utf-8"))
     pre_count = int(state["pre_segment_count"])
 
-    items = wait_until(
+    raw_items = wait_until(
         "three post-outage segments",
-        lambda: current if len(current := segments()) >= pre_count + 3 else None,
+        lambda: (
+            current
+            if len(
+                [
+                    item
+                    for item in (current := segments())
+                    if parse_iso(item["start_at"]) >= outage_end
+                ]
+            ) >= 3
+            else None
+        ),
         timeout=120,
     )
 
-    deltas = boundary_deltas(items)
-    if not deltas:
+    raw_deltas = boundary_deltas(raw_items)
+    if not raw_deltas:
         raise AssertionError("no segment boundaries available")
 
-    largest = max(deltas, key=lambda row: row["delta_seconds"])
-    normal = [row for row in deltas if row is not largest]
+    # Split by the deliberate source outage. In production this continuity
+    # boundary comes from ZLM/source runtime registration state, not from a
+    # guessed timestamp-gap threshold.
+    pre_session = [
+        item for item in raw_items
+        if parse_iso(item["start_at"]) < outage_end
+    ]
+    post_session = [
+        item for item in raw_items
+        if parse_iso(item["start_at"]) >= outage_end
+    ]
+    if len(pre_session) < 2 or len(post_session) < 3:
+        raise AssertionError(
+            "insufficient segments on both sides of the deliberate outage: "
+            f"pre={len(pre_session)} post={len(post_session)}"
+        )
 
-    # Normal ZLM on_record_mp4 timestamps currently have second-level start
-    # granularity. Treat sub-tolerance jitter as continuous but preserve the
-    # measured raw deltas in evidence.
+    normalized_pre = normalize_continuity_session(pre_session, "pre_outage")
+    normalized_post = normalize_continuity_session(post_session, "post_outage")
+    items = normalized_pre + normalized_post
+
+    pre_deltas = boundary_deltas(normalized_pre)
+    post_deltas = boundary_deltas(normalized_post)
+    normal_deltas = pre_deltas + post_deltas
+
     bad_normal = [
         row
-        for row in normal
+        for row in normal_deltas
         if abs(float(row["delta_seconds"])) > BOUNDARY_TOLERANCE_SECONDS
     ]
     if bad_normal:
         raise AssertionError(
-            f"unexpected non-outage segment boundary discontinuity: {bad_normal}"
+            "normalized same-session boundaries are not continuous: "
+            f"{bad_normal}"
         )
 
+    cross_gap = {
+        "left_id": normalized_pre[-1]["id"],
+        "right_id": normalized_post[0]["id"],
+        "left_end": normalized_pre[-1]["end_at"],
+        "right_start": normalized_post[0]["start_at"],
+        "delta_seconds": (
+            parse_iso(normalized_post[0]["start_at"])
+            - parse_iso(normalized_pre[-1]["end_at"])
+        ),
+    }
+
     outage_duration = outage_end - outage_start
-    gap_seconds = float(largest["delta_seconds"])
+    gap_seconds = float(cross_gap["delta_seconds"])
     if gap_seconds <= BOUNDARY_TOLERANCE_SECONDS:
         raise AssertionError(
-            f"source outage did not create a visible media gap: {largest}"
+            f"source outage did not create a visible media gap: {cross_gap}"
         )
     if gap_seconds < max(2.0, outage_duration - 4.0):
         raise AssertionError(
@@ -427,8 +525,10 @@ def verify(outage_start: float, outage_end: float) -> None:
         )
 
     ranges = build_ranges(items, BOUNDARY_TOLERANCE_SECONDS)
-    if len(ranges) < 2:
-        raise AssertionError(f"expected at least two coverage ranges: {ranges}")
+    if len(ranges) != 2:
+        raise AssertionError(
+            f"expected exactly two coverage ranges around one outage: {ranges}"
+        )
 
     gap = {
         "start_at": iso(ranges[0]["end"]),
@@ -552,10 +652,12 @@ def verify(outage_start: float, outage_end: float) -> None:
             "requested_end_at": iso(outage_end),
             "requested_duration_seconds": outage_duration,
         },
-        "segments": items,
+        "raw_hook_segments": raw_items,
+        "normalized_segments": items,
         "boundary_tolerance_seconds": BOUNDARY_TOLERANCE_SECONDS,
-        "boundary_deltas": deltas,
-        "largest_gap_boundary": largest,
+        "raw_hook_boundary_deltas": raw_deltas,
+        "normalized_same_session_boundary_deltas": normal_deltas,
+        "source_outage_gap_boundary": cross_gap,
         "recording_ranges": [
             {
                 "start_at": iso(row["start"]),
