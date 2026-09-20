@@ -109,6 +109,7 @@ The command grammar may evolve, but the product needs these workflows:
 ```text
 install
 update
+rollback [version]
 status
 doctor
 feature enable <name>
@@ -139,6 +140,43 @@ restore
 - preserve rollback information.
 
 Do not treat mutable `latest` as the production upgrade contract.
+
+### rollback
+
+A successful install records the immutable Git revision that produced the running control plane. A successful update records:
+
+- the newly deployed revision;
+- the immediately previous deployed revision;
+- the verified local pre-upgrade database safety snapshot.
+
+The supported command is:
+
+~~~bash
+./deploy.sh rollback
+./deploy.sh rollback <recorded-previous-revision-or-ref>
+~~~
+
+The optional version/ref must resolve to the exact recorded previous deployment revision. Arbitrary historical downgrades are intentionally rejected because zero-nvr cannot assume an unrelated schema/config rollback path is safe.
+
+Rollback sequencing is:
+
+1. require a clean tracked source worktree and the recorded rollback state;
+2. stage-build the recorded previous revision before mutating the running installation;
+3. preserve the current zero-nvr image under a temporary recovery tag;
+4. create a fresh pre-rollback database safety snapshot;
+5. stop only zero-nvr API/worker; ZLMediaKit is left running;
+6. restore the recorded pre-upgrade database safety snapshot;
+7. switch to the recorded previous source revision and staged image;
+8. start API/worker and run health checks;
+9. on failure, attempt to restore the pre-rollback revision/image/database.
+
+Recording media is never modified by this rollback path.
+
+If an update exits after its rollback point has been recorded but before health validation succeeds, deployment state remains marked pending. `./deploy.sh rollback` recognizes that state and restores the pre-update revision/database.
+
+Automatic version rollback becomes available only after deployment-state support has recorded a known previous revision. An installation upgraded from an older release with no deployment state may require one successful state-aware install/update before version rollback can be automated.
+
+Local safety snapshots live under the zero-nvr data directory and are restored only through the host-local CLI. The restore command rejects paths outside `safety-backups`, takes another rollback-of-rollback database snapshot first, and never touches `/recordings`.
 
 ### doctor
 
@@ -267,6 +305,7 @@ Minimum sequence:
 3. pull version-pinned images;
 4. migration;
 5. start/restart;
-6. health validation.
+6. health validation;
+7. record immutable deployed/rollback state.
 
-Migration failure must not silently leave a half-upgraded stack.
+Migration/startup/health failure must not silently leave a half-upgraded stack. Once a pre-upgrade rollback point is recorded, the operator can run `./deploy.sh rollback` to restore the previous source revision and matching database safety point.
