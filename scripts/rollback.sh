@@ -31,12 +31,12 @@ preflight_rollback() {
 }
 
 resolve_target() {
-  local recorded resolved
+  local recorded="$1"
+  local context="$2"
+  local resolved
 
-  recorded="$(deployment_state_get ROLLBACK_REVISION)"
   if ! valid_revision "$recorded"; then
-    echo "error: no recorded previous deployment revision is available" >&2
-    echo "run a successful install/update with deployment-state support before using automatic rollback" >&2
+    echo "error: no valid $context revision is available" >&2
     return 1
   fi
 
@@ -50,8 +50,8 @@ resolve_target() {
       || true
   )"
   if [[ "$resolved" != "$recorded" ]]; then
-    echo "error: requested version does not match the recorded rollback revision" >&2
-    echo "recorded rollback revision: $recorded" >&2
+    echo "error: requested version does not match the recorded $context revision" >&2
+    echo "recorded revision: $recorded" >&2
     return 1
   fi
   printf '%s' "$recorded"
@@ -60,13 +60,33 @@ resolve_target() {
 preflight_rollback
 
 deployed="$(deployment_state_get DEPLOYED_REVISION)"
-snapshot_rel="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
-target="$(resolve_target)"
+recorded_rollback="$(deployment_state_get ROLLBACK_REVISION)"
+recorded_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
+pending_previous="$(deployment_state_get PENDING_PREVIOUS_REVISION)"
+pending_snapshot="$(deployment_state_get PENDING_SNAPSHOT_REL)"
 current_source="$(git_revision || true)"
+mode="normal"
 
-if ! valid_revision "$deployed" || [[ "$current_source" != "$deployed" ]]; then
-  echo "error: source checkout does not match the recorded deployed revision" >&2
-  echo "recorded: ${deployed:-unavailable}" >&2
+if ! valid_revision "$deployed"; then
+  echo "error: recorded deployed revision is unavailable" >&2
+  exit 1
+fi
+
+if [[ "$current_source" == "$deployed" ]]; then
+  target="$(resolve_target "$recorded_rollback" "rollback")"
+  snapshot_rel="$recorded_snapshot"
+elif valid_revision "$pending_target" \
+  && [[ "$current_source" == "$pending_target" ]] \
+  && [[ "$pending_previous" == "$deployed" ]]; then
+  mode="failed-update"
+  target="$(resolve_target "$pending_previous" "pre-update")"
+  snapshot_rel="$pending_snapshot"
+  echo "Detected failed/pending update $pending_target; recovering deployed revision $target."
+else
+  echo "error: source checkout does not match deployed or pending update state" >&2
+  echo "deployed: ${deployed:-unavailable}" >&2
+  echo "pending: ${pending_target:-none}" >&2
   echo "checkout: ${current_source:-unavailable}" >&2
   exit 1
 fi
@@ -98,7 +118,7 @@ if [[ -z "$current_image_id" ]]; then
   exit 1
 fi
 
-current_short="$(printf '%s' "$deployed" | cut -c1-12)"
+current_short="$(printf '%s' "$current_source" | cut -c1-12)"
 target_short="$(printf '%s' "$target" | cut -c1-12)"
 recovery_image="zero-nvr:rollback-recovery-$current_short"
 stage_image="zero-nvr:rollback-stage-$target_short"
@@ -150,9 +170,9 @@ apply_rollback() {
 }
 
 if ! apply_rollback; then
-  echo "Rollback failed; attempting automatic recovery of $deployed..." >&2
+  echo "Rollback failed; attempting to recover the pre-rollback state $current_source..." >&2
 
-  git -C "$ROOT_DIR" checkout --detach "$deployed" >/dev/null 2>&1 || true
+  git -C "$ROOT_DIR" checkout --detach "$current_source" >/dev/null 2>&1 || true
   docker tag "$recovery_image" "$configured_image" >/dev/null 2>&1 || true
 
   if [[ -x "$SCRIPT_DIR/render-zlm-config.sh" ]]; then
@@ -182,13 +202,24 @@ if ! apply_rollback; then
   exit 1
 fi
 
-write_deployment_state \
-  "$target" \
-  "$deployed" \
-  "$pre_rollback_snapshot"
+if [[ "$mode" == "failed-update" ]]; then
+  write_deployment_state \
+    "$target" \
+    "$recorded_rollback" \
+    "$recorded_snapshot"
+else
+  write_deployment_state \
+    "$target" \
+    "$deployed" \
+    "$pre_rollback_snapshot"
+fi
 
 docker image rm "$stage_image" >/dev/null 2>&1 || true
 docker image rm "$recovery_image" >/dev/null 2>&1 || true
 
-echo "Rollback completed: $deployed -> $target"
+if [[ "$mode" == "failed-update" ]]; then
+  echo "Failed update recovered: $current_source -> $target"
+else
+  echo "Rollback completed: $deployed -> $target"
+fi
 echo "Recording media was not modified."
