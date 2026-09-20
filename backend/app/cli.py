@@ -442,6 +442,205 @@ def _postgres_restore(
     )
 
 
+def _normalize_database_backend(
+    database: Database,
+) -> str:
+    backend = database.url.get_backend_name()
+    return (
+        "postgresql"
+        if backend in {"postgres", "postgresql"}
+        else backend
+    )
+
+
+def _validated_safety_snapshot(
+    *,
+    settings: Settings,
+    database: Database,
+    raw_path: str,
+) -> Path:
+    root = (
+        settings.data_dir
+        / "safety-backups"
+    ).resolve()
+    snapshot = Path(raw_path).resolve()
+    try:
+        snapshot.relative_to(root)
+    except ValueError as exc:
+        raise RuntimeError(
+            "safety snapshot must be inside the zero-nvr safety-backups directory"
+        ) from exc
+
+    if not snapshot.is_file():
+        raise RuntimeError(
+            "safety snapshot is unavailable"
+        )
+
+    backend = _normalize_database_backend(
+        database
+    )
+    expected = {
+        "sqlite": "database.sqlite3",
+        "postgresql": "database.pgcustom",
+    }.get(backend)
+    if expected is None:
+        raise RuntimeError(
+            "database backend is not supported for safety rollback"
+        )
+    if snapshot.name != expected:
+        raise RuntimeError(
+            "safety snapshot does not match the active database backend"
+        )
+    return snapshot
+
+
+def _restore_safety_snapshot(
+    *,
+    settings: Settings,
+    database: Database,
+    snapshot: Path,
+) -> tuple[str, Path | None]:
+    backend = _normalize_database_backend(
+        database
+    )
+    timestamp = datetime.now(UTC).strftime(
+        "%Y%m%dT%H%M%SZ"
+    )
+    rollback_dir = (
+        settings.data_dir
+        / "restore-rollback"
+        / timestamp
+    )
+    rollback_dir.mkdir(
+        parents=True,
+        exist_ok=False,
+    )
+    rollback_snapshot: Path | None = None
+
+    if backend == "sqlite":
+        target_raw = database.url.database
+        if not target_raw:
+            raise RuntimeError(
+                "SQLite target path is unavailable"
+            )
+        target = Path(target_raw).resolve()
+        target.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+        if target.exists():
+            current = DatabaseSnapshotService(
+                settings
+            ).snapshot(
+                database,
+                destination_dir=rollback_dir,
+            )
+            rollback_snapshot = current.path
+
+        _verify_sqlite(snapshot)
+        database.close()
+
+        partial = target.with_name(
+            target.name + ".rollback.partial"
+        )
+        partial.unlink(missing_ok=True)
+        shutil.copy2(snapshot, partial)
+        try:
+            _verify_sqlite(partial)
+            with partial.open("rb+") as handle:
+                os.fsync(handle.fileno())
+            for suffix in ("-wal", "-shm"):
+                sidecar = Path(
+                    str(target) + suffix
+                )
+                if sidecar.exists():
+                    shutil.move(
+                        sidecar,
+                        rollback_dir
+                        / sidecar.name,
+                    )
+            os.replace(partial, target)
+        finally:
+            partial.unlink(missing_ok=True)
+
+    elif backend == "postgresql":
+        current = DatabaseSnapshotService(
+            settings
+        ).snapshot(
+            database,
+            destination_dir=rollback_dir,
+        )
+        rollback_snapshot = current.path
+        try:
+            _postgres_restore(
+                settings=settings,
+                database=database,
+                snapshot=snapshot,
+            )
+        except Exception:
+            _postgres_restore(
+                settings=settings,
+                database=database,
+                snapshot=current.path,
+            )
+            raise
+        finally:
+            database.close()
+    else:
+        raise RuntimeError(
+            "database backend is not supported for safety rollback"
+        )
+
+    return backend, rollback_snapshot
+
+
+def restore_safety_snapshot_command(
+    args: argparse.Namespace,
+) -> int:
+    if not args.force:
+        raise RuntimeError(
+            "restore-safety-snapshot requires --force"
+        )
+
+    settings, database = _settings_database()
+    try:
+        snapshot = _validated_safety_snapshot(
+            settings=settings,
+            database=database,
+            raw_path=args.path,
+        )
+        backend, rollback_snapshot = (
+            _restore_safety_snapshot(
+                settings=settings,
+                database=database,
+                snapshot=snapshot,
+            )
+        )
+        print(
+            json.dumps(
+                {
+                    "restored": True,
+                    "safety_snapshot": str(
+                        snapshot
+                    ),
+                    "database_engine": backend,
+                    "rollback_snapshot": (
+                        str(rollback_snapshot)
+                        if rollback_snapshot
+                        is not None
+                        else None
+                    ),
+                    "recordings_modified": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
+
+
 def restore_staged_command(
     args: argparse.Namespace,
 ) -> int:
@@ -625,6 +824,21 @@ def build_parser() -> argparse.ArgumentParser:
     reset.add_argument("--password")
     reset.set_defaults(
         handler=reset_password_command
+    )
+
+    safety_restore = sub.add_parser(
+        "restore-safety-snapshot"
+    )
+    safety_restore.add_argument(
+        "--path",
+        required=True,
+    )
+    safety_restore.add_argument(
+        "--force",
+        action="store_true",
+    )
+    safety_restore.set_defaults(
+        handler=restore_safety_snapshot_command
     )
 
     restore = sub.add_parser("restore-staged")
