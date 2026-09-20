@@ -1,90 +1,81 @@
 # POC-08 — ZLM Stream Sharing / Camera Connection Count
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
 Prove the intended camera-facing topology:
 
-```text
-main source -> ZLM
-sub source  -> ZLM
+~~~text
+camera main -> ZLM
+camera sub  -> ZLM
 
 ZLM -> recorder / live / optional downstream consumers
-```
+~~~
 
-without each downstream consumer opening another RTSP connection to the source.
+without downstream consumers multiplying source-camera RTSP sessions.
 
 ## Harness
 
-```text
-poc/zlm-recording/
-```
+~~~text
+poc/zlm-recording/scripts/run.sh
+~~~
 
-MediaMTX supplies deterministic `cam_main` and `cam_sub` RTSP paths and exposes reader-count metrics.
-
-## Required evidence before PASS
-
-Before extra downstream consumers:
-
-```text
-MediaMTX cam_main readers = 1
-MediaMTX cam_sub  readers = 1
-```
-
-Then start two additional readers against:
-
-```text
-rtsp://zlm:554/poc/cam-main
-```
-
-while ZLM remains attached to the original source.
-
-Required result:
-
-```text
-MediaMTX cam_main readers remains 1
-MediaMTX cam_sub  readers remains 1
-```
-
-This demonstrates that downstream consumers attach to ZLM rather than multiplying source-facing sessions.
+MediaMTX supplies deterministic main/sub RTSP paths and exposes source reader-count metrics.
 
 ## Tested versions
 
-Pending execution.
-
-## Test environment
-
-Pending execution.
+~~~text
+GitHub Actions run: 35490737812
+job: POC 01
+ZLMediaKit master commit: b794772
+MediaMTX: 1.21.0-ffmpeg
+managed recording mode: fMP4
+~~~
 
 ## Evidence
 
-Pending execution.
+After ZLM attached to both original source profiles:
 
-Future runtime evidence is expected in:
+~~~text
+upstream_readers_before:
+  cam_main = 1
+  cam_sub  = 1
+~~~
 
-```text
-poc/zlm-recording/runtime/evidence.json
+The harness then opened two additional FFmpeg readers against:
 
-checks.upstream_readers_before
-checks.upstream_readers_with_two_zlm_viewers
-```
+~~~text
+rtsp://zlm:554/poc/cam-main
+~~~
+
+while ZLM recording remained active.
+
+Source-facing result:
+
+~~~text
+upstream_readers_with_two_zlm_viewers:
+  cam_main = 1
+  cam_sub  = 1
+~~~
+
+The downstream consumers therefore attached to ZLM and did not create additional source pulls.
+
+## Primary artifact
+
+~~~text
+GitHub Actions run: 35490737812
+artifact: poc-01-evidence
+artifact id: 10598827593
+runtime/evidence.json
+~~~
 
 ## Known limitations
 
-The Core harness uses two FFmpeg readers as generic downstream consumers.
+The Core test uses FFmpeg readers as generic downstream consumers. That is sufficient for the Core invariant: consumer count must not equal additional source-camera RTSP sessions.
 
-That is sufficient for the Core architecture gate because the measured invariant is:
-
-~~~text
-additional downstream readers
-!= additional source-camera RTSP sessions
-~~~
-
-Frigate remains optional. If AI is enabled, Managed Frigate has a separate feature-specific smoke requirement: its AI_DETECT input must point at the ZLM internal stream and the source-facing camera reader count must remain unchanged.
-
-This keeps a non-AI deployment from pulling/starting Frigate merely to satisfy the Core design freeze.
+Managed Frigate remains an optional feature-specific acceptance test: when AI is enabled, Frigate `AI_DETECT` input must use the ZLM internal stream and source-facing reader count must remain unchanged.
 
 ## Architecture impact
 
-None yet. Do not mark the stream-sharing assumption frozen until runtime evidence exists.
+**Accepted:** ZLMediaKit is the camera-facing media bus. Main/sub streams are pulled once by ZLM and shared to recording/live/other consumers.
