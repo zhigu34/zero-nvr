@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -13,6 +13,11 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.auth.service import AuthContext
+from app.integrations.frigate import (
+    FrigateHttpAdapter,
+    FrigateIntegrationError,
+)
+from app.modules.system.frigate import FrigateProviderSettingsService
 
 from .models import Event
 from .query import EventQueryService
@@ -136,3 +141,77 @@ def get_event(
                 message="Event was not found.",
             )
     return _event_view(event)
+
+
+
+@router.get("/events/{event_id}/snapshot")
+def event_snapshot(
+    event_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("event.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    event = EventQueryService.get(session, event_id)
+    if event.camera_id is not None:
+        scope = get_effective_camera_scope(context, session)
+        if not scope.allows(event.camera_id):
+            raise ApiError(
+                status_code=404,
+                code="event_not_found",
+                message="Event was not found.",
+            )
+
+    if (
+        event.source != "frigate"
+        or event.source_event_id is None
+        or event.source_instance_id is None
+        or not event.snapshot_ref
+    ):
+        raise ApiError(
+            status_code=404,
+            code="event_snapshot_not_found",
+            message="Event snapshot is unavailable.",
+        )
+
+    provider = FrigateProviderSettingsService(
+        request.app.state.settings
+    ).get(session)
+    if (
+        provider is None
+        or not provider.enabled
+        or provider.instance_id != event.source_instance_id
+    ):
+        raise ApiError(
+            status_code=404,
+            code="event_snapshot_not_found",
+            message="Event snapshot is unavailable.",
+        )
+
+    try:
+        with FrigateHttpAdapter(
+            base_url=provider.base_url,
+            bearer_token=provider.credentials.http_bearer_token,
+            username=provider.credentials.http_username,
+            password=provider.credentials.http_password,
+            timeout_seconds=10.0,
+        ) as adapter:
+            content, content_type = adapter.snapshot(
+                event.source_event_id
+            )
+    except FrigateIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+        ) from exc
+
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "private, max-age=60",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

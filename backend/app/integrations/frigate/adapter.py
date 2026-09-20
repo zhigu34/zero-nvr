@@ -84,6 +84,7 @@ class FrigateHttpAdapter:
         path: str,
         *,
         params: dict[str, object] | None = None,
+        accept: str | None = None,
     ) -> httpx.Response:
         try:
             response = self._client.get(
@@ -93,6 +94,11 @@ class FrigateHttpAdapter:
                     for key, value in (params or {}).items()
                     if value is not None
                 },
+                headers=(
+                    {"Accept": accept}
+                    if accept is not None
+                    else None
+                ),
             )
             response.raise_for_status()
         except httpx.TimeoutException as exc:
@@ -222,3 +228,33 @@ class FrigateHttpAdapter:
             else "snapshot.jpg"
         )
         return f"{self.base_url}/api/events/{normalized}/{suffix}"
+
+
+
+    def snapshot(
+        self,
+        event_id: str,
+        *,
+        clean: bool = False,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> tuple[bytes, str]:
+        url = self.snapshot_url(event_id, clean=clean)
+        path = url.removeprefix(self.base_url)
+        response = self._response(path, accept="image/*")
+        content_type = response.headers.get(
+            "content-type",
+            "application/octet-stream",
+        ).split(";", 1)[0].strip().lower()
+        if not content_type.startswith("image/"):
+            raise FrigateIntegrationError(
+                "frigate_snapshot_invalid",
+                "Frigate returned an invalid event snapshot.",
+            )
+        content = response.content
+        if len(content) > max_bytes:
+            raise FrigateIntegrationError(
+                "frigate_snapshot_too_large",
+                "Frigate event snapshot is too large.",
+                status_code=502,
+            )
+        return content, content_type
