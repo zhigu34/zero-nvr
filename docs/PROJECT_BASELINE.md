@@ -131,6 +131,25 @@ FFmpeg is reserved for derived work such as export, clip/concat/remux, compatibi
 
 Recording media files and the product catalog are **eventually consistent**. A missed hook must be recoverable through reconciliation; the database must not be placed in the media hot path.
 
+This model is validated by [POC-10 — Recovery Reconciliation](poc-results/10-reconciliation.md): control-plane restart, temporary SQLite write unavailability, lost hooks, stale catalog rows, provable orphan recovery, ambiguous orphan preservation, and reconciliation-process restart all converged idempotently without deleting valid media.
+
+Accepted reconciliation rules:
+
+~~~text
+valid unindexed media + provable identity
+  -> recover RecordingSegment / RecordingLocation
+
+catalogued AVAILABLE copy missing from storage
+  -> mark MISSING / explain
+
+ambiguous unindexed media
+  -> preserve + surface diagnostically
+  -> never guess identity or auto-delete
+
+second reconciliation after convergence
+  -> zero additional mutations
+~~~
+
 ## Event recording and trigger model
 
 The canonical data model includes **RecordingTrigger** with a correlation identifier and source evidence.
