@@ -1,127 +1,203 @@
 # zero-nvr
 
-**zero-nvr** is a custom NVR management platform built around a simple rule:
+**zero-nvr** is a lightweight but complete self-hosted NVR control plane.
 
-> Mature components handle protocols and media. zero-nvr owns the NVR product, control plane, and domain model.
+The project follows one rule:
 
-The project is a clean V2 rewrite of the earlier camera-recorder experiment. It is not a line-by-line port and does not inherit V1 implementation constraints.
+> Mature components own commodity media/protocol/infrastructure work. zero-nvr owns the product model, policy, integration, UI/API, reconciliation, and user workflow.
 
-## Product scope
+## Product target
 
-zero-nvr is intended to unify:
+V1 targets:
 
-- camera and connection management;
-- live preview and media sessions;
-- continuous and event recording;
-- native camera events and optional AI detection;
-- alert rules and notifications;
-- local storage and retention;
-- cloud upload and verification;
-- historical timeline and playback;
-- device/runtime/storage health;
-- permissions, audit and integrations.
+- home / personal NVR;
+- NAS and home-server deployments;
+- small office;
+- small-to-medium camera counts;
+- single-host deployment by default;
+- SQLite by default, PostgreSQL optional.
 
-## Architecture direction
+A complete V1 means the supported lifecycle works end to end:
 
-```text
-Vue 3
-  |
-FastAPI Control Plane
-  |
-  +-- Device Plane ------ ONVIF library / vendor bridges / optional WVP
-  |
-  +-- Media Plane ------- ZLMediaKit / FFmpeg
-  |
-  +-- Event Plane ------- native camera events / optional AI providers
-  |
-  +-- Job Plane --------- upload / export / notification / retention
-  |
-  +-- Storage Plane ----- local / S3 / rclone / OpenList
-  |
-SQLite (default) / PostgreSQL (optional)
-```
+~~~text
+install
+-> initialize
+-> add cameras
+-> live view
+-> record
+-> timeline/playback
+-> events/alerts
+-> retention/archive
+-> export/protect
+-> backup/restore
+-> health
+-> upgrade
+~~~
 
-The authoritative business model remains inside zero-nvr. External components are adapters, not competing sources of truth.
+It does **not** mean every surveillance protocol or enterprise platform feature must ship in V1.
 
-## Reuse-first rule
+## Capability ownership
 
-Before implementing protocol or infrastructure code, ask:
+| Capability | Owner |
+|---|---|
+| camera pull / media routing / reconnect | ZLMediaKit |
+| normal MP4/fMP4 recording | ZLMediaKit |
+| live protocols / VOD / snapshot | ZLMediaKit |
+| AI detection / tracking / zones | optional Frigate |
+| clip / remux / transcode / frame extraction | FFmpeg / ffprobe |
+| remote copy / verify / delete / restore | rclone |
+| special cloud-drive gateway | optional OpenList -> WebDAV -> rclone |
+| background tasks | Huey |
+| notification delivery | Apprise |
+| system/disaster backup repository | restic |
+| ONVIF / WS-Discovery protocol | mature client libraries |
+| host deployment / upgrade | deploy.sh + Docker Compose |
 
-1. Is there a mature existing implementation?
-2. Can it be wrapped behind a zero-nvr adapter?
-3. Does zero-nvr truly gain product value by owning this implementation?
+zero-nvr must not introduce a second RTSP reconnect engine, permanent FFmpeg recorder, RAID/JBOD manager, generic job queue, generic rule engine, or monitoring TSDB.
 
-Default decisions:
+## Recording path
 
-- media proxy / WebRTC / HLS / fMP4: **ZLMediaKit**;
-- normal recording/VOD/media runtime: **ZLMediaKit**;
-- derived-media/export/transcode/inspection: **FFmpeg / ffprobe**;
-- ONVIF SOAP/WSDL/WS-Security: **mature ONVIF library**;
-- HIK private protocol: **vendor SDK through an isolated bridge**;
-- GB28181: **optional WVP + ZLMediaKit integration**;
-- notifications: **Apprise or adapter-backed providers**;
-- generic cloud storage: **S3 / rclone / OpenList adapters**;
-- AI detection: **optional provider integration such as Frigate**, not a second NVR authority.
+~~~text
+Camera main/sub
+      ↓
+ZLMediaKit
+  ├─ live
+  ├─ normal recording
+  ├─ VOD
+  └─ AI_DETECT stream -> optional Frigate
+
+ZLM finalized MP4
+      ↓
+on_record_mp4
+      ↓
+RecordingSegment
+      ↓
+RecordingLocation(s)
+~~~
+
+A `RecordingSegment` is the finalized time/media fact.
+
+A `RecordingLocation` is one physical copy on local or archived storage.
+
+The database is not in the live media write path. Missed hooks are repaired by reconciliation.
+
+## Storage path
+
+~~~text
+local RecordingLocation AVAILABLE
+      ↓
+Huey -> rclone copy/copyto
+      ↓
+verify
+      ↓
+remote RecordingLocation AVAILABLE
+      ↓
+retention may delete local copy
+~~~
+
+Remote archive failure never stops healthy local recording.
+
+The product does not use `rclone move` or whole-tree sync as the default archive semantic.
+
+## Database
+
+Default:
+
+~~~text
+SQLite + WAL
+~~~
+
+Optional scale-up:
+
+~~~text
+PostgreSQL
+~~~
+
+Both share one SQLAlchemy/Alembic logical model.
+
+SQLite remains first-class until measured load proves a deployment should move to PostgreSQL.
+
+## Core deployment
+
+Default non-AI Core:
+
+~~~text
+Image: zero-nvr
+  ├─ zero-nvr-api
+  └─ zero-nvr-worker
+
+Image: ZLMediaKit
+  └─ zlmediakit
+~~~
+
+That is **2 images / 3 containers**.
+
+FFmpeg, rclone, restic, Apprise, ONVIF/auth libraries are included in the zero-nvr image where practical rather than receiving one container each.
+
+Optional independently running services such as Frigate, Mosquitto, OpenList, and PostgreSQL are started only when enabled.
+
+## Deployment interface
+
+~~~text
+./deploy.sh install
+./deploy.sh update [version]
+./deploy.sh status
+./deploy.sh doctor
+./deploy.sh feature enable <name>
+./deploy.sh feature disable <name>
+./deploy.sh backup
+./deploy.sh restore
+./deploy.sh rollback [version]
+./deploy.sh admin reset-password
+~~~
+
+The web/API container does not require unrestricted Docker-socket access.
 
 ## Repository layout
 
-```text
-backend/       FastAPI control plane and domain services
-frontend/      Vue 3 management UI
-deploy/        deployment and infrastructure definitions
-docs/          architecture, domain and implementation plans
-```
-
-The directories are intentionally lightweight during initialization. Implementation details will be introduced phase by phase.
+~~~text
+backend/       FastAPI modular-monolith control plane
+frontend/      Vue 3 management/playback UI
+deploy/        deploy.sh / Compose deployment definitions
+poc/           disposable design-freeze validation harnesses
+docs/          architecture, ADRs, specs and freeze plans
+~~~
 
 ## Current status
 
-Architecture baseline is being finalized for the first production release.
+~~~text
+V1 Design Freeze Candidate
+~~~
 
-The first production release is intentionally complete rather than MVP-scoped: engineering phases are implementation order, and known product-grade capabilities are expected to ship before the first stable release.
+The architecture ownership, persistence boundary, and API/module boundary are now documented.
 
-Start with:
+Before declaring `V1 Architecture Frozen`, the media/storage/database POCs in the design-freeze plan must produce real evidence.
+
+Start here:
 
 - [Project Baseline](docs/PROJECT_BASELINE.md)
+- [Documentation Index](docs/README.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Technology Stack](docs/TECH_STACK.md)
-- [Deployment Architecture](docs/DEPLOYMENT.md)
 - [Domain Model](docs/DOMAIN_MODEL.md)
-- [Integrations](docs/INTEGRATIONS.md)
+- [Technology Stack](docs/TECH_STACK.md)
+- [Deployment](docs/DEPLOYMENT.md)
 - [Roadmap](docs/ROADMAP.md)
-- [V2 Platform Spec](docs/specs/0001-platform-architecture.md)
-- [Event Recording Lifecycle](docs/specs/0002-event-recording-lifecycle.md)
-- [Rolling MP4 Pre-buffer](docs/specs/0003-rolling-mp4-prebuffer.md)
-- [Recording Storage Layout](docs/specs/0004-recording-storage-layout.md)
-- [Recording Retention and Safe Purge](docs/specs/0005-recording-retention-and-purge.md)
-- [Historical Playback Timeline](docs/specs/0006-historical-playback-timeline.md)
-- [Recording Intent Arbitration](docs/specs/0007-recording-intent-arbitration.md)
-- [Stream Reconnect and Recording Recovery](docs/specs/0008-stream-reconnect-and-recording-recovery.md)
-- [Canonical Time and Camera Clock](docs/specs/0009-time-and-camera-clock.md)
-- [Recording Storage Pool and Failover](docs/specs/0010-recording-storage-pool-and-failover.md)
-- [Authentication, Authorization, and Audit](docs/specs/0011-auth-authorization-and-audit.md)
-- [Configuration, Secrets, and Key Management](docs/specs/0012-config-secrets-key-management.md)
-- [First Production Release Scope](docs/specs/0013-first-production-release-scope.md)
-- [Alerting, Notification, and Escalation](docs/specs/0014-alerting-notification-and-escalation.md)
-- [Backup, Disaster Recovery, and PITR](docs/specs/0015-backup-disaster-recovery-and-pitr.md)
-- [SQLite and PostgreSQL Production Modes](docs/specs/0016-postgresql-and-sqlite-portability.md)
-- [Upgrade, Migration, and Rollback](docs/specs/0017-upgrade-migration-and-rollback.md)
-- [Camera Onboarding, Discovery, and Stream Selection](docs/specs/0018-camera-onboarding-discovery-and-stream-selection.md)
-- [Device Runtime Lifecycle and Reconfiguration](docs/specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
-- [Live View, Media Sessions, TURN, and Talk](docs/specs/0020-live-view-media-session-and-talk.md)
-- [Detection Providers, AI Events, Zones, and Fusion](docs/specs/0021-detection-providers-ai-events-and-fusion.md)
-- [Development Guidelines](docs/DEVELOPMENT_GUIDELINES.md)
-- [Bootstrap Plan](docs/plans/00-bootstrap.md)
-- [V1 Design-Freeze POC Plan](docs/plans/01-design-freeze-poc.md)
+- [V1 Design-Freeze POCs](docs/plans/01-design-freeze-poc.md)
+- [V1 Schema Freeze](docs/plans/02-v1-schema-freeze.md)
+- [V1 API / Module Freeze](docs/plans/03-v1-api-module-freeze.md)
 
-## V1 relationship
+## First executable POC
 
-The previous project is treated as a behavior/reference source, not as the V2 codebase.
+The first committed harness covers:
 
-V2 migration principles:
+- ZLM continuous recording / `on_record_mp4`;
+- lost-hook reconciliation;
+- source-facing connection sharing.
 
-- preserve useful product lessons;
-- preserve external data only when an explicit migration is designed;
-- do not copy legacy protocol implementations merely because they already exist;
-- keep adapters and domain contracts clean from the start;
-- migrate capabilities incrementally rather than recreating V1 internals.
+~~~bash
+cd poc/zlm-recording
+cp .env.example .env
+sh ./scripts/run.sh
+~~~
+
+A committed harness is not a passing result. POC result documents remain `NOT RUN` until actual Docker evidence exists.
