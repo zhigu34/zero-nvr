@@ -276,11 +276,14 @@ The ZLM recorder should continue even if FastAPI/worker restarts.
 
 After recovery:
 
-1. scan known tmpfs recording paths;
-2. combine discovered finalized files with current active RecordingTriggers;
-3. protect/promote any file overlapping a still-required window;
-4. resume normal GC;
-5. avoid duplicate canonical RecordingSegment/RecordingLocation creation.
+1. load durable active RecordingTriggers;
+2. scan known tmpfs recording paths directly;
+3. derive finalized fragment start/end from the canonical ZLM path plus media metadata where needed;
+4. protect/promote any fragment overlapping a still-required window;
+5. resume normal GC;
+6. avoid duplicate canonical RecordingSegment/RecordingLocation creation.
+
+The design-freeze harness deliberately stops FastAPI while ZLM keeps rolling, then runs a fresh recovery process whose fragment selection uses only persisted Trigger state + filesystem/media inspection. Hook history may be compared afterward as evidence, but it is not required for selection.
 
 No persistent PrebufferFragment table is required solely for this reconstruction.
 
@@ -352,7 +355,7 @@ Candidate C can be frozen only after real execution demonstrates:
 2. requested pre-roll is covered across fragment boundaries;
 3. overlapping Events extend promotion only, not recorder count;
 4. normal ZLM hooks provide usable actual file timing;
-5. POC restart/reconciliation can recover ephemeral finalized fragments;
+5. a real FastAPI stop/restart can recover ephemeral finalized fragments from Trigger + filesystem state even when hooks were unavailable;
 6. tmpfs usage is bounded and measured;
 7. H.264 with at least two GOP intervals works;
 8. H.265 is tested where the available ZLM/FFmpeg test stack supports it;
