@@ -7,6 +7,13 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.errors import ApiError
+from app.integrations.zlm import (
+    ZlmAdapter,
+    ZlmIntegrationError,
+    ZlmMediaProbe,
+    ZlmTrackProbe,
+)
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import (
     get_auth_context,
@@ -20,6 +27,9 @@ from .models import Camera, CameraStreamBinding, CameraStreamProfile, Device
 from .schemas import (
     CameraCreate,
     CameraDetail,
+    CameraProbeResult,
+    CameraProbeStreamView,
+    CameraProbeTrackView,
     CameraStreamBindingView,
     CameraStreamBindingsUpdate,
     CameraStreamProfileView,
@@ -30,6 +40,36 @@ from .service import CameraService
 
 
 router = APIRouter()
+
+
+def _probe_track_view(track: ZlmTrackProbe | None) -> CameraProbeTrackView | None:
+    if track is None:
+        return None
+    return CameraProbeTrackView(
+        kind=track.kind,
+        codec=track.codec,
+        ready=track.ready,
+        width=track.width,
+        height=track.height,
+        fps=track.fps,
+        gop_seconds=track.gop_seconds,
+        sample_rate=track.sample_rate,
+        channels=track.channels,
+    )
+
+
+def _probe_stream_view(
+    *,
+    role: str,
+    name: str,
+    probe: ZlmMediaProbe,
+) -> CameraProbeStreamView:
+    return CameraProbeStreamView(
+        role=role,
+        name=name,
+        video=_probe_track_view(probe.video),
+        audio=_probe_track_view(probe.audio),
+    )
 
 
 def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
@@ -175,6 +215,65 @@ def create_camera(
         raise
 
     return _camera_detail(session, camera)
+
+
+@router.post("/cameras/test", response_model=CameraProbeResult)
+def test_camera_configuration(
+    body: CameraCreate,
+    request: Request,
+    _context: AuthContext = Depends(require_permission("camera.configure")),
+) -> CameraProbeResult:
+    streams: list[tuple[str, str, str]] = [
+        (
+            "primary",
+            body.primary_stream.name,
+            body.primary_stream.rtsp_url.get_secret_value(),
+        )
+    ]
+    if body.secondary_stream is not None:
+        streams.append(
+            (
+                "secondary",
+                body.secondary_stream.name,
+                body.secondary_stream.rtsp_url.get_secret_value(),
+            )
+        )
+
+    # Validate all source URIs before opening any temporary ZLM proxy.
+    for _role, _name, source_url in streams:
+        CameraService.validate_rtsp_url(source_url)
+
+    results: list[CameraProbeStreamView] = []
+    try:
+        with ZlmAdapter(request.app.state.settings) as zlm:
+            for role, name, source_url in streams:
+                try:
+                    probe = zlm.probe_rtsp_source(source_url)
+                except ZlmIntegrationError as exc:
+                    raise ApiError(
+                        status_code=exc.status_code,
+                        code=exc.code,
+                        message=str(exc),
+                        details={"stream": role},
+                    ) from exc
+
+                results.append(
+                    _probe_stream_view(
+                        role=role,
+                        name=name,
+                        probe=probe,
+                    )
+                )
+    except ZlmIntegrationError as exc:
+        # Covers bootstrap/configuration failures such as missing API secret.
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    return CameraProbeResult(streams=results)
 
 
 @router.get("/cameras/{camera_id}", response_model=CameraDetail)
