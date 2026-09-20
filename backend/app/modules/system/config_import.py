@@ -26,6 +26,7 @@ from app.modules.cameras.models import (
     Device,
     DeviceEndpoint,
 )
+from app.modules.cameras.service import CameraService
 from app.modules.notifications.models import NotificationTarget
 from app.modules.notifications.service import NotificationTargetService
 from app.modules.recordings.models import RetentionPolicy
