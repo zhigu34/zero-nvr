@@ -1,0 +1,62 @@
+services:
+  mediamtx:
+    image: ${MEDIAMTX_IMAGE:-bluenviron/mediamtx:1.21.0-ffmpeg}
+    environment:
+      TZ: UTC
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+
+  zlm-config:
+    image: ${ZLM_IMAGE:-zlmediakit/zlmediakit:master}
+    environment:
+      ZLM_API_SECRET: ${ZLM_API_SECRET}
+      ZLM_HOOK_TOKEN: ${ZLM_HOOK_TOKEN}
+      POC_ZLM_ENABLE_FMP4: ${POC_ZLM_ENABLE_FMP4:-0}
+    entrypoint: ["python3", "/scripts/prepare_zlm_config.py"]
+    volumes:
+      - zlm-conf:/out
+      - ./scripts/prepare_zlm_config.py:/scripts/prepare_zlm_config.py:ro
+    restart: "no"
+
+  zlm:
+    image: ${ZLM_IMAGE:-zlmediakit/zlmediakit:master}
+    depends_on:
+      zlm-config:
+        condition: service_completed_successfully
+      mediamtx:
+        condition: service_started
+    environment:
+      TZ: UTC
+    volumes:
+      - zlm-conf:/opt/media/conf:ro
+      - ./runtime/recordings:/recordings
+    ports:
+      - "18080:80"
+      - "18554:554"
+
+  poc-api:
+    build:
+      context: ./app
+    depends_on:
+      zlm:
+        condition: service_started
+      mediamtx:
+        condition: service_started
+    environment:
+      TZ: UTC
+      DB_PATH: /runtime/poc.db
+      RECORDING_ROOT: /recordings
+      POC_APP: poc
+      POC_SEGMENT_SECONDS: ${POC_SEGMENT_SECONDS:-10}
+      ZLM_BASE_URL: http://zlm
+      ZLM_API_SECRET: ${ZLM_API_SECRET}
+      ZLM_HOOK_TOKEN: ${ZLM_HOOK_TOKEN}
+      MEDIAMTX_BASE_URL: http://mediamtx:9998
+      ZLM_IMAGE: ${ZLM_IMAGE:-zlmediakit/zlmediakit:master}
+      MEDIAMTX_IMAGE: ${MEDIAMTX_IMAGE:-bluenviron/mediamtx:1.21.0-ffmpeg}
+    volumes:
+      - ./runtime:/runtime
+      - ./runtime/recordings:/recordings
+
+volumes:
+  zlm-conf:
