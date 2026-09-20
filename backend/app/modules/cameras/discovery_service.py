@@ -3,7 +3,6 @@ from __future__ import annotations
 import uuid
 from urllib.parse import unquote, urlsplit
 
-from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.db.types import utc_now
@@ -84,14 +83,10 @@ class CameraDiscoveryService:
     ) -> DiscoverySession:
         discovery = cls.get(session, discovery_id)
 
-        session.execute(
-            delete(DiscoveryCandidate).where(
-                DiscoveryCandidate.discovery_session_id == discovery.id
-            )
-        )
+        discovery.candidates.clear()
 
         for candidate in candidates:
-            session.add(
+            discovery.candidates.append(
                 DiscoveryCandidate(
                     discovery_session_id=discovery.id,
                     candidate_key=candidate.candidate_key,
