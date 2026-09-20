@@ -156,6 +156,9 @@ def system_info(
         "name": settings.app_name,
         "version": settings.app_version,
         "environment": settings.environment,
+        "database_backend": (
+            request.app.state.database.url.get_backend_name()
+        ),
     }
 
 
