@@ -1,0 +1,1 @@
+"""Append-oriented actor accountability."""
