@@ -206,7 +206,7 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
             f"/api/v1/users/{viewer_id}/camera-scope",
             json={
                 "mode": "selected",
-                "camera_ids": [first_id],
+                "camera_ids": [str(first_id)],
             },
         )
         assert selected.status_code == 200
