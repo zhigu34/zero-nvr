@@ -203,13 +203,6 @@ class PrebufferPromotionService:
                 message="Prebuffer fragment is outside the configured prebuffer root.",
             ) from exc
 
-        if not source.is_file():
-            raise ApiError(
-                status_code=409,
-                code="prebuffer_fragment_missing",
-                message="Prebuffer fragment is no longer available.",
-            )
-
         resolved_target_root = target_root.resolve()
         destination = (
             resolved_target_root
@@ -224,6 +217,31 @@ class PrebufferPromotionService:
                 code="prebuffer_promotion_path_invalid",
                 message="Prebuffer promotion destination is invalid.",
             ) from exc
+
+        if destination.is_file():
+            published_size = destination.stat().st_size
+            if published_size != fragment.size_bytes:
+                raise ApiError(
+                    status_code=409,
+                    code="prebuffer_promotion_size_mismatch",
+                    message="Existing promoted fragment has an unexpected size.",
+                )
+            return PromotionReceipt(
+                fragment=fragment,
+                storage_target_id=storage_target_id,
+                object_path=destination.relative_to(
+                    resolved_target_root
+                ).as_posix(),
+                destination=destination,
+                size_bytes=published_size,
+            )
+
+        if not source.is_file():
+            raise ApiError(
+                status_code=409,
+                code="prebuffer_fragment_missing",
+                message="Prebuffer fragment is no longer available.",
+            )
 
         partial = destination.with_name(
             destination.name + ".partial"
