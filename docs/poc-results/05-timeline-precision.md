@@ -27,8 +27,8 @@ The runner:
 - normal segment boundaries remain continuous within the documented ZLM hook timestamp granularity;
 - the deliberate source outage becomes a real positive Gap;
 - no timestamp stretching hides the outage;
-- partial/non-target segment durations are preserved as their actual values;
-- an Event marker inside a segment resolves to the expected relative media offset;
+- the outage sequence must actually produce at least one partial/non-target finalized segment, and that segment keeps its real duration;
+- an Event marker inside a segment resolves through the same wall-clock resolver to the expected segment and relative media offset;
 - UTC -> America/Los_Angeles -> UTC round-trip survives the 2026 DST fall-back repeated hour;
 - repeated local wall-clock time remains distinguished by UTC offset/fold;
 - a synthetic +5000 ms camera-clock offset normalizes back to canonical UTC without shifting RecordingSegment timestamps.
