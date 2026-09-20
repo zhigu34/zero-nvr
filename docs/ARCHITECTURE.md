@@ -392,6 +392,8 @@ RecordingSegment catalog
 
 The database is not in the media hot path. If a hook is lost during a control-plane/database outage, reconciliation discovers the file and repairs the catalog later.
 
+[POC-10 — Recovery Reconciliation](poc-results/10-reconciliation.md) validates this boundary under FastAPI restart, SQLite write lock, missed hooks, stale metadata, provable/ambiguous orphan media, and reconciliation-process interruption. The accepted behavior is recover-provable, mark-missing, preserve-ambiguous, and converge idempotently.
+
 
 ### Event pre-roll and segment composition
 
@@ -636,7 +638,7 @@ Live/playback media access uses short-lived scoped media/session authorization r
 
 External integrations use dedicated least-privilege service principals rather than administrator browser sessions.
 
-Sensitive actor-driven changes produce append-oriented AuditEvents. Runtime/business behavior remains in EventLog; AuditEvent answers who did what, to which resource, with what result.
+Sensitive actor-driven changes produce append-oriented AuditEvents. Runtime/business occurrences use canonical Event rows (including source=system where appropriate); AuditEvent answers who did what, to which resource, with what result.
 
 See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs/0011-auth-authorization-and-audit.md).
 
