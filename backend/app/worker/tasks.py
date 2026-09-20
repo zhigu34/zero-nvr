@@ -15,6 +15,12 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.core.db import Database
 from app.integrations.frigate import FrigateHttpAdapter
+from app.modules.backups.execution import (
+    BackupExecutionService,
+    BackupRunService,
+)
+from app.modules.backups.models import BackupPolicy, BackupSet
+from app.modules.backups.service import BackupPolicyService
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import (
     Camera,
@@ -766,5 +772,117 @@ def expire_exports() -> int:
         return ExportCleanupService.expire(
             database
         )
+    finally:
+        database.close()
+
+
+
+@huey.task(retries=2, retry_delay=60)
+def run_backup_set(backup_set_id: str) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        return BackupExecutionService(
+            settings
+        ).execute(
+            database,
+            backup_set_id=uuid.UUID(backup_set_id),
+        )
+    finally:
+        database.close()
+
+
+@huey.task(retries=2, retry_delay=60)
+def verify_backup_set(backup_set_id: str) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        return BackupExecutionService(
+            settings
+        ).verify(
+            database,
+            backup_set_id=uuid.UUID(backup_set_id),
+        )
+    finally:
+        database.close()
+
+
+@huey.periodic_task(crontab(minute="*"))
+def schedule_backups() -> dict[str, int]:
+    settings = Settings()
+    database = _database(settings)
+    now = datetime.now(UTC).replace(
+        second=0,
+        microsecond=0,
+    )
+    queued = 0
+    checks = 0
+
+    try:
+        with database.session() as session:
+            policies = list(
+                session.scalars(
+                    select(BackupPolicy).where(
+                        BackupPolicy.enabled.is_(True)
+                    )
+                )
+            )
+
+            run_ids: list[uuid.UUID] = []
+            verify_ids: list[uuid.UUID] = []
+            for policy in policies:
+                if BackupPolicyService.schedule_matches(
+                    policy,
+                    at=now,
+                ):
+                    backup_set, created = BackupRunService.reserve(
+                        session,
+                        policy=policy,
+                        settings=settings,
+                        database=database,
+                        reason="scheduled",
+                        schedule_slot=BackupPolicyService.schedule_slot(
+                            at=now
+                        ),
+                    )
+                    if created:
+                        run_ids.append(backup_set.id)
+
+                if BackupPolicyService.schedule_value_matches(
+                    policy.repository_check_schedule_json or {},
+                    at=now,
+                ):
+                    latest = session.scalar(
+                        select(BackupSet)
+                        .where(
+                            BackupSet.backup_policy_id
+                            == policy.id,
+                            BackupSet.state == "COMPLETED",
+                            BackupSet.restic_snapshot_id.is_not(
+                                None
+                            ),
+                        )
+                        .order_by(
+                            BackupSet.started_at.desc(),
+                            BackupSet.id.desc(),
+                        )
+                        .limit(1)
+                    )
+                    if latest is not None:
+                        verify_ids.append(latest.id)
+
+            session.commit()
+
+        for backup_id in run_ids:
+            run_backup_set(str(backup_id))
+            queued += 1
+        for backup_id in verify_ids:
+            verify_backup_set(str(backup_id))
+            checks += 1
+
+        return {
+            "backups_queued": queued,
+            "checks_queued": checks,
+        }
     finally:
         database.close()
