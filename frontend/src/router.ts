@@ -7,6 +7,7 @@ import {
 import AppShell from "./layouts/AppShell.vue"
 import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
+import EventsView from "./views/EventsView.vue"
 import LoginView from "./views/LoginView.vue"
 import LiveView from "./views/LiveView.vue"
 import PlaybackView from "./views/PlaybackView.vue"
@@ -57,11 +58,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: "events",
         name: "events",
-        component: WorkspaceView,
+        component: EventsView,
         meta: {
-          title: "Events",
-          description:
-            "Provider-neutral ONVIF, Frigate and system events will appear here through the canonical Event API."
+          title: "Events"
         }
       },
       {

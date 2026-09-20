@@ -81,7 +81,11 @@ const icons: Record<string, string> = {
   calendar:
     '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/>',
   "chevron-right":
-    '<path d="m9 6 6 6-6 6"/>'
+    '<path d="m9 6 6 6-6 6"/>',
+  close:
+    '<path d="m6 6 12 12M18 6 6 18"/>',
+  zone:
+    '<path d="M12 21s6-4.7 6-11a6 6 0 1 0-12 0c0 6.3 6 11 6 11Z"/><circle cx="12" cy="10" r="2"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

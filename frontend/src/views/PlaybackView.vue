@@ -6,6 +6,7 @@ import {
   onMounted,
   ref
 } from "vue"
+import { useRoute } from "vue-router"
 
 import {
   listCameras,
@@ -29,6 +30,7 @@ import { useAuthStore } from "../stores/auth"
 type ZoomHours = 1 | 6 | 24
 
 const auth = useAuthStore()
+const route = useRoute()
 const zoomOptions: ZoomHours[] = [1, 6, 24]
 const stage = ref<HTMLElement | null>(null)
 const video = ref<HTMLVideoElement | null>(null)
@@ -220,13 +222,35 @@ async function refreshCameras(): Promise<void> {
   try {
     cameras.value = await listCameras()
     const validIds = new Set(cameras.value.map((camera) => camera.id))
-    if (
+    const routeCamera =
+      typeof route.query.camera === "string"
+        ? route.query.camera
+        : null
+    const routeAt =
+      typeof route.query.at === "string"
+        ? new Date(route.query.at)
+        : null
+    const hasRouteAt =
+      routeAt !== null && !Number.isNaN(routeAt.getTime())
+
+    if (routeCamera && validIds.has(routeCamera)) {
+      activeCameraId.value = routeCamera
+    } else if (
       !activeCameraId.value ||
       !validIds.has(activeCameraId.value)
     ) {
       activeCameraId.value = cameras.value[0]?.id ?? null
     }
-    await refreshTimeline(false)
+
+    if (hasRouteAt && routeAt) {
+      currentAt.value = routeAt
+      selectedDate.value = formatDateInput(routeAt)
+      zoomHours.value = 6
+      await refreshTimeline(false)
+      await resolveAt(routeAt, true)
+    } else {
+      await refreshTimeline(false)
+    }
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
