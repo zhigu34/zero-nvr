@@ -1,167 +1,186 @@
 # Plan 01 — ZLMediaKit Media Plane
 
-Status: **first-pass plan; refine before implementation**
+Status: **blocked on relevant design-freeze POCs for final implementation details**
 
-## Objective
+## Goal
 
-Make ZLMediaKit the standard live-media engine while zero-nvr remains authoritative for Camera and MediaStream state.
+Integrate ZLMediaKit as the camera-facing media bus and normal recording/VOD authority.
 
-## Scope
+This plan must not introduce a parallel FFmpeg recorder or a second RTSP reconnect engine.
 
-This phase includes:
+## Target path
 
-- ZLM deployment;
-- MediaPlane contract implementation;
-- Manual RTSP source;
-- stable stream mapping;
-- runtime reconciliation;
-- live-session API;
-- browser live preview.
-
-This phase does not include:
-
-- ONVIF;
-- AI;
-- cloud storage;
-- PTZ;
-- replacing FFmpeg recording;
-- advanced multi-camera wall optimization.
+```text
+Camera main/sub
+   -> ZLMediaKit
+       ├─ Live
+       ├─ ZLM MP4/fMP4 Recorder
+       ├─ VOD
+       ├─ Snapshot
+       └─ internal stream -> optional Frigate
+```
 
 ## Task 1 — ZLM service
 
-Add ZLMediaKit to development Compose.
+Provide a version-pinned ZLM Compose service.
 
-Requirements:
+Validate:
 
-- internal control/API access from zero-nvr;
-- browser-required media ports only;
-- no credentials baked into repository config;
-- health/readiness check;
-- persistent config only where actually necessary.
+- health/readiness;
+- internal API secret/config;
+- recording root mount;
+- network ports required by selected live protocols;
+- hooks back to zero-nvr;
+- configurable recorder segment target;
+- version reporting.
 
-## Task 2 — MediaPlane contract
+Do not expose ZLM administration directly to the browser.
 
-Define DTOs roughly around:
+## Task 2 — ZlmAdapter / MediaPlane
 
-```text
-MediaSource
-MediaStreamKey
-MediaRuntimeStatus
-LivePlayUrls
-```
+Implement a thin adapter for supported operations such as:
 
-Operations:
+- ensure/remove camera stream proxy;
+- query media registration/runtime state;
+- obtain live playback descriptors/identifiers;
+- start/stop/query ZLM recording where policy requires explicit control;
+- snapshot;
+- VOD resolution;
+- consume supported hooks.
 
-```text
-ensure_stream(source)
-remove_stream(stream_key)
-get_status(stream_key)
-get_live_urls(stream_key)
-snapshot(stream_key)
-health()
-```
+Business services call the adapter, not raw ZLM HTTP endpoints.
 
-## Task 3 — ZlmMediaPlane
+The adapter does not:
 
-Wrap ZLM REST/WebHook behavior.
+- decode video;
+- implement RTSP;
+- schedule packet-level reconnect;
+- decide product recording policy.
 
-Business services must not call raw ZLM endpoints directly.
+## Task 3 — Camera stream identity
 
-Map Camera/MediaStream to stable internal stream keys.
-
-Example conceptual key:
+Map:
 
 ```text
-camera/{camera_id}/main
+Camera
++ CameraStreamProfile
++ CameraStreamBinding
+-> stable ZLM app/stream identifiers
 ```
 
-Exact ZLM app/stream/vhost mapping is an implementation detail.
+Purpose bindings include:
 
-## Task 4 — Manual RTSP Camera
+- RECORD;
+- LIVE_HIGH;
+- LIVE_LOW;
+- AI_DETECT;
+- SNAPSHOT.
 
-Support the first real DeviceAdapter/connection:
+Camera credentials stay server-side/SecretStore.
+
+## Task 4 — Stream onboarding
+
+For ONVIF cameras:
 
 ```text
-manual_rtsp
+ONVIF discovery/profile URI
+-> zero-nvr
+-> ZLM pull/proxy
+-> actual media verification
 ```
 
-Input:
+Manual RTSP follows the same ZLM path.
 
-- host/port;
-- username/password;
-- main stream path.
+Avoid each downstream consumer pulling the camera independently.
 
-Generate a credential-bearing source URI only inside trusted runtime boundaries.
+## Task 5 — Live descriptor
 
-Never expose it in public API responses.
+Implement zero-nvr API resolution that:
 
-## Task 5 — Reconciliation
+- authorizes camera scope;
+- chooses LIVE_LOW/LIVE_HIGH;
+- confirms ZLM media availability;
+- returns short-lived player descriptor;
+- provides fallback protocol hints;
+- never returns camera RTSP credentials.
 
-On runtime start:
+Frontend uses player adapters.
 
-1. query enabled Cameras;
-2. resolve current MediaStreams;
-3. ensure required ZLM proxies;
-4. remove/reconcile stale managed streams safely.
+No JPEG-over-WebSocket custom streaming pipeline.
 
-A ZLM restart must not require Camera recreation.
+## Task 6 — ZLM recording
 
-## Task 6 — Live session
+Normal continuous/scheduled recording uses ZLM recorder.
 
-FastAPI returns an authorized live-session DTO.
+Validate through design-freeze POCs:
 
-Candidate protocols:
+- segment finalization;
+- actual start/end/duration metadata;
+- `on_record_mp4`;
+- fMP4 candidate behavior;
+- control-plane restart independence;
+- recovery reconciliation.
 
-1. WebRTC;
-2. HTTP-fMP4;
-3. HLS fallback.
+FFmpeg is not the normal recorder.
 
-The browser receives media URLs/session metadata but does not receive Camera source credentials.
+## Task 7 — Recording hook
 
-## Task 7 — Frontend Live MVP
+`on_record_mp4` normal path:
 
-Device Center:
+```text
+ZLM finalized file
+-> protected internal hook
+-> validate media identity/path
+-> UPSERT/insert RecordingSegment
+-> create/update local RecordingLocation
+-> enqueue downstream archive/retention work
+```
 
-- open Live action.
+Hook processing must be idempotent.
 
-Live view:
+A lost hook is recovered by reconciliation.
 
-- connection state;
-- selected protocol;
-- retry/fallback;
-- no JPEG-over-WebSocket decoding pipeline.
+## Task 8 — ZLM runtime recovery boundary
 
-## Task 8 — WebHook integration
+Use ZLM-native source pull/reconnect behavior.
 
-Use ZLM WebHooks where they improve runtime state:
+zero-nvr observes:
 
-- stream registered/unregistered;
-- optional reader/runtime events.
+- media register/unregister;
+- recorder state;
+- ZLM health;
+- finalized recording hooks.
 
-WebHooks update transient runtime status, not Camera business identity.
+Product health projects ONLINE/DEGRADED/OFFLINE without owning a competing RTSP retry engine.
 
-## Tests
+## Task 9 — VOD / seek
 
-At minimum:
+Validate:
 
-- MediaPlane fake contract tests;
-- ZLM API adapter tests with mocked HTTP;
-- credential redaction;
-- reconciliation idempotency;
-- Camera disabled removes desired stream;
-- ZLM unavailable degrades live capability without corrupting Camera state;
-- Compose smoke with ZLM health;
-- browser/live API contract tests.
+- local recording playback through ZLM;
+- segment seek;
+- wall-clock -> segment/media offset mapping;
+- gap behavior;
+- restored remote cache files through the same VOD path.
 
-## Exit criteria
+This is part of the design-freeze gate.
 
-- Manual RTSP Camera can be added.
-- zero-nvr ensures one managed ZLM stream.
-- browser can view it live without FastAPI decoding frames.
-- restarting ZLM is recoverable.
-- disabling the Camera tears down managed live media.
-- no raw ZLM model becomes a zero-nvr domain identity.
+## Task 10 — Snapshot
 
-## Follow-up
+Use ZLM snapshot capability for live/manual current snapshots where appropriate.
 
-Plan 02 should add FFmpeg RecorderBackend consuming the ZLM internal stream while preserving the MediaPlane boundary.
+Historical arbitrary-time snapshots use PlaybackResolver + FFmpeg frame extraction only as fallback/derived work.
+
+## Acceptance
+
+This media-plane slice passes when:
+
+- main/sub camera streams are pulled through ZLM;
+- browsers consume zero-nvr-authorized ZLM playback, not camera URLs;
+- one camera connection per configured original stream is observed in the sharing POC;
+- ZLM normal recording produces indexed segments;
+- FFmpeg is not running as a permanent recorder;
+- ZLM reconnect behavior is used instead of custom RTSP reconnect code;
+- API restart does not deliberately stop an already-running ZLM recorder where architecture permits;
+- lost-hook reconciliation restores catalog state;
+- VOD seek/timeline behavior meets the POC criteria.
