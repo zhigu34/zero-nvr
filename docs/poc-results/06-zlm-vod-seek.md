@@ -44,7 +44,7 @@ The neighborhood accounts for practical keyframe/container seek tolerance withou
 - beginning/middle/end seeks remain stable after the source-outage/recovery sequence;
 - physical file path selection remains backend responsibility rather than frontend logic.
 
-Gap timestamps are handled by the timeline projection and must not be converted into an arbitrary playable seek.
+The deliberate Gap midpoint is resolved through the same wall-clock resolver and must return `status=gap` with exact previous/next playable boundaries. It must never be converted into an arbitrary segment seek.
 
 ## Expected evidence
 
@@ -58,6 +58,8 @@ Fields:
 vod.source_segment_id
 vod.probe
 vod.seek_results[]
+gap_resolution
+event_marker_resolution
 ~~~
 
 ## Tested versions
