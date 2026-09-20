@@ -354,6 +354,74 @@ def _probe_duration(path: Path) -> float:
     return duration
 
 
+@huey.task(retries=3, retry_delay=15)
+def reconcile_camera_runtime(camera_id: str) -> str:
+    """Reconcile one Camera's ZLM recorder and stream runtime.
+
+    Camera/RecordingPolicy rows are canonical. Disabling a Camera drives the
+    recorder to off before closing its ZLM streams. Enabling a Camera restores
+    the recorder required by its current policy; live-only streams remain
+    demand-driven by the API.
+    """
+
+    settings = Settings()
+    database = _database(settings)
+    camera_uuid = uuid.UUID(camera_id)
+
+    try:
+        media_runtime = CameraMediaRuntimeService(settings)
+        with database.session() as session:
+            camera = session.get(Camera, camera_uuid)
+            if camera is None:
+                session.commit()
+                return "missing"
+
+            references = media_runtime.stream_references(
+                camera=camera,
+            )
+            desired_streams = media_runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+            desired_recorder = RecordingRuntimeService.desired(
+                session,
+                settings=settings,
+                camera_id=camera_uuid,
+            )
+            enabled = camera.enabled
+
+            record_streams = []
+            if (
+                desired_recorder is not None
+                and desired_recorder.mode != "off"
+            ):
+                record_streams = [
+                    item
+                    for item in desired_streams
+                    if item.profile_id
+                    == desired_recorder.profile_id
+                ]
+                if not record_streams:
+                    raise RuntimeError(
+                        "camera RECORD stream is unavailable"
+                    )
+            session.commit()
+
+        if record_streams:
+            media_runtime.ensure_streams(record_streams)
+
+        runtime_result = RecordingRuntimeService(
+            settings
+        ).reconcile(desired_recorder)
+
+        if not enabled:
+            media_runtime.stop_streams(references)
+
+        return runtime_result.desired_mode
+    finally:
+        database.close()
+
+
 @huey.task(retries=2, retry_delay=15)
 def reconcile_camera_prebuffer(camera_id: str) -> int:
     """Recover/promote finalized tmpfs fragments from DB trigger facts.

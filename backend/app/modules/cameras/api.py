@@ -848,6 +848,26 @@ def _set_camera_enabled(
     except Exception:
         session.rollback()
         raise
+
+    try:
+        request.app.state.recording_tasks.reconcile_runtime(
+            camera_id
+        )
+    except Exception as exc:
+        raise ApiError(
+            status_code=503,
+            code="camera_runtime_queue_unavailable",
+            message=(
+                "Camera state was saved but runtime reconciliation "
+                "could not be queued."
+            ),
+            details={
+                "camera_persisted": True,
+                "camera_id": str(camera_id),
+                "enabled": enabled,
+            },
+        ) from exc
+
     return _camera_detail(session, camera)
 
 

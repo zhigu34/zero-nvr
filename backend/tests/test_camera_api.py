@@ -25,6 +25,14 @@ ADMIN_PASSWORD = "correct-horse-battery-staple"
 VIEWER_PASSWORD = "viewer-correct-horse-battery"
 
 
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.runtime_reconciles: list[uuid.UUID] = []
+
+    def reconcile_runtime(self, camera_id: uuid.UUID) -> None:
+        self.runtime_reconciles.append(camera_id)
+
+
 def make_app(tmp_path: Path):
     settings = Settings(
         secret_key="camera-api-test-secret-key-32-bytes-minimum",
@@ -36,6 +44,7 @@ def make_app(tmp_path: Path):
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
+    app.state.recording_tasks = FakeRecordingTasks()
     return app
 
 
@@ -280,3 +289,46 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
 
     assert "camera.create" in actions
     assert "camera.stream_bindings.update" in actions
+
+
+
+def test_camera_enable_disable_queues_runtime_reconcile(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        created = create_camera(
+            client,
+            name="Runtime Camera",
+            host="10.10.0.30",
+            with_secondary=False,
+        )
+        camera_id = uuid.UUID(created.json()["id"])
+
+        disabled = client.post(
+            f"/api/v1/cameras/{camera_id}/disable"
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["enabled"] is False
+
+        enabled = client.post(
+            f"/api/v1/cameras/{camera_id}/enable"
+        )
+        assert enabled.status_code == 200
+        assert enabled.json()["enabled"] is True
+
+        assert (
+            app.state.recording_tasks.runtime_reconciles
+            == [camera_id, camera_id]
+        )
