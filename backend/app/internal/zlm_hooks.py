@@ -79,7 +79,6 @@ def _ack() -> dict[str, object]:
 def zlm_stream_changed(
     body: ZlmStreamChangedHook,
     request: Request,
-    session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
     _authenticate_hook(request, body.media_server_id)
 
