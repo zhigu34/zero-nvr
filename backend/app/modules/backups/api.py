@@ -404,6 +404,7 @@ def verify_backup(
             message="Backup set cannot be verified.",
         )
 
+    previous_verification_state = item.verification_state
     try:
         item.verification_state = "PENDING"
         append_audit_event(
@@ -414,9 +415,7 @@ def verify_backup(
             resource_type="backup_set",
             resource_id=item.id,
             before={
-                "verification_state": (
-                    item.verification_state
-                )
+                "verification_state": previous_verification_state
             },
             after={
                 "verification_state": "PENDING",
