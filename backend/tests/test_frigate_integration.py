@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+import json
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,11 +16,16 @@ from app.integrations.frigate import (
     FrigateEventNormalizer,
     FrigateHttpAdapter,
     FrigateIntegrationError,
+    FrigateMqttRuntime,
 )
 from app.modules.auth.models import SecretRecord
 from app.modules.cameras.service import CameraService
 from app.modules.events.frigate import FrigateEventIngestService
 from app.modules.events.models import Event
+from app.modules.recordings.models import (
+    RecordingPolicy,
+    RecordingTrigger,
+)
 from app.modules.system.frigate import (
     FrigateCredentials,
     FrigateProviderSettingsService,
@@ -454,3 +461,296 @@ def test_http_adapter_sanitizes_errors_and_fetches_events() -> None:
             assert exc.code == "frigate_request_failed"
         else:
             raise AssertionError("expected FrigateIntegrationError")
+
+
+
+def test_frigate_event_filter_drives_one_idempotent_recording_trigger(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        camera_id = seed_camera(settings, database)
+        service = FrigateProviderSettingsService(settings)
+
+        with database.session() as session:
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera_id,
+                    baseline_mode="disabled",
+                    event_recording_enabled=True,
+                    event_filter_json={
+                        "labels": ["person"],
+                        "zones": ["yard"],
+                        "min_confidence": 0.9,
+                    },
+                    pre_roll_seconds=10,
+                    post_roll_seconds=15,
+                    enabled=True,
+                )
+            )
+            config = service.put(
+                session,
+                enabled=True,
+                mode="external",
+                base_url="http://frigate.local",
+                camera_map={"front_door": camera_id},
+                mqtt_enabled=False,
+                mqtt_host=None,
+                mqtt_port=1883,
+                mqtt_topic_prefix="frigate",
+                mqtt_tls=False,
+            )
+            session.commit()
+
+        with database.session() as session:
+            config = service.get(session)
+            assert config is not None
+            started = FrigateEventIngestService.mqtt(
+                session,
+                config=config,
+                payload=mqtt_payload(),
+            )
+            assert started.trigger is not None
+            assert started.trigger_changed is True
+            trigger_id = started.trigger.id
+            assert started.trigger.state == "ACTIVE"
+            assert started.trigger.planned_start_at == datetime.fromtimestamp(
+                1_699_999_990.0,
+                tz=UTC,
+            )
+            assert started.trigger.planned_end_at is None
+            session.commit()
+
+        with database.session() as session:
+            config = service.get(session)
+            assert config is not None
+            duplicate = FrigateEventIngestService.mqtt(
+                session,
+                config=config,
+                payload=mqtt_payload(
+                    message_type="update",
+                ),
+            )
+            assert duplicate.trigger is not None
+            assert duplicate.trigger.id == trigger_id
+            assert duplicate.trigger_changed is False
+            session.commit()
+
+        with database.session() as session:
+            config = service.get(session)
+            assert config is not None
+            ended = FrigateEventIngestService.mqtt(
+                session,
+                config=config,
+                payload=mqtt_payload(
+                    message_type="end",
+                    end_time=1_700_000_030.0,
+                ),
+            )
+            assert ended.trigger is not None
+            assert ended.trigger.id == trigger_id
+            assert ended.trigger.state == "COMPLETED"
+            assert ended.trigger.planned_end_at == datetime.fromtimestamp(
+                1_700_000_045.0,
+                tz=UTC,
+            )
+            assert ended.trigger_changed is True
+            session.commit()
+
+            triggers = list(
+                session.scalars(
+                    select(RecordingTrigger)
+                )
+            )
+            assert len(triggers) == 1
+            assert triggers[0].source == "frigate"
+            assert triggers[0].source_event_id == (
+                f"{config.instance_id}:event-1"
+            )
+
+        with database.session() as session:
+            config = service.get(session)
+            assert config is not None
+            filtered_payload = mqtt_payload(
+                event_id="event-car",
+            )
+            filtered_payload["after"]["label"] = "car"
+            filtered = FrigateEventIngestService.mqtt(
+                session,
+                config=config,
+                payload=filtered_payload,
+            )
+            assert filtered.event is not None
+            assert filtered.trigger is None
+            assert filtered.trigger_changed is False
+            session.commit()
+
+            assert len(
+                list(session.scalars(select(Event)))
+            ) == 2
+            assert len(
+                list(session.scalars(select(RecordingTrigger)))
+            ) == 1
+    finally:
+        database.close()
+
+
+class _FakeReasonCode:
+    is_failure = False
+
+
+class _FakeMqttClient:
+    instances: list["_FakeMqttClient"] = []
+
+    def __init__(self, *args, **kwargs) -> None:
+        self.args = args
+        self.kwargs = kwargs
+        self.username = None
+        self.password = None
+        self.tls = False
+        self.connected_to = None
+        self.loop_started = False
+        self.subscriptions = []
+        self.on_connect = None
+        self.on_disconnect = None
+        self.on_message = None
+        self.instances.append(self)
+
+    def username_pw_set(self, username, password=None) -> None:
+        self.username = username
+        self.password = password
+
+    def tls_set(self) -> None:
+        self.tls = True
+
+    def connect_async(self, host, port, keepalive=60) -> None:
+        self.connected_to = (host, port, keepalive)
+
+    def loop_start(self) -> None:
+        self.loop_started = True
+
+    def subscribe(self, topic, qos=0):
+        self.subscriptions.append((topic, qos))
+        return (0, 1)
+
+    def disconnect(self) -> None:
+        return None
+
+    def loop_stop(self) -> None:
+        self.loop_started = False
+
+
+class _FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.camera_ids = []
+
+    def reconcile_camera(self, camera_id) -> None:
+        self.camera_ids.append(camera_id)
+
+
+def test_mqtt_runtime_uses_persistent_qos1_and_ingests_event(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        camera_id = seed_camera(settings, database)
+        provider = FrigateProviderSettingsService(settings)
+        with database.session() as session:
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera_id,
+                    baseline_mode="disabled",
+                    event_recording_enabled=True,
+                    event_filter_json={},
+                    pre_roll_seconds=10,
+                    post_roll_seconds=10,
+                    enabled=True,
+                )
+            )
+            provider.put(
+                session,
+                enabled=True,
+                mode="external",
+                base_url="http://frigate.local",
+                camera_map={"front_door": camera_id},
+                mqtt_enabled=True,
+                mqtt_host="mqtt.local",
+                mqtt_port=8883,
+                mqtt_topic_prefix="frigate",
+                mqtt_tls=True,
+                credentials=FrigateCredentials(
+                    mqtt_username="mqtt-user",
+                    mqtt_password="mqtt-password",
+                ),
+                replace_credentials=True,
+            )
+            session.commit()
+
+        _FakeMqttClient.instances = []
+        tasks = _FakeRecordingTasks()
+        runtime = FrigateMqttRuntime(
+            settings,
+            database,
+            logger=logging.getLogger(
+                "test.frigate.mqtt"
+            ),
+            recording_tasks=tasks,
+            client_factory=_FakeMqttClient,
+        )
+
+        runtime.start()
+        client = _FakeMqttClient.instances[-1]
+        assert client.kwargs["clean_session"] is False
+        assert client.connected_to == (
+            "mqtt.local",
+            8883,
+            60,
+        )
+        assert client.username == "mqtt-user"
+        assert client.password == "mqtt-password"
+        assert client.tls is True
+
+        client.on_connect(
+            client,
+            None,
+            None,
+            _FakeReasonCode(),
+            None,
+        )
+        assert client.subscriptions == [
+            ("frigate/events", 1)
+        ]
+        assert runtime.status().connected is True
+
+        message = type(
+            "Message",
+            (),
+            {
+                "topic": "frigate/events",
+                "payload": json.dumps(
+                    mqtt_payload()
+                ).encode("utf-8"),
+            },
+        )()
+        client.on_message(
+            client,
+            None,
+            message,
+        )
+
+        with database.session() as session:
+            events = list(
+                session.scalars(select(Event))
+            )
+            triggers = list(
+                session.scalars(
+                    select(RecordingTrigger)
+                )
+            )
+            assert len(events) == 1
+            assert len(triggers) == 1
+
+        assert tasks.camera_ids == [camera_id]
+        runtime.stop()
+    finally:
+        database.close()
