@@ -14,8 +14,8 @@ zero-nvr owns:
 - recording policy and recording metadata;
 - event normalization;
 - alert rules and deliveries;
-- storage policy and object lifecycle;
-- upload orchestration;
+- storage policy and RecordingLocation lifecycle;
+- archive/restore orchestration;
 - playback timeline;
 - permissions, audit and system health.
 
