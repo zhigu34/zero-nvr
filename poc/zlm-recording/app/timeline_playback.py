@@ -110,6 +110,34 @@ def media_present() -> bool:
     )
 
 
+def stream_events() -> list[dict[str, Any]]:
+    return request_json(
+        f"{API}/debug/stream-events?{urlencode({'stream': STREAM})}"
+    )["items"]
+
+
+def wait_stream_transition(regist: bool, after_ts: float) -> dict[str, Any]:
+    def find_event():
+        matches = []
+        for item in stream_events():
+            received = parse_iso(item["received_at"])
+            if received < after_ts:
+                continue
+            if bool(item["regist"]) != regist:
+                continue
+            if item["schema"] != "rtsp" or item["app"] != "poc":
+                continue
+            matches.append(item)
+        return matches[0] if matches else None
+
+    return wait_until(
+        f"ZLM stream regist={regist} after {iso(after_ts)}",
+        find_event,
+        timeout=60,
+        interval=0.25,
+    )
+
+
 def probe(path_or_url: str) -> dict[str, Any]:
     completed = subprocess.run(
         [
@@ -436,18 +464,30 @@ def prepare() -> None:
     print(json.dumps(state, indent=2, ensure_ascii=False))
 
 
-def verify(outage_start: float, outage_end: float) -> None:
+def verify(
+    outage_start: float,
+    outage_end: float,
+    source_lost_at: float,
+    source_recovered_at: float,
+) -> None:
     state = json.loads(STATE.read_text(encoding="utf-8"))
     pre_count = int(state["pre_segment_count"])
+
+    if not (outage_start <= source_lost_at < source_recovered_at):
+        raise AssertionError(
+            "invalid source transition ordering: "
+            f"request_start={outage_start} lost={source_lost_at} "
+            f"recovered={source_recovered_at}"
+        )
 
     def post_outage_ready() -> list[dict[str, Any]] | None:
         current = segments()
         count = sum(
             1
             for item in current
-            if parse_iso(item["start_at"]) >= outage_end
+            if parse_iso(item["start_at"]) >= source_lost_at
         )
-        return current if count >= 3 else None
+        return current if count >= 3 and len(current) >= pre_count + 2 else None
 
     raw_items = wait_until(
         "three post-outage segments",
@@ -459,21 +499,35 @@ def verify(outage_start: float, outage_end: float) -> None:
     if not raw_deltas:
         raise AssertionError("no segment boundaries available")
 
-    # Split by the deliberate source outage. In production this continuity
-    # boundary comes from ZLM/source runtime registration state, not from a
-    # guessed timestamp-gap threshold.
+    # Split by the observed ZLM source-unregister transition, not by a guessed
+    # timestamp-gap threshold or merely by the MediaMTX kill/restart request.
+    #
+    # Any segment whose file was created before ZLM declared the source lost
+    # belongs to the pre-outage continuity session. All later finalized
+    # segments belong to the reconnect session. The first post-session raw
+    # start is checked against the observed ZLM re-registration time below.
     pre_session = [
         item for item in raw_items
-        if parse_iso(item["start_at"]) < outage_end
+        if parse_iso(item["start_at"]) < source_lost_at
     ]
-    post_session = [
-        item for item in raw_items
-        if parse_iso(item["start_at"]) >= outage_end
-    ]
+    post_session = raw_items[len(pre_session):]
+
     if len(pre_session) < 2 or len(post_session) < 3:
         raise AssertionError(
-            "insufficient segments on both sides of the deliberate outage: "
+            "insufficient segments on both sides of the ZLM-observed outage: "
             f"pre={len(pre_session)} post={len(post_session)}"
+        )
+
+    first_post_raw_start = parse_iso(post_session[0]["start_at"])
+    if first_post_raw_start < source_lost_at:
+        raise AssertionError(
+            "post-session classification crossed the observed source-lost boundary"
+        )
+    if first_post_raw_start > source_recovered_at + 6.0:
+        raise AssertionError(
+            "first post-recovery recording file started unexpectedly late: "
+            f"first={iso(first_post_raw_start)} "
+            f"recovered={iso(source_recovered_at)}"
         )
 
     normalized_pre = normalize_continuity_session(pre_session, "pre_outage")
@@ -506,21 +560,22 @@ def verify(outage_start: float, outage_end: float) -> None:
         ),
     }
 
-    outage_duration = outage_end - outage_start
+    requested_outage_duration = outage_end - outage_start
+    observed_source_outage_duration = source_recovered_at - source_lost_at
     gap_seconds = float(cross_gap["delta_seconds"])
     if gap_seconds <= BOUNDARY_TOLERANCE_SECONDS:
         raise AssertionError(
             f"source outage did not create a visible media gap: {cross_gap}"
         )
-    if gap_seconds < max(2.0, outage_duration - 4.0):
+    if gap_seconds < max(2.0, observed_source_outage_duration - 4.0):
         raise AssertionError(
             f"projected gap too short for deliberate outage: "
-            f"gap={gap_seconds:.3f}s outage={outage_duration:.3f}s"
+            f"gap={gap_seconds:.3f}s observed_outage={observed_source_outage_duration:.3f}s"
         )
-    if gap_seconds > outage_duration + 12.0:
+    if gap_seconds > observed_source_outage_duration + 12.0:
         raise AssertionError(
             f"projected gap unexpectedly exceeds outage/reconnect allowance: "
-            f"gap={gap_seconds:.3f}s outage={outage_duration:.3f}s"
+            f"gap={gap_seconds:.3f}s observed_outage={observed_source_outage_duration:.3f}s"
         )
 
     ranges = build_ranges(items, BOUNDARY_TOLERANCE_SECONDS)
@@ -649,8 +704,12 @@ def verify(outage_start: float, outage_end: float) -> None:
         "outage": {
             "requested_start_at": iso(outage_start),
             "requested_end_at": iso(outage_end),
-            "requested_duration_seconds": outage_duration,
+            "requested_duration_seconds": requested_outage_duration,
+            "zlm_source_lost_at": iso(source_lost_at),
+            "zlm_source_recovered_at": iso(source_recovered_at),
+            "zlm_observed_duration_seconds": observed_source_outage_duration,
         },
+        "stream_transition_events": stream_events(),
         "raw_hook_segments": raw_items,
         "normalized_segments": items,
         "boundary_tolerance_seconds": BOUNDARY_TOLERANCE_SECONDS,
@@ -694,15 +753,29 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("prepare")
+    wait_parser = sub.add_parser("wait-transition")
+    wait_parser.add_argument("--regist", choices=["0", "1"], required=True)
+    wait_parser.add_argument("--after", type=float, required=True)
+
     verify_parser = sub.add_parser("verify")
     verify_parser.add_argument("--outage-start", type=float, required=True)
     verify_parser.add_argument("--outage-end", type=float, required=True)
+    verify_parser.add_argument("--source-lost-at", type=float, required=True)
+    verify_parser.add_argument("--source-recovered-at", type=float, required=True)
     args = parser.parse_args()
 
     if args.command == "prepare":
         prepare()
+    elif args.command == "wait-transition":
+        event = wait_stream_transition(args.regist == "1", args.after)
+        print(parse_iso(event["received_at"]))
     else:
-        verify(args.outage_start, args.outage_end)
+        verify(
+            args.outage_start,
+            args.outage_end,
+            args.source_lost_at,
+            args.source_recovered_at,
+        )
 
 
 if __name__ == "__main__":
