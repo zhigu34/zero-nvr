@@ -100,25 +100,16 @@ def zlm_stream_changed(
         )
         return _ack()
 
-    continuity_id = tracker.unregistered(
+    tracker.unregistered(
         vhost=body.vhost,
         app=body.app,
         stream=body.stream,
         at=boundary_at,
     )
-    if continuity_id is not None:
-        try:
-            RecordingCatalogService.finalize_continuity_tail(
-                session,
-                continuity_id=continuity_id,
-                boundary_at=boundary_at,
-                timing_source="SOURCE_UNREGISTER",
-            )
-            session.commit()
-        except Exception:
-            session.rollback()
-            raise
 
+    # Source unregister proves only that a continuity generation ended. It does
+    # not by itself prove an exact canonical segment boundary. The last segment
+    # therefore remains PROVISIONAL until explicit-stop or recovery evidence.
     return _ack()
 
 
@@ -141,12 +132,6 @@ def zlm_record_mp4(
         started_at=raw_started,
     )
 
-    continuity_id = (
-        resolution.continuity_id
-        if resolution is not None
-        else None
-    )
-
     try:
         result = RecordingCatalogService.ingest_finalized(
             session,
@@ -159,21 +144,20 @@ def zlm_record_mp4(
                 file_size=body.file_size,
                 file_path=body.file_path,
             ),
-            continuity_id=continuity_id,
+            previous_segment_id=(
+                resolution.previous_segment_id
+                if resolution is not None
+                else None
+            ),
         )
 
-        # A late finalized hook from a just-closed source generation can now
-        # finalize its own tail using the previously captured unregister time.
-        if (
-            resolution is not None
-            and resolution.closed_at is not None
-            and result.segment is not None
-        ):
-            RecordingCatalogService.finalize_continuity_tail(
-                session,
+        if resolution is not None and result.segment is not None:
+            request.app.state.zlm_continuity.remember_segment(
+                vhost=body.vhost,
+                app=body.app,
+                stream=body.stream,
                 continuity_id=resolution.continuity_id,
-                boundary_at=resolution.closed_at,
-                timing_source="SOURCE_UNREGISTER",
+                segment_id=result.segment.id,
             )
 
         session.commit()
