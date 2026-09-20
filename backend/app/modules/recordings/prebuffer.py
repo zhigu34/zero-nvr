@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
 from app.modules.recordings.models import RecordingSegment
-from app.modules.storage.models import RecordingLocation, StorageTarget
+from app.modules.storage.models import RecordingLocation
 
 
 @dataclass(frozen=True, slots=True)
@@ -189,7 +189,7 @@ class PrebufferPromotionService:
         *,
         fragment: PrebufferFragment,
         prebuffer_root: Path,
-        storage_target: StorageTarget,
+        storage_target_id: uuid.UUID,
         target_root: Path,
     ) -> PromotionReceipt:
         source = fragment.file_path.resolve()
@@ -246,7 +246,7 @@ class PrebufferPromotionService:
 
         return PromotionReceipt(
             fragment=fragment,
-            storage_target_id=storage_target.id,
+            storage_target_id=storage_target_id,
             object_path=destination.relative_to(
                 resolved_target_root
             ).as_posix(),
