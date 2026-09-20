@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     session_cookie_secure: bool = True
     session_ttl_hours: int = 24 * 30
 
+    zlm_base_url: str = "http://zlmediakit"
+    zlm_api_secret: SecretStr | None = None
+    zlm_timeout_seconds: float = 8.0
+    zlm_probe_timeout_seconds: float = 12.0
+
     log_level: str = "INFO"
 
     @field_validator("secret_key")
@@ -71,6 +76,21 @@ class Settings(BaseSettings):
                 "ZERO_NVR_SESSION_TTL_HOURS must be between 1 and 8760"
             )
         return value
+
+    @field_validator("zlm_timeout_seconds", "zlm_probe_timeout_seconds")
+    @classmethod
+    def validate_positive_timeout(cls, value: float) -> float:
+        if value <= 0 or value > 120:
+            raise ValueError("ZLM timeouts must be greater than 0 and at most 120 seconds")
+        return value
+
+    @field_validator("zlm_base_url")
+    @classmethod
+    def validate_zlm_base_url(cls, value: str) -> str:
+        normalized = value.rstrip("/")
+        if not normalized.startswith(("http://", "https://")):
+            raise ValueError("ZERO_NVR_ZLM_BASE_URL must use http:// or https://")
+        return normalized
 
     @field_validator("sqlite_synchronous")
     @classmethod
