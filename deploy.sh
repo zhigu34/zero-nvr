@@ -116,7 +116,7 @@ install_stack() {
   ensure_host_dirs
   prepare_zlm
   build_backend
-  compose up -d
+  compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
 }
 
@@ -135,7 +135,7 @@ update_stack() {
 
   prepare_zlm
   compose build --pull zero-nvr
-  compose up -d
+  compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
 }
 
@@ -173,7 +173,10 @@ case "$command" in
     "$SCRIPT_DIR/backup.sh" "$reason" "$policy"
     ;;
   restore)
+    preflight
     ensure_env
+    ensure_host_dirs
+    build_backend
     "$SCRIPT_DIR/restore.sh" "$@"
     ;;
   admin)
