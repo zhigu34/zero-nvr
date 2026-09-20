@@ -584,6 +584,7 @@ def test_policy_precedence_explicit_then_camera_then_nearest_group_then_global(
                 ]
             )
             session.commit()
+            parent_policy_id = parent_policy.id
             child_policy_id = child_policy.id
 
         with database.session() as session:
@@ -617,19 +618,9 @@ def test_policy_precedence_explicit_then_camera_then_nearest_group_then_global(
             assert selected is not None
             assert selected.id == camera_policy_id
 
-            explicit = RetentionPolicy(
-                name="Explicit",
-                scope_type="GLOBAL",
-                scope_id=None,
-                ordinary_keep_days=5,
-                event_keep_days=5,
-                manual_keep_days=5,
-                mode="HARD",
-                require_archive_before_delete=False,
-                enabled=True,
-            )
-            session.add(explicit)
-            session.flush()
+            # An explicit RecordingPolicy reference wins even when that
+            # referenced policy's normal scope would be less specific than
+            # the camera-scoped policy.
             recording = session.scalar(
                 select(RecordingPolicy).where(
                     RecordingPolicy.camera_id == camera_id
@@ -642,9 +633,8 @@ def test_policy_precedence_explicit_then_camera_then_nearest_group_then_global(
                     enabled=True,
                 )
                 session.add(recording)
-            recording.retention_policy_id = explicit.id
+            recording.retention_policy_id = parent_policy_id
             session.commit()
-            explicit_id = explicit.id
 
         with database.session() as session:
             selected = RetentionPlanner.policy_for_camera(
@@ -652,7 +642,7 @@ def test_policy_precedence_explicit_then_camera_then_nearest_group_then_global(
                 camera_id=camera_id,
             )
             assert selected is not None
-            assert selected.id == explicit_id
+            assert selected.id == parent_policy_id
     finally:
         database.close()
 
