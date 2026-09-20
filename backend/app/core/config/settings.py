@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     data_dir: Path = Path("/var/lib/zero-nvr")
     cache_dir: Path = Path("/var/cache/zero-nvr")
     recordings_dir: Path = Path("/recordings")
+    prebuffer_dir: Path = Path("/prebuffer")
+    prebuffer_fragment_seconds: int = 5
 
     database_url: str | None = None
     sqlite_busy_timeout_ms: int = 5000
@@ -83,6 +85,15 @@ class Settings(BaseSettings):
         if len(value.get_secret_value().encode("utf-8")) < 32:
             raise ValueError(
                 "ZERO_NVR_ZLM_HOOK_SECRET must be at least 32 bytes"
+            )
+        return value
+
+    @field_validator("prebuffer_fragment_seconds")
+    @classmethod
+    def validate_prebuffer_fragment_seconds(cls, value: int) -> int:
+        if value < 2 or value > 30:
+            raise ValueError(
+                "ZERO_NVR_PREBUFFER_FRAGMENT_SECONDS must be between 2 and 30"
             )
         return value
 
