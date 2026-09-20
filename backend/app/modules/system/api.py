@@ -14,10 +14,15 @@ from app.integrations.frigate import (
     FrigateHttpAdapter,
     FrigateIntegrationError,
 )
+from app.integrations.onvif import (
+    OnvifAdapter,
+    OnvifIntegrationError,
+)
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
+from .camera_ntp import CameraNtpService
 from .health import SystemHealthService
 from .settings import SystemSettingsService
 from .frigate import (
@@ -26,6 +31,8 @@ from .frigate import (
     FrigateProviderSettingsService,
 )
 from .schemas import (
+    CameraNtpApplyView,
+    CameraNtpDeviceResultView,
     FrigateBackfillQueuedView,
     FrigateBackfillRequest,
     FrigateCameraMapping,
@@ -548,4 +555,117 @@ async def system_events_stream(
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",
         },
+    )
+
+
+
+@router.post(
+    "/settings/camera-ntp/apply",
+    response_model=CameraNtpApplyView,
+)
+async def apply_camera_ntp_settings(
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraNtpApplyView:
+    general = SystemSettingsService.get(
+        session,
+        settings=request.app.state.settings,
+    )
+    servers = tuple(general.camera_ntp_servers)
+    mode = "manual" if servers else "dhcp"
+    service = CameraNtpService(
+        request.app.state.settings
+    )
+    devices = service.list_devices(session)
+
+    ready = []
+    results: list[CameraNtpDeviceResultView] = []
+    for device in devices:
+        try:
+            ready.append(
+                service.target(session, device)
+            )
+        except ApiError as exc:
+            results.append(
+                CameraNtpDeviceResultView(
+                    device_id=device.id,
+                    name=device.name,
+                    status="FAILED",
+                    error_code=exc.code,
+                )
+            )
+    session.commit()
+
+    async def apply_one(target):
+        try:
+            await OnvifAdapter(
+                request.app.state.settings
+            ).configure_ntp(
+                host=target.host,
+                port=target.port,
+                username=target.username,
+                password=target.password,
+                servers=servers,
+            )
+            return CameraNtpDeviceResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status="UPDATED",
+            )
+        except OnvifIntegrationError as exc:
+            return CameraNtpDeviceResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status="FAILED",
+                error_code=exc.code,
+            )
+        except Exception:
+            return CameraNtpDeviceResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status="FAILED",
+                error_code="camera_ntp_apply_failed",
+            )
+
+    applied = await asyncio.gather(
+        *(apply_one(item) for item in ready)
+    )
+    results.extend(applied)
+    results.sort(
+        key=lambda item: (
+            item.name.lower(),
+            str(item.device_id),
+        )
+    )
+    updated = sum(
+        item.status == "UPDATED"
+        for item in results
+    )
+    failed = len(results) - updated
+
+    append_audit_event(
+        session,
+        request=request,
+        actor_id=context.user.id,
+        action="system.camera_ntp.apply",
+        resource_type="system_settings",
+        metadata={
+            "mode": mode,
+            "server_count": len(servers),
+            "total_devices": len(devices),
+            "updated": updated,
+            "failed": failed,
+        },
+    )
+    session.commit()
+
+    return CameraNtpApplyView(
+        mode=mode,
+        total_devices=len(devices),
+        updated=updated,
+        failed=failed,
+        results=results,
     )

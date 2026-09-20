@@ -26,6 +26,21 @@ export interface SystemSettings {
   }
 }
 
+export interface CameraNtpDeviceResult {
+  device_id: string
+  name: string
+  status: "UPDATED" | "FAILED"
+  error_code: string | null
+}
+
+export interface CameraNtpApplyResult {
+  mode: "manual" | "dhcp"
+  total_devices: number
+  updated: number
+  failed: number
+  results: CameraNtpDeviceResult[]
+}
+
 export interface SystemUpdateInfo {
   current_version: string
   latest_version: string | null
@@ -206,6 +221,13 @@ export function patchSystemSettings(
     method: "PATCH",
     json: { general }
   })
+}
+
+export function applyCameraNtpSettings(): Promise<CameraNtpApplyResult> {
+  return apiRequest<CameraNtpApplyResult>(
+    "/system/settings/camera-ntp/apply",
+    { method: "POST" }
+  )
 }
 
 export function getUpdateInfo(): Promise<SystemUpdateInfo> {

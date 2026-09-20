@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+import ipaddress
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -253,6 +254,91 @@ class OnvifAdapter:
             "The ONVIF device has no media profile with PTZ configuration.",
             status_code=409,
         )
+
+    @staticmethod
+    def _ntp_host(value: str) -> dict[str, str]:
+        try:
+            parsed = ipaddress.ip_address(value)
+        except ValueError:
+            return {
+                "Type": "DNS",
+                "DNSname": value,
+            }
+        if parsed.version == 4:
+            return {
+                "Type": "IPv4",
+                "IPv4Address": str(parsed),
+            }
+        return {
+            "Type": "IPv6",
+            "IPv6Address": str(parsed),
+        }
+
+    async def configure_ntp(
+        self,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        servers: tuple[str, ...],
+    ) -> None:
+        camera: Any | None = None
+        try:
+            camera = self._camera_factory(
+                host,
+                port,
+                username,
+                password,
+                nat_override=True,
+                no_cache=True,
+            )
+            async with asyncio.timeout(
+                self.settings.onvif_timeout_seconds
+            ):
+                await camera.update_xaddrs()
+                if servers:
+                    await camera.devicemgmt.SetNTP(
+                        {
+                            "FromDHCP": False,
+                            "NTPManual": [
+                                self._ntp_host(item)
+                                for item in servers
+                            ],
+                        }
+                    )
+                else:
+                    await camera.devicemgmt.SetNTP(
+                        {
+                            "FromDHCP": True,
+                        }
+                    )
+                await camera.devicemgmt.SetSystemDateAndTime(
+                    {
+                        "DateTimeType": "NTP",
+                        "DaylightSavings": False,
+                    }
+                )
+        except TimeoutError as exc:
+            raise OnvifIntegrationError(
+                "onvif_ntp_timeout",
+                "The ONVIF NTP update timed out.",
+                status_code=504,
+            ) from exc
+        except OnvifIntegrationError:
+            raise
+        except Exception as exc:
+            raise OnvifIntegrationError(
+                "onvif_ntp_failed",
+                "The ONVIF device rejected the NTP configuration.",
+                status_code=422,
+            ) from exc
+        finally:
+            if camera is not None:
+                try:
+                    await camera.close()
+                except Exception:
+                    pass
 
     async def ptz_move(
         self,

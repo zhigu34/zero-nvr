@@ -497,3 +497,120 @@ async def test_ptz_continuous_move_and_stop_use_ptz_profile() -> None:
         }
     ]
     assert stop_camera.closed is True
+
+
+
+class FakeNtpDeviceManagement:
+    def __init__(self) -> None:
+        self.ntp_requests = []
+        self.time_requests = []
+
+    async def SetNTP(self, request):
+        self.ntp_requests.append(request)
+
+    async def SetSystemDateAndTime(self, request):
+        self.time_requests.append(request)
+
+
+class FakeNtpCamera:
+    instances = []
+
+    def __init__(
+        self,
+        host,
+        port,
+        username,
+        password,
+        **kwargs,
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.kwargs = kwargs
+        self.devicemgmt = FakeNtpDeviceManagement()
+        self.closed = False
+        self.instances.append(self)
+
+    async def update_xaddrs(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_configure_ntp_sets_servers_and_enables_ntp_clock() -> None:
+    FakeNtpCamera.instances = []
+    adapter = OnvifAdapter(
+        settings(),
+        camera_factory=FakeNtpCamera,
+    )
+
+    await adapter.configure_ntp(
+        host="192.168.10.31",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+        servers=(
+            "pool.ntp.org",
+            "192.0.2.10",
+            "2001:db8::10",
+        ),
+    )
+
+    camera = FakeNtpCamera.instances[-1]
+    assert camera.devicemgmt.ntp_requests == [
+        {
+            "FromDHCP": False,
+            "NTPManual": [
+                {
+                    "Type": "DNS",
+                    "DNSname": "pool.ntp.org",
+                },
+                {
+                    "Type": "IPv4",
+                    "IPv4Address": "192.0.2.10",
+                },
+                {
+                    "Type": "IPv6",
+                    "IPv6Address": "2001:db8::10",
+                },
+            ],
+        }
+    ]
+    assert camera.devicemgmt.time_requests == [
+        {
+            "DateTimeType": "NTP",
+            "DaylightSavings": False,
+        }
+    ]
+    assert camera.closed is True
+
+
+@pytest.mark.asyncio
+async def test_configure_ntp_empty_list_uses_dhcp_ntp() -> None:
+    FakeNtpCamera.instances = []
+    adapter = OnvifAdapter(
+        settings(),
+        camera_factory=FakeNtpCamera,
+    )
+
+    await adapter.configure_ntp(
+        host="192.168.10.31",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+        servers=(),
+    )
+
+    camera = FakeNtpCamera.instances[-1]
+    assert camera.devicemgmt.ntp_requests == [
+        {"FromDHCP": True}
+    ]
+    assert camera.devicemgmt.time_requests == [
+        {
+            "DateTimeType": "NTP",
+            "DaylightSavings": False,
+        }
+    ]

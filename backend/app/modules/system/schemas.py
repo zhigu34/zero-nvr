@@ -119,3 +119,19 @@ class HealthComponentView(BaseModel):
 class SystemHealthView(BaseModel):
     status: Literal["OK", "DEGRADED", "ERROR", "DISABLED"]
     components: dict[str, HealthComponentView]
+
+
+
+class CameraNtpDeviceResultView(BaseModel):
+    device_id: uuid.UUID
+    name: str
+    status: Literal["UPDATED", "FAILED"]
+    error_code: str | None = None
+
+
+class CameraNtpApplyView(BaseModel):
+    mode: Literal["manual", "dhcp"]
+    total_devices: int
+    updated: int
+    failed: int
+    results: list[CameraNtpDeviceResultView]

@@ -17,6 +17,7 @@ import {
   errorMessage
 } from "../api/client"
 import {
+  applyCameraNtpSettings,
   backfillFrigate,
   createBackupPolicy,
   createNotificationTarget,
@@ -47,6 +48,7 @@ import {
   type AdminUser,
   type AuditEvent,
   type BackupPolicy,
+  type CameraNtpApplyResult,
   type BackupSet,
   type FrigateCameraMapping,
   type HealthComponent,
@@ -165,6 +167,7 @@ const generalForm = reactive({
   ntpServers: ""
 })
 const generalSaving = ref(false)
+const ntpApplyResult = ref<CameraNtpApplyResult | null>(null)
 
 const navigation = computed(() => {
   const items: Array<{
@@ -414,7 +417,24 @@ async function saveGeneral(): Promise<void> {
         .filter(Boolean)
     })
     settings.value = updated
-    notice.value = "General settings saved."
+    ntpApplyResult.value = null
+    try {
+      const applied = await applyCameraNtpSettings()
+      ntpApplyResult.value = applied
+      if (applied.total_devices === 0) {
+        notice.value =
+          "General settings saved. No enabled ONVIF devices were found for NTP configuration."
+      } else if (applied.failed === 0) {
+        notice.value =
+          `General settings saved. NTP applied to ${applied.updated} ONVIF device(s).`
+      } else {
+        notice.value =
+          `General settings saved. NTP applied to ${applied.updated}/${applied.total_devices} ONVIF device(s).`
+      }
+    } catch (caught) {
+      error.value =
+        `General settings were saved, but camera NTP apply failed: ${errorMessage(caught)}`
+    }
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -1019,8 +1039,40 @@ onBeforeUnmount(() => {
               rows="5"
               placeholder="pool.ntp.org&#10;time.cloudflare.com"
             />
-            <small>One hostname or IP per line; zero-nvr configures cameras that support ONVIF time settings.</small>
+            <small>
+              One hostname or IP per line. Leave empty to use DHCP-provided
+              NTP. Saving applies the canonical setting to enabled ONVIF
+              devices and switches their clock mode to NTP.
+            </small>
           </label>
+
+          <div
+            v-if="ntpApplyResult"
+            class="system-ntp-result"
+          >
+            <strong>
+              Camera NTP ·
+              {{ ntpApplyResult.updated }}/{{ ntpApplyResult.total_devices }}
+              updated
+            </strong>
+            <span>
+              {{
+                ntpApplyResult.mode === "manual"
+                  ? "Manual NTP servers"
+                  : "DHCP-provided NTP"
+              }}
+            </span>
+            <ul v-if="ntpApplyResult.failed">
+              <li
+                v-for="item in ntpApplyResult.results.filter(
+                  (entry) => entry.status === 'FAILED'
+                )"
+                :key="item.device_id"
+              >
+                {{ item.name }} · {{ item.error_code || "apply_failed" }}
+              </li>
+            </ul>
+          </div>
           <div class="system-form-actions">
             <button
               class="button button--primary"
