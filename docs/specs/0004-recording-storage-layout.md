@@ -176,7 +176,7 @@ ZLM recorder
 
 ### ZLM timing normalization
 
-**Status: candidate normalization rule — POC-05 rerun required before freeze.**
+**Status: accepted — validated by POC-05.**
 
 One fact is already established by runtime evidence:
 
@@ -184,7 +184,7 @@ One fact is already established by runtime evidence:
 
 The ZLM adapter owns any vendor/runtime-specific normalization.
 
-Current candidate for a proven continuous recorder/source session:
+Accepted rule for a proven continuous recorder/source session:
 
 ~~~text
 segment N actual muxed duration = D
@@ -195,14 +195,16 @@ segment N:
   started_at = B - D
 ~~~
 
-Why this candidate is being tested:
+Why this rule is used:
 
 - normal ZLM rollover creates the next MP4 at the keyframe boundary;
 - the next boundary is an absolute wall-clock anchor;
 - `time_len` is the actual muxed duration;
 - this corrects the session-first file where raw hook start can precede the first muxed keyframe.
 
-If POC-05 validates the candidate, boundary evidence may come from the already-created next ZLM file/path or the next finalized hook. The implementation should prefer an immediately visible proven next-file boundary so a normal finalized segment does not need to wait an entire additional segment duration before appearing in the catalog.
+POC-05 validated this rule on the tested ZLM build, including a post-reconnect raw Hook bias of about 1.04 seconds. Same-session normalization reduced measured boundary deltas to approximately 40 ms / 40 ms / 0 / 41 ms / 0 without bridging the real source outage.
+
+Boundary evidence may come from the already-created next ZLM file/path or the next finalized hook. The implementation should prefer an immediately visible proven next-file boundary so a normal finalized segment does not need to wait an entire additional segment duration before appearing in the catalog.
 
 For the tail of a continuity session:
 
@@ -213,9 +215,11 @@ For the tail of a continuity session:
 
 A source unregister/reconnect always splits continuity sessions. **Never use a post-reconnect segment boundary to normalize a pre-disconnect segment.**
 
-The raw Hook payload remains useful diagnostic/reconciliation evidence. Canonical RecordingSegment `started_at/ended_at` must represent actual media coverage, but the exact same-session resolver remains POC-gated until the rerun passes.
+The raw Hook payload remains useful diagnostic/reconciliation evidence. Canonical RecordingSegment `started_at/ended_at` represents projected actual media coverage through the accepted continuity resolver. Raw source fields should remain available in sanitized adapter/debug evidence when diagnosing timing behavior.
 
-The candidate resolver does not require ffprobe on every successful normal hook. ffprobe remains a recovery/ambiguity fallback.
+The accepted resolver does not require ffprobe on every successful normal hook. ffprobe remains a recovery/ambiguity fallback.
+
+See [POC-05 — Timeline Precision](../poc-results/05-timeline-precision.md).
 
 The product catalog is created from finalized-media evidence plus proven continuity-boundary evidence.
 
@@ -311,8 +315,8 @@ Additional indexes must be justified by measured query load and remain portable 
 1. Three consecutive normal segments:
    - muxed duration comes from finalized ZLM media evidence;
    - raw Hook timing bias is measured explicitly;
-   - POC-05 must validate whether adjacent proven same-session boundaries can normalize absolute start/end without fabricating continuity;
-   - a session-first GOP-sized false gap must not remain in the accepted final resolver;
+   - adjacent proven same-session boundaries normalize absolute start/end without fabricating continuity;
+   - a session-first/reconnect GOP-sized false gap must not remain inside an otherwise proven continuous session;
    - paths follow the human-readable layout.
 2. Cross-midnight segment is not force-split solely because the date changed.
 3. Camera rename does not rename historical media.
@@ -331,7 +335,7 @@ Additional indexes must be justified by measured query load and remain portable 
 5. Canonical media timestamps are UTC.
 6. Nominal segment duration is never assumed to equal actual duration.
 7. Raw ZLM Hook start_time is not blindly treated as canonical media start for a session-first segment.
-8. Any accepted same-session boundary correction is allowed only with proven media continuity; source disconnect/reconnect always splits sessions. The current next-boundary algorithm remains POC-05-gated.
+8. Same-session boundary correction is allowed only with proven media continuity; source disconnect/reconnect always splits sessions. The accepted next-boundary resolver is validated by POC-05 and belongs in the ZLM adapter, not generic Timeline code.
 9. Date boundaries do not force media segmentation.
 10. Archive creates another RecordingLocation rather than mutating identity.
 11. Valid unindexed media is reconciled, not auto-deleted.
