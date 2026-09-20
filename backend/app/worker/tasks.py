@@ -26,6 +26,7 @@ from app.modules.recordings.prebuffer import (
 )
 from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
+from app.modules.storage.archive import ArchiveLifecycleService
 from app.modules.storage.models import RecordingLocation
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
@@ -476,5 +477,30 @@ def reconcile_recording_policy_boundary(
                 eta=next_boundary,
             )
         return True
+    finally:
+        database.close()
+
+
+
+@huey.task(retries=3, retry_delay=60)
+def archive_recording_segment(
+    segment_id: str,
+    target_id: str,
+) -> str:
+    """Archive one immutable recording object through rclone.
+
+    Only stable ids enter the queue. Secret rclone configuration is resolved
+    inside the worker at execution time.
+    """
+
+    settings = Settings()
+    database = _database(settings)
+    try:
+        result = ArchiveLifecycleService(settings).execute(
+            database,
+            segment_id=uuid.UUID(segment_id),
+            target_id=uuid.UUID(target_id),
+        )
+        return str(result.location_id)
     finally:
         database.close()
