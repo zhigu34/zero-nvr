@@ -1,4 +1,4 @@
 # Design-freeze runtime trigger
 
-reason: final matrix after POC-01 hook-retry convergence, POC-05 ZLM stream-transition timing, and POC-09 retention-plan optimization
-trigger_revision: 2026-09-20T05:03Z
+reason: final baseline matrix after fMP4 default alignment, POC-01 convergence fix, POC-05 ZLM session boundaries, and POC-09 retention optimization
+trigger_revision: 2026-09-20T05:04Z
