@@ -156,7 +156,7 @@ For a version-pinned update it:
 - restarts affected services and verifies health;
 - records the deployed and rollback revisions.
 
-The requested ref must already exist in the local clone. Operators may fetch release tags/branches first, but `deploy.sh update` itself does not silently change remote Git state.
+The requested ref must already exist in the local clone. When a deployed revision is recorded, the pinned target must be that revision or one of its Git descendants; arbitrary non-fast-forward downgrades are rejected and must use the recorded `rollback` path. Operators may fetch release tags/branches first, but `deploy.sh update` itself does not silently change remote Git state.
 
 Do not treat mutable `latest` as the production upgrade contract.
 

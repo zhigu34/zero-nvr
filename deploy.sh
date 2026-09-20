@@ -139,6 +139,17 @@ update_stack() {
   ensure_host_dirs
 
   current_source="$(git_revision || true)"
+  previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
+  previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
+  previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+  pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
+
+  if valid_revision "$pending_target"; then
+    echo "error: a previous update is still marked pending: $pending_target" >&2
+    echo "run ./deploy.sh rollback before retrying update" >&2
+    return 1
+  fi
+
   if [[ -n "$requested_ref" ]]; then
     require_command git
     if ! git -C "$ROOT_DIR" diff --quiet --ignore-submodules -- \
@@ -152,6 +163,17 @@ update_stack() {
     if ! valid_revision "$target_revision"; then
       echo "error: update version/ref is not available in this Git clone: $requested_ref" >&2
       echo "fetch the desired release/ref first, then retry" >&2
+      return 1
+    fi
+
+    if valid_revision "$previous_revision" \
+      && [[ "$previous_revision" != "$target_revision" ]] \
+      && ! git -C "$ROOT_DIR" merge-base --is-ancestor \
+        "$previous_revision" "$target_revision"; then
+      echo "error: pinned update target is not a descendant of the deployed revision" >&2
+      echo "deployed: $previous_revision" >&2
+      echo "target:   $target_revision" >&2
+      echo "use ./deploy.sh rollback for the recorded downgrade path" >&2
       return 1
     fi
 
@@ -188,17 +210,6 @@ update_stack() {
   else
     target_revision="$current_source"
   fi
-  previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
-  previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
-  previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
-  pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
-
-  if valid_revision "$pending_target"; then
-    echo "error: a previous update is still marked pending: $pending_target" >&2
-    echo "run ./deploy.sh rollback before retrying update" >&2
-    return 1
-  fi
-
   SAFETY_SNAPSHOT_REL=""
   if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
     echo "Creating pre-upgrade database safety snapshot..."
