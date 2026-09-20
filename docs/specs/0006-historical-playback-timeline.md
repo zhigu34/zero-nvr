@@ -33,7 +33,7 @@ Core rule:
 
 PostgreSQL stores authoritative timestamps as UTC datetimes.
 
-Playback API contracts use UTC Unix milliseconds:
+Playback API contracts use timezone-aware ISO 8601 timestamps:
 
 ```text
 start_ms
@@ -55,7 +55,7 @@ video.currentTime =
     (global_time_ms - segment.start_ms) / 1000
 ```
 
-Do not mix Unix seconds, Unix milliseconds, and video-relative seconds inside one API/model.
+Do not mix Unix seconds, ISO 8601 timestamps, and video-relative seconds inside one API/model.
 
 ## PlaybackTimeline response
 
@@ -703,7 +703,7 @@ The implementation must preserve contracts that allow later upgrade to MSE/fMP4/
 ## Invariants
 
 1. Absolute time, not MP4 filename/order, controls playback.
-2. Playback API timestamps use UTC Unix milliseconds consistently.
+2. Playback API timestamps use timezone-aware ISO 8601 timestamps consistently.
 3. Playback references are stable and storage URLs are resolved lazily.
 4. A 5-minute file boundary does not create a new logical playback session.
 5. Known no-media reasons are explicit gaps rather than all being labeled disconnected.
