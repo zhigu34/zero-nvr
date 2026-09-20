@@ -269,3 +269,43 @@ def test_mp4_recorder_control_uses_zlm_native_api() -> None:
     start_body = form(requests[0])
     assert start_body["customized_path"] == ["/recordings"]
     assert start_body["max_second"] == ["300"]
+
+
+
+def test_load_mp4_file_uses_native_zlm_vod_api() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/loadMP4File")
+        return httpx.Response(
+            200,
+            json={"code": 0, "result": True},
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        assert adapter.load_mp4_file(
+            app="zero-nvr-vod",
+            stream="segment-test",
+            file_path="/recordings/record/zero-nvr/test.mp4",
+            seek_ms=12345,
+            speed=1.0,
+        )
+
+    assert len(requests) == 1
+    assert not requests[0].url.query
+    body = form(requests[0])
+    assert body["secret"] == [ZLM_SECRET]
+    assert body["vhost"] == ["__defaultVhost__"]
+    assert body["app"] == ["zero-nvr-vod"]
+    assert body["stream"] == ["segment-test"]
+    assert body["file_path"] == [
+        "/recordings/record/zero-nvr/test.mp4"
+    ]
+    assert body["seek_ms"] == ["12345"]
+    assert body["enable_fmp4"] == ["1"]
+    assert body["enable_rtsp"] == ["1"]
+    assert body["auto_close"] == ["1"]
