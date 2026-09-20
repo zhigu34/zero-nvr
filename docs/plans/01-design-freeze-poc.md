@@ -4,6 +4,58 @@ Status: **required before architecture freeze**
 
 These POCs validate the few remaining media/storage assumptions that must not be guessed in production design.
 
+## Gate classification
+
+Not every experiment has the same release meaning.
+
+### A — Core architecture freeze gates
+
+These validate assumptions that the default complete V1 architecture depends on:
+
+~~~text
+POC-01  normal ZLM recording / hook indexing / control-plane independence
+POC-03  EVENT_ONLY pre-roll
+POC-04  overlapping Event extension
+POC-05  canonical wall-clock timeline precision
+POC-06  ZLM VOD seek / PlaybackResolver primitive
+POC-07  remote restore playback baseline
+POC-08  Core ZLM stream sharing / source connection count
+POC-09  SQLite default production mode
+POC-10  reconciliation / eventual-consistency safety
+~~~
+
+Architecture freeze requires each of these to be PASS or PASS WITH CONSTRAINTS whose constraint is already reflected in the baseline and does not contradict the product target.
+
+### B — implementation-selection gate
+
+POC-02 decides the **default recording container strategy**, not whether ZLMediaKit remains the recording owner.
+
+~~~text
+POC-02 PASS
+  -> fMP4 may become the default after its normal playback/export path is accepted
+
+POC-02 FAIL / no material advantage
+  -> keep ordinary MP4 as the V1 default
+  -> document abnormal-termination limitation
+  -> architecture ownership remains unchanged
+~~~
+
+Therefore POC-02 does not by itself block V1 Architecture Frozen when ordinary MP4 remains an acceptable, explicitly documented fallback. It must still be resolved before declaring the default container-format decision complete.
+
+### C — optional-feature integration gates
+
+Optional services do not become Core architecture prerequisites.
+
+Examples:
+
+- Managed Frigate must prove `AI_DETECT -> ZLM internal stream` and unchanged source-camera session count before Managed AI is declared production-ready.
+- OpenList support must smoke-test a real OpenList WebDAV endpoint through the already accepted rclone abstraction before OpenList integration is declared production-ready.
+- coturn must be validated only for deployments enabling remote TURN/WebRTC traversal.
+- managed PostgreSQL/Mosquitto profiles are validated when those optional deployment modes are implemented.
+
+A user who leaves one of these features disabled must not need to pull or run its service merely to satisfy the Core architecture.
+
+
 ## POC-01 — ZLM continuous recording and indexing
 
 Validate:
@@ -198,7 +250,7 @@ Pass condition: zero-nvr converges to explainable state without silently deletin
 
 ## Freeze rule
 
-When all critical media-path POCs pass, change project status from:
+When all **Core architecture freeze gates** in the classification above pass (or pass with an accepted explicit constraint), change project status from:
 
 ```text
 V1 Design Freeze Candidate
@@ -210,7 +262,9 @@ to:
 V1 Architecture Frozen
 ```
 
-After that, changes to component ownership, recording authority, core container boundaries, or storage lifecycle require an ADR.
+POC-02 is handled by its format-selection rule above and optional-feature integration gates do not block a non-enabled Core.
+
+After architecture freeze, changes to component ownership, recording authority, core container boundaries, or storage lifecycle require an ADR.
 
 
 ## Execution rules
