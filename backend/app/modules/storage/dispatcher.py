@@ -30,3 +30,13 @@ class StorageTaskDispatcher:
             str(segment_id),
             str(target_id),
         )
+
+
+    @staticmethod
+    def reconcile_retention(
+        *,
+        pressure: bool = False,
+    ) -> None:
+        from app.worker.tasks import reconcile_retention
+
+        reconcile_retention(pressure)
