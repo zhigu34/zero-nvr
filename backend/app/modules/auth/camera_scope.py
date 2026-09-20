@@ -204,6 +204,23 @@ class CameraScopeService:
         return value
 
     @staticmethod
+    def clear_scope(
+        session: Session,
+        *,
+        principal_type: str,
+        principal_id: uuid.UUID,
+    ) -> None:
+        scope = session.scalar(
+            select(PrincipalCameraScope).where(
+                PrincipalCameraScope.principal_type == principal_type,
+                PrincipalCameraScope.principal_id == principal_id,
+            )
+        )
+        if scope is not None:
+            session.delete(scope)
+            session.flush()
+
+    @staticmethod
     def _expand_group_camera_ids(
         session: Session,
         selected_group_ids: set[uuid.UUID],
