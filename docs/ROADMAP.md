@@ -50,16 +50,16 @@ Resource targets to benchmark:
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
 - [x] Define explicit StorageTarget routing, host-managed disk aggregation/redundancy, disk pressure, and remote-archive separation.
 - [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
-- [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
+- [x] Define configuration/SecretStore separation, mature authenticated encryption, simple key rotation, and RecoveryKit semantics.
 - [x] Define complete-first production release policy: core lifecycle ships complete; non-core integrations do not silently become release gates.
-- [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
+- [x] Define Event -> Alert -> NotificationDelivery lifecycle, cooldown, Apprise routing, and durable retry.
 - [x] Define lightweight database/system backup with restic, RecoveryKit, verification, and clean-host disaster recovery.
 - [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
 - [x] Define deploy.sh-driven upgrade preflight, safety backup, Alembic migration classes, rollback, and database cutover safety.
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
-- [x] Define complete live-view MediaSession, multi-grid quality switching, WebRTC/fMP4/HLS fallback, TURN, H.265 compatibility, audio, and talk.
-- [x] Define DetectionProvider observations, AI/object tracking, zones, provider liveness, and non-destructive event fusion.
+- [x] Define live-view MediaSession, multi-grid quality switching, browser/codec fallback, bounded on-demand transcode, optional TURN/audio/talk.
+- [x] Define canonical Event normalization for ONVIF/Frigate/system sources and idempotent provider updates; generic event fusion deferred.
 - [ ] Review and refine remaining architecture decisions before implementation.
 
 ## Phase 1 — Platform foundation
@@ -69,14 +69,14 @@ Resource targets to benchmark:
 - [ ] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [ ] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [ ] PostgreSQL optional bundled/external production profile.
-- [ ] DatabaseCapabilities abstraction for locking/task claiming/indexing/backup.
+- [ ] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
 - [ ] SQLite and PostgreSQL production integration-test harnesses.
 - [ ] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
 - [ ] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
 - [ ] ordinary configuration + SecretStore abstraction.
-- [ ] SecretRecord persistence with authenticated envelope encryption.
-- [ ] per-record DEK + external/versioned KEK keyring bootstrap.
-- [ ] Docker secret / protected-file *_FILE bootstrap support.
+- [ ] SecretRecord persistence using mature authenticated encryption.
+- [ ] stable ZERO_NVR_SECRET_KEY / *_FILE bootstrap with simple versioned keyring rotation.
+- [ ] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
 - [ ] secret redaction for logs/errors/traces/AuditEvent.
 - [ ] explicit keep/replace/clear credential update semantics.
 - [ ] credential validation before atomic secret_ref switch where practical.
@@ -91,11 +91,10 @@ Resource targets to benchmark:
 - [ ] PasswordResetToken persistence using one-way token hashes.
 - [ ] administrator-issued one-time password reset token.
 - [ ] host/Docker CLI emergency administrator password recovery.
-- [ ] TOTP MFA enrollment/challenge/disable flow.
-- [ ] one-time MFA recovery codes stored as hashes.
+- [ ] OPTIONAL: TOTP MFA using a mature OTP library; must not block V1 release.
 - [ ] OIDC/SSO provider configuration and ExternalIdentity mapping.
 - [ ] login rate limiting / brute-force protection.
-- [ ] one-way hashing for verifier-only service/API tokens.
+- [ ] Personal API Token create/revoke/list flow with one-way token hashes.
 - [ ] built-in Administrator / Operator / Viewer roles.
 - [ ] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
@@ -177,14 +176,14 @@ Acceptance:
 - multi-camera grid uses preview streams and promotes focused tiles to main quality.
 - WebRTC failure can fall back to fMP4/HLS without exposing source credentials.
 - H.265 recording can remain native while incompatible browsers receive a compatible live path.
-- TURN supports authenticated remote WebRTC and reports relay state.
-- talk is separately authorized and does not affect video/recording on failure.
+- TURN, when enabled, uses short-lived credentials and does not become a Core dependency.
+- optional talk is separately authorized and never affects video/recording on failure.
 - media-engine restart is recoverable without losing Camera metadata.
 
 ## Phase 3 — Recording Plane
 
-- [ ] Implement RecordingManager per-camera intent arbiter.
-- [ ] RecordingIntent persistence/recovery and idempotent transitions.
+- [ ] Implement per-camera recording arbiter that derives desired recorder state from RecordingPolicy + active RecordingTriggers.
+- [ ] Keep runtime arbitration idempotent without a mandatory RecordingIntent table.
 - [ ] Implement thin ZLM RecordingAdapter for start/stop/status and recorder hooks.
 - [ ] Keep FFmpeg out of the normal 24x7 recording path; use it only for derived/recovery jobs.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
@@ -205,14 +204,14 @@ Acceptance:
 - [ ] cross-day segments without midnight force-split.
 - [ ] source-loss segment finalize with completion_reason = source_lost.
 - [ ] post-reconnect new segment clock anchored at actual recovery time.
-- [ ] preserve RecordingSession/RecordingIntent across transport outage.
-- [ ] SourceConnectivityIncident persistence and gap explanation.
+- [ ] preserve policy/active RecordingTriggers across source outage and reconcile desired recorder state after ZLM recovery.
+- [ ] SystemEvent/health transition persistence sufficient to explain source-loss gaps when evidence exists.
 - [ ] recorder recovery / orphan and partial-file reconciliation.
-- [ ] RetentionPolicy / RetentionClaim persistence.
+- [ ] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
 - [ ] normal age-based retention worker.
 - [ ] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [ ] priority-based emergency purge with structured logs.
-- [ ] recording/event/range lock and unlock.
+- [ ] RecordingProtection range create/update/delete and UI.
 - [ ] safe local purge only after verified remote readiness where applicable.
 - [ ] disk capacity guard.
 - [ ] basic timeline.
@@ -250,93 +249,60 @@ Acceptance:
 - source profiles map into canonical recording/live/preview/detection roles.
 - bad credentials or unpullable media fail onboarding without leaving silent half-configured cameras.
 
-## Phase 5 — Event Detection Platform
+## Phase 5 — Events and Optional AI
 
-- [ ] DetectionProvider contract and provider capability model.
-- [ ] DetectionProviderInstance persistence/health.
-- [ ] DetectionProviderBinding per Camera with independent timeline / recording / alert eligibility.
-- [ ] DetectionObservation append-oriented provider evidence and durable ingress idempotency.
-- [ ] DetectionEvent provider-neutral aggregate with START / UPDATE / END and instant lifecycle.
-- [ ] source_occurred_at / received_at / occurred_at timestamp provenance and clock-offset correction.
-- [ ] object_class / object_subclass / confidence / bounding-box normalization.
-- [ ] bounded observation sampling/retention to protect SQLite/PostgreSQL write/storage load.
-- [ ] EventZone normalized polygons + ProviderZoneBinding.
-- [ ] DetectionEventZoneInterval entry/exit history.
-- [ ] DetectionPolicy per Camera for provider/filter/snapshot/fusion behavior.
-- [ ] provider disconnect liveness deadlines and provider_lost event completion.
-- [ ] out-of-order provider update protection; completed events cannot be reopened by stale updates.
-- [ ] native ONVIF event provider with PullPoint renew/reconnect/sync handling.
-- [ ] HIK/vendor native event provider through isolated bridge.
-- [ ] optional Frigate provider using MQTT tracked-object lifecycle + API health/detail/snapshot reconciliation.
-- [ ] explicit Frigate Camera -> zero-nvr Camera mapping; Frigate remains non-authoritative.
-- [ ] Frigate zones/object classes/sub-labels/snapshots normalization.
-- [ ] Frigate review-context enrichment without duplicating each underlying tracked-object DetectionEvent.
-- [ ] optional local lightweight motion using detection stream, resource limits, hysteresis + START/END holds.
-- [ ] pulse-only source normalization/hold timeout.
-- [ ] event snapshot reference/cache handling with failure isolation; snapshots are not canonical RecordingLocations.
-- [ ] face/LPR/sub-label metadata handling with redaction/scope/export controls.
-- [ ] EventFusionGroup / EventFusionMember conservative cross-provider correlation.
-- [ ] timeline fusion presentation with provider detail drill-down.
-- [ ] structured EventLog persistence/query.
-- [ ] Event Center filters for provider / event type / object class / zone / confidence / fusion.
-- [ ] provider health metrics: lag/backlog/reconnect/invalid/deduplicated/active events.
-- [ ] provider settings + per-camera bindings / zone mapping / eligibility UI.
+- [ ] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
+- [ ] idempotent UPSERT for provider new/update/end messages.
+- [ ] native ONVIF event adapter using mature library subscription mechanisms.
+- [ ] optional vendor-native event adapter only where ONVIF is insufficient.
+- [ ] Frigate AIProviderInstance + Camera binding.
+- [ ] Managed Frigate stream path through ZLM internal AI_DETECT stream.
+- [ ] External Frigate connection/mapping mode.
+- [ ] Frigate event/snapshot normalization without copying its full internal event schema.
+- [ ] provider liveness/health transitions without high-frequency DB heartbeat rows.
+- [ ] Event Center filters: camera / source / category / label / zone / confidence / date.
+- [ ] Event detail drawer with snapshot, metadata, playback jump, protect/export actions.
+- [ ] event snapshot priority: provider snapshot -> ZLM current snapshot -> FFmpeg historical fallback.
 
 Acceptance:
 
-- replayed/duplicate provider messages do not create duplicate DetectionEvents.
-- Frigate new/update/end for one tracked object maps to one stateful DetectionEvent.
-- ONVIF/HIK state changes normalize into canonical lifecycle semantics.
-- provider outage cannot leave event recording active forever.
-- out-of-order stale updates cannot reopen completed events.
-- multiple provider reports may correlate into one fusion group while every source event remains queryable.
-- provider snapshot/AI failure never interrupts healthy media recording.
-- Frigate/AI remains an optional event provider rather than NVR source of truth.
+- replayed provider messages do not create duplicate Events;
+- Frigate new/update/end updates one Event;
+- ONVIF events use the same Event API;
+- Frigate/AI failure never interrupts healthy live/recording;
+- no generic EventFusion/DetectionObservation storage is required for V1.
+
 ## Phase 6 — Alerting and Notifications
 
-- [ ] AlertSignal normalization for detection / health / security sources.
-- [ ] AlertRule persistence/API with camera scope, event/health/security filters, schedules, severity, grouping, cooldown, and resolution mode.
-- [ ] AlertIncident + AlertIncidentSource lifecycle.
-- [ ] active/resolved and acknowledged/unacknowledged state model.
-- [ ] source / auto-timeout / manual incident resolution.
-- [ ] grouping window and notification cooldown semantics without dropping DetectionEvents.
-- [ ] EscalationPolicy / EscalationStep persistence and restart-safe timers.
-- [ ] AlertActionSet / AlertAction reusable routing.
-- [ ] NotificationTarget persistence and independent health.
-- [ ] RecipientGroup and verified-user email recipients.
-- [ ] NotificationTemplate built-ins + sandboxed customization/preview.
-- [ ] AlertSilence temporary maintenance windows.
-- [ ] recurring quiet schedules using explicit timezone/DST semantics.
-- [ ] notification storm/rate protection without dropping incidents/events.
-- [ ] durable AlertDelivery + AlertDeliveryAttempt state.
-- [ ] idempotency-keyed worker processing.
-- [ ] retry classification: transient / permanent / rate-limited / configuration.
-- [ ] persisted retry/backoff/jitter and manual failed-delivery retry.
-- [ ] SMTP/email NotificationBackend.
-- [ ] email templates for detection, security, password reset, camera/system/storage health and recovery.
-- [ ] Apprise target.
-- [ ] signed/authenticated webhook target.
-- [ ] Home Assistant notification/action target.
-- [ ] MQTT notification target.
-- [ ] optional event snapshot attachment and authenticated deep links.
-- [ ] rule preview, target test, and template preview.
-- [ ] Alert Center UI with filters, source events, acknowledgement, resolution, delivery history and retry.
+- [ ] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
+- [ ] Alert persistence with active / acknowledged / resolved states.
+- [ ] source-recovery handling for health Alerts.
+- [ ] NotificationTarget persistence with SecretStore-backed credentials/config.
+- [ ] NotificationDelivery persistence: pending / sending / sent / failed / suppressed.
+- [ ] Huey-backed delivery retry with transient/permanent/rate-limited classification.
+- [ ] Apprise integration as the default multi-channel delivery mechanism.
+- [ ] SMTP configuration/test and password-reset delivery.
+- [ ] outbound webhook and MQTT targets where configured.
+- [ ] optional snapshot/deep-link attachment without permanent public media URLs.
+- [ ] cooldown and notification-storm protection without dropping Events.
+- [ ] optional RecordingProtection action for selected AlertPolicy.
+- [ ] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
 - [ ] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
-- [ ] audit for rule/silence/target/template/human incident actions.
+- [ ] audit for policy/target/human acknowledgement and configuration changes.
 
 Acceptance:
 
-- repeated motion bursts do not flood notifications while all DetectionEvents remain stored.
-- active/recovered health conditions open/resolve incidents correctly.
-- acknowledgement can stop escalation without pretending the source recovered.
-- SMTP/provider outage never stops recording and other channels continue independently.
-- retry/escalation/silence state survives worker/API restart.
-- scoped users cannot see or acknowledge hidden-camera incidents.
-- no notification exposes camera credentials, SecretStore values, or permanent public playback URLs.
+- repeated matching Events can suppress repeated sends during cooldown while every Event remains stored;
+- acknowledgement never stops recording or changes Event truth;
+- health recovery can resolve an Alert;
+- SMTP/provider outage never stops recording;
+- delivery retry survives worker restart;
+- scoped users cannot access hidden-camera Alerts;
+- no notification exposes camera/SecretStore credentials.
 
 ## Phase 7 — Storage and Cloud
 
-- [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache / backup.
+- [ ] StorageTarget kinds/roles: LOCAL recording target and RCLONE archive target.
 - [ ] StorageTarget / RecordingLocation persistence.
 - [ ] local retention using RetentionPolicy + RecordingProtection.
 - [ ] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
@@ -390,38 +356,26 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
-- [ ] RecordingSession lifecycle as one uninterrupted formal-recording interval.
-- [ ] additive continuous/schedule/event/manual RecordingIntent arbitration.
-- [ ] hybrid policy: scheduled baseline + outside-schedule event recording.
-- [ ] manual start/stop affects only manual intent.
-- [ ] intent changes must not reset formal segment cadence.
-- [ ] segment promotion.
-- [ ] ZLM rolling MP4 idle pre-buffer with configurable 20s default physical segments.
-- [ ] formal recording with configurable 5min default physical segments.
-- [ ] session-anchored formal segment clock: all healthy intermediate segments follow configured duration.
-- [ ] segment completion_reason for normal boundary/session end vs abnormal partial segments.
-- [ ] bounded tmpfs pre-buffer storage only while no formal recording is active.
-- [ ] single recording-pipeline state transition: idle tmpfs prebuffer → formal recording without recorder restart.
-- [ ] model 20s idle MP4 files as temporary PrebufferFragments, not formal RecordingSegments.
-- [ ] anchor the first formal 5min segment window at RecordingSession logical start, including pre-roll.
-- [ ] assemble protected prebuffer prefix + persistent continuation into the first finalized formal RecordingSegment without mandatory video re-encode.
-- [ ] switch subsequent active-session segments to configurable 5min formal segmentation/persistent storage.
-- [ ] finalize the last formal segment early at RecordingSession completion when needed.
-- [ ] resume pre-buffer immediately after recording completion and bridge warm-up from the previous recording tail.
-- [ ] on_record_mp4 segment-finalize ingestion.
-- [ ] event-time current/previous segment protection + timestamp-based coverage validation.
-- [ ] 10s default pre-roll buffer.
-- [ ] dynamic stateful event recording with no fixed motion recording duration.
-- [ ] instant-event recording as zero-duration Marker with 10s pre-roll + 10s post-roll.
-- [ ] 10s default post-roll after the final active event ends.
-- [ ] cancel/recalculate pending post-roll stop when a new event arrives.
-- [ ] multiple independent Event markers sharing one RecordingSession.
-- [ ] RecordingSessionSegment logical range links across physical MP4 segments.
-- [ ] event-to-segment/session links.
-- [ ] cross-segment playback without mandatory merge.
-- [ ] asynchronous single-file crop/concat export.
-- [ ] continuous/manual/schedule recording annotation without recorder restart.
-- [ ] hybrid recording policy.
+- [ ] RecordingTrigger lifecycle for AI/ONVIF/HA/API/manual event recording requests.
+- [ ] derive desired recording state from baseline policy + active trigger windows.
+- [ ] overlapping triggers extend one effective recording interval without duplicate recorders.
+- [ ] continuous/scheduled/manual existing recording is annotated rather than restarted.
+- [ ] POC-approved ZLM-native EVENT_ONLY pre-roll mechanism.
+- [ ] configurable pre_roll_seconds / post_roll_seconds.
+- [ ] honest degraded-pre-roll state when required past coverage is unavailable.
+- [ ] actual ZLM segment finalize hooks feed RecordingSegment catalog.
+- [ ] Event -> RecordingSegment wall-clock linkage at query time.
+- [ ] asynchronous explicit Export job for a single clip/file when requested.
+- [ ] event-driven RecordingProtection action where policy requires it.
+- [ ] no mandatory RecordingSession / RecordingIntent / PrebufferFragment / RecordingSessionSegment tables.
+
+Acceptance:
+
+- one camera has one normal ZLM recorder;
+- two overlapping Events remain independent Events/Triggers and extend the same recorder window;
+- a new Event during post-roll extends the stop deadline;
+- continuous recording is never duplicated for Event clips;
+- pre-roll behavior matches the accepted design-freeze POC.
 
 ## Phase 10 — Optional integrations and extensions
 
