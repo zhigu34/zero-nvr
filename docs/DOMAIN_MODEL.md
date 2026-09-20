@@ -754,6 +754,7 @@ stream_profile_id
 started_at
 ended_at
 duration_ms
+recording_reasons             set/list: continuous | schedule | event | manual
 size_bytes
 codec
 container
