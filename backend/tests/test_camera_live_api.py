@@ -14,6 +14,14 @@ from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 
 
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.runtime_reconciles = []
+
+    def reconcile_runtime(self, camera_id) -> None:
+        self.runtime_reconciles.append(camera_id)
+
+
 def make_app(tmp_path: Path):
     settings = Settings(
         secret_key="camera-live-test-secret-key-32-bytes-minimum",
@@ -26,6 +34,7 @@ def make_app(tmp_path: Path):
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
+    app.state.recording_tasks = FakeRecordingTasks()
     return app
 
 

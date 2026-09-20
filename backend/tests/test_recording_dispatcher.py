@@ -7,7 +7,12 @@ from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 
 def test_recording_dispatcher_exposes_runtime_reconcile(
     monkeypatch,
+    tmp_path,
 ) -> None:
+    monkeypatch.setenv(
+        "ZERO_NVR_HUEY_DB_PATH",
+        str(tmp_path / "huey.db"),
+    )
     camera_id = uuid.uuid4()
     calls = []
 
