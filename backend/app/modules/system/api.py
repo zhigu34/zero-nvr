@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
+
 from fastapi import APIRouter, Depends, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -493,4 +497,52 @@ def system_update_info(
 ) -> SystemUpdateInfoView:
     return SystemUpdateInfoView(
         current_version=request.app.state.settings.app_version,
+    )
+
+
+@router.get("/events/stream")
+async def system_events_stream(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+):
+    event_bus = request.app.state.event_bus
+    queue = await event_bus.subscribe()
+
+    async def generate():
+        try:
+            yield "event: ready\\ndata: {\\\"refetch\\\":true}\\n\\n"
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    event = await asyncio.wait_for(
+                        queue.get(),
+                        timeout=15.0,
+                    )
+                except TimeoutError:
+                    yield ": keepalive\\n\\n"
+                    continue
+                payload = {
+                    "at": event["at"],
+                    **event["data"],
+                }
+                yield (
+                    "id: " + str(event["id"]) + "\\n"
+                    + "event: " + str(event["type"]) + "\\n"
+                    + "data: "
+                    + json.dumps(payload, separators=(",", ":"))
+                    + "\\n\\n"
+                )
+        finally:
+            await event_bus.unsubscribe(queue)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
     )
