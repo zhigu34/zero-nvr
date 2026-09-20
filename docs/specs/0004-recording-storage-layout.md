@@ -53,7 +53,17 @@ created_at
 
 The configured segment duration (for example 300 seconds) is only a target.
 
-Never derive ended_at from started_at plus the configured segment duration when ZLM/hook metadata provides the real duration.
+The finalized muxed duration reported by ZLM is media evidence. However current ZLM `on_record_mp4.start_time` is **not sufficient by itself** to define canonical absolute media coverage for the first file after recorder/source start.
+
+Current upstream behavior creates the MP4 file and stores `start_time = time(NULL)` on the first received frame, while the MP4 muxer may discard leading non-keyframes until the first usable keyframe. Therefore blindly computing:
+
+~~~text
+ended_at = hook.start_time + hook.time_len
+~~~
+
+can create a false GOP-sized hole before the next segment.
+
+See the timing-normalization rules below.
 
 ## Recording reasons
 
@@ -157,13 +167,51 @@ Normal path:
 ~~~text
 ZLM recorder
 -> finalized MP4/fMP4
--> on_record_mp4
+-> on_record_mp4 raw evidence
+-> ZLM timing resolver
 -> validate camera/stream/path metadata
 -> RecordingSegment
 -> local RecordingLocation AVAILABLE
 ~~~
 
-The product catalog is created from finalized-media evidence.
+### ZLM timing normalization
+
+The ZLM adapter owns this vendor/runtime-specific normalization.
+
+For a proven continuous recorder/source session:
+
+~~~text
+segment N actual muxed duration = D
+next segment file-creation boundary = B
+
+segment N:
+  ended_at   = B
+  started_at = B - D
+~~~
+
+Why:
+
+- normal ZLM rollover creates the next MP4 at the keyframe boundary;
+- the next boundary is an absolute wall-clock anchor;
+- `time_len` is the actual muxed duration;
+- this corrects the session-first file where raw hook start can precede the first muxed keyframe.
+
+Boundary evidence may come from the already-created next ZLM file/path or the next finalized hook. The implementation should prefer the immediately visible next-file boundary so a normal finalized segment does not need to wait an entire additional segment duration before appearing in the catalog.
+
+For the tail of a continuity session:
+
+1. explicit zero-nvr recorder-stop time is preferred when zero-nvr initiated the stop;
+2. ZLM/source unregister/runtime transition time is preferred for source loss;
+3. raw hook wall-clock timing may be used only as an explicit fallback when no stronger boundary exists;
+4. ambiguous recovery remains diagnosable rather than silently fabricating continuity.
+
+A source unregister/reconnect always splits continuity sessions. **Never use a post-reconnect segment boundary to normalize a pre-disconnect segment.**
+
+The raw Hook payload remains useful diagnostic/reconciliation evidence, but canonical RecordingSegment `started_at/ended_at` are the normalized media coverage.
+
+This timing resolver does not require ffprobe on every successful normal hook. ffprobe remains a recovery/ambiguity fallback.
+
+The product catalog is created from finalized-media evidence plus proven continuity-boundary evidence.
 
 zero-nvr does not need to insert every in-progress file into the canonical segment catalog.
 
@@ -249,7 +297,9 @@ Additional overlap/range indexes should be added only when measured query load j
 ## Acceptance tests
 
 1. Three consecutive normal segments:
-   - actual start/end/duration are indexed from finalized media;
+   - muxed duration comes from finalized ZLM media evidence;
+   - same-session absolute start/end are normalized against adjacent recorder boundaries;
+   - a session-first raw Hook start may be corrected by roughly one GOP without creating a false gap;
    - paths follow the human-readable layout.
 2. Cross-midnight segment is not force-split solely because the date changed.
 3. Camera rename does not rename historical media.
@@ -267,7 +317,9 @@ Additional overlap/range indexes should be added only when measured query load j
 4. Filesystem naming never replaces database timeline metadata.
 5. Canonical media timestamps are UTC.
 6. Nominal segment duration is never assumed to equal actual duration.
-7. Date boundaries do not force media segmentation.
-8. Archive creates another RecordingLocation rather than mutating identity.
-9. Valid unindexed media is reconciled, not auto-deleted.
-10. ffprobe is a recovery fallback, not the normal indexing loop.
+7. Raw ZLM Hook start_time is not blindly treated as canonical media start for a session-first segment.
+8. Same-session boundary correction is allowed only with proven media continuity; source disconnect/reconnect always splits sessions.
+9. Date boundaries do not force media segmentation.
+10. Archive creates another RecordingLocation rather than mutating identity.
+11. Valid unindexed media is reconciled, not auto-deleted.
+12. ffprobe is a recovery fallback, not the normal indexing loop.
