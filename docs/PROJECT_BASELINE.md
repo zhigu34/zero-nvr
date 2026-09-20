@@ -25,7 +25,7 @@ The first stable release must be usable end-to-end rather than a demo/MVP. Compl
    - mature ONVIF/WS-Discovery libraries: camera protocol access.
 3. **zero-nvr owns the product control plane and canonical business model**, not commodity protocol implementations.
 4. **Modular monolith.** FastAPI + Vue + worker; do not split zero-nvr itself into microservices without a proven need.
-5. **SQLite is the default production database.** PostgreSQL is optional for larger deployments; user-facing features remain equivalent. POC-09 validated SQLite WAL under the representative 8-camera baseline and 16-camera extended mixed workload on the tested 4-CPU runner with zero final lock failures.
+5. **SQLite is the default production database.** PostgreSQL is optional for larger deployments; user-facing features remain equivalent. POC-09 validated SQLite WAL under the representative 8-camera baseline and 16-camera extended mixed workload on the tested 4-CPU runner with zero final lock failures. The optimized retention plan also passed the local <500ms p95 gate at about 12.11ms / 11.31ms using the frozen camera/end-time + segment/location composite indexes.
 6. **Frontend talks only to zero-nvr /api/v1.** Browsers do not directly administer ZLM, Frigate, rclone, OpenList, or databases.
 
 ## Runtime and container boundary
