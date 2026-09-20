@@ -21,6 +21,32 @@ mkdir -p runtime/recordings runtime/vod
 
 docker compose up -d --build
 
+echo "Preparing FastAPI restart continuity test..."
+docker compose exec -T poc-api python /app/api_restart.py prepare
+
+API_DOWN_START=$(date +%s)
+echo "Stopping FastAPI while ZLM keeps recording..."
+docker compose stop poc-api
+sleep 18
+docker compose start poc-api
+API_DOWN_END=$(date +%s)
+
+echo "Waiting for FastAPI health after restart..."
+i=0
+until docker compose exec -T poc-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()" >/dev/null 2>&1; do
+  i=$((i+1))
+  if [ "$i" -ge 30 ]; then
+    echo "POC API did not recover after restart" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+docker compose exec -T poc-api python /app/api_restart.py verify \
+  --downtime-start "$API_DOWN_START" \
+  --downtime-end "$API_DOWN_END"
+
+echo "Running normal hook/lost-hook/stream-sharing assertions..."
 set +e
 docker compose exec -T poc-api python /app/verify.py
 VERIFY_RC=$?
@@ -42,6 +68,7 @@ fi
 echo
 echo "Evidence:"
 echo "  $POC_DIR/runtime/evidence.json"
+echo "  $POC_DIR/runtime/api-restart-evidence.json"
 echo "  $POC_DIR/runtime/docker-compose.log"
 
 if [ "${KEEP_RUNNING:-0}" != "1" ]; then
