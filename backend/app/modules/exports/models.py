@@ -89,6 +89,11 @@ class ExportJob(UUIDPrimaryKeyMixin, Base):
         BigInteger,
         nullable=False,
     )
+    idempotency_key_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        unique=True,
+    )
     format: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
