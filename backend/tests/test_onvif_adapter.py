@@ -614,3 +614,80 @@ async def test_configure_ntp_empty_list_uses_dhcp_ntp() -> None:
             "DaylightSavings": False,
         }
     ]
+
+
+
+class FakeClockDeviceManagement:
+    async def GetSystemDateAndTime(self):
+        return SimpleNamespace(
+            DateTimeType="NTP",
+            DaylightSavings=False,
+            TimeZone=SimpleNamespace(TZ="UTC0"),
+            UTCDateTime=SimpleNamespace(
+                Date=SimpleNamespace(
+                    Year=2026,
+                    Month=9,
+                    Day=20,
+                ),
+                Time=SimpleNamespace(
+                    Hour=14,
+                    Minute=30,
+                    Second=10,
+                ),
+            ),
+        )
+
+
+class FakeClockCamera:
+    instances = []
+
+    def __init__(
+        self,
+        host,
+        port,
+        username,
+        password,
+        **kwargs,
+    ) -> None:
+        self.devicemgmt = FakeClockDeviceManagement()
+        self.closed = False
+        self.instances.append(self)
+
+    async def update_xaddrs(self) -> None:
+        return None
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_read_system_clock_estimates_midpoint_offset_and_rtt() -> None:
+    walls = iter(
+        [
+            datetime(2026, 9, 20, 14, 30, 9, 800000, tzinfo=UTC),
+            datetime(2026, 9, 20, 14, 30, 10, 200000, tzinfo=UTC),
+        ]
+    )
+    monotonic_values = iter([100.0, 100.4])
+    adapter = OnvifAdapter(
+        settings(),
+        camera_factory=FakeClockCamera,
+        wall_clock=lambda: next(walls),
+        monotonic=lambda: next(monotonic_values),
+    )
+
+    reading = await adapter.read_system_clock(
+        host="192.168.10.50",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+    )
+
+    assert reading.utc_datetime == datetime(
+        2026, 9, 20, 14, 30, 10, tzinfo=UTC
+    )
+    assert reading.date_time_type == "NTP"
+    assert reading.timezone == "UTC0"
+    assert reading.rtt_ms == pytest.approx(400.0)
+    assert reading.offset_ms == pytest.approx(0.0)
+    assert FakeClockCamera.instances[-1].closed is True

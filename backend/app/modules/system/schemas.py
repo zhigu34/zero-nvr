@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
@@ -135,3 +136,26 @@ class CameraNtpApplyView(BaseModel):
     updated: int
     failed: int
     results: list[CameraNtpDeviceResultView]
+
+
+
+class CameraClockHealthResultView(BaseModel):
+    device_id: uuid.UUID
+    name: str
+    status: Literal["OK", "DEGRADED", "ERROR"]
+    date_time_type: str | None = None
+    timezone: str | None = None
+    camera_utc_at: datetime | None = None
+    offset_ms: int | None = None
+    rtt_ms: int | None = None
+    error_code: str | None = None
+
+
+class CameraClockHealthView(BaseModel):
+    status: Literal["OK", "DEGRADED", "ERROR", "DISABLED"]
+    checked_at: datetime
+    total_devices: int
+    ok: int
+    degraded: int
+    error: int
+    results: list[CameraClockHealthResultView]

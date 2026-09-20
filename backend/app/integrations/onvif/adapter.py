@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 import ipaddress
+import time
 from typing import Any, Callable
 from urllib.parse import urlsplit, urlunsplit
 
@@ -59,6 +61,15 @@ class OnvifInspection:
     device: OnvifDeviceInfo
     capabilities: tuple[str, ...]
     profiles: tuple[OnvifProfileProbe, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class OnvifClockReading:
+    utc_datetime: datetime
+    date_time_type: str | None
+    timezone: str | None
+    rtt_ms: float
+    offset_ms: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,10 +151,18 @@ class OnvifAdapter:
         *,
         camera_factory: Callable[..., Any] = ONVIFCamera,
         discovery_factory: Callable[[], Any] = ThreadedWSDiscovery,
+        wall_clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.settings = settings
         self._camera_factory = camera_factory
         self._discovery_factory = discovery_factory
+        self._wall_clock = (
+            wall_clock
+            if wall_clock is not None
+            else lambda: datetime.now(UTC)
+        )
+        self._monotonic = monotonic
 
     async def inspect_device(
         self,
@@ -273,6 +292,125 @@ class OnvifAdapter:
             "Type": "IPv6",
             "IPv6Address": str(parsed),
         }
+
+    @staticmethod
+    def _parse_utc_datetime(value: Any) -> datetime:
+        year = _number(
+            _path(value, "UTCDateTime", "Date", "Year"),
+            int,
+        )
+        month = _number(
+            _path(value, "UTCDateTime", "Date", "Month"),
+            int,
+        )
+        day = _number(
+            _path(value, "UTCDateTime", "Date", "Day"),
+            int,
+        )
+        hour = _number(
+            _path(value, "UTCDateTime", "Time", "Hour"),
+            int,
+        )
+        minute = _number(
+            _path(value, "UTCDateTime", "Time", "Minute"),
+            int,
+        )
+        second = _number(
+            _path(value, "UTCDateTime", "Time", "Second"),
+            int,
+        )
+        parts = (year, month, day, hour, minute, second)
+        if any(item is None for item in parts):
+            raise OnvifIntegrationError(
+                "onvif_clock_invalid",
+                "The ONVIF device did not return a valid UTC clock.",
+                status_code=422,
+            )
+        try:
+            return datetime(
+                int(year),
+                int(month),
+                int(day),
+                int(hour),
+                int(minute),
+                min(59, max(0, int(second))),
+                tzinfo=UTC,
+            )
+        except ValueError as exc:
+            raise OnvifIntegrationError(
+                "onvif_clock_invalid",
+                "The ONVIF device returned an invalid UTC clock.",
+                status_code=422,
+            ) from exc
+
+    async def read_system_clock(
+        self,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+    ) -> OnvifClockReading:
+        camera: Any | None = None
+        try:
+            camera = self._camera_factory(
+                host,
+                port,
+                username,
+                password,
+                nat_override=True,
+                no_cache=True,
+            )
+            async with asyncio.timeout(
+                self.settings.onvif_timeout_seconds
+            ):
+                await camera.update_xaddrs()
+                wall_started = self._wall_clock()
+                mono_started = self._monotonic()
+                raw = await camera.devicemgmt.GetSystemDateAndTime()
+                mono_ended = self._monotonic()
+                wall_ended = self._wall_clock()
+
+            camera_utc = self._parse_utc_datetime(raw)
+            midpoint = wall_started + (
+                (wall_ended - wall_started) / 2
+            )
+            return OnvifClockReading(
+                utc_datetime=camera_utc,
+                date_time_type=_text(
+                    _read(raw, "DateTimeType")
+                ),
+                timezone=_text(
+                    _path(raw, "TimeZone", "TZ")
+                ),
+                rtt_ms=max(
+                    0.0,
+                    (mono_ended - mono_started) * 1000.0,
+                ),
+                offset_ms=(
+                    camera_utc - midpoint
+                ).total_seconds() * 1000.0,
+            )
+        except TimeoutError as exc:
+            raise OnvifIntegrationError(
+                "onvif_clock_timeout",
+                "The ONVIF clock check timed out.",
+                status_code=504,
+            ) from exc
+        except OnvifIntegrationError:
+            raise
+        except Exception as exc:
+            raise OnvifIntegrationError(
+                "onvif_clock_failed",
+                "Unable to read the ONVIF device clock.",
+                status_code=422,
+            ) from exc
+        finally:
+            if camera is not None:
+                try:
+                    await camera.close()
+                except Exception:
+                    pass
 
     async def configure_ntp(
         self,

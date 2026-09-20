@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 import json
 
 from fastapi import APIRouter, Depends, Request
@@ -31,6 +32,8 @@ from .frigate import (
     FrigateProviderSettingsService,
 )
 from .schemas import (
+    CameraClockHealthResultView,
+    CameraClockHealthView,
     CameraNtpApplyView,
     CameraNtpDeviceResultView,
     FrigateBackfillQueuedView,
@@ -667,5 +670,127 @@ async def apply_camera_ntp_settings(
         total_devices=len(devices),
         updated=updated,
         failed=failed,
+        results=results,
+    )
+
+
+
+@router.get(
+    "/camera-clock-health",
+    response_model=CameraClockHealthView,
+)
+async def camera_clock_health(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraClockHealthView:
+    service = CameraNtpService(
+        request.app.state.settings
+    )
+    devices = service.list_devices(session)
+    ready = []
+    results: list[CameraClockHealthResultView] = []
+
+    for device in devices:
+        try:
+            ready.append(
+                service.target(session, device)
+            )
+        except ApiError as exc:
+            results.append(
+                CameraClockHealthResultView(
+                    device_id=device.id,
+                    name=device.name,
+                    status="ERROR",
+                    error_code=exc.code,
+                )
+            )
+    session.commit()
+
+    async def inspect_one(target):
+        try:
+            reading = await OnvifAdapter(
+                request.app.state.settings
+            ).read_system_clock(
+                host=target.host,
+                port=target.port,
+                username=target.username,
+                password=target.password,
+            )
+            offset_ms = int(round(reading.offset_ms))
+            rtt_ms = int(round(reading.rtt_ms))
+            absolute_offset = abs(offset_ms)
+
+            if absolute_offset > 10_000 or rtt_ms > 5_000:
+                status = "ERROR"
+            elif absolute_offset > 2_000 or rtt_ms > 2_000:
+                status = "DEGRADED"
+            else:
+                status = "OK"
+
+            return CameraClockHealthResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status=status,
+                date_time_type=reading.date_time_type,
+                timezone=reading.timezone,
+                camera_utc_at=reading.utc_datetime,
+                offset_ms=offset_ms,
+                rtt_ms=rtt_ms,
+            )
+        except OnvifIntegrationError as exc:
+            return CameraClockHealthResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status="ERROR",
+                error_code=exc.code,
+            )
+        except Exception:
+            return CameraClockHealthResultView(
+                device_id=target.device_id,
+                name=target.name,
+                status="ERROR",
+                error_code="camera_clock_check_failed",
+            )
+
+    results.extend(
+        await asyncio.gather(
+            *(inspect_one(item) for item in ready)
+        )
+    )
+    results.sort(
+        key=lambda item: (
+            item.name.lower(),
+            str(item.device_id),
+        )
+    )
+
+    ok = sum(item.status == "OK" for item in results)
+    degraded = sum(
+        item.status == "DEGRADED"
+        for item in results
+    )
+    errors = sum(
+        item.status == "ERROR"
+        for item in results
+    )
+    if not results:
+        overall = "DISABLED"
+    elif errors:
+        overall = "ERROR"
+    elif degraded:
+        overall = "DEGRADED"
+    else:
+        overall = "OK"
+
+    return CameraClockHealthView(
+        status=overall,
+        checked_at=datetime.now(UTC),
+        total_devices=len(devices),
+        ok=ok,
+        degraded=degraded,
+        error=errors,
         results=results,
     )

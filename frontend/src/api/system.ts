@@ -41,6 +41,28 @@ export interface CameraNtpApplyResult {
   results: CameraNtpDeviceResult[]
 }
 
+export interface CameraClockHealthResult {
+  device_id: string
+  name: string
+  status: "OK" | "DEGRADED" | "ERROR"
+  date_time_type: string | null
+  timezone: string | null
+  camera_utc_at: string | null
+  offset_ms: number | null
+  rtt_ms: number | null
+  error_code: string | null
+}
+
+export interface CameraClockHealth {
+  status: "OK" | "DEGRADED" | "ERROR" | "DISABLED"
+  checked_at: string
+  total_devices: number
+  ok: number
+  degraded: number
+  error: number
+  results: CameraClockHealthResult[]
+}
+
 export interface SystemUpdateInfo {
   current_version: string
   latest_version: string | null
@@ -227,6 +249,12 @@ export function applyCameraNtpSettings(): Promise<CameraNtpApplyResult> {
   return apiRequest<CameraNtpApplyResult>(
     "/system/settings/camera-ntp/apply",
     { method: "POST" }
+  )
+}
+
+export function getCameraClockHealth(): Promise<CameraClockHealth> {
+  return apiRequest<CameraClockHealth>(
+    "/system/camera-clock-health"
   )
 }
 

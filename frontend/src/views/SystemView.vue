@@ -23,6 +23,7 @@ import {
   createNotificationTarget,
   createUser,
   deleteNotificationTarget,
+  getCameraClockHealth,
   getFrigateProvider,
   getSystemHealth,
   getSystemInfo,
@@ -48,6 +49,7 @@ import {
   type AdminUser,
   type AuditEvent,
   type BackupPolicy,
+  type CameraClockHealth,
   type CameraNtpApplyResult,
   type BackupSet,
   type FrigateCameraMapping,
@@ -168,6 +170,8 @@ const generalForm = reactive({
 })
 const generalSaving = ref(false)
 const ntpApplyResult = ref<CameraNtpApplyResult | null>(null)
+const cameraClockHealth = ref<CameraClockHealth | null>(null)
+const cameraClockLoading = ref(false)
 
 const navigation = computed(() => {
   const items: Array<{
@@ -403,6 +407,20 @@ async function loadTab(value: SystemTab): Promise<void> {
   if (value === "audit") await loadAudit()
 }
 
+async function checkCameraClocks(): Promise<void> {
+  if (!auth.hasPermission("system.view")) return
+  cameraClockLoading.value = true
+  error.value = null
+  try {
+    cameraClockHealth.value =
+      await getCameraClockHealth()
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    cameraClockLoading.value = false
+  }
+}
+
 async function saveGeneral(): Promise<void> {
   if (!auth.hasPermission("system.manage")) return
   generalSaving.value = true
@@ -434,6 +452,9 @@ async function saveGeneral(): Promise<void> {
     } catch (caught) {
       error.value =
         `General settings were saved, but camera NTP apply failed: ${errorMessage(caught)}`
+    }
+    if (ntpApplyResult.value?.updated) {
+      await checkCameraClocks()
     }
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -1009,6 +1030,19 @@ onBeforeUnmount(() => {
             <strong>General</strong>
             <span>Identity, display timezone and camera time sources.</span>
           </div>
+          <button
+            class="button button--ghost"
+            type="button"
+            :disabled="cameraClockLoading"
+            @click="checkCameraClocks"
+          >
+            <UiIcon name="refresh" :size="14" />
+            {{
+              cameraClockLoading
+                ? "Checking clocks…"
+                : "Check camera clocks"
+            }}
+          </button>
         </header>
 
         <form
@@ -1073,6 +1107,79 @@ onBeforeUnmount(() => {
               </li>
             </ul>
           </div>
+          <div
+            v-if="cameraClockHealth"
+            class="camera-clock-health"
+          >
+            <header>
+              <div>
+                <strong>Camera clock health</strong>
+                <span>
+                  {{ cameraClockHealth.total_devices }} enabled ONVIF device(s)
+                  · checked {{ formatTime(cameraClockHealth.checked_at) }}
+                </span>
+              </div>
+              <span
+                class="status-pill"
+                :class="statusClass(cameraClockHealth.status)"
+              >
+                {{ cameraClockHealth.status }}
+              </span>
+            </header>
+
+            <div
+              v-if="!cameraClockHealth.results.length"
+              class="camera-clock-health__empty"
+            >
+              No enabled ONVIF devices to inspect.
+            </div>
+            <div v-else class="camera-clock-health__rows">
+              <article
+                v-for="item in cameraClockHealth.results"
+                :key="item.device_id"
+              >
+                <div>
+                  <strong>{{ item.name }}</strong>
+                  <span>
+                    {{
+                      item.error_code
+                        ? pretty(item.error_code)
+                        : `${item.date_time_type || "Unknown mode"} · ${item.timezone || "timezone unknown"}`
+                    }}
+                  </span>
+                </div>
+                <div class="camera-clock-health__metrics">
+                  <span>
+                    Offset
+                    <strong>
+                      {{
+                        item.offset_ms === null
+                          ? "—"
+                          : `${item.offset_ms > 0 ? "+" : ""}${item.offset_ms} ms`
+                      }}
+                    </strong>
+                  </span>
+                  <span>
+                    RTT
+                    <strong>
+                      {{
+                        item.rtt_ms === null
+                          ? "—"
+                          : `${item.rtt_ms} ms`
+                      }}
+                    </strong>
+                  </span>
+                </div>
+                <span
+                  class="status-pill"
+                  :class="statusClass(item.status)"
+                >
+                  {{ item.status }}
+                </span>
+              </article>
+            </div>
+          </div>
+
           <div class="system-form-actions">
             <button
               class="button button--primary"

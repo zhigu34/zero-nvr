@@ -1,5 +1,6 @@
 from .adapter import (
     OnvifAdapter,
+    OnvifClockReading,
     OnvifDeviceInfo,
     OnvifDiscoveryCandidate,
     OnvifInspection,
@@ -9,6 +10,7 @@ from .adapter import (
 
 __all__ = [
     "OnvifAdapter",
+    "OnvifClockReading",
     "OnvifDeviceInfo",
     "OnvifDiscoveryCandidate",
     "OnvifInspection",
