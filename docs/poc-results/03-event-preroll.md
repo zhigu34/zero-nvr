@@ -87,6 +87,7 @@ Current source audit already shows reasons these are not the primary candidate, 
 poc/zlm-recording/runtime/event-preroll-gop2.json
 poc/zlm-recording/runtime/event-preroll-gop5.json
 poc/zlm-recording/runtime/event-docker-compose.log
+poc/zlm-recording/runtime/pre-roll-candidate-comparison.json
 poc/zlm-recording/runtime/event-recordings/
 ~~~
 
