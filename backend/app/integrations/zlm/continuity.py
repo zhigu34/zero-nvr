@@ -16,6 +16,7 @@ class ZlmStreamIdentity:
 @dataclass(frozen=True, slots=True)
 class ZlmContinuityResolution:
     continuity_id: uuid.UUID
+    previous_segment_id: uuid.UUID | None = None
     closed_at: datetime | None = None
 
 
@@ -23,6 +24,7 @@ class ZlmContinuityResolution:
 class _ContinuityState:
     continuity_id: uuid.UUID
     registered_at: datetime
+    last_segment_id: uuid.UUID | None = None
     closed_at: datetime | None = None
 
 
@@ -83,6 +85,7 @@ class ZlmContinuityTracker:
             closed = _ContinuityState(
                 continuity_id=active.continuity_id,
                 registered_at=active.registered_at,
+                last_segment_id=active.last_segment_id,
                 closed_at=closed_at,
             )
             self._closed[identity] = closed
@@ -128,12 +131,61 @@ class ZlmContinuityTracker:
             ):
                 return ZlmContinuityResolution(
                     continuity_id=closed.continuity_id,
+                    previous_segment_id=closed.last_segment_id,
                     closed_at=closed.closed_at,
                 )
 
             if active is not None and started_at >= active.registered_at:
                 return ZlmContinuityResolution(
                     continuity_id=active.continuity_id,
+                    previous_segment_id=active.last_segment_id,
                 )
 
             return None
+
+
+    def remember_segment(
+        self,
+        *,
+        vhost: str,
+        app: str,
+        stream: str,
+        continuity_id: uuid.UUID,
+        segment_id: uuid.UUID,
+    ) -> bool:
+        """Remember one finalized catalog segment in a proven generation.
+
+        The generation id is runtime-only proof. It is never persisted on the
+        RecordingSegment row. A late hook can update the retained closed
+        generation without contaminating a newly active generation.
+        """
+
+        identity = ZlmStreamIdentity(vhost, app, stream)
+        with self._lock:
+            active = self._active.get(identity)
+            if (
+                active is not None
+                and active.continuity_id == continuity_id
+            ):
+                self._active[identity] = _ContinuityState(
+                    continuity_id=active.continuity_id,
+                    registered_at=active.registered_at,
+                    last_segment_id=segment_id,
+                    closed_at=active.closed_at,
+                )
+                return True
+
+            closed = self._closed.get(identity)
+            if (
+                closed is not None
+                and closed.continuity_id == continuity_id
+            ):
+                self._closed[identity] = _ContinuityState(
+                    continuity_id=closed.continuity_id,
+                    registered_at=closed.registered_at,
+                    last_segment_id=segment_id,
+                    closed_at=closed.closed_at,
+                )
+                return True
+
+            return False
