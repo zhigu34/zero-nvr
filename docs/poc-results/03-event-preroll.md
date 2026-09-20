@@ -25,10 +25,13 @@ The harness is committed but has not been executed by this conversation environm
 
 ## Test matrix
 
-The first automated run uses H.264 synthetic sources with:
+The automated matrix uses:
 
-- ~2 second GOP;
-- ~5 second GOP.
+- H.264 with ~2 second GOP;
+- H.264 with ~5 second GOP;
+- H.265/HEVC with ~2 second GOP.
+
+The H.265 run is not trusted by source naming alone: every promoted fragment is inspected with ffprobe and the group passes only when the actual video codec is `hevc`.
 
 Each stream uses the same configured:
 
@@ -65,12 +68,9 @@ Also require:
 
 ## H.265
 
-H.265 remains part of the design-freeze matrix where the available test encoder/runtime supports it.
+The committed harness includes a synthetic H.265 source using libx265.
 
-The first committed synthetic harness does not yet claim H.265 coverage. A PASS result must either:
-
-- include an H.265 run; or
-- be **PASS WITH CONSTRAINTS** with the missing H.265 validation explicitly tracked before final product release.
+If the selected MediaMTX/FFmpeg test image cannot provide libx265 on the execution host, that is an explicit test-environment limitation; POC-03 cannot be marked unconditional PASS without an equivalent HEVC run.
 
 ## Comparison candidates
 
@@ -86,6 +86,7 @@ Current source audit already shows reasons these are not the primary candidate, 
 ~~~text
 poc/zlm-recording/runtime/event-preroll-gop2.json
 poc/zlm-recording/runtime/event-preroll-gop5.json
+poc/zlm-recording/runtime/event-preroll-h265.json
 poc/zlm-recording/runtime/event-docker-compose.log
 poc/zlm-recording/runtime/pre-roll-candidate-comparison.json
 poc/zlm-recording/runtime/event-recordings/
