@@ -182,16 +182,18 @@ def overlaps(fragment: dict[str, Any], window: tuple[float, float]) -> bool:
     return fragment["start"] < window[1] and fragment["end"] > window[0]
 
 
-def ffprobe_duration(path: Path) -> float:
+def ffprobe_media(path: Path) -> dict[str, Any]:
     completed = subprocess.run(
         [
             "ffprobe",
             "-v",
             "error",
+            "-select_streams",
+            "v:0",
             "-show_entries",
-            "format=duration",
+            "stream=codec_name:format=duration",
             "-of",
-            "default=noprint_wrappers=1:nokey=1",
+            "json",
             str(path),
         ],
         check=True,
@@ -199,7 +201,11 @@ def ffprobe_duration(path: Path) -> float:
         text=True,
         timeout=30,
     )
-    return float(completed.stdout.strip())
+    data = json.loads(completed.stdout)
+    duration = float((data.get("format") or {}).get("duration") or 0)
+    streams = data.get("streams") or []
+    codec = streams[0].get("codec_name") if streams else None
+    return {"duration": duration, "codec_name": codec}
 
 
 def promote(
@@ -225,7 +231,8 @@ def promote(
         partial.unlink(missing_ok=True)
         raise AssertionError(f"promotion size mismatch for {src}")
 
-    duration = ffprobe_duration(partial)
+    media = ffprobe_media(partial)
+    duration = media["duration"]
     if duration <= 0:
         partial.unlink(missing_ok=True)
         raise AssertionError(f"promoted media has invalid duration: {src}")
@@ -239,6 +246,7 @@ def promote(
         **fragment,
         "persistent_path": str(final),
         "verified_duration": duration,
+        "verified_codec": media["codec_name"],
         "promoted_at": time.time(),
     }
 
@@ -311,12 +319,14 @@ def filesystem_reconstruction_sample(stream: str) -> dict[str, Any]:
     ]
     items: list[dict[str, Any]] = []
     for path in sorted(files)[-8:]:
-        duration = ffprobe_duration(path)
+        media = ffprobe_media(path)
+        duration = media["duration"]
         start = parse_time_from_path(path)
         items.append(
             {
                 "path": str(path),
                 "duration": duration,
+                "codec_name": media["codec_name"],
                 "start_from_path": utc_iso(start) if start is not None else None,
                 "size": path.stat().st_size,
             }
@@ -526,6 +536,18 @@ def main() -> None:
                 f"{max_tmpfs_bytes} > {PREBUFFER_LIMIT_BYTES}"
             )
 
+        verified_codecs = sorted(
+            {
+                item.get("verified_codec")
+                for item in promoted.values()
+                if item.get("verified_codec")
+            }
+        )
+        if args.label == "h265" and verified_codecs != ["hevc"]:
+            raise AssertionError(
+                f"H.265 test did not produce HEVC media: {verified_codecs}"
+            )
+
         # Ephemeral fragments must not have become canonical recording rows in
         # the normal POC catalog merely because they existed in tmpfs.
         canonical = request_json(f"{API}/debug/segments")["items"]
@@ -565,6 +587,7 @@ def main() -> None:
                 "gc_removed_count": len(set(gc_removed)),
                 "max_tmpfs_bytes": max_tmpfs_bytes,
                 "fragment_duration_seconds": fragment_durations,
+                "verified_codecs": verified_codecs,
                 "fragment_duration_min": min(fragment_durations),
                 "fragment_duration_max": max(fragment_durations),
                 "recorder_active_after_events": recorder_active(args.stream),
