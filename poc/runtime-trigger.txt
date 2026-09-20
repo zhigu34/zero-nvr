@@ -1,0 +1,8 @@
+Design-freeze runtime rerun trigger
+
+Reason:
+- validate POC-01 after accepting valid ZLM hook retry or reconciliation across FastAPI downtime
+- validate POC-05/06 after anchoring continuity sessions to ZLM stream registration transitions
+- reconfirm current HEAD after POC-02/03/04/07/09/10 accepted results
+
+This file has no runtime/product semantics. Updating it only triggers .github/workflows/poc-runtime.yml.
