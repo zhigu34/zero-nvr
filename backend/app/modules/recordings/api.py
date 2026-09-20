@@ -24,10 +24,21 @@ from app.modules.cameras.service import CameraService
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 from .models import RecordingPolicy, RecordingTrigger
+from .playback import (
+    GapPlan,
+    PendingPlan,
+    PlayablePlan,
+    PlaybackResolverService,
+)
 from .policy import RecordingPolicyService
 from .query import RecordingCatalogQueryService
 from .runtime import RecordingRuntimeService
 from .schemas import (
+    PlaybackGapView,
+    PlaybackPendingView,
+    PlaybackPlayableView,
+    PlaybackResolveRequest,
+    PlaybackResolveView,
     PlaybackTimelineView,
     RecordingPolicyPut,
     RecordingLocationView,
@@ -678,6 +689,68 @@ def get_recording_locations(
             segment_id=segment_id,
         )
     ]
+
+
+
+
+@router.post(
+    "/cameras/{camera_id}/playback/resolve",
+    response_model=PlaybackResolveView,
+)
+def resolve_camera_playback(
+    camera_id: uuid.UUID,
+    body: PlaybackResolveRequest,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> PlaybackResolveView:
+    at = _normalized_utc(body.at, field_name="at")
+    CameraService.get_camera(session, camera_id)
+
+    plan = PlaybackResolverService.plan(
+        session,
+        camera_id=camera_id,
+        at=at,
+    )
+    # No SQLite transaction remains open while filesystem/ZLM work runs.
+    session.commit()
+
+    if isinstance(plan, GapPlan):
+        return PlaybackGapView(
+            reason=plan.reason,
+            previous_at=plan.previous_at,
+            next_at=plan.next_at,
+        )
+
+    if isinstance(plan, PendingPlan):
+        return PlaybackPendingView(
+            reason=plan.reason,
+            segment_id=plan.segment_id,
+        )
+
+    assert isinstance(plan, PlayablePlan)
+    try:
+        url, expires_at = PlaybackResolverService.activate(
+            request.app.state.settings,
+            plan,
+        )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+        ) from exc
+
+    return PlaybackPlayableView(
+        segment_id=plan.segment_id,
+        segment_start_at=plan.segment_start_at,
+        offset_ms=plan.offset_ms,
+        url=url,
+        expires_at=expires_at,
+        codec=plan.codec,
+    )
 
 
 @router.get(
