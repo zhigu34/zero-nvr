@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
 
 class ManualRtspStreamInput(BaseModel):
@@ -120,3 +120,53 @@ class DiscoverySessionView(BaseModel):
     started_at: datetime
     completed_at: datetime | None
     candidates: list[DiscoveryCandidateView]
+
+
+class OnvifCameraTestInput(BaseModel):
+    host: str = Field(min_length=1, max_length=512)
+    port: int = Field(default=80, ge=1, le=65535)
+    username: str = Field(default="", max_length=128)
+    password: SecretStr
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        normalized = value.strip()
+        if (
+            not normalized
+            or "://" in normalized
+            or "/" in normalized
+            or "@" in normalized
+            or any(char.isspace() for char in normalized)
+        ):
+            raise ValueError("host must be a hostname or IP address")
+        return normalized
+
+
+class OnvifDeviceInfoView(BaseModel):
+    manufacturer: str | None
+    model: str | None
+    firmware_version: str | None
+    serial_number: str | None
+    hardware_id: str | None
+
+
+class OnvifProfileView(BaseModel):
+    token: str
+    name: str
+    video_source_token: str | None
+    codec: str | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    bitrate_kbps: int | None
+    gop_seconds: float | None
+    audio_codec: str | None
+    has_audio: bool
+    stream_uri_available: bool
+
+
+class OnvifInspectionView(BaseModel):
+    device: OnvifDeviceInfoView
+    capabilities: list[str]
+    profiles: list[OnvifProfileView]
