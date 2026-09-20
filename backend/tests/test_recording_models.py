@@ -5,10 +5,12 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
 from app.core.db import Base, Database
+from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import (
     RecordingLocation,
@@ -55,8 +57,16 @@ def seed_camera_and_target(
             health_state="OK",
         )
         session.add(target)
+        session.flush()
+        profile_id = session.scalar(
+            select(CameraStreamProfile.id).where(
+                CameraStreamProfile.camera_id == camera.id,
+                CameraStreamProfile.adapter_profile_key == "manual-primary",
+            )
+        )
+        assert profile_id is not None
         session.commit()
-        return camera.id, camera.stream_profiles[0].id, target.id
+        return camera.id, profile_id, target.id
 
 
 def test_one_recording_policy_per_camera(tmp_path: Path) -> None:
