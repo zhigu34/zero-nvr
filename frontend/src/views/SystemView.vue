@@ -57,6 +57,7 @@ import {
 } from "../api/system"
 import SystemAccessControlPanel from "../components/system/SystemAccessControlPanel.vue"
 import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
+import SystemOidcPanel from "../components/system/SystemOidcPanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -66,6 +67,7 @@ type SystemTab =
   | "general"
   | "users"
   | "tokens"
+  | "oidc"
   | "notifications"
   | "alerts"
   | "ai"
@@ -171,6 +173,12 @@ const navigation = computed(() => {
       label: "API tokens",
       icon: "shield",
       visible: true
+    },
+    {
+      id: "oidc",
+      label: "OIDC",
+      icon: "users",
+      visible: auth.hasPermission("user.manage")
     },
     {
       id: "notifications",
@@ -1104,6 +1112,10 @@ onBeforeUnmount(() => {
 
       <template v-else-if="tab === 'tokens'">
         <SystemApiTokensPanel />
+      </template>
+
+      <template v-else-if="tab === 'oidc'">
+        <SystemOidcPanel />
       </template>
 
       <template v-else-if="tab === 'notifications'">
