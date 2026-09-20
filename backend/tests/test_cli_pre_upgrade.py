@@ -229,3 +229,86 @@ def test_pre_upgrade_command_rejects_failed_verification(
                 policy=str(policy_id)
             )
         )
+
+
+
+def test_database_migration_backup_uses_database_reason(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings, database = make_database(tmp_path)
+    policy_id = create_policy(
+        settings,
+        database,
+        name="Migration Safety",
+        verify=True,
+    )
+
+    monkeypatch.setattr(
+        cli_module,
+        "_settings_database",
+        lambda: (settings, database),
+    )
+
+    captured_reason: list[str] = []
+    original_reserve = (
+        cli_module.BackupRunService.reserve
+    )
+
+    def wrapped_reserve(
+        session,
+        *,
+        policy,
+        settings,
+        database,
+        reason,
+    ):
+        captured_reason.append(reason)
+        return original_reserve(
+            session,
+            policy=policy,
+            settings=settings,
+            database=database,
+            reason=reason,
+        )
+
+    def fake_execute(
+        self,
+        database_arg,
+        *,
+        backup_set_id,
+    ) -> str:
+        with database.session() as session:
+            item = session.get(
+                BackupSet,
+                backup_set_id,
+            )
+            assert item is not None
+            item.state = "COMPLETED"
+            item.verification_state = "PASSED"
+            item.restic_snapshot_id = "c" * 64
+            session.commit()
+        return "COMPLETED"
+
+    monkeypatch.setattr(
+        cli_module.BackupRunService,
+        "reserve",
+        wrapped_reserve,
+    )
+    monkeypatch.setattr(
+        cli_module.BackupExecutionService,
+        "execute",
+        fake_execute,
+    )
+
+    result = (
+        cli_module.pre_database_migration_backup_command(
+            argparse.Namespace(
+                policy=str(policy_id)
+            )
+        )
+    )
+    assert result == 0
+    assert captured_reason == [
+        "pre_database_migration"
+    ]

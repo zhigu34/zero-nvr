@@ -403,8 +403,11 @@ def _pre_upgrade_policy(
         return candidates[0]
 
 
-def pre_upgrade_backup_command(
+def _verified_safety_backup_command(
     args: argparse.Namespace,
+    *,
+    reason: str,
+    operation: str,
 ) -> int:
     settings, database = _settings_database()
     try:
@@ -425,7 +428,7 @@ def pre_upgrade_backup_command(
                     policy=attached,
                     settings=settings,
                     database=database,
-                    reason="pre_upgrade",
+                    reason=reason,
                 )
             )
             backup_id = backup_set.id
@@ -445,7 +448,7 @@ def pre_upgrade_backup_command(
             )
             if completed is None:
                 raise RuntimeError(
-                    "pre-upgrade backup record disappeared"
+                    f"{operation} backup record disappeared"
                 )
 
             payload = {
@@ -458,6 +461,7 @@ def pre_upgrade_backup_command(
                 "restic_snapshot_id": (
                     completed.restic_snapshot_id
                 ),
+                "reason": reason,
             }
 
             if (
@@ -474,7 +478,7 @@ def pre_upgrade_backup_command(
                     )
                 )
                 raise RuntimeError(
-                    "pre-upgrade backup did not complete with verified restic snapshot"
+                    f"{operation} backup did not complete with verified restic snapshot"
                 )
 
             print(
@@ -487,6 +491,25 @@ def pre_upgrade_backup_command(
     finally:
         database.close()
 
+
+def pre_upgrade_backup_command(
+    args: argparse.Namespace,
+) -> int:
+    return _verified_safety_backup_command(
+        args,
+        reason="pre_upgrade",
+        operation="pre-upgrade",
+    )
+
+
+def pre_database_migration_backup_command(
+    args: argparse.Namespace,
+) -> int:
+    return _verified_safety_backup_command(
+        args,
+        reason="pre_database_migration",
+        operation="pre-database-migration",
+    )
 
 def safety_snapshot_command(
     _args: argparse.Namespace,
@@ -1164,6 +1187,16 @@ def build_parser() -> argparse.ArgumentParser:
     pre_upgrade.add_argument("--policy")
     pre_upgrade.set_defaults(
         handler=pre_upgrade_backup_command
+    )
+
+    pre_database_migration = sub.add_parser(
+        "pre-database-migration-backup"
+    )
+    pre_database_migration.add_argument(
+        "--policy"
+    )
+    pre_database_migration.set_defaults(
+        handler=pre_database_migration_backup_command
     )
 
     safety = sub.add_parser(
