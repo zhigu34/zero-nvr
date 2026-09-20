@@ -58,22 +58,22 @@ Conceptual response:
 {
   "camera_id": "cam_01",
   "range": {
-    "start_at": 1790000000000,
-    "end_at": 1790086400000
+    "start_at": "2026-09-20T00:00:00Z",
+    "end_at": "2026-09-21T00:00:00Z"
   },
   "segments": [
     {
       "id": "seg_01",
-      "start_at": 1790000000000,
-      "end_at": 1790000300000,
+      "start_at": "2026-09-20T00:00:00Z",
+      "end_at": "2026-09-20T00:05:00Z",
       "availability": "local",
       "playback_ref": "seg_01"
     }
   ],
   "gaps": [
     {
-      "start_at": 1790000300000,
-      "end_at": 1790000600000,
+      "start_at": "2026-09-20T00:05:00Z",
+      "end_at": "2026-09-20T00:10:00Z",
       "reason": "source_lost"
     }
   ],
@@ -82,8 +82,8 @@ Conceptual response:
       "id": "evt_01",
       "type": "motion",
       "lifecycle_kind": "stateful",
-      "start_at": 1790000100000,
-      "end_at": 1790000125000
+      "start_at": "2026-09-20T00:01:40Z",
+      "end_at": "2026-09-20T00:02:05Z"
     }
   ]
 }
