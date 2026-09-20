@@ -14,7 +14,11 @@ Validates configured real cameras. No synthetic RTSP sources are created.
 EOF
 }
 
-expected="$1"
+expected="${1:-}"
+if [[ "$expected" == "-h" || "$expected" == "--help" ]]; then
+  usage
+  exit 0
+fi
 shift || true
 
 if [[ "$expected" != "8" && "$expected" != "16" ]]; then
@@ -30,11 +34,19 @@ while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --samples)
       shift
-      samples="$1"
+      samples="${1:-}"
+      if [[ -z "$samples" ]]; then
+        echo "error: --samples requires a value" >&2
+        exit 2
+      fi
       ;;
     --interval)
       shift
-      interval="$1"
+      interval="${1:-}"
+      if [[ -z "$interval" ]]; then
+        echo "error: --interval requires a value" >&2
+        exit 2
+      fi
       ;;
     -h|--help)
       usage
