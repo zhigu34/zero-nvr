@@ -52,3 +52,17 @@ class RecordingTaskDispatcher:
         from app.worker.tasks import reconcile_camera_prebuffer
 
         reconcile_camera_prebuffer(str(camera_id))
+
+    @staticmethod
+    def schedule_policy(
+        *,
+        policy_id: uuid.UUID,
+        policy_version: str,
+        eta,
+    ) -> None:
+        from app.worker.tasks import reconcile_recording_policy_boundary
+
+        reconcile_recording_policy_boundary.schedule(
+            args=(str(policy_id), policy_version),
+            eta=eta,
+        )
