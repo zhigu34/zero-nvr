@@ -1,6 +1,8 @@
 # Canonical Domain Model
 
-This document defines the initial business entities that external components must map into.
+This document defines the canonical V1 product facts plus a small number of explicitly labeled read models/artifacts.
+
+A heading does **not** automatically imply a database table. Sections marked derived/runtime/artifact/configuration are intentionally not canonical persisted entities. See ADR 0008.
 
 ## Identity principle
 
@@ -276,33 +278,19 @@ Changing stream/profile selection does not create a new Camera identity.
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
 
-## SmtpSettings
+## System email delivery configuration
 
-System-level SMTP/email delivery configuration.
+V1 does not require a dedicated SmtpSettings table.
 
-```text
-enabled
-host
-port
-security_mode              starttls | tls | none
-username
-credential_secret_ref
-from_address
-from_name
-reply_to
-timeout_seconds
-enabled_for_password_reset
-enabled_for_alerts
-updated_at
-```
+SMTP is represented by a `NotificationTarget(type=smtp)` whose recoverable password/credential is stored through SecretStore.
 
-SMTP credential material is stored behind SecretStore.
+A small system setting may identify the default SMTP target used for:
 
-SMTP is a first-production-release platform capability used by password reset, security/account notifications, alerts, and system/storage health notifications.
+- password reset;
+- account/security mail;
+- system/Alert email.
 
-Operational behavior includes connection testing, test email, queued delivery, transient retry/backoff, sanitized errors, and final delivery-result tracking.
-
-See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
+Connection testing and delivery history use the same NotificationTarget / NotificationDelivery mechanisms.
 
 ## SystemTimeSettings
 
@@ -323,11 +311,11 @@ This configuration does not automatically reconfigure the zero-nvr host's own OS
 
 See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
 
-## CameraClockStatus
+## CameraClockStatus (derived/current state, not a history table)
 
-Current normalized view of a camera/device clock relative to zero-nvr canonical time.
+Current normalized view of a camera/device clock relative to zero-nvr canonical time:
 
-```text
+~~~text
 camera_id
 offset_ms
 uncertainty_ms
@@ -335,52 +323,25 @@ measured_at
 device_timezone
 device_time_source
 sync_mode
-ntp_override_mode
-ntp_servers_override
+ntp_override
 health
-```
+~~~
 
 Possible sync modes:
 
-```text
+~~~text
 monitor
 manage_ntp
 ignore
-```
+~~~
 
-Possible health values:
+Camera clock status is refreshed through the ONVIF/device adapter and may live in memory/current cached state.
 
-```text
-unknown
-healthy
-warning
-critical
-unsupported
-```
+V1 does not require a historical CameraClockSample table. Meaningful threshold transitions may become system Events when useful.
 
-Camera clock status is used for device-originated timestamp normalization and clock-health UI. It does not shift RecordingSegment time or Playback Master Clock.
+Clock measurements may normalize device-originated Event timestamps but never shift RecordingSegment time.
 
 See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
-
-## CameraClockSample
-
-Historical/diagnostic measurement of device clock offset.
-
-```text
-camera_id
-sampled_at
-device_utc_at_sample
-device_local_at_sample
-device_timezone
-device_time_source
-round_trip_ms
-offset_ms
-uncertainty_ms
-quality
-metadata
-```
-
-Offset measurement should account for request round-trip time rather than comparing only against response receipt time.
 
 ## SecretRecord
 
@@ -1005,28 +966,20 @@ Host mutation is driven by `deploy.sh`, while Alembic owns schema revision histo
 
 A dedicated resumable progress table should be introduced only for a specific proven large migration that cannot be completed safely in one controlled migration step.
 
-## DatabaseMigrationPlan
+## Database migration operation (deploy.sh, not a canonical table)
 
-Tracks explicit SQLite ↔ PostgreSQL migration/cutover.
+SQLite <-> PostgreSQL migration is an explicit deployment operation coordinated by `deploy.sh`.
 
-```text
-id
-source_engine
-target_engine
-source_schema_revision
-target_schema_revision
-source_version
-status
-safety_backup_set_id
-validation_summary
-cutover_at
-rollback_deadline
-created_by
-created_at
-completed_at
-```
+The workflow uses:
 
-Software upgrade and cross-database migration are separate operations. Both preserve canonical IDs and use verified safety backups where required.
+- verified safety backup;
+- source/target schema revision checks;
+- canonical ID/timestamp preservation;
+- validation summary;
+- explicit cutover;
+- rollback grace period.
+
+Operational progress may be written to deploy.sh logs/state files and important results to AuditEvent/system Event. V1 does not require a DatabaseMigrationPlan business table.
 
 See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](specs/0017-upgrade-migration-and-rollback.md).
 
@@ -1038,8 +991,9 @@ Defines lightweight system-backup scheduling and retention.
 id
 name
 enabled
-backup_target_id
-database_backend          auto | sqlite | postgresql
+repository_config_ref
+credential_secret_ref         nullable
+database_backend              auto | sqlite | postgresql
 schedule
 retention_policy
 verify_after_backup
@@ -1058,7 +1012,6 @@ User-visible backup/recovery point.
 ```text
 id
 backup_policy_id
-backup_target_id
 state                     preparing | backing_up | verifying | ready | failed | expired
 reason                    scheduled | manual | pre_upgrade | pre_restore | pre_database_migration
 started_at
@@ -1076,44 +1029,46 @@ created_at
 updated_at
 ```
 
-## BackupManifest
+## BackupManifest (backup artifact, not a canonical table)
 
-Versioned restore metadata describing application/schema/database-engine versions, database repository references, required SecretStore key IDs, recovery capsule reference, storage targets, media-protection summary, included components, and checksums.
+Each restic-backed backup payload/snapshot contains versioned restore metadata such as:
 
-It never contains plaintext credentials.
+- application version;
+- schema revision;
+- database engine;
+- database backup filename/reference;
+- required SecretStore key IDs;
+- configuration components included;
+- checksums;
+- creation reason/time.
 
-## RecoveryKit
+It contains no plaintext credentials.
 
-Operator-controlled encrypted bootstrap material for clean-host disaster recovery.
+The database may store only the corresponding BackupSet/restic_snapshot_id and verification summary needed for the UI.
 
-Conceptually protects:
+## RecoveryKit (external recovery artifact)
 
-```text
-backup repository identity
-backup target bootstrap credential package
-SecretStore keyring package
-required key ids
-recovery metadata/checksums
-```
+Operator-controlled bootstrap material required for clean-host disaster recovery.
 
-RecoveryKit is encrypted outside the active production database using an operator-controlled recovery passphrase/key.
+Conceptually preserves:
+
+~~~text
+restic repository/bootstrap identity
+required repository credential/key material
+ZERO_NVR_SECRET_KEY/keyring material
+application/schema/version metadata
+restore instructions/checksums
+~~~
+
+RecoveryKit is kept/protected outside the active production database and is not a normal business table.
 
 See [Spec 0015 — Backup, Disaster Recovery, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
 
-## PlaybackSession
+## PlaybackSession (runtime, not a canonical table)
 
-Tracks authorized live/historical playback when needed.
+Historical playback authorization may use a short-lived signed/opaque descriptor containing user/principal, camera, allowed time range, and expiration.
 
-```text
-id
-user_id
-camera_id
-mode
-created_at
-expires_at
-metadata
-```
-
+Persisting every playback session is not a V1 requirement. Audit only the actions that need actor accountability, such as export/download/delete/protection.
 
 ## PlaybackTimeline
 
