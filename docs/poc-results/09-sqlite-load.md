@@ -1,6 +1,6 @@
 # POC-09 — SQLite Load
 
-Result: **PASS**
+Result: **RERUN REQUIRED — first mixed-load run passed; retention query is now a hard performance gate**
 
 ## Purpose
 
@@ -70,7 +70,7 @@ PASS requires:
 - RecordingSegment write p95 remains acceptable;
 - WAL/checkpoint behavior remains bounded.
 
-The harness uses 500ms p95 as a local test threshold for Timeline/Event query and recording write latency. Raw measurements remain authoritative.
+The harness now uses 500ms p95 as a local test threshold for Timeline query, Event query, RecordingSegment write, **and retention-candidate scan latency**. Raw measurements remain authoritative.
 
 ### 16-camera target
 
@@ -193,29 +193,43 @@ artifact id: 10598403979
 runtime/sqlite-load-evidence.json
 ~~~
 
-### Performance observation
+### Retention optimization gate
 
-The current synthetic retention-candidate query is deliberately broad and was much slower than interactive reads:
+The first run exposed one unacceptable query-plan result even though the rest of the workload passed:
 
 ~~~text
 8 cameras retention query p95  ≈ 5.84 s
 16 cameras retention query p95 ≈ 10.21 s
 ~~~
 
-This does **not** invalidate SQLite because retention is a background lifecycle job and the concurrent recording/Event/Timeline workload remained healthy with zero lock failures.
+That result does **not** overturn the SQLite-default decision: recording/Event/Timeline concurrency, WAL/checkpoint behavior, integrity, and online backup all passed with zero final lock failures.
 
-It does create an implementation requirement:
+It does mean the first run is **not sufficient for final architecture freeze**.
 
-- retention runs through Huey/background work, never a synchronous user-request hot path;
-- scan/delete decisions are bounded/paginated in batches;
-- query/index shape is optimized against the real frozen schema before release;
-- long retention scans do not hold write transactions across file/rclone operations.
+The harness has now been tightened to require:
+
+~~~text
+retention query p95 < 500 ms
+~~~
+
+and the schema/query was changed to:
+
+- drive candidate scanning from a covering `(camera_id, ended_at, started_at, id)` RecordingSegment index;
+- point-lookup physical copies using `(recording_segment_id, storage_target_id, state)`;
+- maintain SQLite planner statistics with `ANALYZE` / `PRAGMA optimize` after large bulk history import;
+- record `EXPLAIN QUERY PLAN` in the evidence;
+- keep retention as bounded Huey/background work;
+- never hold a write transaction across file/rclone delete/copy operations.
+
+A clean optimized POC-09 rerun is required before the design-freeze gate is closed.
 
 ## Architecture impact
 
-**SQLite + WAL remains the accepted default production database.**
+**SQLite + WAL remains the accepted default production database direction.**
 
-The 8-camera baseline passed comfortably, and the 16-camera extended target also passed the local write/query thresholds on the tested 4-CPU runner without Redis or PostgreSQL.
+The first runtime run proved that the representative 8-camera and 16-camera recording/Event/Timeline/backup workload does not require Redis or PostgreSQL on the tested 4-CPU runner.
+
+Final freeze still requires the optimized retention-query rerun to satisfy the new retention p95 gate.
 
 PostgreSQL remains an optional scale-up/deployment choice, not a prerequisite for a normal production installation.
 
