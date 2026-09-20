@@ -92,7 +92,7 @@ PostgreSQL (optional)
 
 SQLite is the default for single-host lightweight deployment. PostgreSQL is available when measured write concurrency or deployment requirements justify it. User-visible business features stay the same. Backend-specific behavior stays in small persistence helpers rather than a heavyweight DatabaseCapabilities framework.
 
-[POC-09 — SQLite Load](poc-results/09-sqlite-load.md) validated the 8-camera baseline and 16-camera extended mixed workload with WAL and SQLite Online Backup on the tested 4-CPU runner. Recording/Event/Timeline concurrency produced zero final lock failures. Retention scanning remains background/batched work and must not hold a write transaction across storage/rclone operations.
+The first [POC-09 — SQLite Load](poc-results/09-sqlite-load.md) execution validated the 8-camera baseline and 16-camera extended mixed Recording/Event/Timeline/backup workload with WAL and zero final lock failures on the tested 4-CPU runner. It also exposed a seconds-scale retention query plan; the harness now requires optimized retention p95 < 500 ms with recorded EXPLAIN evidence before the architecture-freeze gate closes. Retention remains background/batched work and never holds a write transaction across storage/rclone operations.
 
 A separate versioned SQLite portable index remains available for offline inspection/export/import independent from whichever production database is active.
 
