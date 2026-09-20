@@ -122,3 +122,210 @@ def test_setup_rejects_short_password(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 422
+
+
+
+class FakeNotificationTasks:
+    def __init__(self) -> None:
+        self.delivery_ids = []
+
+    def deliver(self, delivery_id) -> None:
+        self.delivery_ids.append(delivery_id)
+
+
+class CaptureMailAdapter:
+    calls = []
+
+    def __init__(self, *, url: str) -> None:
+        self.url = url
+
+    def notify(
+        self,
+        *,
+        title: str,
+        body: str,
+        notify_type: str,
+    ) -> None:
+        self.calls.append(
+            {
+                "url": self.url,
+                "title": title,
+                "body": body,
+                "notify_type": notify_type,
+            }
+        )
+
+
+def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_sessions(
+    tmp_path: Path,
+) -> None:
+    from urllib.parse import parse_qs, urlsplit
+
+    from app.modules.audit.models import AuditEvent
+    from app.modules.auth.models import PasswordResetToken
+    from app.modules.auth.password_reset import PasswordResetService
+    from app.modules.notifications.delivery import NotificationDeliveryService
+    from app.modules.notifications.models import NotificationDelivery
+
+    app = make_app(tmp_path)
+    fake_tasks = FakeNotificationTasks()
+    app.state.notification_tasks = fake_tasks
+
+    old_password = "correct-horse-battery-staple"
+    new_password = "correct-horse-battery-new-password"
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "admin@example.com",
+                "password": old_password,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": old_password,
+            },
+        ).status_code == 200
+
+        target = client.post(
+            "/api/v1/notification-targets",
+            json={
+                "name": "Security email",
+                "config": {
+                    "password_reset": True,
+                },
+                "url": (
+                    "mailtos://smtp-user:smtp-pass@mail.example.com"
+                    "?from=zero-nvr@example.com"
+                    "&to=old@example.com"
+                    "&cc=copy@example.com"
+                    "&bcc=hidden@example.com"
+                ),
+            },
+        )
+        assert target.status_code == 201
+
+        requested = client.post(
+            "/api/v1/auth/password-reset/request",
+            json={"identifier": "admin@example.com"},
+        )
+        assert requested.status_code == 202
+        assert requested.json() == {"accepted": True}
+        assert len(fake_tasks.delivery_ids) == 1
+
+        throttled = client.post(
+            "/api/v1/auth/password-reset/request",
+            json={"identifier": "admin"},
+        )
+        assert throttled.status_code == 202
+        assert throttled.json() == {"accepted": True}
+        assert len(fake_tasks.delivery_ids) == 1
+
+        unknown = client.post(
+            "/api/v1/auth/password-reset/request",
+            json={"identifier": "nobody@example.com"},
+        )
+        assert unknown.status_code == 202
+        assert unknown.json() == {"accepted": True}
+        assert len(fake_tasks.delivery_ids) == 1
+
+        delivery_id = fake_tasks.delivery_ids[0]
+        with app.state.database.session() as session:
+            reset = session.scalar(
+                select(PasswordResetToken)
+            )
+            assert reset is not None
+            token = PasswordResetService(
+                app.state.settings
+            ).token_for_record(reset)
+            assert reset.token_hash != token
+            delivery = session.get(
+                NotificationDelivery,
+                delivery_id,
+            )
+            assert delivery is not None
+            assert delivery.purpose == "password_reset"
+            assert token not in delivery.body
+
+        CaptureMailAdapter.calls = []
+        delivered = NotificationDeliveryService(
+            app.state.settings,
+            adapter_factory=CaptureMailAdapter,
+        ).execute(
+            app.state.database,
+            delivery_id=delivery_id,
+        )
+        assert delivered.state == "SENT"
+        assert delivered.delivered is True
+        assert len(CaptureMailAdapter.calls) == 1
+
+        sent = CaptureMailAdapter.calls[0]
+        parsed = urlsplit(sent["url"])
+        query = parse_qs(parsed.query)
+        assert parsed.scheme == "mailtos"
+        assert query["to"] == ["admin@example.com"]
+        assert "cc" not in query
+        assert "bcc" not in query
+        assert "old@example.com" not in sent["url"]
+        assert token in sent["body"]
+
+        completed = client.post(
+            "/api/v1/auth/password-reset/complete",
+            json={
+                "token": token,
+                "new_password": new_password,
+            },
+        )
+        assert completed.status_code == 200
+        assert completed.json() == {"ok": True}
+
+        assert client.get(
+            "/api/v1/auth/me"
+        ).status_code == 401
+
+        reused = client.post(
+            "/api/v1/auth/password-reset/complete",
+            json={
+                "token": token,
+                "new_password": (
+                    "another-correct-horse-battery-password"
+                ),
+            },
+        )
+        assert reused.status_code == 400
+        assert (
+            reused.json()["error"]["code"]
+            == "password_reset_token_invalid"
+        )
+
+        old_login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": old_password,
+            },
+        )
+        assert old_login.status_code == 401
+
+        new_login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": new_password,
+            },
+        )
+        assert new_login.status_code == 200
+
+    with app.state.database.session() as session:
+        actions = set(
+            session.scalars(
+                select(AuditEvent.action)
+            ).all()
+        )
+    assert "auth.password_reset.request" in actions
+    assert "auth.password_reset.complete" in actions

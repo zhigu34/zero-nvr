@@ -4009,3 +4009,10 @@ strong {
     grid-column: 1 / 2;
   }
 }
+
+
+.auth-recovery-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}

@@ -28,6 +28,23 @@ class PasswordChangeRequest(BaseModel):
     new_password: str = Field(min_length=12, max_length=256)
 
 
+class PasswordResetRequest(BaseModel):
+    identifier: str = Field(min_length=1, max_length=320)
+
+
+class PasswordResetRequestAccepted(BaseModel):
+    accepted: Literal[True] = True
+
+
+class PasswordResetCompleteRequest(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
+class PasswordResetCompleteView(BaseModel):
+    ok: Literal[True] = True
+
+
 class AuthUser(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.modules.audit.service import append_audit_event
+from app.modules.notifications.models import NotificationDelivery
 
 from .dependencies import get_auth_context
 from .schemas import (
@@ -13,9 +15,14 @@ from .schemas import (
     InitialAdministratorCreate,
     LoginRequest,
     PasswordChangeRequest,
+    PasswordResetCompleteRequest,
+    PasswordResetCompleteView,
+    PasswordResetRequest,
+    PasswordResetRequestAccepted,
     SessionSummary,
     SetupStatus,
 )
+from .password_reset import PasswordResetService
 from .service import AuthContext, AuthService
 
 
@@ -178,6 +185,106 @@ def me(
     context: AuthContext = Depends(get_auth_context),
 ) -> AuthUser:
     return _auth_user(context)
+
+
+
+
+
+@router.post(
+    "/auth/password-reset/request",
+    response_model=PasswordResetRequestAccepted,
+    status_code=202,
+)
+def request_password_reset(
+    body: PasswordResetRequest,
+    request: Request,
+    session: Session = Depends(get_db_session),
+) -> PasswordResetRequestAccepted:
+    service = PasswordResetService(
+        request.app.state.settings
+    )
+    issue = None
+    try:
+        issue = service.issue(
+            session,
+            identifier=body.identifier,
+            request_metadata=_client_info(request),
+        )
+        if issue is not None:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=None,
+                action="auth.password_reset.request",
+                resource_type="user",
+                resource_id=issue.user_id,
+                metadata={
+                    "delivery_id": str(issue.delivery_id),
+                },
+            )
+        session.commit()
+    except Exception:
+        # Public request remains non-enumerating. Configuration or
+        # persistence failures must not reveal whether the account exists.
+        session.rollback()
+        return PasswordResetRequestAccepted()
+
+    if issue is not None:
+        try:
+            request.app.state.notification_tasks.deliver(
+                issue.delivery_id
+            )
+        except Exception:
+            delivery = session.get(
+                NotificationDelivery,
+                issue.delivery_id,
+            )
+            if delivery is not None:
+                delivery.state = "FAILED"
+                delivery.last_error_code = (
+                    "notification_queue_unavailable"
+                )
+                session.commit()
+
+    return PasswordResetRequestAccepted()
+
+
+@router.post(
+    "/auth/password-reset/complete",
+    response_model=PasswordResetCompleteView,
+)
+def complete_password_reset(
+    body: PasswordResetCompleteRequest,
+    request: Request,
+    session: Session = Depends(get_db_session),
+) -> PasswordResetCompleteView:
+    service = PasswordResetService(
+        request.app.state.settings
+    )
+    try:
+        user = service.consume(
+            session,
+            token=body.token,
+            new_password=body.new_password,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=user.id,
+            action="auth.password_reset.complete",
+            resource_type="user",
+            resource_id=user.id,
+            metadata={
+                "sessions_revoked": True,
+                "reset_token_single_use": True,
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return PasswordResetCompleteView()
 
 
 @router.post("/auth/password/change", response_model=AuthUser)

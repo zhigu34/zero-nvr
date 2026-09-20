@@ -22,6 +22,8 @@ from .service import NotificationTargetService
 class NotificationPlan:
     delivery_id: uuid.UUID
     target_id: uuid.UUID
+    purpose: str
+    correlation_id: str | None
     title: str
     body: str
     notify_type: str
@@ -108,6 +110,24 @@ class NotificationDeliveryService:
                     message="Notification delivery is already in progress.",
                 )
 
+            if (
+                delivery.purpose == "password_reset"
+                and not NotificationTargetService.is_password_reset_target(
+                    target
+                )
+            ):
+                delivery.state = "FAILED"
+                delivery.last_attempt_at = utc_now()
+                delivery.last_error_code = (
+                    "password_reset_target_unavailable"
+                )
+                session.commit()
+                return NotificationResult(
+                    delivery_id=delivery.id,
+                    state="FAILED",
+                    delivered=False,
+                )
+
             resolved = NotificationTargetService(
                 self.settings
             ).resolve(
@@ -122,6 +142,8 @@ class NotificationDeliveryService:
             plan = NotificationPlan(
                 delivery_id=delivery.id,
                 target_id=target.id,
+                purpose=delivery.purpose,
+                correlation_id=delivery.correlation_id,
                 title=delivery.title,
                 body=delivery.body,
                 notify_type=resolved.notify_type,
@@ -184,12 +206,55 @@ class NotificationDeliveryService:
         if isinstance(prepared, NotificationResult):
             return prepared
 
+        delivery_url = prepared.url
+        delivery_title = prepared.title
+        delivery_body = prepared.body
+
+        if prepared.purpose == "password_reset":
+            try:
+                if not prepared.correlation_id:
+                    raise ApiError(
+                        status_code=409,
+                        code="password_reset_delivery_invalid",
+                        message="Password reset delivery is invalid.",
+                    )
+                from app.modules.auth.password_reset import (
+                    PasswordResetService,
+                )
+
+                with database.session() as session:
+                    mail = PasswordResetService(
+                        self.settings
+                    ).delivery_mail(
+                        session,
+                        correlation_id=prepared.correlation_id,
+                    )
+                delivery_url = (
+                    NotificationTargetService.password_reset_recipient_url(
+                        prepared.url,
+                        mail.recipient,
+                    )
+                )
+                delivery_title = mail.title
+                delivery_body = mail.body
+            except ApiError as exc:
+                self._mark_failed(
+                    database,
+                    delivery_id=prepared.delivery_id,
+                    error_code=exc.code,
+                )
+                return NotificationResult(
+                    delivery_id=prepared.delivery_id,
+                    state="FAILED",
+                    delivered=False,
+                )
+
         try:
             self._adapter_factory(
-                url=prepared.url
+                url=delivery_url
             ).notify(
-                title=prepared.title,
-                body=prepared.body,
+                title=delivery_title,
+                body=delivery_body,
                 notify_type=prepared.notify_type,
             )
         except AppriseIntegrationError as exc:

@@ -19,3 +19,32 @@ export function revokeSession(sessionId: string): Promise<void> {
     { method: "DELETE" }
   )
 }
+
+
+export function requestPasswordReset(
+  identifier: string
+): Promise<{ accepted: true }> {
+  return apiRequest<{ accepted: true }>(
+    "/auth/password-reset/request",
+    {
+      method: "POST",
+      json: { identifier }
+    }
+  )
+}
+
+export function completePasswordReset(
+  token: string,
+  newPassword: string
+): Promise<{ ok: true }> {
+  return apiRequest<{ ok: true }>(
+    "/auth/password-reset/complete",
+    {
+      method: "POST",
+      json: {
+        token,
+        new_password: newPassword
+      }
+    }
+  )
+}
