@@ -38,3 +38,54 @@ export function acknowledgeAlert(
     { method: "POST" }
   )
 }
+
+
+export interface AlertPolicy {
+  id: string
+  name: string
+  enabled: boolean
+  severity: "info" | "warning" | "critical"
+  match: Record<string, unknown>
+  actions: Record<string, unknown>
+  cooldown_seconds: number
+  created_at: string
+  updated_at: string
+}
+
+export function listAlertPolicies(): Promise<AlertPolicy[]> {
+  return apiRequest<AlertPolicy[]>("/alert-policies")
+}
+
+export function createAlertPolicy(body: {
+  name: string
+  enabled: boolean
+  severity: "info" | "warning" | "critical"
+  match: Record<string, unknown>
+  actions: Record<string, unknown>
+  cooldown_seconds: number
+}): Promise<AlertPolicy> {
+  return apiRequest<AlertPolicy>("/alert-policies", {
+    method: "POST",
+    json: body
+  })
+}
+
+export function updateAlertPolicy(
+  policyId: string,
+  changes: Record<string, unknown>
+): Promise<AlertPolicy> {
+  return apiRequest<AlertPolicy>(
+    `/alert-policies/${encodeURIComponent(policyId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function deleteAlertPolicy(policyId: string): Promise<void> {
+  return apiRequest<void>(
+    `/alert-policies/${encodeURIComponent(policyId)}`,
+    { method: "DELETE" }
+  )
+}

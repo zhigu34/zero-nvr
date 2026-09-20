@@ -56,6 +56,7 @@ import {
   type SystemSettings,
   type SystemUpdateInfo
 } from "../api/system"
+import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
@@ -64,6 +65,7 @@ type SystemTab =
   | "general"
   | "users"
   | "notifications"
+  | "alerts"
   | "ai"
   | "backup"
   | "audit"
@@ -169,6 +171,12 @@ const navigation = computed(() => {
     {
       id: "notifications",
       label: "Notifications",
+      icon: "bell",
+      visible: auth.hasPermission("alert.manage")
+    },
+    {
+      id: "alerts",
+      label: "Alert rules",
       icon: "bell",
       visible: auth.hasPermission("alert.manage")
     },
@@ -1095,6 +1103,14 @@ onBeforeUnmount(() => {
             </div>
           </form>
         </aside>
+      </template>
+
+      <template v-else-if="tab === 'alerts'">
+        <SystemAlertRulesPanel
+          :display-timezone="
+            settings?.general.display_timezone || 'UTC'
+          "
+        />
       </template>
 
       <template v-else-if="tab === 'ai'">
