@@ -435,9 +435,32 @@ def test_configuration_import_validation_checks_refs_and_secrets(
 
 def test_configuration_import_apply_merges_without_overwriting_secrets(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     import copy
     import uuid
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "app.modules.recordings.api.CameraMediaRuntimeService.ensure_streams",
+        lambda self, desired: [],
+    )
+    monkeypatch.setattr(
+        "app.modules.recordings.api.RecordingRuntimeService.reconcile",
+        lambda self, desired, *, force_reconfigure=False: SimpleNamespace(
+            desired_mode=(
+                desired.mode
+                if desired is not None
+                else "off"
+            ),
+            observed_recording=bool(
+                desired is not None
+                and desired.mode != "off"
+            ),
+            changed=True,
+            assumed_existing_mode=False,
+        ),
+    )
 
     app = make_app(tmp_path)
     app.state.recording_tasks = type(
