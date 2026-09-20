@@ -390,7 +390,8 @@ def test_http_adapter_sanitizes_errors_and_fetches_events() -> None:
         if request.url.path == "/api/version":
             return httpx.Response(
                 200,
-                json="0.16.0",
+                text="0.16.0",
+                headers={"content-type": "text/plain"},
             )
         if request.url.path == "/api/events":
             return httpx.Response(
