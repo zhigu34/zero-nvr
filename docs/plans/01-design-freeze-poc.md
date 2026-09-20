@@ -28,16 +28,16 @@ Candidate configuration:
 enableFmp4=1
 ```
 
-Test process kill, ZLM restart, and host/container abrupt-stop simulations.
+Run the same abrupt SIGKILL/restart scenario first with ordinary MP4 and then with `record.enableFmp4=1`.
 
-Validate that the current file remains usable/recoverable and that:
+Validate candidate fMP4 recovery and compare it against the ordinary-MP4 baseline under the same source/write interval. The current file should remain usable/recoverable and:
 
 - ZLM VOD can consume it;
 - FFmpeg/ffprobe can inspect/remux it;
 - browser playback path remains usable;
 - archive/restore does not alter validity.
 
-Pass condition: fMP4 demonstrates materially better crash resilience without breaking normal playback/export.
+Pass condition: fMP4 passes the required recovery/playback/export checks **and** the ordinary-MP4 baseline fails at least one equivalent interrupted-file recovery check. If both are equally recoverable on the tested ZLM/filesystem, the POC does not prove a material fMP4 advantage.
 
 ## POC-03 — EVENT_ONLY pre-roll
 
@@ -259,13 +259,14 @@ Pass only if:
 
 ### POC-02 — fMP4 abnormal termination
 
-Pass only if abnormal termination tests show that the in-progress recording has materially better recoverability than ordinary MP4 for the tested ZLM configuration and:
+Pass only if an A/B abnormal-termination test shows that the in-progress fMP4 has materially better recoverability than ordinary MP4 for the tested ZLM configuration and:
 
 - ffprobe can inspect the surviving file;
 - ZLM VOD can open the surviving valid coverage;
 - FFmpeg can remux/export the surviving valid coverage;
 - finalized normal recordings remain browser-playable through the intended playback path;
-- no new mandatory repair daemon/process is required.
+- no new mandatory repair daemon/process is required;
+- the same ordinary-MP4 SIGKILL baseline does not pass all equivalent ffprobe/decode/remux/ZLM-VOD checks.
 
 If fMP4 causes unacceptable VOD/browser/export regressions, do not make it the default even if crash recovery is better.
 
@@ -348,7 +349,16 @@ Pass only if:
 - OpenList WebDAV behaves through the same rclone abstraction when tested;
 - no FUSE mount is required for the baseline path.
 
-Record first-play latency for representative local-LAN remote and Internet/cloud remote tests when available. It is an operational metric, not a single universal release threshold.
+Record:
+
+- restore retry-to-READY time;
+- first decoded frame wall time after READY;
+- prefetch completion time where practical;
+- cache bytes before/after eviction and the enforced test limit.
+
+The deterministic WebDAV POC must demonstrate capacity-driven eviction, not merely manual file deletion.
+
+For representative local-LAN remote and Internet/cloud remote tests when available, also record first-play latency. These are operational metrics, not a single universal release threshold.
 
 ### POC-08 — Stream sharing / connection count
 
