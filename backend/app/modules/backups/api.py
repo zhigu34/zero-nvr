@@ -114,7 +114,7 @@ def _environment(
 )
 def list_backup_policies(
     _context: AuthContext = Depends(
-        require_permission("system.manage")
+        require_permission("system.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> list[BackupPolicyView]:
@@ -194,7 +194,7 @@ def create_backup_policy(
 def get_backup_policy(
     policy_id: uuid.UUID,
     _context: AuthContext = Depends(
-        require_permission("system.manage")
+        require_permission("system.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> BackupPolicyView:
@@ -248,14 +248,12 @@ def update_backup_policy(
                 code="backup_credentials_invalid",
                 message="Backup credentials cannot be cleared.",
             )
-        changes["credentials"] = {
-            "password": (
-                body.credentials.password.get_secret_value()
-            ),
-            "environment": _environment(
-                body.credentials
-            ),
-        }
+        changes["password"] = (
+            body.credentials.password.get_secret_value()
+        )
+        changes["environment"] = _environment(
+            body.credentials
+        )
 
     try:
         policy = service.update(
@@ -291,7 +289,7 @@ def list_backups(
     cursor: str | None = None,
     limit: int = Query(default=50, ge=1, le=200),
     _context: AuthContext = Depends(
-        require_permission("system.manage")
+        require_permission("system.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> BackupSetPage:
