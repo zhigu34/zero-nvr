@@ -43,6 +43,7 @@ const secondaryEnabled = ref(false)
 const secondaryName = ref("Sub stream")
 const secondaryUrl = ref("")
 const manualProbe = ref<CameraProbeResult | null>(null)
+const manualProbeFingerprint = ref<string | null>(null)
 
 const discovery = ref<DiscoverySession | null>(null)
 const selectedCandidateId = ref<string | null>(null)
@@ -54,11 +55,20 @@ const onvifName = ref("")
 const onvifLocation = ref("")
 const onvifStorageLabel = ref("")
 const inspection = ref<OnvifInspection | null>(null)
+const inspectionFingerprint = ref<string | null>(null)
 const selectedProfiles = ref<string[]>([])
+
+const canCreateManual = computed(
+  () =>
+    manualProbe.value !== null &&
+    manualProbeFingerprint.value === JSON.stringify(manualBody()) &&
+    working.value === null
+)
 
 const canImport = computed(
   () =>
     inspection.value !== null &&
+    inspectionFingerprint.value === JSON.stringify(onvifCredentials()) &&
     selectedProfiles.value.length > 0 &&
     working.value === null
 )
@@ -95,9 +105,12 @@ function clearMessages(): void {
 async function testRtsp(): Promise<void> {
   clearMessages()
   manualProbe.value = null
+  manualProbeFingerprint.value = null
   working.value = "test"
   try {
-    manualProbe.value = await testManualCamera(manualBody())
+    const body = manualBody()
+    manualProbe.value = await testManualCamera(body)
+    manualProbeFingerprint.value = JSON.stringify(body)
   } catch (caught) {
     requestError.value = errorMessage(caught)
   } finally {
@@ -114,6 +127,7 @@ async function createRtsp(): Promise<void> {
     primaryUrl.value = ""
     secondaryUrl.value = ""
     manualProbe.value = null
+    manualProbeFingerprint.value = null
     emit("created")
   } catch (caught) {
     requestError.value = errorMessage(caught)
@@ -142,6 +156,7 @@ function useCandidate(candidate: DiscoveryCandidate): void {
   onvifHost.value = candidate.host
   onvifPort.value = candidate.port ?? 80
   inspection.value = null
+  inspectionFingerprint.value = null
   selectedProfiles.value = []
 }
 
@@ -157,12 +172,15 @@ function onvifCredentials() {
 async function inspectDevice(): Promise<void> {
   clearMessages()
   inspection.value = null
+  inspectionFingerprint.value = null
   selectedProfiles.value = []
   working.value = "inspect"
 
   try {
-    const result = await inspectOnvif(onvifCredentials())
+    const credentials = onvifCredentials()
+    const result = await inspectOnvif(credentials)
     inspection.value = result
+    inspectionFingerprint.value = JSON.stringify(credentials)
     selectedProfiles.value = result.profiles
       .filter((profile) => profile.stream_uri_available)
       .map((profile) => profile.token)
@@ -558,11 +576,7 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
           <button
             class="button button--primary"
             type="button"
-            :disabled="
-              working !== null ||
-              !manualName.trim() ||
-              !primaryUrl.trim()
-            "
+            :disabled="!canCreateManual"
             @click="createRtsp"
           >
             {{ working === "create" ? "Creating…" : "Create camera" }}
