@@ -6,6 +6,8 @@ import subprocess
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
+
+from huey import crontab
 from typing import Any
 
 from sqlalchemy import select
@@ -27,6 +29,10 @@ from app.modules.recordings.prebuffer import (
 from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.archive import ArchiveLifecycleService
+from app.modules.storage.retention import (
+    LocalRetentionDeletionService,
+    RetentionPlanner,
+)
 from app.modules.storage.models import RecordingLocation
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
@@ -504,3 +510,84 @@ def archive_recording_segment(
         return str(result.location_id)
     finally:
         database.close()
+
+
+
+@huey.task(retries=2, retry_delay=30)
+def delete_local_recording_location(
+    location_id: str,
+    pressure: bool = False,
+) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        result = LocalRetentionDeletionService.execute(
+            database,
+            location_id=uuid.UUID(location_id),
+            pressure=pressure,
+        )
+        return result.reason
+    finally:
+        database.close()
+
+
+def _run_retention_reconciliation(
+    *,
+    pressure: bool,
+) -> dict[str, int]:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        with database.session() as session:
+            decisions = RetentionPlanner.plan(
+                session,
+                pressure=pressure,
+                limit=500,
+            )
+            session.commit()
+
+        archived = 0
+        deleted = 0
+        blocked = 0
+        for decision in decisions:
+            if decision.archive_target_id is not None:
+                archive_recording_segment(
+                    str(decision.segment_id),
+                    str(decision.archive_target_id),
+                )
+                archived += 1
+                continue
+
+            if decision.eligible_for_delete:
+                delete_local_recording_location(
+                    str(decision.location_id),
+                    pressure,
+                )
+                deleted += 1
+                continue
+
+            blocked += 1
+
+        return {
+            "archive_queued": archived,
+            "delete_queued": deleted,
+            "blocked": blocked,
+        }
+    finally:
+        database.close()
+
+
+@huey.task()
+def reconcile_retention(
+    pressure: bool = False,
+) -> dict[str, int]:
+    return _run_retention_reconciliation(
+        pressure=pressure,
+    )
+
+
+@huey.periodic_task(crontab(minute="23"))
+def periodic_retention_reconciliation() -> dict[str, int]:
+    return _run_retention_reconciliation(
+        pressure=False,
+    )
