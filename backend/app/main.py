@@ -10,6 +10,7 @@ from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
+from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
 from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 from app.modules.recordings.prebuffer import PrebufferFragmentTracker
@@ -29,12 +30,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     recording_tasks = RecordingTaskDispatcher(resolved_settings)
     storage_tasks = StorageTaskDispatcher()
     frigate_tasks = FrigateTaskDispatcher()
+    frigate_mqtt = FrigateMqttRuntime(
+        resolved_settings,
+        database,
+        logger=logger,
+        recording_tasks=recording_tasks,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         resolved_settings.ensure_runtime_directories()
         database.initialize_runtime()
         database.ping()
+        frigate_mqtt.start()
 
         logger.info(
             "zero-nvr API starting",
@@ -46,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         yield
 
+        frigate_mqtt.stop()
         database.close()
         logger.info("zero-nvr API stopped")
 
@@ -64,6 +73,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.recording_tasks = recording_tasks
     app.state.storage_tasks = storage_tasks
     app.state.frigate_tasks = frigate_tasks
+    app.state.frigate_mqtt = frigate_mqtt
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
