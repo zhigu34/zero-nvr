@@ -81,8 +81,8 @@ zero-nvr implements:
 
 - WS-Discovery/onboarding orchestration through the maintained library;
 - stable device/channel identity mapping;
-- canonical Device/Camera/SourceMediaProfile/capability DTOs;
-- source-profile to recording/live/preview/detection role selection;
+- canonical Device/Camera/CameraStreamProfile/capability DTOs;
+- CameraStreamProfile to RECORD/LIVE_HIGH/LIVE_LOW/AI_DETECT/SNAPSHOT binding selection;
 - event normalization;
 - business policy.
 
