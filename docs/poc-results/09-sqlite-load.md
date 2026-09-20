@@ -31,16 +31,18 @@ The harness executes:
 Each scenario preloads:
 
 - 30 days of nominal 5-minute RecordingSegment rows per camera;
+- one AVAILABLE local RecordingLocation for every RecordingSegment;
+- one LOCAL recording StorageTarget;
 - 100 historical Events per camera per day.
 
 The concurrent phase then runs:
 
-- accelerated RecordingSegment inserts;
+- accelerated RecordingSegment + RecordingLocation inserts in one short transaction;
 - Frigate-style Event UPSERTs;
 - AuditEvent inserts;
 - Timeline queries;
 - Event queries;
-- retention-candidate queries;
+- retention-candidate queries over AVAILABLE local RecordingLocations plus RecordingProtection overlap checks;
 - SQLite Online Backup while writes continue.
 
 Database mode:
@@ -97,7 +99,8 @@ Evidence records:
 
 - host/container platform, architecture, CPU count, memory visibility/limit;
 - Python and SQLite version;
-- preload row counts;
+- tested CPU/memory/platform information;
+- preload row counts, including RecordingLocation count;
 - DB/WAL/SHM sizes;
 - p50/p95/p99/max latency;
 - transient lock retries;
