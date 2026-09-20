@@ -235,6 +235,80 @@ def copy_publish(fragment: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def persist_trigger(event_time: float) -> dict[str, Any]:
+    trigger = {
+        "id": "event-recovery-trigger",
+        "camera_id": "camera-event-recovery",
+        "stream": STREAM,
+        "source": "poc",
+        "source_event_id": "event-recovery-1",
+        "requested_at": iso(event_time),
+        "planned_start_at": iso(event_time - PRE_ROLL_SECONDS),
+        "planned_end_at": iso(event_time + POST_ROLL_SECONDS),
+        "state": "ACTIVE",
+    }
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            """
+            INSERT INTO poc_recording_triggers(
+                id, camera_id, stream, source, source_event_id,
+                requested_at, planned_start_at, planned_end_at,
+                state, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                requested_at = excluded.requested_at,
+                planned_start_at = excluded.planned_start_at,
+                planned_end_at = excluded.planned_end_at,
+                state = excluded.state
+            """,
+            (
+                trigger["id"],
+                trigger["camera_id"],
+                trigger["stream"],
+                trigger["source"],
+                trigger["source_event_id"],
+                trigger["requested_at"],
+                trigger["planned_start_at"],
+                trigger["planned_end_at"],
+                trigger["state"],
+                trigger["requested_at"],
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return trigger
+
+
+def load_trigger() -> dict[str, Any]:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute(
+            """
+            SELECT id, camera_id, stream, source, source_event_id,
+                   requested_at, planned_start_at, planned_end_at, state
+            FROM poc_recording_triggers
+            WHERE id = 'event-recovery-trigger'
+            """
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        raise AssertionError("persisted RecordingTrigger fact missing after API restart")
+    trigger = dict(row)
+    trigger["required_start"] = datetime.fromisoformat(
+        trigger["planned_start_at"].replace("Z", "+00:00")
+    ).timestamp()
+    trigger["required_end"] = datetime.fromisoformat(
+        trigger["planned_end_at"].replace("Z", "+00:00")
+    ).timestamp()
+    trigger["required_start_at"] = trigger["planned_start_at"]
+    trigger["required_end_at"] = trigger["planned_end_at"]
+    return trigger
+
+
 def prepare() -> None:
     wait_until(
         "POC API",
@@ -251,17 +325,12 @@ def prepare() -> None:
     )
 
     event_time = time.time()
+    trigger = persist_trigger(event_time)
     state = {
         "prepared_at": iso(event_time),
         "proxy_key": proxy_key,
-        "trigger": {
-            "event_at": event_time,
-            "event_at_iso": iso(event_time),
-            "required_start": event_time - PRE_ROLL_SECONDS,
-            "required_start_at": iso(event_time - PRE_ROLL_SECONDS),
-            "required_end": event_time + POST_ROLL_SECONDS,
-            "required_end_at": iso(event_time + POST_ROLL_SECONDS),
-        },
+        "trigger_id": trigger["id"],
+        "trigger_snapshot": trigger,
         "warm_files": warm,
     }
     STATE.write_text(
@@ -273,7 +342,7 @@ def prepare() -> None:
 
 def recover() -> None:
     state = json.loads(STATE.read_text(encoding="utf-8"))
-    trigger = state["trigger"]
+    trigger = load_trigger()
 
     wait_until(
         "POC API after restart",
@@ -332,6 +401,7 @@ def recover() -> None:
         "result": "PASS",
         "completed_at": iso(time.time()),
         "prepared": state,
+        "persisted_recording_trigger": trigger,
         "recorder_active_after_api_restart": True,
         "filesystem_scan_count": len(files),
         "selected_from_filesystem": selected,
@@ -349,8 +419,9 @@ def recover() -> None:
         ),
         "filesystem_only_promoted": filesystem_only,
         "note": (
-            "Selection and promotion were derived from persisted trigger JSON + "
-            "tmpfs filesystem scan. poc_hook_events were read only after promotion "
+            "Selection and promotion were derived from the persisted SQLite "
+            "RecordingTrigger fact + tmpfs filesystem scan. poc_hook_events were "
+            "read only after promotion "
             "to report whether any selected fragments had no successful hook record."
         ),
     }
