@@ -100,3 +100,23 @@ class RecordingPolicyView(BaseModel):
     retention_policy_id: uuid.UUID | None
     enabled: bool
     runtime: RecordingRuntimeView | None = None
+
+
+
+class RecordingTriggerCreate(BaseModel):
+    reason: str | None = Field(default=None, max_length=512)
+
+
+class RecordingTriggerView(BaseModel):
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    type: str
+    source: str
+    requested_at: datetime
+    pre_roll_seconds: int
+    post_roll_seconds: int
+    planned_start_at: datetime
+    planned_end_at: datetime | None
+    state: str
+    reason: str | None
+    correlation_id: str
