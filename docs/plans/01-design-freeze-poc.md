@@ -2,7 +2,7 @@
 
 Status: **completed — architecture-freeze gate passed**
 
-These POCs validate the few remaining media/storage assumptions that must not be guessed in production design.
+These POCs are the accepted runtime evidence behind the V1 architecture freeze. Keep them executable as regression gates for future ownership/behavior changes.
 
 
 Final aggregate regression: GitHub Actions run `35490737812`, conclusion `success`, head SHA `20ae4741b480269bb61b69a8b4b123a46163af02`. All 10 numbered POCs have accepted PASS results under `docs/poc-results/`.
