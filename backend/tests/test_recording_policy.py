@@ -160,3 +160,58 @@ def test_policy_put_persists_frozen_axes(tmp_path: Path) -> None:
             assert policy.post_roll_seconds == 20
     finally:
         database.close()
+
+
+
+def test_next_schedule_boundary_uses_local_wall_clock() -> None:
+    policy = RecordingPolicy(
+        baseline_mode="schedule",
+        schedule_json={
+            "weekly": [
+                {
+                    "days": [0],
+                    "start": "09:00",
+                    "end": "17:00",
+                }
+            ]
+        },
+        schedule_timezone="America/Los_Angeles",
+        event_recording_enabled=False,
+        enabled=True,
+    )
+
+    boundary = RecordingPolicyService.next_baseline_transition(
+        policy,
+        after=datetime(2026, 9, 21, 15, 30, tzinfo=UTC),
+    )
+    assert boundary == datetime(2026, 9, 21, 16, 0, tzinfo=UTC)
+
+    boundary = RecordingPolicyService.next_baseline_transition(
+        policy,
+        after=datetime(2026, 9, 21, 16, 1, tzinfo=UTC),
+    )
+    assert boundary == datetime(2026, 9, 22, 0, 0, tzinfo=UTC)
+
+
+def test_next_schedule_boundary_handles_cross_midnight_window() -> None:
+    policy = RecordingPolicy(
+        baseline_mode="schedule",
+        schedule_json={
+            "weekly": [
+                {
+                    "days": [4],
+                    "start": "22:00",
+                    "end": "02:00",
+                }
+            ]
+        },
+        schedule_timezone="America/Los_Angeles",
+        event_recording_enabled=False,
+        enabled=True,
+    )
+
+    boundary = RecordingPolicyService.next_baseline_transition(
+        policy,
+        after=datetime(2026, 9, 26, 6, 0, tzinfo=UTC),
+    )
+    assert boundary == datetime(2026, 9, 26, 9, 0, tzinfo=UTC)
