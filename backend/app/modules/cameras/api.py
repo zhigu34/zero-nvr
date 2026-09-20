@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.integrations.onvif import OnvifAdapter, OnvifIntegrationError
 from app.integrations.zlm import (
     ZlmAdapter,
     ZlmIntegrationError,
@@ -23,7 +24,15 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.service import AuthContext
 
-from .models import Camera, CameraStreamBinding, CameraStreamProfile, Device
+from .discovery_service import CameraDiscoveryService
+from .models import (
+    Camera,
+    CameraStreamBinding,
+    CameraStreamProfile,
+    Device,
+    DiscoveryCandidate,
+    DiscoverySession,
+)
 from .schemas import (
     CameraCreate,
     CameraDetail,
@@ -35,6 +44,8 @@ from .schemas import (
     CameraStreamProfileView,
     CameraSummary,
     CameraUpdate,
+    DiscoveryCandidateView,
+    DiscoverySessionView,
 )
 from .service import CameraService
 
@@ -69,6 +80,49 @@ def _probe_stream_view(
         name=name,
         video=_probe_track_view(probe.video),
         audio=_probe_track_view(probe.audio),
+    )
+
+
+def _discovery_candidate_view(
+    candidate: DiscoveryCandidate,
+) -> DiscoveryCandidateView:
+    metadata = candidate.metadata_json or {}
+    raw_port = metadata.get("port")
+    port = raw_port if isinstance(raw_port, int) else None
+    raw_url = metadata.get("device_service_url")
+    device_service_url = raw_url if isinstance(raw_url, str) else None
+    display_info = (
+        candidate.display_info
+        if isinstance(candidate.display_info, dict)
+        else {}
+    )
+    return DiscoveryCandidateView(
+        id=candidate.id,
+        candidate_key=candidate.candidate_key,
+        host=candidate.host,
+        port=port,
+        device_service_url=device_service_url,
+        display_info=display_info,
+        state=candidate.state,
+    )
+
+
+def _discovery_session_view(
+    discovery: DiscoverySession,
+) -> DiscoverySessionView:
+    return DiscoverySessionView(
+        id=discovery.id,
+        method=discovery.method,
+        status=discovery.status,
+        started_at=discovery.started_at,
+        completed_at=discovery.completed_at,
+        candidates=sorted(
+            (
+                _discovery_candidate_view(candidate)
+                for candidate in discovery.candidates
+            ),
+            key=lambda item: item.candidate_key,
+        ),
     )
 
 
@@ -274,6 +328,98 @@ def test_camera_configuration(
         ) from exc
 
     return CameraProbeResult(streams=results)
+
+
+@router.post(
+    "/cameras/discovery",
+    response_model=DiscoverySessionView,
+    status_code=201,
+)
+async def run_camera_discovery(
+    request: Request,
+    context: AuthContext = Depends(require_permission("camera.configure")),
+    session: Session = Depends(get_db_session),
+) -> DiscoverySessionView:
+    try:
+        discovery = CameraDiscoveryService.start(
+            session,
+            created_by=context.user.id,
+        )
+        session.commit()
+        discovery_id = discovery.id
+    except Exception:
+        session.rollback()
+        raise
+
+    try:
+        candidates = await OnvifAdapter(
+            request.app.state.settings
+        ).discover()
+    except OnvifIntegrationError as exc:
+        try:
+            failed = CameraDiscoveryService.fail(
+                session,
+                discovery_id=discovery_id,
+            )
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action="camera.discovery.run",
+                resource_type="discovery_session",
+                resource_id=failed.id,
+                result="failure",
+                reason=exc.code,
+                metadata={"method": "onvif_ws_discovery"},
+            )
+            session.commit()
+        except Exception:
+            session.rollback()
+
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={"discovery_id": str(discovery_id)},
+        ) from exc
+
+    try:
+        completed = CameraDiscoveryService.complete(
+            session,
+            discovery_id=discovery_id,
+            candidates=candidates,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="camera.discovery.run",
+            resource_type="discovery_session",
+            resource_id=completed.id,
+            metadata={
+                "method": "onvif_ws_discovery",
+                "candidate_count": len(candidates),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _discovery_session_view(completed)
+
+
+@router.get(
+    "/cameras/discovery/{discovery_id}",
+    response_model=DiscoverySessionView,
+)
+def get_camera_discovery(
+    discovery_id: uuid.UUID,
+    _context: AuthContext = Depends(require_permission("camera.configure")),
+    session: Session = Depends(get_db_session),
+) -> DiscoverySessionView:
+    discovery = CameraDiscoveryService.get(session, discovery_id)
+    return _discovery_session_view(discovery)
 
 
 @router.get("/cameras/{camera_id}", response_model=CameraDetail)
