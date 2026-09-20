@@ -1107,48 +1107,36 @@ See [Spec 0010 — Recording Storage Targets and Host-Managed Storage](specs/001
 
 ## StorageTarget
 
+Represents a configured canonical recording/archive destination, not a block-storage pool.
+
 ```text
 id
-type
+type                          local | rclone
+role                          recording | archive
 name
 enabled
-priority
 config
-credential_secret_ref
-quota
-health
-```
-
-Types:
-
-```text
-local
-s3
-rclone
-openlist
-```
-
-Storage roles:
-
-```text
-recording_hot
-archive_remote
-playback_cache
-backup
-```
-
-Recording-related state may include:
-
-```text
-health_state    unknown | healthy | degraded | pressure | critical | offline | read_only
-write_state     eligible | draining | ineligible
-total_bytes
-used_bytes
-free_bytes
+credential_secret_ref         nullable
+health_state                  unknown | ok | degraded | pressure | critical | offline | read_only
+total_bytes                   nullable
+used_bytes                    nullable
+free_bytes                    nullable
 last_health_at
-last_successful_write_at
 last_error
+created_at
+updated_at
 ```
+
+Interpretation:
+
+- `local + recording`: local disk, host-mounted NAS, ZFS/Btrfs/LVM/RAID/mergerfs path presented as a filesystem;
+- `rclone + archive`: S3/WebDAV/SFTP/SMB/OneDrive/OpenList-WebDAV/etc. configured through rclone.
+
+OpenList is not a separate StorageTarget protocol implementation; when used, it is normally exposed to rclone as WebDAV.
+
+Playback cache is disposable local cache configuration, not a canonical recording StorageTarget. System backup repositories are managed by the backup/restic configuration and do not need to masquerade as recording locations.
+
+V1 has no zero-nvr-managed StoragePool entity.
 
 ## RecordingLocation
 
@@ -1508,149 +1496,102 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 
 ## Invariants
 
-1. Camera is the stable identity.
-2. External component IDs are never primary business identities.
-3. Recording metadata survives storage movement.
-4. DetectionEvent is provider-neutral and is the source of truth for event timeline markers.
-5. zero-nvr alone owns recording lifecycle decisions; event/integration providers never directly control media recorder processes.
-6. Stateful event recording duration is determined by event START/END plus pre-roll/post-roll, not a fixed record duration.
-7. Multiple events may share one RecordingSession while remaining independent DetectionEvents and EventLog records.
-8. External explicit recording intent may enter through RecordingTrigger, but stateful sensor events normalize into DetectionEvent.
-9. Credentials do not appear in public read contracts.
-10. Media runtime state is reconstructable and not authoritative metadata.
-11. Remote upload requires verification before local purge eligibility.
-12. Historical data blocks destructive Camera deletion unless an explicit archival/deletion design says otherwise.
-13. Instant events are zero-duration DetectionEvents; they use recording pre-roll/post-roll without a fabricated event lifetime.
-14. RecordingSession logical boundaries are independent from physical MP4 segment boundaries.
-15. RecordingSessionSegment defines which time range of each physical segment contributes to a logical recording.
-16. Event pre-buffer segment rollover must never require recorder stop/start to preserve correctness.
-17. Idle tmpfs pre-buffering and formal recording are mutually exclusive modes of one recording pipeline, not duplicate recorders.
-18. Idle 20-second tmpfs files are temporary PrebufferFragments, not canonical RecordingSegments.
-19. The first event RecordingSegment window starts at RecordingSession.started_at, including pre-roll; a pre-buffer fragment boundary must not restart the 5-minute formal segment clock.
-20. The first formal RecordingSegment may be assembled from one or more protected PrebufferFragment ranges plus persistent continuation media.
-21. While a formal RecordingSession remains active and healthy, all intermediate RecordingSegments follow the configured duration from the session-anchored segment clock.
-22. A normal RecordingSession completion may produce a shorter final segment; abnormal interruptions may also produce partial segments and must be identified by `completion_reason`.
-23. The tail of a completed formal recording remains eligible to bridge pre-buffer warm-up for at least the configured pre-roll interval.
-24. Recording segment durations and pre/post-roll values are policy/configuration data exposed through Recording Settings, not hard-coded constants.
-25. Segment-duration configuration changes apply at a safe next segment boundary without force-cutting the current MP4 merely to apply the setting.
-26. Canonical recording timestamps are UTC; all local directory/file timestamps are generated in the effective configured recording timezone so they align with camera wall-clock/OSD time.
-27. Midnight/date boundaries never force a formal segment split.
-28. Camera.storage_label is a stable human-readable storage identity; changing Camera display name does not silently rename historical media.
-29. Local recording paths must remain browseable without zero-nvr by camera/date/start time.
-30. Recording paths/object keys are storage metadata; playback and retention still use database timestamps/relations rather than directory scanning.
-31. Retention is claim-based; a shared physical segment keeps the strongest active retention requirement without duplicating media.
-32. User-locked media is never automatically purged.
-33. Upload success without a verified remote RecordingLocation in AVAILABLE state never permits safe local-source deletion.
-34. Critical disk-pressure purge is priority ordered and explicitly logged; currently writing/finalizing media is never an automatic purge candidate.
-35. Historical playback is absolute-time driven; physical MP4 boundaries and filenames are never the playback clock.
-36. Playback API time values use UTC Unix milliseconds consistently.
-37. PlaybackTimeline is a derived read model with playable segments, explicit gaps, and DetectionEvent markers.
-38. Multi-camera historical playback shares one Master Clock; one camera's gap never shifts another camera to a different absolute time.
-39. Playback references resolve storage lazily so local/remote migration does not rewrite timeline semantics.
-40. Purged, missing, corrupted, source-loss, and intentionally-unrecorded ranges remain distinguishable in playback.
-41. Recording reasons are additive RecordingIntents; a camera has at most one formal media pipeline.
-42. RecordingSession spans one uninterrupted formal-recording interval and may contain several overlapping intent types.
-43. Adding/removing an intent while another remains active never restarts the recorder or resets formal segment cadence.
-44. Manual stop removes only the manual intent and never force-stops other active recording reasons.
-45. Initial V2 hybrid mode means scheduled baseline recording plus event-triggered recording outside schedule windows.
-46. Canonical persisted timestamps are UTC and derive from zero-nvr/server canonical time rather than camera wall-clock time.
-47. Device-originated event timestamps preserve source/receive/correction metadata and may be normalized by a reliable measured camera-clock offset.
-48. Camera-clock correction never directly shifts RecordingSegment time or Playback Master Clock.
-49. Historical normalized timestamps are not silently rewritten when later camera clock measurements change.
-50. Recording schedules carry explicit wall-clock timezone semantics and elapsed runtime timers use monotonic clocks.
-51. Confirmed source/media loss closes the current physical RecordingSegment but does not end RecordingSession while any RecordingIntent remains active.
-52. Post-reconnect media always starts a new RecordingSegment and is never appended into an interrupted MP4.
-53. A real media discontinuity resets the physical formal-segment cadence from actual recovery time.
-54. Infrastructure/source-connectivity incidents are distinct from DetectionEvent and may explain historical playback gaps.
-55. Camera offline/reconnecting state does not cancel enabled RecordingIntents or background source retry by itself.
-56. SystemTimeSettings owns the default managed-camera NTP source and recording timezone.
-57. A camera may inherit the system managed-camera NTP source or use an explicit camera-specific override.
-58. Host OS time synchronization is monitored separately from managed-camera NTP configuration in initial V2.
-59. Direct formal recording writes to an explicit local/host-mounted StorageTarget; archive-remote targets are asynchronous.
-60. V1 does not contain a zero-nvr-managed StoragePool or automatic multi-disk balancing/failover scheduler.
-61. Multiple local StorageTargets may be configured for explicit routing or migration, but host/storage software owns disk aggregation and redundancy.
-62. A local storage failure is surfaced explicitly and never causes implicit live recording to an archive remote.
-63. Disk-pressure cleanup must respect protection and archive-before-delete requirements.
-64. StorageTarget removal never silently discards unique retained media.
-65. Backend authorization is authoritative; frontend visibility alone never grants access.
-66. Camera-scoped actions require both the action permission and effective camera scope.
-67. Viewing does not imply export/download, lock, delete, PTZ, or management permission.
-68. Live/playback media access uses short-lived scoped authorization and never exposes camera credentials.
-69. External integrations use dedicated least-privilege service principals rather than administrator sessions.
-70. AuditEvent is append-oriented actor accountability and remains separate from EventLog runtime/business history.
-71. Disabling a User revokes active interactive sessions.
-72. Domain safety invariants still apply even when the actor is an Administrator.
-73. Password reset tokens are single-use expiring verifier-only credentials; plaintext reset tokens are never persisted.
-74. Successful password reset revokes prior interactive sessions by default.
-75. TOTP MFA secrets are protected through SecretStore while MFA recovery codes are one-way hashed.
-76. OIDC/SSO identities map into the same User/Role/Permission/CameraScope model and never bypass authorization.
-77. SMTP/email delivery is a first-production-release platform capability with SecretStore-backed credentials and durable retry/result tracking.
-78. Self-service password reset depends on SMTP when email recovery is used, but administrator-issued and host-local recovery remain available when SMTP is unavailable.
-79. AlertIncident is a human-facing grouping/lifecycle layer and never replaces or mutates DetectionEvent/system health truth.
-80. Alert acknowledgement and source resolution are independent states; acknowledgement never stops RecordingIntent.
-81. Alert grouping/cooldown/silence may suppress outbound delivery but never suppress canonical event persistence or recording.
-82. Escalation and AlertDelivery retry state is durable/recoverable across process restart.
-83. Notification targets are independently healthy and use SecretStore for recoverable credentials.
-84. Per-attempt notification diagnostics are append-style AlertDeliveryAttempt records; exactly-once external delivery is not assumed.
-85. StorageTarget may carry a backup role independently or together with archive_remote.
-86. V1 system backup uses database-native consistent backup plus restic; PITR engines are optional advanced capabilities.
-87. Database/system backup never implies local-only recording media is disaster-protected.
-88. SecretStore recovery requires matching keyring/RecoveryKit; encrypted database rows alone are insufficient.
-89. A complete disaster-recovery target must be bootstrap-accessible without first restoring the lost SecretStore.
-90. Any restore is followed by non-destructive RecordingLocation/media reconciliation before normal cleanup.
-91. Backup creation, verification, repository checking, and restore testing are distinct protection states.
-73. Ordinary configuration and recoverable secrets are separate storage concerns.
-74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
-75. Verifier-only credentials use one-way hashing rather than reversible encryption.
-76. Recoverable SecretRecords use authenticated envelope encryption with per-record DEKs.
-77. SecretStore KEK/keyring material is external to the active production database and versioned for rotation.
-78. Normal APIs, logs, traces, EventLog, and AuditEvent never expose secret plaintext.
-79. Existing encrypted SecretRecords plus a missing/wrong keyring are an explicit critical error, never converted to blank credentials.
-80. Normal configuration/support exports exclude secrets; portable secret backups require explicit encrypted export.
-81. Cryptographic key material is separated by purpose and rotated without silently invalidating active secrets.
+### Product and identity
 
+1. Camera is the stable product identity; external provider/media IDs are adapter references.
+2. Durable business state lives in the selected zero-nvr database; runtime component state is reconstructable.
+3. Frontend authorization/UI visibility never replaces backend permission and camera-scope checks.
+4. Credentials and secret plaintext never appear in normal read APIs, logs, Event, or AuditEvent payloads.
 
-### Device runtime lifecycle invariants
+### Recording
 
-- Runtime-relevant configuration is revisioned; stale asynchronous results from older revisions/generations cannot mutate current authoritative runtime state.
-- Runtime state is reconstructable projection state rather than business source of truth.
-- Enable, disable, reconnect, and reconciliation operations are idempotent.
-- Metadata-only edits do not restart media.
-- Planned recording-profile changes preserve RecordingSession/RecordingIntent and switch at safe segment boundaries when possible.
-- Forced source/profile reconfiguration records an explicit physical-media discontinuity while preserving logical recording intent when still active.
-- Capability/profile/channel drift never silently deletes user configuration or historical Camera identity.
-- Control, media, recording, event, PTZ, clock, and capability health remain independently observable.
+5. ZLMediaKit owns normal media pull, reconnect runtime, recording, and VOD.
+6. zero-nvr owns RecordingPolicy/RecordingTrigger decisions and reconciles desired recording state with one normal ZLM recorder per camera.
+7. V1 does not require persisted RecordingIntent or RecordingSession tables; current recording requirement is derived from policy, time, active triggers, and observed ZLM state.
+8. RecordingTrigger is durable evidence/request state for event/manual/external recording behavior.
+9. Multiple overlapping triggers remain independent records and never create duplicate recorders.
+10. RecordingSegment is a finalized media fact using actual UTC start/end/duration; nominal segment duration is not timeline truth.
+11. RecordingSegment has no authoritative path; physical copies belong to RecordingLocation.
+12. EVENT_ONLY pre-roll semantics are product policy, while the physical pre-buffer mechanism remains POC-gated until validated.
+13. zero-nvr does not implement a custom compressed-video packet ring buffer.
+14. Source/runtime interruptions produce real shorter segments/gaps; timestamps are never stretched to hide missing video.
+15. API/worker/database restart must not deliberately terminate healthy existing ZLM recording when avoidable.
+16. Missed recording hooks are recoverable through idempotent reconciliation; ffprobe is fallback rather than the normal indexing path.
+
+### Event and AI
+
+17. Event is the canonical provider-neutral product event used for search, timeline, alerts, and recording-policy linkage.
+18. Provider source identity is preserved so Frigate/ONVIF retries or updates are idempotent.
+19. Frigate owns AI detection/tracking/zones; zero-nvr does not clone its inference engine.
+20. V1 does not require raw DetectionObservation/EventFusion tables; provider detail remains normalized fields or bounded metadata.
+21. AI/provider failure never stops healthy core recording.
+
+### Storage and retention
+
+22. StorageTarget represents a configured local recording target or rclone archive target; it is not a RAID/JBOD pool.
+23. Host/storage software owns disk aggregation, filesystem redundancy, and block-device failover.
+24. RecordingLocation represents one physical canonical copy of one RecordingSegment.
+25. A RecordingSegment may have zero, one, or multiple RecordingLocations over its lifecycle; deleted/missing copies do not rewrite segment time.
+26. Remote archive follows copy -> verify -> remote RecordingLocation AVAILABLE -> optional local deletion.
+27. rclone move and whole-tree sync are not the default archive semantics.
+28. Huey owns archive job execution/retry; V1 does not require a separate UploadJob business table.
+29. A local copy is never deleted under archive-before-delete policy until another required verified RecordingLocation is AVAILABLE.
+30. RecordingProtection always blocks automatic deletion of overlapping protected media.
+31. Retention is computed from durable policy/reason/protection/location facts rather than a mandatory per-segment RetentionClaim table.
+32. If disk pressure cannot be resolved legally without violating hard/protected retention, zero-nvr raises a critical condition rather than silently deleting protected evidence.
+
+### Playback and time
+
+33. Timeline and Gap are projections, not authoritative tables.
+34. Historical playback is driven by absolute wall-clock time, not filename order or nominal segment cadence.
+35. PlaybackResolver chooses an AVAILABLE RecordingLocation and hides local/archive/cache mechanics from the timeline API.
+36. Remote-only V1 playback restores media through rclone into bounded disposable local cache before ZLM VOD; FUSE is not required.
+37. Canonical persisted timestamps are UTC; API timestamps are ISO 8601 with timezone and UI uses configured/user timezone.
+38. Camera clock measurements may normalize device-originated Event timestamps but never rewrite RecordingSegment media time.
+39. Host time synchronization health and camera clock offset are observable V1 capabilities.
+
+### Security, alerts, backup, deployment
+
+40. Alert acknowledgement/delivery failure never mutates or deletes canonical Event/recording facts.
+41. Notification delivery is isolated from recording and uses Apprise/provider adapters.
+42. System backup and recording archive are separate; V1 backup is database-native consistent backup plus restic.
+43. RecoveryKit/bootstrap secret material required to decrypt restored credentials must survive disaster recovery.
+44. Disposable thumbnails/export/playback/rclone cache are not required system-backup data.
+45. SQLite is the default production database; PostgreSQL is optional without changing the product model.
+46. deploy.sh + .env + Docker Compose Profiles is the V1 deployment/upgrade authority.
+47. Optional managed services are not pulled or started unless enabled.
+48. The web application does not require unrestricted Docker-socket access.
+49. Core target is two images / three containers: API, worker, ZLMediaKit.
+50. Changes to component ownership, recording authority, storage lifecycle, Core container boundaries, or database-default policy require an ADR after architecture freeze.
+
+### Runtime reconciliation
+
+- Runtime-relevant configuration may use revisions/generations to fence stale asynchronous adapter results.
+- ZLMediaKit owns RTSP reconnect/backoff; zero-nvr only projects health and reconciles desired configuration.
+- Metadata-only edits should not restart media.
+- Capability loss does not silently delete durable Camera/user configuration.
+- Control, media, recording, event, PTZ, clock, AI, archive, and backup health remain independently observable.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
-
 
 ### Live-view invariants
 
 - MediaSession is short-lived authorization/runtime state and never contains reusable camera credentials.
-- Grid viewing prefers live_preview; focused/fullscreen may promote to live_main.
-- Recording source/profile selection remains independent from browser playback compatibility.
-- H.265 live use is capability-dependent; browser incompatibility may trigger an on-demand H.264 live derivative without changing recording.
-- WebRTC is preferred for low-latency viewing; fMP4 and HLS are bounded fallbacks.
-- Compatible viewers share transcode derivatives where practical.
-- TURN credentials are short-lived and issued only for authorized MediaSessions.
-- Talk is separately authorized and isolated from video/recording lifecycle.
+- Grid viewing prefers LIVE_LOW; focused/fullscreen may promote to LIVE_HIGH.
+- Recording source/profile remains independent from browser playback compatibility.
+- FFmpeg compatibility transcode is bounded/on-demand derived media only.
+- TURN and talk are optional capabilities; their failure never affects recording.
 
-See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
 
+### AI-provider invariants
 
-### Detection-provider invariants
+- Provider ingress is idempotent and maps into canonical Event.
+- Frigate remains an optional AI provider, not NVR source of truth.
+- External and Managed provider modes use the same product contract.
+- Generic cross-provider fusion is not a V1 requirement.
 
-- DetectionProvider produces observations; zero-nvr owns canonical DetectionEvent state.
-- DetectionObservation preserves source evidence while DetectionEvent remains the business/timeline aggregate.
-- Provider ingress is idempotent and tolerant of at-least-once/redelivered messages.
-- Provider loss cannot leave stateful events ACTIVE forever; bounded liveness/reconciliation closes unresolved events.
-- Event fusion is non-destructive correlation and never removes source events.
-- Recording eligibility and alert eligibility are independent from event persistence.
-- ONVIF/HIK/Frigate/local detection normalize into the same event model.
-- AI/local-detection overload or failure never destabilizes healthy recording/media runtime.
-
-See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
-
+See [Spec 0021 — Detection Providers, AI Events, and Frigate Integration](specs/0021-detection-providers-ai-events-and-fusion.md).
 
 ## Derived projections are not tables
 
