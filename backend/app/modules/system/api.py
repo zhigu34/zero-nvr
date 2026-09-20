@@ -14,6 +14,7 @@ from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
+from .health import SystemHealthService
 from .settings import SystemSettingsService
 from .frigate import (
     FrigateCredentials,
@@ -28,6 +29,8 @@ from .schemas import (
     FrigateProviderTestView,
     FrigateProviderView,
     GeneralSystemSettingsView,
+    HealthComponentView,
+    SystemHealthView,
     SystemSettingsPatch,
     SystemSettingsView,
     SystemUpdateInfoView,
@@ -107,39 +110,43 @@ def _frigate_snapshot(
     }
 
 
-class HealthResponse(BaseModel):
-    status: str
-    database: str
-    database_backend: str
-    version: str
-
-
-@router.get("/health", response_model=HealthResponse)
-def system_health(request: Request) -> HealthResponse:
-    database = request.app.state.database
-    settings = request.app.state.settings
-
-    try:
-        database.ping()
-    except Exception:
-        request.app.state.logger.exception("database health check failed")
-        return HealthResponse(
-            status="error",
-            database="error",
-            database_backend=database.url.get_backend_name(),
-            version=settings.app_version,
-        )
-
-    return HealthResponse(
-        status="ok",
-        database="ok",
-        database_backend=database.url.get_backend_name(),
-        version=settings.app_version,
+@router.get(
+    "/health",
+    response_model=SystemHealthView,
+)
+def system_health(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+) -> SystemHealthView:
+    health = SystemHealthService(
+        request.app.state.settings,
+        request.app.state.database,
+        frigate_mqtt_runtime=(
+            request.app.state.frigate_mqtt
+        ),
+    ).collect()
+    return SystemHealthView(
+        status=health.status,
+        components={
+            name: HealthComponentView(
+                status=component.status,
+                message=component.message,
+                details=component.details,
+            )
+            for name, component in health.components.items()
+        },
     )
 
 
 @router.get("/info")
-def system_info(request: Request) -> dict[str, str]:
+def system_info(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+) -> dict[str, str]:
     settings = request.app.state.settings
     return {
         "name": settings.app_name,
