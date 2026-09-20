@@ -24,6 +24,7 @@ def dt(epoch: float) -> datetime:
 
 
 def make_app(tmp_path: Path, *, hook_secret: str | None = HOOK_SECRET):
+    tmp_path.mkdir(parents=True, exist_ok=True)
     settings = Settings(
         secret_key="zlm-hook-test-secret-key-32-bytes-minimum",
         environment="test",
