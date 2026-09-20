@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
@@ -21,6 +22,11 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=256)
+    new_password: str = Field(min_length=12, max_length=256)
+
+
 class AuthUser(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -30,3 +36,12 @@ class AuthUser(BaseModel):
     email: str | None
     roles: list[str]
     permissions: list[str]
+
+
+class SessionSummary(BaseModel):
+    id: uuid.UUID
+    created_at: datetime
+    last_seen_at: datetime
+    expires_at: datetime
+    current: bool
+    client_info: dict[str, object] | None
