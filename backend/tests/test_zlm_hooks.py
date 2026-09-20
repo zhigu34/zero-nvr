@@ -380,3 +380,85 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
         assert by_start[2014].ended_at == dt(2021)
         assert by_start[2014].timing_status == "FINAL"
         assert by_start[2021].timing_status == "PROVISIONAL"
+
+
+
+def test_prebuffer_hook_enqueues_without_canonical_segment(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    camera_id_text, stream = seed_recording_camera(app)
+    import uuid
+
+    camera_id = uuid.UUID(camera_id_text)
+
+    with app.state.database.session() as session:
+        policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id == camera_id
+            )
+        )
+        assert policy is not None
+        policy.baseline_mode = "disabled"
+        policy.event_recording_enabled = True
+        session.commit()
+
+    queued = []
+
+    class FakeDispatcher:
+        def finalized_prebuffer_fragment(self, fragment):
+            queued.append(fragment)
+
+        def reconcile_camera(self, _camera_id):
+            return None
+
+    app.state.recording_tasks = FakeDispatcher()
+
+    clock = iter([dt(8000)])
+    monkeypatch.setattr(
+        zlm_hooks,
+        "utc_now",
+        lambda: next(clock),
+    )
+
+    prebuffer_file = (
+        app.state.settings.prebuffer_dir
+        / "record"
+        / "zero-nvr"
+        / stream
+        / "2026-09-20"
+        / "2026-09-20-00-00-00-0.mp4"
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=True,
+            ),
+        ).status_code == 200
+
+        payload = record_payload(
+            stream=stream,
+            start=8001,
+            duration=5,
+            name="ignored-name.mp4",
+        )
+        payload["file_path"] = str(prebuffer_file)
+
+        response = client.post(
+            "/internal/hooks/zlm/record-mp4",
+            json=payload,
+        )
+        assert response.status_code == 200
+
+    assert len(queued) == 1
+    assert queued[0].camera_id == camera_id
+    assert queued[0].file_path == prebuffer_file
+
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count()).select_from(RecordingSegment)
+        ) == 0
