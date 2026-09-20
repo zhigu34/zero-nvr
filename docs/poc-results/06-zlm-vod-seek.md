@@ -1,17 +1,17 @@
 # POC-06 — ZLM VOD Seek
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
-Validate the historical playback resolver assumption:
+Validate the PlaybackResolver primitive:
 
 ~~~text
 wall-clock T
--> RecordingSegment
--> offset = T - segment.start_at
--> ZLM MP4 VOD seek
--> playable decoded frame near requested media position
+-> canonical RecordingSegment
+-> offset = T - segment.started_at
+-> ZLM VOD seek
+-> decoded frame in expected media neighborhood
 ~~~
 
 ## Harness
@@ -20,66 +20,60 @@ wall-clock T
 poc/zlm-recording/scripts/run-timeline-playback.sh
 ~~~
 
-POC-05 and POC-06 share one real recorded segment set.
-
-## Seek verification
-
-A finalized ZLM segment is copied unchanged into the POC VOD directory.
-
-For beginning/middle/near-end offsets:
-
-1. decode a local-MP4 frame neighborhood around the requested offset and collect frame hashes;
-2. open the same bytes through ZLM RTSP MP4 VOD with an input seek;
-3. hash the first decoded RTSP frame;
-4. require it to match a frame from the expected local neighborhood.
-
-The neighborhood accounts for practical keyframe/container seek tolerance without treating arbitrary inaccurate seeks as success.
-
-## Required checks
-
-- the VOD sample is a real finalized ZLM RecordingSegment;
-- at least three distinct offsets are tested;
-- each RTSP seek yields a decodable frame;
-- each returned frame belongs to the expected local media neighborhood;
-- beginning/middle/end seeks remain stable after the source-outage/recovery sequence;
-- physical file path selection remains backend responsibility rather than frontend logic.
-
-The deliberate Gap midpoint is resolved through the same wall-clock resolver and must return `status=gap` with exact previous/next playable boundaries. It must never be converted into an arbitrary segment seek.
-
-## Expected evidence
-
-~~~text
-poc/zlm-recording/runtime/timeline-playback-evidence.json
-~~~
-
-Fields:
-
-~~~text
-vod.source_segment_id
-vod.probe
-vod.seek_results[]
-gap_resolution
-event_marker_resolution
-~~~
+POC-05 and POC-06 share the same real fMP4-recorded segment set.
 
 ## Tested versions
 
-Pending execution.
-
-## Test environment
-
-Pending execution.
+~~~text
+GitHub Actions run: 35490737812
+job: POC 05
+ZLMediaKit master commit: b794772
+managed recording mode: fMP4
+~~~
 
 ## Evidence
 
-Pending execution.
+A finalized ZLM segment with about 10 seconds of media was copied unchanged into the ZLM VOD test path.
+
+Three seek positions were checked against frame hashes from the same local media neighborhood:
+
+~~~text
+offset 0.8s:
+  decoded = PASS
+  matched expected local neighborhood = true
+
+offset 5.0s:
+  decoded = PASS
+  matched expected local neighborhood = true
+
+offset 8.5s:
+  decoded = PASS
+  matched expected local neighborhood = true
+~~~
+
+The deliberate source-loss Gap midpoint used the same wall-clock resolver and returned an explicit Gap with exact previous/next playable boundaries instead of being coerced into a segment seek.
+
+An Event marker in a playable range resolved to the expected segment and approximately 6.076s relative offset.
+
+## Primary artifact
+
+~~~text
+GitHub Actions run: 35490737812
+artifact: poc-05-evidence
+artifact id: 10599201935
+runtime/timeline-playback-evidence.json
+~~~
 
 ## Known limitations
 
-The first automated seek check uses ZLM RTSP MP4 VOD plus FFmpeg as the test client.
+The automated client is FFmpeg against ZLM RTSP MP4/fMP4 VOD. It validates the server-side PlaybackResolver/VOD seek primitive, not every browser UI/player implementation.
 
-Real browser player compatibility/seam behavior remains a separate frontend integration test; this POC only validates the server-side VOD/seek primitive required by PlaybackResolver.
+Seek is keyframe/container bounded rather than claimed sample-exact; the acceptance test matches a local frame neighborhood for that reason.
+
+Frontend player compatibility/seam behavior remains normal implementation integration testing, not a reason to reimplement VOD.
 
 ## Architecture impact
 
-Pending execution.
+**Accepted:** historical playback can resolve wall-clock time to RecordingSegment + media offset and delegate file playback/seek to ZLMediaKit VOD.
+
+Gap handling stays in zero-nvr's PlaybackResolver/Timeline projection; no custom playback engine or range downloader is required.
