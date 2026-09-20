@@ -261,20 +261,30 @@ def put_frigate_provider(
         session.rollback()
         raise
 
+    background_errors: list[str] = []
     if config.enabled:
         try:
             request.app.state.frigate_tasks.backfill(
                 lookback_seconds=600
             )
-        except Exception as exc:
-            raise ApiError(
-                status_code=503,
-                code="frigate_backfill_queue_unavailable",
-                message="Frigate settings were saved but initial event recovery could not be queued.",
-                details={
-                    "settings_persisted": True,
-                },
-            ) from exc
+        except Exception:
+            background_errors.append("backfill_queue")
+
+    try:
+        request.app.state.frigate_mqtt.reconfigure()
+    except Exception:
+        background_errors.append("mqtt_runtime")
+
+    if background_errors:
+        raise ApiError(
+            status_code=503,
+            code="frigate_runtime_reconcile_failed",
+            message="Frigate settings were saved but one or more runtime integrations could not be reconciled.",
+            details={
+                "settings_persisted": True,
+                "failed": background_errors,
+            },
+        )
 
     return _frigate_view(config)
 
