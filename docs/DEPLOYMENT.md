@@ -122,6 +122,7 @@ rollback [version]
 status
 doctor
 benchmark <8|16>
+soak <8|16>
 feature list
 feature enable <name>
 feature disable <name>
@@ -259,6 +260,32 @@ The host-side resource report records:
 The 8-camera command is the V1 baseline gate. The 16-camera command is the
 extended benchmark. The command emits one JSON report suitable for release
 validation evidence and exits non-zero when a gate fails.
+
+### soak
+
+Longer release validation is host-operated:
+
+```bash
+./deploy.sh soak 8
+./deploy.sh soak 16
+./deploy.sh soak 8 --duration 1800 --interval 30
+```
+
+The default run is 10 minutes with a 30-second sample interval. Every sample
+requires the selected camera workload to keep its recording streams/recorders
+healthy and also requires the database, worker heartbeat, ZLMediaKit, and
+recording storage health components to remain OK. A transient failed sample is
+retained in the final failure counts even when the final sample later recovers.
+
+At the final sample, every camera that is currently in persistent recording
+mode must also have produced at least one non-empty `RecordingSegment` with
+an AVAILABLE local recording location since the soak began. EVENT_ONLY
+prebuffer cameras are not required to create a canonical segment when no event
+occurred; their stream and recorder still participate in every runtime sample.
+
+The command emits one JSON report. Short custom durations are useful for
+diagnostics, but a run shorter than the configured segment target may
+legitimately fail the persistent media-progress gate.
 
 ### doctor
 

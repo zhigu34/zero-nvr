@@ -18,6 +18,7 @@ Usage:
   ./deploy.sh status
   ./deploy.sh doctor
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
+  ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh migrate
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>]
   ./deploy.sh backup [reason] [policy-id-or-name]
@@ -547,6 +548,11 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/benchmark.sh" "$@"
+    ;;
+  soak)
+    ensure_env
+    ensure_host_dirs
+    "$SCRIPT_DIR/soak.sh" "$@"
     ;;
   migrate)
     ensure_env
