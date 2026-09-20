@@ -91,6 +91,24 @@ class ZlmContinuityTracker:
             self._closed[identity] = closed
             return closed.continuity_id
 
+    def closed_resolution(
+        self,
+        *,
+        vhost: str,
+        app: str,
+        stream: str,
+    ) -> ZlmContinuityResolution | None:
+        identity = ZlmStreamIdentity(vhost, app, stream)
+        with self._lock:
+            state = self._closed.get(identity)
+            if state is None or state.closed_at is None:
+                return None
+            return ZlmContinuityResolution(
+                continuity_id=state.continuity_id,
+                previous_segment_id=state.last_segment_id,
+                closed_at=state.closed_at,
+            )
+
     def current(
         self,
         *,
