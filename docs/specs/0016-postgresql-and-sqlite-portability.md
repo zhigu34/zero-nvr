@@ -56,7 +56,9 @@ SQLite serializes writers, so application design must:
 - avoid high-frequency telemetry writes;
 - batch safe low-value updates when useful;
 - handle SQLITE_BUSY with bounded retry;
-- keep Huey/job semantics compatible with SQLite.
+- keep Huey/job semantics compatible with SQLite;
+- drive retention scans from bounded camera/end-time indexes rather than whole-location scans;
+- refresh planner statistics after large imports/migrations and periodically through normal SQLite maintenance.
 
 Do not introduce Redis/PostgreSQL merely to compensate for avoidable application write amplification.
 
@@ -209,6 +211,8 @@ Document measured hardware/config requirements and recommend PostgreSQL only fro
 ## Health
 
 Useful SQLite diagnostics may include:
+
+- slow-query/retention scan timing and the effective query plan after schema changes;
 
 - database size;
 - WAL size;
