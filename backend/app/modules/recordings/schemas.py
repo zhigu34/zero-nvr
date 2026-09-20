@@ -158,3 +158,40 @@ class RecordingLocationView(BaseModel):
 class RecordingSegmentPage(BaseModel):
     items: list[RecordingSegmentView]
     next_cursor: str | None = None
+
+
+
+class PlaybackResolveRequest(BaseModel):
+    at: datetime
+
+
+class PlaybackPlayableView(BaseModel):
+    status: Literal["playable"] = "playable"
+    segment_id: uuid.UUID
+    segment_start_at: datetime
+    offset_ms: int
+    transport: Literal["fmp4"] = "fmp4"
+    url: str
+    expires_at: datetime
+    codec: str | None = None
+
+
+class PlaybackPendingView(BaseModel):
+    status: Literal["pending"] = "pending"
+    reason: Literal["remote_restore_required"]
+    segment_id: uuid.UUID
+    retry_after_ms: int = 2000
+
+
+class PlaybackGapView(BaseModel):
+    status: Literal["gap"] = "gap"
+    reason: str
+    previous_at: datetime | None = None
+    next_at: datetime | None = None
+
+
+PlaybackResolveView = (
+    PlaybackPlayableView
+    | PlaybackPendingView
+    | PlaybackGapView
+)
