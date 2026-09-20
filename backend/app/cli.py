@@ -5,6 +5,7 @@ import getpass
 import json
 import os
 import shutil
+import shlex
 import sqlite3
 import subprocess
 import sys
@@ -26,6 +27,7 @@ from app.modules.backups.execution import (
     BackupRunService,
 )
 from app.modules.backups.models import BackupPolicy
+from app.modules.backups.service import BackupPolicyService
 from app.modules.backups.database_snapshot import (
     DatabaseSnapshotService,
 )
@@ -81,6 +83,50 @@ def _policy(
                 "multiple enabled backup policies exist; pass --policy"
             )
         return policies[0]
+
+
+def recovery_env_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        policy = _policy(database, args.policy)
+        with database.session() as session:
+            attached = session.get(
+                BackupPolicy,
+                policy.id,
+            )
+            assert attached is not None
+            resolved = BackupPolicyService(
+                settings
+            ).resolve(
+                session,
+                policy=attached,
+            )
+            session.commit()
+
+        values = {
+            "RESTIC_REPOSITORY": (
+                resolved.repository
+            ),
+            "RESTIC_PASSWORD": (
+                resolved.password
+            ),
+            **resolved.environment,
+        }
+        print(
+            "# zero-nvr RecoveryKit restic bootstrap"
+        )
+        print(
+            "# Generated from encrypted BackupPolicy secrets."
+        )
+        for key in sorted(values):
+            print(
+                f"{key}={shlex.quote(values[key])}"
+            )
+        return 0
+    finally:
+        database.close()
 
 
 def backup_command(args: argparse.Namespace) -> int:
@@ -541,6 +587,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
+    )
+
+    recovery = sub.add_parser(
+        "recovery-env"
+    )
+    recovery.add_argument("--policy")
+    recovery.set_defaults(
+        handler=recovery_env_command
     )
 
     backup = sub.add_parser("backup")
