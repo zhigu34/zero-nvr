@@ -1,7 +1,9 @@
 # Plan 02 — V1 Schema Freeze
 
-Status: **design-freeze candidate**
+Status: **accepted / frozen for V1**
 
+
+Accepted by [ADR 0011 — V1 Architecture Freeze](../adr/0011-v1-architecture-freeze.md). Post-freeze additions to canonical V1 tables follow the change-control and ADR 0008 promotion rules below.
 ## Goal
 
 Freeze the V1 persistence boundary before backend model/Alembic implementation begins.
