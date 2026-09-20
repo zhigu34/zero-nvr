@@ -12,15 +12,15 @@ A committed harness is **not** a passing result. A POC moves to PASS only from r
 
 | POC | Purpose | Runner | Current result |
 |---|---|---|---|
-| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | RERUN REQUIRED — restart/reconciliation subtest passed; MediaMTX metrics-auth harness issue fixed |
-| 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | RERUN REQUIRED — ordinary MP4 baseline failed recovery as expected; harness cleanup bug fixed before fMP4 phase |
+| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | RERUN REQUIRED — control-plane continuity assertion relaxed to accept valid Hook retry or reconciliation; clean rerun required |
+| 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | PASS — fMP4 materially outperformed interrupted ordinary MP4 |
 | 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | PASS |
 | 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | PASS |
 | 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | RERUN REQUIRED — first run exposed raw ZLM Hook start-time GOP bias; timing normalization added |
 | 06 | ZLM VOD seek | same as POC-05 | RERUN REQUIRED — first run stopped at POC-05 timing gate before seek checks |
 | 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | PASS |
 | 08 | ZLM stream sharing / source connection count | same as POC-01 | RERUN REQUIRED — MediaMTX metrics-auth harness issue fixed; reader-count assertion still needs clean rerun |
-| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | RERUN REQUIRED — first-run mount-path harness bug fixed; no performance conclusion until clean rerun |
+| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | PASS — both 8-camera baseline and 16-camera extended target passed |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | PASS |
 
 ## Gate meaning
