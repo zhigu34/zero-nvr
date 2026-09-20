@@ -1,6 +1,6 @@
 # Spec 0003 — EVENT_ONLY Pre-roll Candidate
 
-Status: **design candidate — POC-03/04 required before freeze**
+Status: **accepted — validated by POC-03/04**
 
 ## Goal
 
@@ -21,7 +21,7 @@ Accepted product semantics:
 - one camera has one normal ZLM recording pipeline;
 - missing pre-roll is reported honestly rather than fabricated.
 
-The physical mechanism remains POC-gated.
+The physical mechanism is accepted for V1 based on the first passing POC-03/04 runtime execution. Container format selection (ordinary MP4 vs fMP4) remains governed separately by POC-02.
 
 ## Current ZLM source audit
 
@@ -73,7 +73,7 @@ Therefore this candidate must not be selected until both Ring lifecycle and cano
 
 ### C — rolling ZLM recorder to bounded tmpfs, promote whole finalized fragments
 
-This is the current **primary POC candidate**.
+This is the accepted **V1 EVENT_ONLY implementation baseline**.
 
 ~~~text
 Camera
@@ -349,7 +349,7 @@ All Events/Triggers remain individually queryable.
 
 ## Acceptance direction
 
-Candidate C can be frozen only after real execution demonstrates:
+The first runtime execution demonstrated:
 
 1. one ZLM recorder remains active for the camera;
 2. requested pre-roll is covered across fragment boundaries;
@@ -362,7 +362,7 @@ Candidate C can be frozen only after real execution demonstrates:
 9. promotion never exposes *.partial as canonical AVAILABLE media;
 10. source/camera RTSP connection count remains unchanged.
 
-Until those pass, this document remains a candidate and must not be treated as frozen implementation.
+POC-03/04 passed these conditions on the deterministic Docker test matrix. Future implementation must preserve the measured invariants; material changes to the prebuffer ownership/model require a new design review.
 
 ## Non-goals
 
