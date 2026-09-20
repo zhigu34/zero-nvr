@@ -13,7 +13,6 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -58,13 +57,18 @@ class NotificationTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
 
 
-class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
+class NotificationDelivery(
+    UUIDPrimaryKeyMixin,
+    TimestampMixin,
+    Base,
+):
     __tablename__ = "notification_deliveries"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_notification_deliveries_alert_target",
             "alert_id",
             "notification_target_id",
-            name="uq_notification_deliveries_alert_target",
+            unique=True,
         ),
         Index(
             "ix_notification_deliveries_alert_created",
@@ -76,20 +80,38 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
             "notification_target_id",
             "created_at",
         ),
+        Index(
+            "ix_notification_deliveries_purpose_created",
+            "purpose",
+            "created_at",
+        ),
+        Index(
+            "ix_notification_deliveries_correlation",
+            "correlation_id",
+        ),
+        CheckConstraint(
+            "purpose IN ('alert','password_reset','security','system_test')",
+            name="notification_delivery_purpose",
+        ),
         CheckConstraint(
             "state IN ('PENDING','SENDING','SENT','FAILED','SKIPPED')",
             name="notification_delivery_state",
         ),
         CheckConstraint(
-            "attempts >= 0",
-            name="notification_delivery_attempts_nonnegative",
+            "attempt_count >= 0",
+            name="notification_delivery_attempt_count_nonnegative",
         ),
     )
 
-    alert_id: Mapped[uuid.UUID] = mapped_column(
+    alert_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
         ForeignKey("alerts.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    purpose: Mapped[str] = mapped_column(
+        String(32),
         nullable=False,
+        default="alert",
     )
     notification_target_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
@@ -101,7 +123,7 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
         nullable=False,
         default="PENDING",
     )
-    attempts: Mapped[int] = mapped_column(
+    attempt_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=0,
@@ -118,7 +140,7 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
         UTCDateTime(),
         nullable=True,
     )
-    delivered_at: Mapped[datetime | None] = mapped_column(
+    sent_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(),
         nullable=True,
     )
@@ -126,8 +148,11 @@ class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
         String(128),
         nullable=True,
     )
-    created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(),
-        nullable=False,
-        default=utc_now,
+    provider_message_id: Mapped[str | None] = mapped_column(
+        String(512),
+        nullable=True,
+    )
+    correlation_id: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
     )

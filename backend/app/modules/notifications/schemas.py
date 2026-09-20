@@ -40,7 +40,13 @@ class NotificationTargetTestView(BaseModel):
 
 class NotificationDeliveryView(BaseModel):
     id: uuid.UUID
-    alert_id: uuid.UUID
+    alert_id: uuid.UUID | None
+    purpose: Literal[
+        "alert",
+        "password_reset",
+        "security",
+        "system_test",
+    ]
     notification_target_id: uuid.UUID
     state: Literal[
         "PENDING",
@@ -49,10 +55,13 @@ class NotificationDeliveryView(BaseModel):
         "FAILED",
         "SKIPPED",
     ]
-    attempts: int
+    attempt_count: int
     title: str
     body: str
     last_attempt_at: datetime | None
-    delivered_at: datetime | None
+    sent_at: datetime | None
     last_error_code: str | None
+    provider_message_id: str | None
+    correlation_id: str | None
     created_at: datetime
+    updated_at: datetime

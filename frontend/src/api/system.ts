@@ -109,16 +109,20 @@ export interface NotificationTarget {
 
 export interface NotificationDelivery {
   id: string
-  alert_id: string
+  alert_id: string | null
+  purpose: "alert" | "password_reset" | "security" | "system_test"
   notification_target_id: string
   state: "PENDING" | "SENDING" | "SENT" | "FAILED" | "SKIPPED"
-  attempts: number
+  attempt_count: number
   title: string
   body: string
   last_attempt_at: string | null
-  delivered_at: string | null
+  sent_at: string | null
   last_error_code: string | null
+  provider_message_id: string | null
+  correlation_id: string | null
   created_at: string
+  updated_at: string
 }
 
 export interface FrigateCameraMapping {

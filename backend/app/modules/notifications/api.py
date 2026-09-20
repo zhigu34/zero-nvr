@@ -62,15 +62,19 @@ def _delivery_view(
     return NotificationDeliveryView(
         id=delivery.id,
         alert_id=delivery.alert_id,
+        purpose=delivery.purpose,
         notification_target_id=delivery.notification_target_id,
         state=delivery.state,
-        attempts=delivery.attempts,
+        attempt_count=delivery.attempt_count,
         title=delivery.title,
         body=delivery.body,
         last_attempt_at=delivery.last_attempt_at,
-        delivered_at=delivery.delivered_at,
+        sent_at=delivery.sent_at,
         last_error_code=delivery.last_error_code,
+        provider_message_id=delivery.provider_message_id,
+        correlation_id=delivery.correlation_id,
         created_at=delivery.created_at,
+        updated_at=delivery.updated_at,
     )
 
 

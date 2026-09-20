@@ -86,10 +86,12 @@ def seed_delivery(settings: Settings, database: Database):
         delivery = NotificationDelivery(
             alert_id=alert.id,
             notification_target_id=target.id,
+            purpose="alert",
             state="PENDING",
-            attempts=0,
+            attempt_count=0,
             title=alert.title,
             body=alert.message or alert.title,
+            correlation_id=str(alert.id),
         )
         session.add(delivery)
         session.commit()
@@ -174,7 +176,7 @@ def test_delivery_success_and_retry_after_failure(tmp_path: Path) -> None:
             )
             assert failed is not None
             assert failed.state == "FAILED"
-            assert failed.attempts == 1
+            assert failed.attempt_count == 1
             assert (
                 failed.last_error_code
                 == "notification_delivery_failed"
@@ -200,8 +202,8 @@ def test_delivery_success_and_retry_after_failure(tmp_path: Path) -> None:
             )
             assert sent is not None
             assert sent.state == "SENT"
-            assert sent.attempts == 2
-            assert sent.delivered_at is not None
+            assert sent.attempt_count == 2
+            assert sent.sent_at is not None
 
         # Already-sent task replay is idempotent.
         replay = NotificationDeliveryService(

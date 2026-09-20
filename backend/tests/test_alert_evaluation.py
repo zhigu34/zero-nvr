@@ -135,7 +135,9 @@ def test_alert_evaluation_is_idempotent_cooldown_and_protects_recording(
             )
             assert delivery is not None
             assert delivery.state == "PENDING"
-            assert delivery.attempts == 0
+            assert delivery.purpose == "alert"
+            assert delivery.correlation_id == str(alert.id)
+            assert delivery.attempt_count == 0
 
             protection = session.scalar(
                 select(RecordingProtection).where(

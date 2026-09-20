@@ -116,7 +116,7 @@ class NotificationDeliveryService:
             )
 
             delivery.state = "SENDING"
-            delivery.attempts += 1
+            delivery.attempt_count += 1
             delivery.last_attempt_at = utc_now()
             delivery.last_error_code = None
             plan = NotificationPlan(
@@ -166,7 +166,7 @@ class NotificationDeliveryService:
                     message="Notification delivery disappeared after send.",
                 )
             delivery.state = "SENT"
-            delivery.delivered_at = utc_now()
+            delivery.sent_at = utc_now()
             delivery.last_attempt_at = utc_now()
             delivery.last_error_code = None
             session.commit()

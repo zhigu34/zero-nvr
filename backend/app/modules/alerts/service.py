@@ -814,11 +814,13 @@ class AlertEvaluationService:
                         continue
                     delivery = NotificationDelivery(
                         alert_id=alert.id,
+                        purpose="alert",
                         notification_target_id=target.id,
                         state="PENDING",
-                        attempts=0,
+                        attempt_count=0,
                         title=alert.title,
                         body=alert.message or alert.title,
+                        correlation_id=str(alert.id),
                     )
                     session.add(delivery)
                     session.flush()
