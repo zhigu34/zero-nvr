@@ -175,7 +175,7 @@ def zlm_record_mp4(
                 # changed. It remains ephemeral and is not promoted/canonical.
                 return _ack()
 
-            request.app.state.prebuffer_fragments.observe(
+            fragment = request.app.state.prebuffer_fragments.observe(
                 camera_id=profile.camera_id,
                 profile_id=profile.id,
                 continuity_id=(
@@ -190,6 +190,9 @@ def zlm_record_mp4(
                 start_time_epoch=body.start_time,
                 duration_seconds=body.time_len,
                 size_bytes=body.file_size,
+            )
+            request.app.state.recording_tasks.finalized_prebuffer_fragment(
+                fragment
             )
             return _ack()
 
