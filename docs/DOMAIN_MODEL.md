@@ -709,6 +709,39 @@ The path belongs to RecordingLocation, not RecordingSegment.
 
 See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
 
+## Export
+
+User-requested derived media asset.
+
+~~~text
+id
+user_id
+camera_id
+started_at
+ended_at
+format
+codec_mode                    copy | compatible | transcode
+state                         pending | running | ready | failed | expired
+output_path
+size_bytes
+expires_at
+completed_at
+error_code
+sanitized_error
+created_at
+updated_at
+~~~
+
+Export is not canonical recording storage.
+
+The source of truth remains RecordingSegment/RecordingLocation. Huey resolves the requested wall-clock range, invokes FFmpeg for crop/concat/remux/transcode as needed, and writes an export artifact into a bounded export area.
+
+Fast path prefers stream copy/remux when media/container compatibility permits. Re-encode only when required.
+
+Missing intervals are skipped by default and reported to the user; V1 does not synthesize black video merely to preserve wall-clock duration.
+
+Export assets may expire automatically unless a later explicit product feature promotes them into separately retained user assets.
+
 ## AIProviderInstance
 
 Optional configured AI provider. V1's primary provider is Frigate.
