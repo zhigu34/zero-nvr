@@ -131,13 +131,32 @@ restore
 
 ### update
 
-- preflight configuration and free space;
-- create a verified safety backup when required;
-- pull version-pinned images;
-- run schema migration;
-- restart affected services;
-- verify health;
-- preserve rollback information.
+Supported forms are:
+
+~~~bash
+./deploy.sh update
+./deploy.sh update <version-or-ref>
+./deploy.sh update <version-or-ref> --backup-policy <id-or-name>
+~~~
+
+Without a version/ref, update preserves the existing source-checkout workflow. With a version/ref, zero-nvr resolves the locally available Git ref to an immutable commit before any deployment mutation. It does not automatically fetch from a remote.
+
+For a version-pinned update it:
+
+- requires a clean tracked Git worktree;
+- resolves the requested ref to an immutable commit;
+- stages that commit in a temporary Git worktree;
+- validates the target Compose model;
+- stage-builds the target zero-nvr image before touching the running control plane;
+- creates the local and, in production, verified restic pre-upgrade safety points;
+- records the pending target/previous revision/snapshot;
+- switches the source checkout to the immutable target commit;
+- applies the staged image and target deployment configuration;
+- runs explicit schema migration;
+- restarts affected services and verifies health;
+- records the deployed and rollback revisions.
+
+The requested ref must already exist in the local clone. Operators may fetch release tags/branches first, but `deploy.sh update` itself does not silently change remote Git state.
 
 Do not treat mutable `latest` as the production upgrade contract.
 

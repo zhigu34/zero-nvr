@@ -33,6 +33,14 @@ git_revision() {
   git -C "$ROOT_DIR" rev-parse --verify HEAD 2>/dev/null
 }
 
+resolve_git_revision() {
+  local ref="${1:-HEAD}"
+  if ! command -v git >/dev/null 2>&1; then
+    return 1
+  fi
+  git -C "$ROOT_DIR" rev-parse --verify "${ref}^{commit}" 2>/dev/null
+}
+
 write_deployment_state() {
   local deployed="$1"
   local rollback="${2:-}"

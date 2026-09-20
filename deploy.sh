@@ -12,7 +12,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./deploy.sh [install]
-  ./deploy.sh update [--backup-policy <id-or-name>]
+  ./deploy.sh update [version] [--backup-policy <id-or-name>]
   ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
@@ -127,16 +127,67 @@ install_stack() {
 
 update_stack() {
   local backup_policy="${1:-}"
+  local requested_ref="${2:-}"
   local target_revision previous_revision
   local previous_rollback_revision previous_rollback_snapshot
-  local pending_target environment
+  local pending_target environment current_source
   local rollback_revision="" rollback_snapshot=""
+  local stage_dir="" stage_image="" configured_image=""
 
   preflight
   ensure_env
   ensure_host_dirs
 
-  target_revision="$(git_revision || true)"
+  current_source="$(git_revision || true)"
+  if [[ -n "$requested_ref" ]]; then
+    require_command git
+    if ! git -C "$ROOT_DIR" diff --quiet --ignore-submodules -- \
+        || ! git -C "$ROOT_DIR" diff --cached --quiet --ignore-submodules --; then
+      echo "error: version-pinned update requires a clean tracked Git worktree" >&2
+      echo "commit or stash source changes first; untracked runtime files are ignored" >&2
+      return 1
+    fi
+
+    target_revision="$(resolve_git_revision "$requested_ref" || true)"
+    if ! valid_revision "$target_revision"; then
+      echo "error: update version/ref is not available in this Git clone: $requested_ref" >&2
+      echo "fetch the desired release/ref first, then retry" >&2
+      return 1
+    fi
+
+    stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/zero-nvr-update.XXXXXX")"
+    rmdir "$stage_dir"
+    stage_image="zero-nvr:update-stage-$(printf '%s' "$target_revision" | cut -c1-12)"
+
+    cleanup_update_stage() {
+      if [[ -n "${stage_dir:-}" ]]; then
+        git -C "$ROOT_DIR" worktree remove --force "$stage_dir" >/dev/null 2>&1 || true
+        rm -rf "$stage_dir" >/dev/null 2>&1 || true
+      fi
+      if [[ -n "${stage_image:-}" ]]; then
+        docker image rm "$stage_image" >/dev/null 2>&1 || true
+      fi
+    }
+    trap cleanup_update_stage EXIT
+
+    echo "Staging update revision $target_revision..."
+    git -C "$ROOT_DIR" worktree add --detach "$stage_dir" "$target_revision" >/dev/null
+    cp "$ENV_FILE" "$stage_dir/.env"
+    chmod 600 "$stage_dir/.env"
+
+    COMPOSE_PROFILES="$(env_get COMPOSE_PROFILES "")" \
+      docker compose \
+        --env-file "$ENV_FILE" \
+        -f "$stage_dir/docker-compose.yml" \
+        config --quiet
+
+    docker build --pull \
+      --file "$stage_dir/backend/Dockerfile" \
+      --tag "$stage_image" \
+      "$stage_dir"
+  else
+    target_revision="$current_source"
+  fi
   previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
   previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
   previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
@@ -183,8 +234,17 @@ update_stack() {
       "$SAFETY_SNAPSHOT_REL"
   fi
 
+  if [[ -n "$requested_ref" ]]; then
+    echo "Switching source checkout to pinned revision $target_revision..."
+    git -C "$ROOT_DIR" checkout --detach "$target_revision"
+    configured_image="$(env_get ZERO_NVR_IMAGE "zero-nvr:local")"
+    docker tag "$stage_image" "$configured_image"
+  fi
+
   prepare_zlm
-  compose build --pull zero-nvr
+  if [[ -z "$requested_ref" ]]; then
+    compose build --pull zero-nvr
+  fi
 
   echo "Stopping zero-nvr control plane for explicit schema migration; ZLMediaKit remains running..."
   compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
@@ -229,6 +289,7 @@ case "$command" in
     ;;
   update)
     backup_policy=""
+    target_ref=""
     while [[ "$#" -gt 0 ]]; do
       case "$1" in
         --backup-policy)
@@ -239,15 +300,21 @@ case "$command" in
             exit 2
           fi
           ;;
-        *)
+        -*)
           echo "error: unknown update option: $1" >&2
-          echo "version-pinned update arguments are not implemented yet; check out the desired repo version first" >&2
           exit 2
+          ;;
+        *)
+          if [[ -n "$target_ref" ]]; then
+            echo "error: update accepts at most one version/ref" >&2
+            exit 2
+          fi
+          target_ref="$1"
           ;;
       esac
       shift
     done
-    update_stack "$backup_policy"
+    update_stack "$backup_policy" "$target_ref"
     ;;
   rollback)
     bash "$SCRIPT_DIR/rollback.sh" "$@"

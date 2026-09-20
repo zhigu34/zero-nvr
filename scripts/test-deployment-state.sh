@@ -13,6 +13,13 @@ export ZERO_NVR_ENV_FILE="$tmp/test.env"
 . "$ROOT_DIR/scripts/lib.sh"
 . "$ROOT_DIR/scripts/deployment-state.sh"
 
+head_revision="$(git -C "$ROOT_DIR" rev-parse --verify HEAD)"
+[[ "$(resolve_git_revision HEAD)" == "$head_revision" ]]
+if resolve_git_revision zero-nvr-ref-that-does-not-exist >/dev/null 2>&1; then
+  echo "resolve_git_revision unexpectedly accepted an invalid ref" >&2
+  exit 1
+fi
+
 dep="1111111111111111111111111111111111111111"
 prev="2222222222222222222222222222222222222222"
 pending="3333333333333333333333333333333333333333"
