@@ -144,7 +144,12 @@ class AuthService:
     def user_roles_and_permissions(
         user: User,
     ) -> tuple[tuple[str, ...], frozenset[str]]:
-        roles, permissions = self.user_roles_and_permissions(user)
+        roles = tuple(sorted(role.name for role in user.roles))
+        permissions = frozenset(
+            permission.permission
+            for role in user.roles
+            for permission in role.permissions
+        )
         return roles, permissions
 
     def create_session(self, session: Session, user: User) -> tuple[UserSession, str]:
