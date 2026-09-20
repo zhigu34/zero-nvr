@@ -263,6 +263,12 @@ class NotificationDeliveryService:
                 delivery_id=prepared.delivery_id,
                 error_code=exc.code,
             )
+            if exc.category == "permanent":
+                return NotificationResult(
+                    delivery_id=prepared.delivery_id,
+                    state="FAILED",
+                    delivered=False,
+                )
             raise
 
         self._mark_sent(

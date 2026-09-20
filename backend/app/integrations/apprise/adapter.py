@@ -22,10 +22,20 @@ class AppriseIntegrationError(RuntimeError):
         message: str,
         *,
         status_code: int = 502,
+        category: str = "transient",
     ) -> None:
         super().__init__(message)
+        if category not in {
+            "transient",
+            "permanent",
+            "rate_limited",
+        }:
+            raise ValueError(
+                "notification error category is invalid"
+            )
         self.code = code
         self.status_code = status_code
+        self.category = category
 
 
 _NOTIFY_TYPES = {
@@ -58,6 +68,7 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "Notification target URL is invalid.",
                 status_code=400,
+                category="permanent",
             ) from exc
 
         scheme = parsed.scheme.lower()
@@ -70,6 +81,7 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "MQTT notification target URL is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         raw_topic = (
@@ -83,6 +95,7 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "MQTT notification topic is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         query = parse_qs(
@@ -102,6 +115,7 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "MQTT notification target contains unsupported parameters.",
                 status_code=400,
+                category="permanent",
             )
 
         try:
@@ -113,12 +127,14 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "MQTT notification QoS is invalid.",
                 status_code=400,
+                category="permanent",
             ) from exc
         if qos not in {0, 1, 2}:
             raise AppriseIntegrationError(
                 "notification_url_invalid",
                 "MQTT notification QoS is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         retain_raw = (
@@ -141,6 +157,7 @@ class _MqttNotificationTarget:
                 "notification_url_invalid",
                 "MQTT notification retain flag is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         self.host = parsed.hostname
@@ -249,9 +266,39 @@ class _MqttNotificationTarget:
         except AppriseIntegrationError:
             raise
         except Exception as exc:
+            status_code = getattr(
+                exc,
+                "status_code",
+                None,
+            )
+            if status_code is None:
+                response = getattr(
+                    exc,
+                    "response",
+                    None,
+                )
+                status_code = getattr(
+                    response,
+                    "status_code",
+                    None,
+                )
             raise AppriseIntegrationError(
-                "notification_delivery_failed",
+                (
+                    "notification_rate_limited"
+                    if status_code == 429
+                    else "notification_delivery_failed"
+                ),
                 "Notification delivery failed.",
+                status_code=(
+                    429
+                    if status_code == 429
+                    else 502
+                ),
+                category=(
+                    "rate_limited"
+                    if status_code == 429
+                    else "transient"
+                ),
             ) from exc
         finally:
             if client is not None:
@@ -307,6 +354,7 @@ class AppriseAdapter:
                 "notification_url_invalid",
                 "Notification target URL is invalid.",
                 status_code=400,
+                category="permanent",
             ) from exc
 
         if not added:
@@ -314,6 +362,7 @@ class AppriseAdapter:
                 "notification_url_invalid",
                 "Notification target URL is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
     def notify(
@@ -329,6 +378,7 @@ class AppriseAdapter:
                 "notification_type_invalid",
                 "Notification type is invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         if self._mqtt_target is not None:
@@ -347,9 +397,39 @@ class AppriseAdapter:
                 notify_type=apprise_type,
             )
         except Exception as exc:
+            status_code = getattr(
+                exc,
+                "status_code",
+                None,
+            )
+            if status_code is None:
+                response = getattr(
+                    exc,
+                    "response",
+                    None,
+                )
+                status_code = getattr(
+                    response,
+                    "status_code",
+                    None,
+                )
             raise AppriseIntegrationError(
-                "notification_delivery_failed",
+                (
+                    "notification_rate_limited"
+                    if status_code == 429
+                    else "notification_delivery_failed"
+                ),
                 "Notification delivery failed.",
+                status_code=(
+                    429
+                    if status_code == 429
+                    else 502
+                ),
+                category=(
+                    "rate_limited"
+                    if status_code == 429
+                    else "transient"
+                ),
             ) from exc
 
         if delivered is not True:

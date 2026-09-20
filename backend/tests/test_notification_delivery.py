@@ -217,3 +217,106 @@ def test_delivery_success_and_retry_after_failure(tmp_path: Path) -> None:
         assert replay.delivered is False
     finally:
         database.close()
+
+
+
+class PermanentFailingAdapter:
+    def __init__(self, *, url: str) -> None:
+        assert url == SECRET_URL
+
+    def notify(
+        self,
+        *,
+        title: str,
+        body: str,
+        notify_type: str,
+    ) -> None:
+        raise AppriseIntegrationError(
+            "notification_url_invalid",
+            "Notification target URL is invalid.",
+            status_code=400,
+            category="permanent",
+        )
+
+
+class RateLimitedAdapter:
+    def __init__(self, *, url: str) -> None:
+        assert url == SECRET_URL
+
+    def notify(
+        self,
+        *,
+        title: str,
+        body: str,
+        notify_type: str,
+    ) -> None:
+        raise AppriseIntegrationError(
+            "notification_rate_limited",
+            "Notification delivery failed.",
+            status_code=429,
+            category="rate_limited",
+        )
+
+
+def test_permanent_notification_failure_does_not_raise_for_huey_retry(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        _target_id, delivery_id = seed_delivery(
+            settings,
+            database,
+        )
+
+        result = NotificationDeliveryService(
+            settings,
+            adapter_factory=PermanentFailingAdapter,
+        ).execute(
+            database,
+            delivery_id=delivery_id,
+        )
+        assert result.state == "FAILED"
+        assert result.delivered is False
+
+        with database.session() as session:
+            failed = session.get(
+                NotificationDelivery,
+                delivery_id,
+            )
+            assert failed is not None
+            assert failed.attempt_count == 1
+            assert (
+                failed.last_error_code
+                == "notification_url_invalid"
+            )
+    finally:
+        database.close()
+
+
+def test_rate_limited_notification_failure_remains_retryable(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        _target_id, delivery_id = seed_delivery(
+            settings,
+            database,
+        )
+
+        with pytest.raises(
+            AppriseIntegrationError
+        ) as captured:
+            NotificationDeliveryService(
+                settings,
+                adapter_factory=RateLimitedAdapter,
+            ).execute(
+                database,
+                delivery_id=delivery_id,
+            )
+        assert (
+            captured.value.category
+            == "rate_limited"
+        )
+        assert captured.value.status_code == 429
+    finally:
+        database.close()
