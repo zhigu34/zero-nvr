@@ -163,24 +163,37 @@ class NotificationTargetService:
             name=normalized_name,
         )
 
+        normalized_url = url.strip()
+        if not normalized_url:
+            raise ApiError(
+                status_code=400,
+                code="notification_url_invalid",
+                message="Notification target URL is invalid.",
+            )
+
+        target_id = uuid.uuid4()
+        secret_id = uuid.uuid4()
+        encrypted = self.secret_store.encrypt_json(
+            {"url": normalized_url}
+        )
+        secret = SecretRecord(
+            id=secret_id,
+            kind="notification_url",
+            owner_type="notification_target",
+            owner_id=target_id,
+            key_id=encrypted.key_id,
+            encrypted_payload=encrypted.ciphertext,
+            version=encrypted.version,
+        )
         target = NotificationTarget(
+            id=target_id,
             name=normalized_name,
             kind="apprise",
             enabled=enabled,
             config_json=self._normalize_config(config),
-            # Filled immediately after target id exists.
-            secret_ref=uuid.uuid4(),
+            secret_ref=secret_id,
         )
-        session.add(target)
-        session.flush()
-
-        # The temporary UUID is never committed; _replace_secret installs the
-        # real SecretRecord FK inside the same transaction.
-        self._replace_secret(
-            session,
-            target=target,
-            url=url,
-        )
+        session.add_all([secret, target])
         session.flush()
         return target
 
