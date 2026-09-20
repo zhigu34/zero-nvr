@@ -10,7 +10,7 @@ Prove the intended camera-facing topology:
 main source -> ZLM
 sub source  -> ZLM
 
-ZLM -> recorder / live / AI consumers
+ZLM -> recorder / live / optional downstream consumers
 ```
 
 without each downstream consumer opening another RTSP connection to the source.
@@ -72,9 +72,18 @@ checks.upstream_readers_with_two_zlm_viewers
 
 ## Known limitations
 
-The first harness uses two FFmpeg readers as stand-ins for browser / Frigate consumers.
+The Core harness uses two FFmpeg readers as generic downstream consumers.
 
-A Managed Frigate integration test must later repeat the same invariant: Frigate should use the ZLM AI_DETECT stream rather than independently pull the camera where practical.
+That is sufficient for the Core architecture gate because the measured invariant is:
+
+~~~text
+additional downstream readers
+!= additional source-camera RTSP sessions
+~~~
+
+Frigate remains optional. If AI is enabled, Managed Frigate has a separate feature-specific smoke requirement: its AI_DETECT input must point at the ZLM internal stream and the source-facing camera reader count must remain unchanged.
+
+This keeps a non-AI deployment from pulling/starting Frigate merely to satisfy the Core design freeze.
 
 ## Architecture impact
 
