@@ -195,6 +195,8 @@ function resetPolicy(value: RecordingPolicy | null): void {
     value.event_recording_enabled
   ) {
     recordingForm.mode = "events"
+  } else if (value.baseline_mode === "disabled") {
+    recordingForm.mode = "off"
   } else {
     recordingForm.mode = value.baseline_mode
   }
