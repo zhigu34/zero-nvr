@@ -4,489 +4,270 @@ Status: **accepted**
 
 ## Goal
 
-Define the canonical storage layout, file naming, cross-day behavior, staging rules, and database indexing for formal recordings.
+Define the canonical local recording layout and the separation between logical recording time and physical copies.
 
-This specification applies to canonical RecordingSegments. Idle tmpfs PrebufferFragments remain temporary media and follow Spec 0003.
+Core rule:
 
-## Core principle
+> RecordingSegment is the media/time fact. RecordingLocation is the physical copy. Filesystem paths never become recording identity.
 
-> PostgreSQL owns the authoritative recording timeline, while the local filesystem must remain independently human-browsable.
+See [Project Baseline](../PROJECT_BASELINE.md) and [ADR 0007](../adr/0007-recording-location-physical-copy-model.md).
 
-Playback, retention, upload, export, event linking, and recovery use RecordingSegment / StorageObject metadata. However, a user who mounts the recording disk without zero-nvr must still be able to locate media by camera, date, and recording start time from the directory and filename alone.
+## Source of truth
 
-## Time model
+The selected zero-nvr database (SQLite by default, PostgreSQL optionally) owns recording catalog metadata.
 
-All authoritative recording timestamps are stored in UTC.
+The filesystem remains human-browsable for operational recovery, but normal product behavior does not derive timeline truth from directory names.
 
-Canonical fields include:
+~~~text
+RecordingSegment
+  actual UTC time range
+        ↓
+RecordingLocation
+  target + object_path
+        ↓
+filesystem / rclone remote
+~~~
 
-```text
-RecordingSession.started_at
-RecordingSession.ended_at
-RecordingSegment.started_at
-RecordingSegment.ended_at
-DetectionEvent.started_at
-DetectionEvent.ended_at
-```
+## RecordingSegment
 
-UI/API presentation may convert UTC timestamps to the configured/user timezone.
+A finalized segment stores actual media facts such as:
 
-Filesystem presentation uses the effective configured recording timezone so recordings remain intuitive when browsed outside zero-nvr and can be directly compared with the camera's on-screen time.
-
-The effective timezone is:
-
-```text
-camera recording_timezone override
-        ↓ fallback
-system/default recording_timezone
-```
-
-The database remains UTC. All generated recording directory dates and filename times are converted from the canonical UTC timeline into this effective recording timezone before path generation.
-
-Changing the effective recording timezone affects only future path generation and must not retroactively rename existing media unless an explicit migration is requested.
-
-## Formal segment cadence
-
-The configured formal segment duration defines the normal RecordingSegment clock.
-
-Default:
-
-```text
-formal_record_segment_seconds = 300
-```
-
-For a healthy RecordingSession starting at `S`, normal boundaries are:
-
-```text
-S
-S + 300s
-S + 600s
-S + 900s
-...
-```
-
-A calendar/day boundary does not alter this cadence.
-
-Example:
-
-```text
-segment:
-2026-09-18 23:58:30Z
-      ↓
-2026-09-19 00:03:30Z
-```
-
-This remains one 5-minute RecordingSegment.
-
-zero-nvr must not force a split at midnight merely to fit a date directory.
-
-## Human-readable canonical local layout
-
-Local recording storage must be understandable without the database while keeping directory depth small.
-
-Each Camera has a stable human-readable `storage_label` and a short immutable Camera ID suffix. Together they form the camera storage name:
-
-```text
-{storage_label}_{camera_short_id}
-```
-
-Example:
-
-```text
-客厅_a1b2c3d4
-```
-
-Recommended local layout:
-
-```text
-recordings/
-  {name_id}/
-    {YYYY-MM-DD}/
-      {name_id}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
-```
-
-Example:
-
-```text
-recordings/
-  客厅_a1b2c3d4/
-    2026-09-19/
-      客厅_a1b2c3d4_2026-09-19_01-42-07.mp4
-```
-
-All date/time components in this path are generated in the effective configured recording timezone, not UTC.
-
-This gives the detached-disk lookup flow:
-
-```text
-camera name/id
-    ↓
-date
-    ↓
-recording start time
-```
-
-Rules:
-
-- no hour-level directory;
-- `name_id` is the stable human-readable storage label plus short immutable Camera ID;
-- the date directory is the local start date in the effective configured recording timezone;
-- the filename repeats `name_id` so an MP4 copied out of its directory remains identifiable;
-- the filename contains only the local recording start date/time; the end time is authoritative in RecordingSegment metadata and can also be derived from the finalized media duration;
-- normal filenames do not expose full UUIDs, UTC timestamps, event type, RecordingSession ID, or recording mode;
-- use filesystem-safe characters compatible with Linux, SMB/NAS, Windows-mounted disks, and common object-storage tools;
-- the full Camera/RecordingSegment UUID and canonical UTC timestamps remain in PostgreSQL/metadata.
-
-### Filename collision fallback
-
-Under normal segmentation, segment start time to the second makes filenames unique within a camera/date directory.
-
-If an abnormal recovery/retry would generate an existing filename, zero-nvr must not overwrite media. It appends a short RecordingSegment ID only as an exceptional collision suffix:
-
-```text
-客厅_a1b2c3d4_2026-09-19_01-42-07_e91f2a6c.mp4
-```
-
-The normal user-facing format remains unchanged.
-
-### storage_label stability
-
-`storage_label` is a storage identity, distinct from the mutable Camera display name.
-
-Recommended behavior:
-
-1. when a Camera is created, initialize `storage_label` from the display name;
-2. allow the user to customize it before recordings exist;
-3. once canonical media exists, changing the Camera display name does not rename historical directories;
-4. changing `storage_label` after media exists requires an explicit storage migration operation rather than silently splitting one camera across folders.
-
-This keeps paths human-readable while preserving stable references.
-
-### Object-storage key strategy
-
-Remote/object backends may use the same human-readable relative key when the backend handles UTF-8 paths safely.
-
-If a backend requires stricter keys, StorageBackend may map the local human-readable path to a backend-safe object key while preserving the original local filename and RecordingSegment metadata.
-
-The local disk layout is optimized for independent human access; backend object-key compatibility must not force local media into UUID-only directories.
-
-## Cross-day segments
-
-A RecordingSegment is never force-split merely because the configured recording date changes.
-
-The directory and filename always use the **segment start time** in the effective recording timezone.
-
-Normal example:
-
-```text
-recordings/客厅_a1b2c3d4/2026-09-19/
-  客厅_a1b2c3d4_2026-09-19_01-42-07.mp4
-```
-
-A segment crossing midnight uses exactly the same naming rule:
-
-```text
-started_at = 2026-09-19 23:58:30
-ended_at   = 2026-09-20 00:03:30
-
-recordings/客厅_a1b2c3d4/2026-09-19/
-  客厅_a1b2c3d4_2026-09-19_23-58-30.mp4
-```
-
-The filename intentionally does not encode the end time. RecordingSegment metadata remains authoritative for `ended_at`.
-
-## Why there is no session directory
-
-Do not use:
-
-```text
-recordings/{camera_id}/{recording_session_id}/...
-```
-
-as the canonical layout.
-
-Reasons:
-
-- continuous sessions may last a very long time;
-- events may annotate an existing continuous/manual/schedule timeline;
-- storage retention and playback are time-oriented;
-- StorageObject may move between backends without changing business identity;
-- the database already represents RecordingSession ↔ RecordingSegment relationships.
-
-Session membership belongs in metadata, not path hierarchy.
-
-## Writing and finalize path
-
-Incomplete media must never appear at its final canonical object key.
-
-Local staging layout:
-
-```text
-{recording_root}/.staging/{camera_short_id}/{segment_id}.partial
-```
-
-Conceptual lifecycle:
-
-```text
-ALLOCATED
-   ↓
-WRITING (.partial)
-   ↓
-FINALIZING
-   ↓
-verify media / size / timestamps
-   ↓
-rename/move to canonical final path
-   ↓
-READY
-```
-
-Within one filesystem, final publication should use an atomic rename where practical.
-
-If staging and final storage are different filesystems/backends:
-
-```text
-write/copy temporary object
-      ↓
-verify
-      ↓
-publish final key
-      ↓
-mark StorageObject READY
-      ↓
-remove staging source
-```
-
-A database row must not report a final object as ready until the final publication/verification step succeeds.
-
-## Prebuffer layout
-
-Idle PrebufferFragments are not stored under canonical `recordings/`.
-
-Recommended tmpfs layout:
-
-```text
-/run/zero-nvr/prebuffer/
-  {camera_id}/
-    {fragment_id}.mp4
-```
-
-or an equivalent configurable tmpfs root.
-
-Prebuffer filenames are implementation details. The fragment table/index records their actual timestamps.
-
-When required by an event, fragment ranges are consumed into the first formal RecordingSegment according to Spec 0003. After the finalized formal segment is verified and no other protection requires the fragments, the temporary files become GC-eligible.
-
-## Detached-disk usability
-
-A recording disk should remain useful even when zero-nvr, PostgreSQL, and the original server are unavailable.
-
-Minimum requirements:
-
-- directories identify the camera in human-readable form;
-- the date folder is understandable without conversion tools;
-- filenames contain the recording start date/time;
-- every MP4 is directly playable as a standalone finalized file;
-- unique short IDs prevent collisions.
-
-Additionally, zero-nvr should maintain a lightweight camera metadata file:
-
-```text
-recordings/{name_id}/_camera.json
-```
-
-Suggested contents:
-
-```text
-camera_id
-storage_label
-last_known_display_name
-recording_timezone
-created_at
-```
-
-This file is convenience metadata only and is not authoritative over PostgreSQL.
-
-A per-day human-readable index (for example `_index.csv` or `_index.json`) may be generated later, but V2 correctness must not depend on it.
-
-## RecordingSegment identity
-
-`RecordingSegment.id` is the stable logical identity of a canonical formal segment.
-
-Recommended properties:
-
-- globally unique;
-- sortable/time-friendly identifiers are preferred (for example UUIDv7), but database correctness must not depend on lexical file ordering;
-- the ID remains unchanged when the media is uploaded/moved to another StorageBackend.
-
-A RecordingSegment can therefore have multiple StorageObjects while keeping one business identity.
-
-## Database timeline index
-
-Historical playback must query overlapping RecordingSegments by timestamp, not scan directories.
-
-Conceptual query condition:
-
-```text
-camera_id = :camera_id
-AND started_at < :query_end
-AND ended_at > :query_start
-AND integrity_status is playable
-```
-
-Recommended database index:
-
-```text
-(camera_id, started_at)
-```
-
-and, as query volume requires, an additional overlap/range-oriented index strategy may be introduced.
-
-The first V2 implementation should favor simple deterministic B-tree indexes before adding specialized indexing.
-
-## RecordingSegment metadata
-
-RecordingSegment must carry enough metadata to explain and recover the stored media:
-
-```text
+~~~text
 id
 camera_id
-stream_role
-sequence
+stream_profile_id
 started_at
 ended_at
-duration
+duration_ms
+recording_reasons
+size_bytes
 codec
 container
-size
+source_media_server_id
+source_app
+source_stream
 integrity_status
 completion_reason
 created_at
-```
+~~~
 
-Physical location remains represented by StorageObject:
+The configured segment duration (for example 300 seconds) is only a target.
 
-```text
-StorageObject
-  logical_kind = recording_segment
-  logical_id   = RecordingSegment.id
-  storage_target_id
-  object_key
-  size
-  checksum
-  state
-  verified_at
-```
+Never derive ended_at from started_at plus the configured segment duration when ZLM/hook metadata provides the real duration.
 
-RecordingSegment therefore does not become invalid when its local file is later moved or deleted after verified remote upload.
+## Recording reasons
 
-## Sequence semantics
+A finalized segment may record a compact set of reasons that were active during its physical coverage:
 
-`sequence` orders segments within one RecordingSession.
+~~~text
+continuous
+schedule
+event
+manual
+~~~
 
-Normal example:
+This is historical annotation used for retention/UI. It is not a recorder-process identity and does not create duplicate files.
 
-```text
-session S
-sequence 0  12:00:07 ─ 12:05:07
-sequence 1  12:05:07 ─ 12:10:07
-sequence 2  12:10:07 ─ 12:12:30
-```
+A continuous segment that contains an Event may therefore have both continuous and event relevance.
 
-Sequence is useful for diagnostics and deterministic ordering but is not the authoritative time axis. Absolute timestamps remain authoritative.
+## RecordingLocation
 
-If an abnormal interruption creates a new RecordingSession/recovery generation, sequence may restart for that new session.
+Every canonical physical copy is a RecordingLocation:
 
-## Recovery / reconciliation
+~~~text
+id
+recording_segment_id
+storage_target_id
+object_path
+state
+size_bytes
+checksum
+verified_at
+last_attempt_at
+last_error
+created_at
+deleted_at
+~~~
 
-On startup or after media-service failure, zero-nvr reconciles:
+Location states:
 
-- database RecordingSegments / StorageObjects;
-- staging `*.partial` files;
-- finalized local media objects.
+~~~text
+AVAILABLE
+ARCHIVING
+FAILED
+DELETING
+DELETED
+MISSING
+~~~
+
+Examples:
+
+~~~text
+segment S1
+  ├─ /recordings/...                       AVAILABLE
+  ├─ rclone:home-nas/zero-nvr/...         AVAILABLE
+  └─ rclone:cloud/archive/...              AVAILABLE
+~~~
+
+Deleting one copy never changes the segment's time identity.
+
+## Local human-readable layout
+
+Recommended local recording root:
+
+~~~text
+recordings/
+  {camera_storage_name}/
+    {YYYY-MM-DD}/
+      {camera_storage_name}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
+~~~
+
+Example:
+
+~~~text
+recordings/
+  front-door_a1b2c3d4/
+    2026-09-20/
+      front-door_a1b2c3d4_2026-09-20_09-30-00.mp4
+~~~
+
+camera_storage_name combines a human-readable stable label with an immutable short Camera ID suffix to avoid collisions.
+
+Changing a display name must not silently rename historical media.
+
+## Timezone rules
+
+Canonical database timestamps are UTC.
+
+Filesystem date/time components are generated by converting RecordingSegment.started_at into the configured recording timezone.
 
 Rules:
 
-1. an indexed READY object missing from storage is marked unhealthy/missing; it is not silently forgotten;
-2. a finalized media file with no matching database metadata is quarantined/reconciled, not immediately deleted;
-3. stale `*.partial` files are inspected and either recovered or cleaned according to age/state;
-4. recovered abnormal segments use an explicit `completion_reason`;
-5. recovery never rebuilds authoritative timestamps solely from filename parsing when media/database evidence is available.
+- API/public time remains timezone-aware;
+- changing timezone affects future generated paths only unless an explicit migration is requested;
+- camera wall-clock time is not authoritative for media timestamps;
+- midnight never forces an otherwise unnecessary recording split.
 
-## Retention and deletion
+A segment may begin before midnight and end after midnight. It remains one segment under the directory based on its configured-timezone start date.
 
-Retention decisions operate on database metadata.
+## ZLM finalization path
 
-Never implement:
+Normal path:
 
-```text
-delete directory because its YYYY/MM/DD name is older than N days
-```
+~~~text
+ZLM recorder
+-> finalized MP4/fMP4
+-> on_record_mp4
+-> validate camera/stream/path metadata
+-> RecordingSegment
+-> local RecordingLocation AVAILABLE
+~~~
 
-as the sole retention rule.
+The product catalog is created from finalized-media evidence.
+
+zero-nvr does not need to insert every in-progress file into the canonical segment catalog.
+
+If ZLM exposes partial/current recording state, it may be shown as runtime health without pretending the file is already a finalized RecordingSegment.
+
+## Object-path generation
+
+The path/key must be deterministic enough for recovery and collision-safe.
+
+Include:
+
+- stable camera storage identity;
+- start date/time;
+- an additional unique suffix when timestamp collision is possible.
+
+Do not use a mutable display name alone as the unique path identity.
+
+Remote archive should normally preserve a predictable relative object path beneath its configured archive root.
+
+## Multiple copies
+
+Archive does not mutate the local RecordingLocation into a cloud path.
 
 Instead:
 
-```text
-RecordingSegment / StorageObject policy eligibility
-      ↓
-reference / upload / verification checks
-      ↓
-delete physical object
-      ↓
-record state transition
-```
+~~~text
+local RecordingLocation AVAILABLE
+-> create remote RecordingLocation ARCHIVING
+-> rclone copy/copyto
+-> verify
+-> remote RecordingLocation AVAILABLE
+~~~
 
-Empty date directories may be cleaned after their objects are removed.
+Retention may later delete the local location while the RecordingSegment and verified remote location remain.
 
-## Cross-day playback
+## Detached-disk convenience metadata
 
-PlaybackResolver ignores directory boundaries.
+A local camera directory may contain a small generated metadata file such as _camera.json with non-secret recovery hints:
 
-Example query:
+- Camera ID;
+- stable storage name;
+- current display name;
+- generated-at time;
+- schema/version.
 
-```text
-23:55:00Z ───────── 00:10:00Z
-```
+It must never contain camera passwords/tokens.
 
-may resolve:
+This file is convenience metadata, not the product source of truth.
 
-```text
-.../客厅_a1b2c3d4/2026-09-18/...mp4
-.../客厅_a1b2c3d4/2026-09-18/...mp4   # crosses midnight
-.../客厅_a1b2c3d4/2026-09-19/...mp4
-.../客厅_a1b2c3d4/2026-09-19/...mp4
-```
+## Recovery reconciliation
 
-The browser receives one logical timeline.
+If a hook was missed:
+
+1. inspect ZLM/file listing or known recording root;
+2. derive camera/path identity using the canonical layout;
+3. use authoritative ZLM metadata where available;
+4. use ffprobe only when required to recover missing media facts;
+5. create/relink RecordingSegment and RecordingLocation idempotently.
+
+Never delete an extra valid file simply because the database temporarily lacks a row.
+
+## Missing files
+
+If a database RecordingLocation says AVAILABLE but the object cannot be found, set its state to MISSING.
+
+Do not silently delete the RecordingSegment or fabricate media.
+
+If another AVAILABLE location exists, playback may continue from that copy.
+
+## Indexing
+
+Minimum useful indexes include:
+
+~~~text
+RecordingSegment(camera_id, started_at)
+RecordingSegment(camera_id, ended_at)
+RecordingLocation(recording_segment_id, state)
+RecordingLocation(storage_target_id, state)
+~~~
+
+Additional overlap/range indexes should be added only when measured query load justifies them and must work in both SQLite and PostgreSQL.
+
+## Acceptance tests
+
+1. Three consecutive normal segments:
+   - actual start/end/duration are indexed from finalized media;
+   - paths follow the human-readable layout.
+2. Cross-midnight segment is not force-split solely because the date changed.
+3. Camera rename does not rename historical media.
+4. Archive produces local and remote RecordingLocations for one RecordingSegment.
+5. Local purge does not rewrite segment time or remote location.
+6. Missing file becomes MISSING and an alternative copy remains usable.
+7. Lost hook reconciliation restores catalog state without duplicate rows.
+8. Detached-disk layout is understandable and convenience metadata contains no secrets.
 
 ## Invariants
 
-1. PostgreSQL timestamps/relations are authoritative; filenames/directories are not.
-2. Canonical database timestamps are UTC; human-facing recording paths convert them into the effective configured recording timezone so disk filenames match the expected camera wall-clock time.
-3. Formal recording cadence is not reset by midnight or directory boundaries.
-4. A segment crossing local midnight remains one RecordingSegment and is stored under its configured-timezone start date.
-5. Normal healthy intermediate segments follow configured duration; only real session/recovery boundaries may produce partial segments.
-6. Local canonical paths use a stable human-readable Camera name/id directory and repeat that name/id in each MP4 filename; full UUID-only paths are not the normal layout.
-7. Incomplete media uses staging/temp names and is not published as a READY final object.
-8. PrebufferFragments live outside canonical recording storage and remain temporary.
-9. RecordingSegment identity survives movement across storage backends.
-10. Historical playback uses timestamp queries, not directory scanning.
-11. Retention/deletion uses metadata state and reference checks, not date-folder age alone.
-12. Cross-day playback is one logical timeline independent from filesystem partitioning.
-13. A detached recording disk remains browseable by camera/date/start time without PostgreSQL.
-14. Camera folders include convenience _camera.json metadata for detached identification.
-15. Recovery must make partial/missing/orphan media observable rather than silently discarding it.
-16. Non-obvious storage/recovery/path behavior requires comments per Development Guidelines.
-
-## Retention reference
-
-Retention claims, user locks, disk watermarks, verified-remote local purge, and emergency cleanup ordering are defined in [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](0005-recording-retention-and-purge.md).
-
-## Time-model reference
-
-Recording filenames are generated from canonical RecordingSegment UTC converted into the effective recording timezone; camera wall-clock time is never the filename timestamp authority. Camera OSD alignment and device clock monitoring are defined in [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](0009-time-and-camera-clock.md).
-
-## Storage-pool reference
-
-The same human-readable local layout is used independently on every recording-hot target. A camera's history may span multiple disks after balancing/failover, while StorageObject metadata and PlaybackResolver provide one logical timeline. Target selection/failover is defined in [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
+1. RecordingSegment is logical/finalized media identity; RecordingLocation is physical-copy identity.
+2. RecordingSegment does not store an authoritative local/cloud path.
+3. One segment may have multiple locations.
+4. Filesystem naming never replaces database timeline metadata.
+5. Canonical media timestamps are UTC.
+6. Nominal segment duration is never assumed to equal actual duration.
+7. Date boundaries do not force media segmentation.
+8. Archive creates another RecordingLocation rather than mutating identity.
+9. Valid unindexed media is reconciled, not auto-deleted.
+10. ffprobe is a recovery fallback, not the normal indexing loop.
