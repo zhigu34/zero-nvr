@@ -29,6 +29,7 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.service import AuthContext
 
 from .discovery_service import CameraDiscoveryService
+from .onvif_onboarding import OnvifOnboardingService
 from .models import (
     Camera,
     CameraStreamBinding,
@@ -50,8 +51,10 @@ from .schemas import (
     CameraUpdate,
     DiscoveryCandidateView,
     DiscoverySessionView,
+    OnvifCameraImportInput,
     OnvifCameraTestInput,
     OnvifDeviceInfoView,
+    OnvifImportResult,
     OnvifInspectionView,
     OnvifProfileView,
 )
@@ -368,6 +371,79 @@ def test_camera_configuration(
         ) from exc
 
     return CameraProbeResult(streams=results)
+
+
+@router.post(
+    "/cameras/onvif/import",
+    response_model=OnvifImportResult,
+    status_code=201,
+)
+async def import_onvif_camera(
+    body: OnvifCameraImportInput,
+    request: Request,
+    context: AuthContext = Depends(require_permission("camera.configure")),
+    session: Session = Depends(get_db_session),
+) -> OnvifImportResult:
+    try:
+        inspection = await OnvifAdapter(
+            request.app.state.settings
+        ).inspect_device(
+            host=body.host,
+            port=body.port,
+            username=body.username,
+            password=body.password.get_secret_value(),
+        )
+    except OnvifIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    service = OnvifOnboardingService(request.app.state.settings)
+    try:
+        device, cameras = service.import_device(
+            session,
+            inspection=inspection,
+            host=body.host,
+            port=body.port,
+            username=body.username,
+            password=body.password.get_secret_value(),
+            base_name=body.name,
+            location=body.location,
+            storage_label=body.storage_label,
+            selected_profile_tokens=body.profile_tokens,
+            discovery_candidate_id=body.discovery_candidate_id,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="camera.onvif.import",
+            resource_type="device",
+            resource_id=device.id,
+            metadata={
+                "camera_ids": [str(camera.id) for camera in cameras],
+                "camera_count": len(cameras),
+                "profile_count": sum(
+                    len(camera.stream_profiles)
+                    for camera in cameras
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return OnvifImportResult(
+        device_id=device.id,
+        cameras=[
+            _camera_detail(session, camera)
+            for camera in cameras
+        ],
+    )
 
 
 @router.post("/cameras/onvif/test", response_model=OnvifInspectionView)
