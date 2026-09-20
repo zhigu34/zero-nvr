@@ -10,7 +10,7 @@ Core rule:
 
 > RecordingSegment is the media/time fact. RecordingLocation is the physical copy. Filesystem paths never become recording identity.
 
-See [Project Baseline](../PROJECT_BASELINE.md) and [ADR 0007](../adr/0007-recording-location-physical-copy-model.md).
+See [Project Baseline](../PROJECT_BASELINE.md), [ADR 0007](../adr/0007-recording-location-physical-copy-model.md), and [ADR 0009](../adr/0009-fmp4-default-recording-container.md).
 
 ## Source of truth
 
@@ -269,7 +269,9 @@ This file is convenience metadata, not the product source of truth.
 
 ## Recovery reconciliation
 
-If a hook was missed:
+Managed V1 recording defaults to fMP4. A stale hidden in-progress fMP4 left by an abnormal ZLM termination may be recovered only after zero-nvr proves no active recorder still owns it. If ffprobe/media validation succeeds, reconciliation may publish it through a recovery filename/path and catalog it with an abnormal-recovery completion reason. Unreadable or ambiguous residues are preserved/quarantined and surfaced; never rename a file that may still be actively written.
+
+If a finalized hook was missed:
 
 1. inspect ZLM/file listing or known recording root;
 2. derive camera/path identity using the canonical layout;
@@ -293,12 +295,16 @@ Minimum useful indexes include:
 
 ~~~text
 RecordingSegment(camera_id, started_at)
-RecordingSegment(camera_id, ended_at)
-RecordingLocation(recording_segment_id, state)
-RecordingLocation(storage_target_id, state)
+RecordingSegment(camera_id, ended_at, started_at, id)
+RecordingLocation(recording_segment_id, storage_target_id, state)
+RecordingLocation(storage_target_id, state, recording_segment_id)
 ~~~
 
-Additional overlap/range indexes should be added only when measured query load justifies them and must work in both SQLite and PostgreSQL.
+The first RecordingSegment index serves Timeline/range reads; the second drives oldest-first retention scans. The paired RecordingLocation indexes support both segment-driven retention and target/state inventory/reconciliation.
+
+Large SQLite history imports/migrations refresh planner statistics before retention scans rely on join-cost estimates.
+
+Additional indexes must be justified by measured query load and remain portable to PostgreSQL where the logical query is shared.
 
 ## Acceptance tests
 
