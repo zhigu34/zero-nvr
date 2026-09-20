@@ -434,15 +434,6 @@ def prepare() -> None:
 
 
 def hold_lock(seconds: float) -> None:
-    started = {
-        "started_at": iso(time.time()),
-        "seconds": seconds,
-    }
-    (RUNTIME / "db-lock-started.json").write_text(
-        json.dumps(started, indent=2),
-        encoding="utf-8",
-    )
-
     conn = connect()
     try:
         conn.execute("BEGIN IMMEDIATE")
@@ -453,6 +444,15 @@ def hold_lock(seconds: float) -> None:
             ON CONFLICT(key) DO UPDATE SET value=excluded.value
             """,
             (str(time.time()),),
+        )
+        started = {
+            "started_at": iso(time.time()),
+            "seconds": seconds,
+            "write_lock_acquired": True,
+        }
+        (RUNTIME / "db-lock-started.json").write_text(
+            json.dumps(started, indent=2),
+            encoding="utf-8",
         )
         time.sleep(seconds)
         conn.commit()
