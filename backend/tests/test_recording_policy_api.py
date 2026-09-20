@@ -24,6 +24,32 @@ ADMIN_PASSWORD = "correct-horse-battery-staple"
 VIEWER_PASSWORD = "viewer-correct-horse-battery"
 
 
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.scheduled = []
+
+    def schedule_policy(
+        self,
+        *,
+        policy_id,
+        policy_version,
+        eta,
+    ) -> None:
+        self.scheduled.append(
+            {
+                "policy_id": policy_id,
+                "policy_version": policy_version,
+                "eta": eta,
+            }
+        )
+
+    def reconcile_camera(self, _camera_id) -> None:
+        return None
+
+    def finalized_prebuffer_fragment(self, _fragment) -> None:
+        return None
+
+
 def make_app(tmp_path: Path):
     settings = Settings(
         secret_key="recording-policy-api-test-secret-key-32-bytes",
@@ -38,6 +64,7 @@ def make_app(tmp_path: Path):
     settings.prebuffer_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
+    app.state.recording_tasks = FakeRecordingTasks()
     return app
 
 
@@ -330,3 +357,48 @@ def test_policy_runtime_failure_does_not_roll_back_canonical_policy(
         )
         assert policy is not None
         assert policy.baseline_mode == "continuous"
+
+
+
+def test_schedule_policy_put_queues_only_next_boundary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+        patch_runtime_success(monkeypatch)
+
+        payload = continuous_payload()
+        payload.update(
+            {
+                "baseline_mode": "schedule",
+                "schedule": {
+                    "weekly": [
+                        {
+                            "days": [0, 1, 2, 3, 4, 5, 6],
+                            "start": "08:00",
+                            "end": "20:00",
+                        }
+                    ]
+                },
+                "schedule_timezone": "UTC",
+            }
+        )
+
+        response = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=payload,
+        )
+        assert response.status_code == 200
+
+    tasks = app.state.recording_tasks
+    assert len(tasks.scheduled) == 1
+    scheduled = tasks.scheduled[0]
+    assert scheduled["policy_id"] == uuid.UUID(
+        response.json()["id"]
+    )
+    assert scheduled["policy_version"]
+    assert scheduled["eta"].tzinfo is not None
