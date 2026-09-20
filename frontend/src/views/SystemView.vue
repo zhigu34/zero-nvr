@@ -602,7 +602,11 @@ async function saveFrigate(): Promise<void> {
     frigateForm.mqttUsername = ""
     frigateForm.mqttPassword = ""
     frigateConfigured.value = true
-    notice.value = "Frigate settings saved."
+    notice.value =
+      frigateForm.enabled &&
+      frigateForm.mode === "managed"
+        ? "Managed Frigate config rendered. Run ./deploy.sh feature enable frigate the first time, or ./deploy.sh feature restart frigate after changes."
+        : "Frigate settings saved."
     await loadFrigate()
   } catch (caught) {
     error.value = errorMessage(caught)

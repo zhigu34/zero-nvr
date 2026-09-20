@@ -20,11 +20,15 @@ from app.integrations.onvif import (
     OnvifIntegrationError,
 )
 from app.modules.audit.service import append_audit_event
+from app.modules.cameras.media_runtime import (
+    CameraMediaRuntimeService,
+)
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
 from .camera_ntp import CameraNtpService
 from .health import SystemHealthService
+from .frigate_managed import ManagedFrigateConfigService
 from .settings import SystemSettingsService
 from .frigate import (
     FrigateCredentials,
@@ -273,6 +277,20 @@ def put_frigate_provider(
                 or body.credentials is not None
             ),
         )
+        managed_plan = None
+        if (
+            config.enabled
+            and config.mode == "managed"
+        ):
+            managed_plan = (
+                ManagedFrigateConfigService(
+                    request.app.state.settings
+                ).build(
+                    session,
+                    provider=config,
+                )
+            )
+
         append_audit_event(
             session,
             request=request,
@@ -291,6 +309,32 @@ def put_frigate_provider(
         raise
 
     background_errors: list[str] = []
+    if managed_plan is not None:
+        managed_service = ManagedFrigateConfigService(
+            request.app.state.settings
+        )
+        try:
+            managed_service.persist(
+                managed_plan
+            )
+        except Exception:
+            background_errors.append(
+                "managed_config"
+            )
+
+        try:
+            CameraMediaRuntimeService(
+                request.app.state.settings
+            ).ensure_streams(
+                list(
+                    managed_plan.desired_streams
+                )
+            )
+        except Exception:
+            background_errors.append(
+                "managed_streams"
+            )
+
     if config.enabled:
         try:
             request.app.state.frigate_tasks.backfill(

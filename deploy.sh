@@ -336,6 +336,10 @@ cameras: {}
 EOF
         chmod 640 "$data_root/managed/frigate/config.yml"
       fi
+      if [[ ! -f "$data_root/managed/frigate/runtime.env" ]]; then
+        : > "$data_root/managed/frigate/runtime.env"
+        chmod 600 "$data_root/managed/frigate/runtime.env"
+      fi
       ;;
     mqtt)
       local image username password config_dir

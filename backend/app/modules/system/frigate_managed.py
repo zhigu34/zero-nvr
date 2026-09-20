@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
+import os
+from pathlib import Path
 from typing import Any
+import uuid
 
 import yaml
 from sqlalchemy import select
@@ -31,6 +35,12 @@ class ManagedFrigatePlan:
         default_factory=dict,
         repr=False,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class ManagedFrigateArtifacts:
+    config_path: Path
+    environment_path: Path
 
 
 class ManagedFrigateConfigService:
@@ -263,4 +273,83 @@ class ManagedFrigateConfigService:
             yaml_text=yaml_text,
             desired_streams=tuple(desired_streams),
             environment=environment,
+        )
+
+
+
+    @staticmethod
+    def _atomic_write(
+        path: Path,
+        content: str,
+        *,
+        mode: int,
+    ) -> None:
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        temporary = path.with_name(
+            f".{path.name}.{uuid.uuid4().hex}.tmp"
+        )
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL,
+            mode,
+        )
+        try:
+            with os.fdopen(
+                descriptor,
+                "w",
+                encoding="utf-8",
+            ) as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(temporary, mode)
+            os.replace(temporary, path)
+        except Exception:
+            temporary.unlink(missing_ok=True)
+            raise
+
+    def persist(
+        self,
+        plan: ManagedFrigatePlan,
+    ) -> ManagedFrigateArtifacts:
+        directory = (
+            self.settings.data_dir
+            / "managed"
+            / "frigate"
+        )
+        config_path = directory / "config.yml"
+        environment_path = directory / "runtime.env"
+
+        environment_text = "".join(
+            (
+                f"{key}="
+                + json.dumps(
+                    value,
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+            for key, value in sorted(
+                plan.environment.items()
+            )
+        )
+
+        self._atomic_write(
+            config_path,
+            plan.yaml_text,
+            mode=0o640,
+        )
+        self._atomic_write(
+            environment_path,
+            environment_text,
+            mode=0o600,
+        )
+        return ManagedFrigateArtifacts(
+            config_path=config_path,
+            environment_path=environment_path,
         )

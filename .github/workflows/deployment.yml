@@ -36,6 +36,8 @@ jobs:
         shell: bash
         run: |
           cp .env.example .env
+          mkdir -p data/zero-nvr/managed/frigate
+          : > data/zero-nvr/managed/frigate/runtime.env
           python3 - <<'PY'
           from pathlib import Path
 

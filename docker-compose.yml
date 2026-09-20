@@ -71,6 +71,8 @@ services:
     profiles:
       - frigate
     image: ${ZERO_NVR_FRIGATE_IMAGE:-ghcr.io/blakeblackshear/frigate:0.18.0}
+    env_file:
+      - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}/managed/frigate/runtime.env
     shm_size: ${ZERO_NVR_FRIGATE_SHM_SIZE:-256mb}
     stop_grace_period: 30s
     volumes:

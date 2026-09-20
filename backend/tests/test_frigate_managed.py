@@ -137,6 +137,43 @@ def test_managed_frigate_uses_only_zlm_ai_detect_stream_and_never_records(
         assert "camera-secret" not in plan.yaml_text
         assert "frigate-user" not in plan.yaml_text
 
+        artifacts = ManagedFrigateConfigService(
+            settings
+        ).persist(plan)
+        assert artifacts.config_path.read_text(
+            encoding="utf-8"
+        ) == plan.yaml_text
+        runtime_env = (
+            artifacts.environment_path.read_text(
+                encoding="utf-8"
+            )
+        )
+        assert (
+            'FRIGATE_MQTT_HOST="mosquitto"'
+            in runtime_env
+        )
+        assert (
+            'FRIGATE_MQTT_USER="frigate-user"'
+            in runtime_env
+        )
+        assert (
+            'FRIGATE_MQTT_PASSWORD="mqtt-super-secret"'
+            in runtime_env
+        )
+        assert (
+            artifacts.config_path.stat().st_mode
+            & 0o777
+        ) == 0o640
+        assert (
+            artifacts.environment_path.stat().st_mode
+            & 0o777
+        ) == 0o600
+        assert "mqtt-super-secret" not in (
+            artifacts.config_path.read_text(
+                encoding="utf-8"
+            )
+        )
+
         assert len(plan.desired_streams) == 1
         desired = plan.desired_streams[0]
         assert desired.profile_id == secondary.id
