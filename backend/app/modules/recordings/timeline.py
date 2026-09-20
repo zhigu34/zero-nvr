@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.modules.events.models import Event
 from app.modules.recordings.models import (
     RecordingPolicy,
     RecordingSegment,
@@ -16,6 +17,7 @@ from app.modules.storage.models import RecordingLocation
 
 from .schemas import (
     PlaybackTimelineView,
+    TimelineEventView,
     TimelineGapView,
     TimelineRangeView,
     TimelineRecordingRangeView,
@@ -157,6 +159,24 @@ class PlaybackTimelineService:
             )
         )
 
+        timeline_events = list(
+            session.scalars(
+                select(Event)
+                .where(
+                    Event.camera_id == camera_id,
+                    Event.started_at < end_at,
+                    or_(
+                        Event.ended_at.is_(None),
+                        Event.ended_at > start_at,
+                    ),
+                )
+                .order_by(
+                    Event.started_at,
+                    Event.id,
+                )
+            )
+        )
+
         projected: list[_ProjectedSegment] = []
 
         for segment in segments:
@@ -268,8 +288,14 @@ class PlaybackTimelineService:
             ),
             recording_ranges=recording_ranges,
             gaps=gaps,
-            # Event normalization/search is a separate module; the response
-            # shape is frozen now so Event overlay can be added without an API
-            # redesign.
-            events=[],
+            events=[
+                TimelineEventView(
+                    id=str(event.id),
+                    category=event.category,
+                    label=event.label,
+                    start_at=event.started_at,
+                    end_at=event.ended_at,
+                )
+                for event in timeline_events
+            ],
         )
