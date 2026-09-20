@@ -5,25 +5,25 @@ The project intentionally uses mature components for commodity protocol/infrastr
 | Component | Role | Initial status | zero-nvr boundary |
 |---|---|---|---|
 | ZLMediaKit | RTSP ingest, live media, protocol conversion | Core | MediaPlane adapter |
-| FFmpeg / ffprobe | recording, export, inspection, conversion | Core | RecorderBackend / jobs |
+| FFmpeg / ffprobe | export, clip/remux/transcode, frame extraction, recovery inspection | Built-in toolchain | Worker jobs |
 | ONVIF client library | SOAP/WSDL/WS-Security, Device/Media/Events/PTZ protocol | Core | DeviceAdapter |
-| PostgreSQL | authoritative metadata | Core | Persistence |
+| SQLite / PostgreSQL | authoritative metadata (SQLite default, PostgreSQL optional) | Core / optional scale-up | Persistence |
 | Apprise | generic notifications | First release | NotificationBackend |
 | S3-compatible storage | remote object storage | First release | StorageBackend |
-| rclone | generic cloud-drive transfer | First release · optional runtime | StorageBackend |
+| rclone | remote copy/verify/delete/restore | Built-in worker tool | Storage adapter / jobs |
 | OpenList | storage gateway/WebDAV | First release · optional runtime | StorageBackend |
 | Frigate | external AI detection | First release · optional runtime | DetectionProvider |
 | Home Assistant | home automation / external recording triggers / NVR state exposure | First release · optional runtime | IntegrationAdapter |
 | MQTT broker | deep integration / event transport / HA MQTT Discovery | First release · optional runtime | IntegrationAdapter |
 | coturn | WebRTC TURN | First release · optional runtime | Media infrastructure |
-| HIK vendor SDK | vendor-private device features | First release · optional runtime | isolated DeviceAdapter bridge |
-| WVP + ZLM | GB28181 | First release · optional runtime | DeviceAdapter / media integration |
+| HIK vendor SDK | vendor-private device enhancements | Optional extension · non-blocking | isolated DeviceAdapter bridge |
+| WVP + ZLM | GB28181 | Future optional extension · non-blocking | DeviceAdapter / media integration |
 
 ## Rules
 
 ### Core does not mean authoritative
 
-ZLMediaKit is core infrastructure, but PostgreSQL/zero-nvr remains authoritative for Camera, Recording, Event and Storage business state.
+ZLMediaKit is core infrastructure, but the selected zero-nvr database (SQLite by default, PostgreSQL optionally) remains authoritative for Camera, Recording, Event and Storage business state.
 
 ### Optional integration failure
 
@@ -247,7 +247,7 @@ If multiple adapters represent the same physical device, zero-nvr correlates the
 
 A Device may use a primary management adapter plus a supplemental vendor adapter. Multi-channel devices normalize into several Camera channels under one Device.
 
-WVP restart/re-registration or DHCP/IP changes must not create new Camera IDs when canonical identity remains the same.
+If a future WVP/GB28181 adapter is enabled, WVP restart/re-registration must not create new Camera IDs when canonical identity remains the same.
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
