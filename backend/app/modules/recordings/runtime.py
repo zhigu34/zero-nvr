@@ -20,6 +20,7 @@ from .prebuffer import validate_prebuffer_root
 
 from .catalog import RecordingCatalogService
 from .models import RecordingPolicy
+from .prebuffer_mount import PrebufferMountService
 
 
 RecorderMode = Literal["persistent", "prebuffer", "off"]
