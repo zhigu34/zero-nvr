@@ -158,10 +158,12 @@ Expected shape:
 camera main -> ZLM
 camera sub  -> ZLM
 
-Live / Recorder / Frigate consume ZLM internal streams
+Live / recorder / any optional downstream consumer consume ZLM internal streams
 ```
 
-Pass condition: downstream consumers do not each create duplicate camera RTSP connections in Managed mode.
+Pass condition for the Core architecture: multiple downstream consumers attach to ZLM without increasing source-facing main/sub RTSP connections.
+
+Frigate is optional and must not become a prerequisite for freezing the non-AI Core. When the AI feature is enabled, a separate Managed Frigate integration smoke test must repeat the same invariant using the actual Frigate container/config.
 
 ## POC-09 — SQLite load
 
@@ -369,9 +371,20 @@ main -> ZLM
 sub  -> ZLM
 ```
 
-and Live/Recorder/Frigate consume ZLM-managed/internal streams rather than independently creating additional camera RTSP pulls in Managed mode.
+and multiple simultaneous downstream consumers consume ZLM-managed/internal streams without creating additional camera RTSP pulls.
 
-Verify with camera session count, network capture, camera admin UI, or equivalent evidence.
+For the Core POC, FFmpeg/browser-like readers are acceptable stand-ins because the invariant is source-facing connection count, not consumer identity.
+
+When Managed Frigate is enabled, its feature acceptance must additionally prove:
+
+~~~text
+Frigate AI_DETECT input -> ZLM internal stream
+source-camera reader count unchanged
+~~~
+
+Do not make Frigate image pull/start a prerequisite for users who keep AI disabled.
+
+Verify source-facing connection count with MediaMTX metrics, camera session count, network capture, camera admin UI, or equivalent evidence.
 
 ### POC-09 — SQLite load
 
