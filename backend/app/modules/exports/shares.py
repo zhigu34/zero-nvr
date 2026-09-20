@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
@@ -22,6 +22,12 @@ from .models import ExportJob, ExportShareToken
 class CreatedShare:
     share: ExportShareToken
     token: str
+
+
+@dataclass(frozen=True, slots=True)
+class AuthorizedShareDownload:
+    share_id: uuid.UUID
+    export: ExportJob
 
 
 class ExportShareService:
@@ -155,7 +161,7 @@ class ExportShareService:
         *,
         token: str,
         password: str | None,
-    ) -> ExportJob:
+    ) -> AuthorizedShareDownload:
         share = session.scalar(
             select(ExportShareToken).where(
                 ExportShareToken.token_hash
@@ -219,7 +225,39 @@ class ExportShareService:
                 message="Shared export is no longer available.",
             )
 
-        share.download_count += 1
-        share.last_download_at = now
+        return AuthorizedShareDownload(
+            share_id=share.id,
+            export=export,
+        )
+
+    @staticmethod
+    def consume_download(
+        session: Session,
+        *,
+        share_id: uuid.UUID,
+    ) -> None:
+        now = datetime.now(UTC)
+        result = session.execute(
+            update(ExportShareToken)
+            .where(
+                ExportShareToken.id == share_id,
+                ExportShareToken.revoked_at.is_(None),
+                ExportShareToken.expires_at > now,
+                or_(
+                    ExportShareToken.max_downloads.is_(None),
+                    ExportShareToken.download_count
+                    < ExportShareToken.max_downloads,
+                ),
+            )
+            .values(
+                download_count=ExportShareToken.download_count + 1,
+                last_download_at=now,
+            )
+        )
+        if result.rowcount != 1:
+            raise ApiError(
+                status_code=410,
+                code="export_share_download_limit_reached",
+                message="Export share is no longer available.",
+            )
         session.flush()
-        return export
