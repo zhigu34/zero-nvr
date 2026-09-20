@@ -89,22 +89,25 @@ Use the official/vendor SDK behind an isolated bridge process.
 
 Prefer standard ONVIF onboarding when it provides the required capabilities; HIK may supplement the same canonical Device with vendor-only events/control rather than creating a duplicate device.
 
-### Device runtime supervision
+### Device runtime reconciliation
 
-The FastAPI/control-plane side owns a RuntimeSupervisor that reconciles durable Device/Camera configuration into control/media/event/PTZ/time runtimes.
+The FastAPI/control-plane side owns a thin RuntimeReconciler that maps durable Device/Camera configuration into adapter operations.
 
-Runtime-relevant configuration uses monotonic revisions and runtime generations so stale ZLM/vendor/ONVIF callbacks cannot overwrite newer state.
+ZLMediaKit remains responsible for media transport, pull/reconnect runtime, and recorder execution. zero-nvr must not duplicate those responsibilities with a packet monitor or RTSP reconnect state machine.
 
-External network/media calls occur outside short database transactions. Per-device/camera conflicting reconfiguration is serialized in a backend-compatible way for both SQLite and PostgreSQL.
+Runtime-relevant configuration may use revisions/generations so stale adapter callbacks cannot overwrite newer product state. External network/media calls occur outside short database transactions.
 
 See [Spec 0019](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
 
 ### GB28181
 
-First-production-release integration, optional to enable at deployment:
+Optional future integration; it does not block V1.
 
-- WVP for SIP/device protocol;
-- ZLMediaKit for media.
+If enabled later:
+
+- WVP provides SIP/device protocol handling;
+- ZLMediaKit remains the media layer;
+- zero-nvr integrates through an adapter rather than implementing GB28181 itself.
 
 ## Event / AI plane
 
@@ -247,11 +250,13 @@ Initial:
 - health/readiness endpoints;
 - runtime state APIs.
 
-First production release:
+Optional observability extensions:
 
 - Prometheus-compatible metrics;
 - OpenTelemetry tracing where useful;
-- Grafana optional to deploy.
+- Grafana when an operator wants long-term dashboards.
+
+They are not required for a complete lightweight V1. zero-nvr itself provides structured logs, health/readiness, and product health state.
 
 ## Deployment
 
@@ -304,17 +309,18 @@ See [Project Baseline](PROJECT_BASELINE.md).
 
 ## Upgrade and migration
 
-First-production-release upgrade primitives:
+V1 upgrades are driven by `deploy.sh` rather than an in-app Docker orchestrator.
+
+Core primitives:
 
 - Alembic for schema coordination across SQLite and PostgreSQL;
-- explicit migration compatibility classes and expand/contract preference;
-- SQLite Online Backup safety point before schema-rebuild/incompatible changes;
-- pgBackRest safety point for PostgreSQL incompatible migrations;
-- version/digest-pinned container/package releases rather than mutable latest tags;
-- persisted UpgradePlan/UpgradeHistory and startup schema-compatibility gate;
-- separate guided DatabaseMigrationPlan for SQLite ↔ PostgreSQL cutover.
+- SQLite Online Backup + restic safety point for incompatible SQLite changes;
+- pg_dump + restic safety point for PostgreSQL changes;
+- version/digest-pinned releases rather than mutable `latest`;
+- startup schema/version compatibility gate;
+- separate controlled SQLite <-> PostgreSQL migration.
 
-Large backfills are durable resumable DataMigrationJobs rather than opaque startup work.
+A heavyweight persisted UpgradePlan/automatic scheduled self-update system is not a V1 requirement.
 
 See [Spec 0017](specs/0017-upgrade-migration-and-rollback.md).
 
