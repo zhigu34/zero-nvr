@@ -123,6 +123,46 @@ def backup_command(args: argparse.Namespace) -> int:
         database.close()
 
 
+def safety_snapshot_command(
+    _args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        timestamp = datetime.now(UTC).strftime(
+            "%Y%m%dT%H%M%SZ"
+        )
+        destination = (
+            settings.data_dir
+            / "safety-backups"
+            / timestamp
+        )
+        snapshot = DatabaseSnapshotService(
+            settings
+        ).snapshot(
+            database,
+            destination_dir=destination,
+        )
+        print(
+            json.dumps(
+                {
+                    "safety_snapshot": str(
+                        snapshot.path
+                    ),
+                    "database_engine": (
+                        snapshot.engine
+                    ),
+                    "size_bytes": (
+                        snapshot.size_bytes
+                    ),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
+
+
 def reset_password_command(
     args: argparse.Namespace,
 ) -> int:
@@ -516,6 +556,13 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
     backup.set_defaults(handler=backup_command)
+
+    safety = sub.add_parser(
+        "safety-snapshot"
+    )
+    safety.set_defaults(
+        handler=safety_snapshot_command
+    )
 
     reset = sub.add_parser(
         "admin-reset-password"
