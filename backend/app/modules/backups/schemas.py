@@ -89,3 +89,9 @@ class BackupSetView(BaseModel):
     error_code: str | None
     sanitized_error: str | None
     created_at: datetime
+
+
+
+class BackupSetPage(BaseModel):
+    items: list[BackupSetView]
+    next_cursor: str | None
