@@ -48,7 +48,7 @@ class PlaybackResolverService:
     descriptor_ttl_seconds = 300
 
     @staticmethod
-    def _filesystem_path(
+    def filesystem_path(
         location: RecordingLocation,
     ) -> Path | None:
         target = location.storage_target
@@ -150,7 +150,7 @@ class PlaybackResolverService:
 
             remote_without_mount = False
             for location in available:
-                path = cls._filesystem_path(location)
+                path = cls.filesystem_path(location)
                 if path is not None:
                     offset_ms = max(
                         0,
