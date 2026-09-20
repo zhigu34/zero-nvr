@@ -65,7 +65,7 @@ Validates:
 sh ./scripts/run-fmp4-crash.sh
 ~~~
 
-Validates fMP4 normal finalize and SIGKILL recovery with ffprobe, FFmpeg remux, HTTP MP4 and ZLM RTSP VOD.
+Runs the same SIGKILL recovery matrix against ordinary MP4 and fMP4. The candidate passes only when fMP4 remains fully recoverable and demonstrates a material advantage over the ordinary-MP4 baseline. It also validates normal finalized fMP4 through ffprobe, HTTP MP4 and ZLM RTSP VOD.
 
 ### POC-03 + POC-04
 
