@@ -226,6 +226,48 @@ class ZlmAdapter:
     def delete_stream_proxy(self, key: str) -> None:
         self._call("delStreamProxy", params={"key": key})
 
+    def is_media_online(
+        self,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+    ) -> bool:
+        payload = self._call(
+            "isMediaOnline",
+            params={
+                "schema": schema,
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+            },
+        )
+        return bool(payload.get("online", False))
+
+    def close_stream(
+        self,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+        force: bool = True,
+    ) -> bool:
+        payload = self._call(
+            "close_stream",
+            params={
+                "schema": schema,
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+                "force": force,
+            },
+        )
+        result = payload.get("result")
+        try:
+            return int(result) == 0
+        except (TypeError, ValueError):
+            return False
+
     def get_media_list(
         self,
         *,
