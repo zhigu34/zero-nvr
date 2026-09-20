@@ -1263,16 +1263,17 @@ onBeforeUnmount(() => {
         <div class="system-section">
           <div class="system-section__heading">
             <strong>Recent deliveries</strong>
-            <span>Latest alert notification attempts.</span>
+            <span>Latest alert and security notification attempts.</span>
           </div>
           <div class="system-table-wrap">
             <table class="system-table">
               <thead>
                 <tr>
                   <th>Message</th>
+                  <th>Purpose</th>
                   <th>Status</th>
                   <th>Attempts</th>
-                  <th>Delivered</th>
+                  <th>Sent</th>
                 </tr>
               </thead>
               <tbody>
@@ -1281,13 +1282,14 @@ onBeforeUnmount(() => {
                     <strong>{{ item.title }}</strong>
                     <small>{{ item.last_error_code || item.body }}</small>
                   </td>
+                  <td>{{ pretty(item.purpose) }}</td>
                   <td>
                     <span class="status-pill" :class="statusClass(item.state)">
                       {{ item.state }}
                     </span>
                   </td>
-                  <td>{{ item.attempts }}</td>
-                  <td>{{ formatTime(item.delivered_at || item.last_attempt_at) }}</td>
+                  <td>{{ item.attempt_count }}</td>
+                  <td>{{ formatTime(item.sent_at || item.last_attempt_at) }}</td>
                 </tr>
               </tbody>
             </table>
