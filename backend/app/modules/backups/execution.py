@@ -130,6 +130,46 @@ class BackupExecutionService:
     ) -> None:
         self.settings = settings
 
+    def _safe_work_dir(self, backup_set_id: uuid.UUID) -> Path:
+        root = (self.settings.cache_dir / "backups").resolve(strict=False)
+        work = (root / str(backup_set_id)).resolve(strict=False)
+        try:
+            work.relative_to(root)
+        except ValueError as exc:
+            raise DatabaseSnapshotError(
+                "backup_work_dir_invalid",
+                "Backup staging directory is invalid.",
+            ) from exc
+        return work
+
+    def _safe_deployment_config(self) -> Path:
+        configured = self.settings.deployment_config_dir
+        if configured is None:
+            raise DatabaseSnapshotError(
+                "backup_deployment_config_unavailable",
+                "Deployment configuration backup was requested but no deployment config directory is mounted.",
+            )
+        root = configured.resolve()
+        if not root.is_dir():
+            raise DatabaseSnapshotError(
+                "backup_deployment_config_unavailable",
+                "Deployment configuration directory is unavailable.",
+            )
+
+        forbidden = [
+            self.settings.recordings_dir.resolve(strict=False),
+            self.settings.prebuffer_dir.resolve(strict=False),
+            self.settings.cache_dir.resolve(strict=False),
+            self.settings.data_dir.resolve(strict=False),
+        ]
+        for value in forbidden:
+            if root == value or value.is_relative_to(root):
+                raise DatabaseSnapshotError(
+                    "backup_deployment_config_unsafe",
+                    "Deployment configuration directory would include runtime or recording data.",
+                )
+        return root
+
     def prepare(
         self,
         database: Database,
@@ -195,11 +235,9 @@ class BackupExecutionService:
                     policy.include_deployment_config
                 ),
                 database_backend=policy.database_backend,
-                work_dir=(
-                    self.settings.cache_dir
-                    / "backups"
-                    / str(backup_set.id)
-                ).resolve(strict=False),
+                work_dir=self._safe_work_dir(
+                    backup_set.id
+                ),
             )
             session.commit()
             return plan
@@ -223,6 +261,8 @@ class BackupExecutionService:
             ),
             "database_engine": database.url.get_backend_name(),
             "database_snapshot": snapshot_path.name,
+            "recordings_included": False,
+            "recovery_kit_required": True,
         }
         path.write_text(
             json.dumps(
@@ -339,19 +379,8 @@ class BackupExecutionService:
                 manifest,
             ]
             if plan.include_deployment_config:
-                deployment = (
-                    self.settings.deployment_config_dir
-                )
-                if (
-                    deployment is None
-                    or not deployment.is_dir()
-                ):
-                    raise DatabaseSnapshotError(
-                        "backup_deployment_config_unavailable",
-                        "Deployment configuration backup was requested but no deployment config directory is mounted.",
-                    )
                 payload_paths.append(
-                    deployment.resolve()
+                    self._safe_deployment_config()
                 )
 
             restic = ResticAdapter(
@@ -382,6 +411,9 @@ class BackupExecutionService:
             post_error: str | None = None
             if plan.verify_after_backup:
                 try:
+                    restic.verify_snapshot(
+                        result.snapshot_id
+                    )
                     restic.check()
                     verification_state = "PASSED"
                 except ResticIntegrationError:
@@ -483,13 +515,17 @@ class BackupExecutionService:
             session.commit()
 
         try:
-            ResticAdapter(
+            restic = ResticAdapter(
                 repository=resolved.repository,
                 password=resolved.password,
                 environment=resolved.environment,
                 binary=self.settings.restic_binary,
                 timeout_seconds=self.settings.restic_timeout_seconds,
-            ).check()
+            )
+            restic.verify_snapshot(
+                item.restic_snapshot_id
+            )
+            restic.check()
         except ResticIntegrationError as exc:
             with database.session() as session:
                 item = session.get(
