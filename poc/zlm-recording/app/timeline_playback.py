@@ -440,19 +440,18 @@ def verify(outage_start: float, outage_end: float) -> None:
     state = json.loads(STATE.read_text(encoding="utf-8"))
     pre_count = int(state["pre_segment_count"])
 
+    def post_outage_ready() -> list[dict[str, Any]] | None:
+        current = segments()
+        count = sum(
+            1
+            for item in current
+            if parse_iso(item["start_at"]) >= outage_end
+        )
+        return current if count >= 3 else None
+
     raw_items = wait_until(
         "three post-outage segments",
-        lambda: (
-            current
-            if len(
-                [
-                    item
-                    for item in (current := segments())
-                    if parse_iso(item["start_at"]) >= outage_end
-                ]
-            ) >= 3
-            else None
-        ),
+        post_outage_ready,
         timeout=120,
     )
 
