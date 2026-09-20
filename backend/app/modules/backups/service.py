@@ -617,20 +617,30 @@ class BackupPolicyService:
         )
 
     @staticmethod
-    def schedule_matches(
-        policy: BackupPolicy,
+    def schedule_value_matches(
+        schedule: dict[str, object],
         *,
         at: datetime,
     ) -> bool:
-        schedule = policy.schedule_json or {}
-        if not policy.enabled or not schedule:
+        if not schedule:
             return False
         timezone = str(schedule["timezone"])
         cron = str(schedule["cron"])
         local = at.astimezone(ZoneInfo(timezone))
-        return croniter.match(
-            cron,
-            local,
+        return croniter.match(cron, local)
+
+    @classmethod
+    def schedule_matches(
+        cls,
+        policy: BackupPolicy,
+        *,
+        at: datetime,
+    ) -> bool:
+        if not policy.enabled:
+            return False
+        return cls.schedule_value_matches(
+            policy.schedule_json or {},
+            at=at,
         )
 
     @staticmethod
