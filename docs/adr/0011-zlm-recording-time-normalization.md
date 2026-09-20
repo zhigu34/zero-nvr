@@ -56,11 +56,29 @@ ZLM `on_stream_changed` is a valid source of runtime continuity evidence for the
 
 ### Current tail segment
 
+A finalized segment is catalogued immediately; zero-nvr does not wait an additional normal segment duration before exposing it.
+
 When no next segment boundary is known yet:
 
-1. use a stronger explicit stop/source-loss boundary when available;
-2. otherwise retain the raw Hook start + actual duration as a provisional/fallback coverage value;
-3. refine the projection when stronger boundary evidence arrives.
+~~~text
+timing_status = PROVISIONAL
+timing_source = HOOK_RAW
+started_at    = raw hook start
+ended_at      = raw hook start + actual duration
+~~~
+
+When the next proven same-session boundary arrives, update that preceding segment idempotently:
+
+~~~text
+timing_status = FINAL
+timing_source = NEXT_SEGMENT_BOUNDARY
+ended_at      = next boundary
+started_at    = ended_at - actual duration
+~~~
+
+If an explicit trustworthy stop boundary owns the close, `timing_source=EXPLICIT_STOP` may finalize the tail.
+
+Recovery-created facts may use `timing_source=RECOVERY` with their evidence quality made explicit.
 
 Do not invent continuity merely to remove a visual gap.
 
@@ -124,7 +142,7 @@ Positive:
 
 Trade-offs:
 
-- the latest/tail segment can have provisional timing until another boundary is known;
+- the latest/tail segment can have `PROVISIONAL` timing until another boundary is known;
 - runtime media-state evidence must be observed/reconciled;
 - a future ZLM version may improve timestamp semantics, so the adapter behavior remains version-testable.
 
