@@ -10,6 +10,28 @@ apiAddress: :9997
 metrics: true
 metricsAddress: :9998
 
+# POC-only observability permission. MediaMTX defaults API/metrics/pprof
+# administration access to localhost, but the verifier runs from another
+# Docker container. Expose metrics anonymously only inside this private
+# Compose network so POC-08 can count source-facing readers.
+authMethod: internal
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+        path:
+      - action: read
+        path:
+      - action: playback
+        path:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: metrics
+
 paths:
   cam_main:
     runOnInit: >-
