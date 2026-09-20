@@ -66,7 +66,7 @@ ZLMediaKit
   ├─ VOD
   └─ AI_DETECT stream -> optional Frigate
 
-ZLM finalized MP4
+ZLM finalized fMP4
       ↓
 on_record_mp4
       ↓
