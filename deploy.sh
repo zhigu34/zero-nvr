@@ -12,7 +12,7 @@ usage() {
   cat <<'EOF'
 Usage:
   ./deploy.sh [install]
-  ./deploy.sh update
+  ./deploy.sh update [--backup-policy <id-or-name>]
   ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
@@ -125,9 +125,10 @@ install_stack() {
 }
 
 update_stack() {
+  local backup_policy="${1:-}"
   local target_revision previous_revision
   local previous_rollback_revision previous_rollback_snapshot
-  local pending_target
+  local pending_target environment
   local rollback_revision="" rollback_snapshot=""
 
   preflight
@@ -150,6 +151,20 @@ update_stack() {
   if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
     echo "Creating pre-upgrade database safety snapshot..."
     create_local_safety_snapshot
+
+    environment="$(env_get ZERO_NVR_ENVIRONMENT "production")"
+    if [[ "$environment" == "production" ]]; then
+      echo "Creating verified pre-upgrade restic backup..."
+      backup_args=(
+        python -m app.cli pre-upgrade-backup
+      )
+      if [[ -n "$backup_policy" ]]; then
+        backup_args+=(--policy "$backup_policy")
+      fi
+      compose run --rm --no-deps zero-nvr         "${backup_args[@]}"
+    else
+      echo "WARN ZERO_NVR_ENVIRONMENT=$environment; verified restic pre-upgrade backup is not required" >&2
+    fi
   else
     echo "WARN zero-nvr image is not installed; no pre-upgrade safety snapshot created" >&2
   fi
@@ -202,11 +217,26 @@ case "$command" in
     install_stack
     ;;
   update)
-    if [[ "$#" -ne 0 ]]; then
-      echo "error: version-pinned update arguments are not implemented yet; check out the desired repo version first" >&2
-      exit 2
-    fi
-    update_stack
+    backup_policy=""
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+        --backup-policy)
+          shift
+          backup_policy="${1:-}"
+          if [[ -z "$backup_policy" ]]; then
+            echo "error: --backup-policy requires an id or name" >&2
+            exit 2
+          fi
+          ;;
+        *)
+          echo "error: unknown update option: $1" >&2
+          echo "version-pinned update arguments are not implemented yet; check out the desired repo version first" >&2
+          exit 2
+          ;;
+      esac
+      shift
+    done
+    update_stack "$backup_policy"
     ;;
   rollback)
     bash "$SCRIPT_DIR/rollback.sh" "$@"

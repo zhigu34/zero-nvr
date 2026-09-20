@@ -169,6 +169,155 @@ def backup_command(args: argparse.Namespace) -> int:
         database.close()
 
 
+def _pre_upgrade_policy(
+    database: Database,
+    selector: str | None,
+) -> BackupPolicy:
+    if selector:
+        policy = _policy(
+            database,
+            selector,
+        )
+        with database.session() as session:
+            attached = session.get(
+                BackupPolicy,
+                policy.id,
+            )
+            if attached is None:
+                raise RuntimeError(
+                    "backup policy was not found"
+                )
+            if not attached.enabled:
+                raise RuntimeError(
+                    "pre-upgrade backup policy must be enabled"
+                )
+            if not attached.verify_after_backup:
+                raise RuntimeError(
+                    "pre-upgrade backup policy must enable verify_after_backup"
+                )
+            if (
+                attached.database_backend
+                != database.url.get_backend_name()
+            ):
+                raise RuntimeError(
+                    "pre-upgrade backup policy database backend does not match the active database"
+                )
+            return attached
+
+    with database.session() as session:
+        candidates = list(
+            session.scalars(
+                select(BackupPolicy)
+                .where(
+                    BackupPolicy.enabled.is_(True),
+                    BackupPolicy.verify_after_backup.is_(True),
+                    BackupPolicy.database_backend
+                    == database.url.get_backend_name(),
+                )
+                .order_by(BackupPolicy.name)
+            )
+        )
+        if not candidates:
+            raise RuntimeError(
+                "no enabled verified backup policy is configured; create one before updating"
+            )
+        if len(candidates) > 1:
+            names = ", ".join(
+                item.name
+                for item in candidates
+            )
+            raise RuntimeError(
+                "multiple verified backup policies are enabled; pass --policy with an id or name "
+                f"({names})"
+            )
+        return candidates[0]
+
+
+def pre_upgrade_backup_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        policy = _pre_upgrade_policy(
+            database,
+            args.policy,
+        )
+        policy_id = policy.id
+        with database.session() as session:
+            attached = session.get(
+                BackupPolicy,
+                policy_id,
+            )
+            assert attached is not None
+            backup_set, _created = (
+                BackupRunService.reserve(
+                    session,
+                    policy=attached,
+                    settings=settings,
+                    database=database,
+                    reason="pre_upgrade",
+                )
+            )
+            backup_id = backup_set.id
+            session.commit()
+
+        state = BackupExecutionService(
+            settings
+        ).execute(
+            database,
+            backup_set_id=backup_id,
+        )
+
+        with database.session() as session:
+            completed = session.get(
+                BackupSet,
+                backup_id,
+            )
+            if completed is None:
+                raise RuntimeError(
+                    "pre-upgrade backup record disappeared"
+                )
+
+            payload = {
+                "backup_id": str(backup_id),
+                "policy_id": str(policy_id),
+                "state": completed.state,
+                "verification_state": (
+                    completed.verification_state
+                ),
+                "restic_snapshot_id": (
+                    completed.restic_snapshot_id
+                ),
+            }
+
+            if (
+                state != "COMPLETED"
+                or completed.state != "COMPLETED"
+                or completed.verification_state
+                != "PASSED"
+                or not completed.restic_snapshot_id
+            ):
+                print(
+                    json.dumps(
+                        payload,
+                        sort_keys=True,
+                    )
+                )
+                raise RuntimeError(
+                    "pre-upgrade backup did not complete with verified restic snapshot"
+                )
+
+            print(
+                json.dumps(
+                    payload,
+                    sort_keys=True,
+                )
+            )
+        return 0
+    finally:
+        database.close()
+
+
 def safety_snapshot_command(
     _args: argparse.Namespace,
 ) -> int:
@@ -809,6 +958,14 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
     backup.set_defaults(handler=backup_command)
+
+    pre_upgrade = sub.add_parser(
+        "pre-upgrade-backup"
+    )
+    pre_upgrade.add_argument("--policy")
+    pre_upgrade.set_defaults(
+        handler=pre_upgrade_backup_command
+    )
 
     safety = sub.add_parser(
         "safety-snapshot"
