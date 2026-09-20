@@ -568,24 +568,25 @@ A failing notification channel never blocks recording, event persistence, or ano
 
 See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
 
-### Cloud upload
+### Remote archive
 
-```text
-RecordingObject
+~~~text
+local RecordingLocation AVAILABLE
      ↓
-UploadJob
+create remote RecordingLocation ARCHIVING
      ↓
-StorageBackend
+Huey worker -> rclone copy/copyto
      ↓
-VERIFYING
+verify
      ↓
-REMOTE_READY
+remote RecordingLocation AVAILABLE
      ↓
-LOCAL_PURGE_ELIGIBLE
-```
+retention may delete local RecordingLocation
+~~~
 
-Local files must never be purged merely because an upload command returned success.
+Huey owns task execution/retry. RecordingLocation owns product-visible copy state. V1 does not need a separate UploadJob business table.
 
+Local media is never purged merely because rclone returned success; the required remote copy must be verified and AVAILABLE.
 
 ### Recording retention and disk pressure
 
