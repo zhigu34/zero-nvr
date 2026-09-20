@@ -24,6 +24,9 @@ CACHE = Path("/playback-cache")
 STREAM = "remote-restore-poc"
 SEGMENT_TARGET_SECONDS = 8
 BWLIMIT = os.getenv("POC_RCLONE_BWLIMIT", "200k")
+CACHE_MAX_BYTES = int(
+    os.getenv("POC_PLAYBACK_CACHE_MAX_BYTES", "2200000")
+)
 
 
 def iso(ts: float) -> str:
@@ -347,6 +350,50 @@ def interrupted_restore(remote: str, final: Path) -> dict[str, Any]:
         "published_size": final.stat().st_size,
         "retry_to_ready_seconds": retry_ready_seconds,
         "interrupted_attempt_plus_retry_seconds": time.perf_counter() - overall_started,
+    }
+
+
+def cache_ready_bytes() -> int:
+    CACHE.mkdir(parents=True, exist_ok=True)
+    return sum(
+        path.stat().st_size
+        for path in CACHE.rglob("*")
+        if path.is_file() and not path.name.endswith(".partial")
+    )
+
+
+def evict_to_limit(
+    *,
+    protected: set[Path],
+    max_bytes: int,
+) -> dict[str, Any]:
+    before = cache_ready_bytes()
+    candidates = sorted(
+        (
+            path
+            for path in CACHE.rglob("*")
+            if path.is_file()
+            and not path.name.endswith(".partial")
+            and path not in protected
+        ),
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+
+    evicted: list[dict[str, Any]] = []
+    current = before
+    for path in candidates:
+        if current <= max_bytes:
+            break
+        size = path.stat().st_size
+        path.unlink()
+        evicted.append({"path": str(path), "size_bytes": size})
+        current -= size
+
+    return {
+        "configured_max_bytes": max_bytes,
+        "before_bytes": before,
+        "after_bytes": cache_ready_bytes(),
+        "evicted": evicted,
     }
 
 
