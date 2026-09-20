@@ -10,9 +10,12 @@ from app.core.db import get_db_session
 from app.modules.audit.service import append_audit_event
 
 from .admin_service import AuthAdminService
+from .camera_scope import CameraScopeService, CameraScopeValue
 from .dependencies import require_permission
 from .models import Role, User
 from .schemas import (
+    CameraScopeUpdate,
+    CameraScopeView,
     RoleCreate,
     RoleSummary,
     RoleUpdate,
@@ -67,6 +70,26 @@ def _user_audit_snapshot(user: User) -> dict[str, Any]:
         "email": user.email,
         "enabled": user.enabled,
         "roles": sorted(role.name for role in user.roles),
+    }
+
+
+def _scope_view(value: CameraScopeValue | None) -> CameraScopeView:
+    if value is None:
+        return CameraScopeView(mode="inherit")
+    return CameraScopeView(
+        mode=value.mode,
+        camera_ids=list(value.camera_ids),
+        camera_group_ids=list(value.camera_group_ids),
+    )
+
+
+def _scope_audit_snapshot(value: CameraScopeView) -> dict[str, Any]:
+    return {
+        "mode": value.mode,
+        "camera_ids": sorted(str(item) for item in value.camera_ids),
+        "camera_group_ids": sorted(
+            str(item) for item in value.camera_group_ids
+        ),
     }
 
 
@@ -309,3 +332,158 @@ def update_role(
         raise
 
     return _role_view(role)
+
+
+@router.get(
+    "/users/{user_id}/camera-scope",
+    response_model=CameraScopeView,
+)
+def get_user_camera_scope(
+    user_id: uuid.UUID,
+    _context: AuthContext = Depends(require_permission("user.manage")),
+    session: Session = Depends(get_db_session),
+) -> CameraScopeView:
+    AuthAdminService.get_user(session, user_id)
+    value = CameraScopeService.get_scope(
+        session,
+        principal_type="user",
+        principal_id=user_id,
+    )
+    return _scope_view(value)
+
+
+@router.put(
+    "/users/{user_id}/camera-scope",
+    response_model=CameraScopeView,
+)
+def set_user_camera_scope(
+    user_id: uuid.UUID,
+    body: CameraScopeUpdate,
+    request: Request,
+    context: AuthContext = Depends(require_permission("user.manage")),
+    session: Session = Depends(get_db_session),
+) -> CameraScopeView:
+    AuthAdminService.get_user(session, user_id)
+    before = _scope_view(
+        CameraScopeService.get_scope(
+            session,
+            principal_type="user",
+            principal_id=user_id,
+        )
+    )
+
+    try:
+        if body.mode == "inherit":
+            if body.camera_ids or body.camera_group_ids:
+                from app.core.errors import ApiError
+                raise ApiError(
+                    status_code=400,
+                    code="camera_scope_entries_not_allowed",
+                    message="Inherited scope cannot contain explicit entries.",
+                )
+            CameraScopeService.clear_scope(
+                session,
+                principal_type="user",
+                principal_id=user_id,
+            )
+            after = CameraScopeView(mode="inherit")
+        else:
+            value = CameraScopeService.set_scope(
+                session,
+                principal_type="user",
+                principal_id=user_id,
+                mode=body.mode,
+                camera_ids=body.camera_ids,
+                camera_group_ids=body.camera_group_ids,
+            )
+            after = _scope_view(value)
+
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="user.camera_scope.update",
+            resource_type="user",
+            resource_id=user_id,
+            before=_scope_audit_snapshot(before),
+            after=_scope_audit_snapshot(after),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return after
+
+
+@router.get(
+    "/roles/{role_id}/camera-scope",
+    response_model=CameraScopeView,
+)
+def get_role_camera_scope(
+    role_id: uuid.UUID,
+    _context: AuthContext = Depends(require_permission("user.manage")),
+    session: Session = Depends(get_db_session),
+) -> CameraScopeView:
+    AuthAdminService.get_role(session, role_id)
+    value = CameraScopeService.get_scope(
+        session,
+        principal_type="role",
+        principal_id=role_id,
+    )
+    return _scope_view(value)
+
+
+@router.put(
+    "/roles/{role_id}/camera-scope",
+    response_model=CameraScopeView,
+)
+def set_role_camera_scope(
+    role_id: uuid.UUID,
+    body: CameraScopeUpdate,
+    request: Request,
+    context: AuthContext = Depends(require_permission("user.manage")),
+    session: Session = Depends(get_db_session),
+) -> CameraScopeView:
+    AuthAdminService.get_role(session, role_id)
+    if body.mode == "inherit":
+        from app.core.errors import ApiError
+        raise ApiError(
+            status_code=400,
+            code="role_camera_scope_cannot_inherit",
+            message="Role camera scope must be all, selected, or none.",
+        )
+
+    before = _scope_view(
+        CameraScopeService.get_scope(
+            session,
+            principal_type="role",
+            principal_id=role_id,
+        )
+    )
+    try:
+        value = CameraScopeService.set_scope(
+            session,
+            principal_type="role",
+            principal_id=role_id,
+            mode=body.mode,
+            camera_ids=body.camera_ids,
+            camera_group_ids=body.camera_group_ids,
+        )
+        after = _scope_view(value)
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="role.camera_scope.update",
+            resource_type="role",
+            resource_id=role_id,
+            before=_scope_audit_snapshot(before),
+            after=_scope_audit_snapshot(after),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return after
