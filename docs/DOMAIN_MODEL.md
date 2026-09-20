@@ -408,28 +408,29 @@ Verifier-only credentials such as User passwords, Personal API Tokens, and passw
 
 See [Spec 0012 — Configuration and Secret Storage](specs/0012-config-secrets-key-management.md).
 
-## CameraConnection
+## Camera connection resolution
 
-Compatibility/read-model view of the currently selected camera/device connection. New implementation should resolve through DeviceEndpoint + DeviceCredential rather than duplicate host/secret state per Camera.
+Camera connection details are resolved through DeviceEndpoint + DeviceCredential and adapter configuration.
 
-Candidate adapters:
+This is not a separate canonical table.
 
-```text
-manual_rtsp
+Supported V1 adapter paths include:
+
+~~~text
 onvif
-hik_sdk
-gb28181
-```
+manual_rtsp
+~~~
 
-Credentials must never be duplicated into public read models.
+Optional vendor/GB28181 adapters may later resolve through the same Device/Camera identity without changing this model.
 
-## SourceMediaProfile
+Credentials are referenced through SecretStore and never duplicated into public read models.
 
-Discovered adapter/source profile.
+## CameraStreamProfile
 
-```text
+One discovered/verified source stream profile exposed by the Camera/device.
+
+~~~text
 id
-device_id
 camera_id
 adapter_profile_key
 video_source_key
@@ -448,9 +449,11 @@ status
 discovered_at
 last_verified_at
 metadata
-```
+~~~
 
-Source profile identity is kept separate from product stream roles.
+CameraStreamProfile describes source capability/identity. It does not say why zero-nvr uses the stream.
+
+A profile may satisfy several business purposes.
 
 ## DeviceCapabilitySnapshot
 
@@ -473,116 +476,85 @@ vendor_capabilities
 adapter_version
 ```
 
-## MediaStream
+## CameraStreamBinding
 
-Canonical logical product stream mapped to a discovered source profile.
+Maps one business purpose to one CameraStreamProfile.
 
-```text
+~~~text
 id
 camera_id
-role                    recording | live_main | live_preview | detection | audio
-source_media_profile_id
-codec
-width
-height
-fps
-media_plane_key
-status
-selection_mode          auto | manual
+purpose                       RECORD | LIVE_HIGH | LIVE_LOW | AI_DETECT | SNAPSHOT | AUDIO
+stream_profile_id
+selection_mode                auto | manual
 selected_at
-last_verified_at
-```
+updated_at
+~~~
 
-One SourceMediaProfile may satisfy several roles. The MediaPlane maps MediaStream to runtime ZLM state; permanent browser URLs are not domain truth.
+Typical defaults:
+
+~~~text
+RECORD      -> primary/main
+LIVE_HIGH   -> primary/main
+LIVE_LOW    -> secondary/sub
+AI_DETECT   -> secondary/sub
+SNAPSHOT    -> primary/main
+AUDIO       -> profile with required audio capability
+~~~
+
+One CameraStreamProfile may satisfy several purposes.
+
+The MediaPlane/ZlmAdapter resolves a binding into transient ZLM runtime identifiers. Permanent browser URLs and current ZLM stream registration are not domain truth.
 
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
-## CameraRuntimeStatus
+## Runtime camera status (derived, not a table)
 
-Reconstructable runtime read model for one Camera.
+Reconstructable runtime read model:
 
-```text
+~~~text
 camera_id
-desired_state             enabled | disabled | maintenance
+desired_state                 enabled | disabled | maintenance
 config_revision
 applied_revision
 control_health
 media_health
+recording_health
 event_health
 ptz_health
 clock_health
-effective_recording_profile_id
-effective_live_profile_id
-effective_preview_profile_id
-effective_detection_profile_id
+ai_health
 last_transition_at
-last_error_code
-sanitized_error
-updated_at
-```
+last_error
+~~~
 
-Overall camera health is a UI summary only. Domain decisions consume the specific component health they need.
+Current runtime generation/revision may be kept in memory or adapter state to fence stale callbacks. V1 does not require a RuntimeGeneration table.
 
-## RuntimeGeneration
-
-Short-lived runtime identity used to fence stale asynchronous callbacks.
-
-```text
-camera_id
-role
-config_revision
-runtime_generation
-started_at
-ended_at
-```
-
-Runtime callbacks from an older config revision/generation cannot mutate authoritative current state.
+Overall Camera health is a UI summary only; capability-specific health remains independently observable.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
 
-## MediaSession
+## MediaSession (runtime, not a canonical table)
 
-Short-lived authorized live-view session.
+A short-lived authorized live-view descriptor/session may contain:
 
-```text
-id
-principal_id
+~~~text
+principal/user
 camera_id
-requested_purpose        grid | focus | fullscreen | popout | talk
-requested_quality        auto | preview | main
-effective_stream_role
-transport                webrtc | fmp4 | hls
-source_codec
-delivery_codec
-transcoded
-runtime_generation
-issued_at
-expires_at
-last_seen_at
-ended_at
-end_reason
-```
+requested purpose/quality
+effective CameraStreamBinding
+transport
+source/delivery codec
+short expiry
+optional runtime token/id
+~~~
 
-MediaSession never exposes camera credentials or a permanent bearer URL.
+It may be represented by a signed/opaque token plus in-memory state rather than a persisted table.
 
-## TalkSession
+It never exposes camera credentials or a permanent bearer URL.
 
-Short-lived camera-audio backchannel session.
+Two-way talk, when supported, is another short-lived authorized runtime capability. V1 does not require a TalkSession table unless the eventual implementation needs durable concurrency/audit state.
 
-```text
-id
-media_session_id
-principal_id
-camera_id
-backend
-codec
-started_at
-last_seen_at
-ended_at
-end_reason
-```
-
-Talk is separately authorized from live viewing and defaults to one active talker per Camera.
+See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
 
 ## LiveViewLayout
 
