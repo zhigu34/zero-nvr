@@ -9,6 +9,7 @@ from app.api.v1 import router as api_v1_router
 from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.errors import install_error_handlers
+from app.core.events import RuntimeEventBus
 from app.core.logging import configure_logging
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     logger = configure_logging(resolved_settings.log_level)
     database = Database(resolved_settings)
+    event_bus = RuntimeEventBus()
     zlm_continuity = ZlmContinuityTracker()
     recorder_modes = RecorderModeTracker()
     prebuffer_fragments = PrebufferFragmentTracker()
@@ -72,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.state.settings = resolved_settings
+    app.state.event_bus = event_bus
     app.state.database = database
     app.state.logger = logger
     app.state.zlm_continuity = zlm_continuity
@@ -93,6 +96,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         response = await call_next(request)
         response.headers["x-request-id"] = request_id
+        if (
+            request.method
+            in {"POST", "PUT", "PATCH", "DELETE"}
+            and request.url.path.startswith("/api/v1/")
+            and response.status_code < 400
+        ):
+            await event_bus.publish(
+                "api.mutation",
+                {
+                    "method": request.method,
+                    "path": request.url.path,
+                    "request_id": request_id,
+                },
+            )
         return response
 
     @app.get("/health")
