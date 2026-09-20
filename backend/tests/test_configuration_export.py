@@ -282,7 +282,7 @@ def test_configuration_export_is_portable_and_secret_free(
         )
 
         audit = client.get(
-            "/api/v1/audit/events",
+            "/api/v1/audit",
             params={
                 "action": (
                     "system.configuration.export"
