@@ -2,9 +2,9 @@
 
 This roadmap describes implementation sequencing, not separate product releases.
 
-Every task in this roadmap belongs to the first production-ready zero-nvr release unless explicitly marked OUT OF CURRENT PRODUCT SCOPE.
+Core lifecycle tasks in this roadmap belong to the first production-ready zero-nvr release. Items explicitly marked OPTIONAL / POST-V1 do not block V1.
 
-"Optional" means optional to enable/deploy, not deferred implementation.
+"Complete first release" means the supported NVR lifecycle has no dead end. It does not require every surveillance protocol, vendor SDK, observability stack, PITR engine, or multi-node feature to ship in V1.
 
 
 ## Design-freeze gate
@@ -38,24 +38,24 @@ Resource targets to benchmark:
 - [x] Define control-plane / device-plane / media-plane ownership.
 - [x] Define reuse-first integration policy.
 - [x] Define first canonical domain model.
-- [x] Define stateful event recording lifecycle and RTSP motion state machine.
+- [x] Define event recording lifecycle, RecordingTrigger, correlation_id, and intent arbitration.
 - [x] Define instant-event 10s pre-roll + 10s post-roll semantics.
 - [x] Define required code-comment/documentation standard.
-- [x] Define ZLM rolling MP4/tmpfs event pre-buffer and cross-segment composition.
+- [x] Define EVENT_ONLY pre/post-roll semantics; exact ZLM-native pre-roll mechanism remains a design-freeze POC.
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
 - [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
-- [x] Define stream-loss detection, reconnect, physical-segment recovery, and timeline-gap semantics.
+- [x] Define ZLM-owned media reconnect boundary, zero-nvr health projection, recovery reconciliation, and timeline-gap semantics.
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
-- [x] Define recording StoragePool placement, disk failover, draining, and remote-archive separation.
+- [x] Define explicit StorageTarget routing, host-managed disk aggregation/redundancy, disk pressure, and remote-archive separation.
 - [x] Define authentication, role/permission model, camera scope, media authorization, and audit.
 - [x] Define configuration/SecretStore separation, envelope encryption, key rotation, and encrypted backup semantics.
-- [x] Define complete-first production release policy: known product-grade capabilities ship in the first release.
+- [x] Define complete-first production release policy: core lifecycle ships complete; non-core integrations do not silently become release gates.
 - [x] Define alert incident lifecycle, grouping/cooldown, escalation, silences, notification routing, and durable delivery.
-- [x] Define database/system backup, PITR, RecoveryKit, restore verification, and clean-host disaster recovery.
+- [x] Define lightweight database/system backup with restic, RecoveryKit, verification, and clean-host disaster recovery.
 - [x] Define SQLite-default + PostgreSQL-enhanced dual production database modes and migration strategy.
-- [x] Define upgrade preflight, schema/data migration classes, rollback, update channels, and database cutover safety.
+- [x] Define deploy.sh-driven upgrade preflight, safety backup, Alembic migration classes, rollback, and database cutover safety.
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
 - [x] Define complete live-view MediaSession, multi-grid quality switching, WebRTC/fMP4/HLS fallback, TURN, H.265 compatibility, audio, and talk.
@@ -195,23 +195,23 @@ Acceptance:
 
 - [ ] Implement RecordingManager per-camera intent arbiter.
 - [ ] RecordingIntent persistence/recovery and idempotent transitions.
-- [ ] Implement RecorderBackend.
-- [ ] FFmpeg consumes ZLM internal stream.
+- [ ] Implement thin ZLM RecordingAdapter for start/stop/status and recorder hooks.
+- [ ] Keep FFmpeg out of the normal 24x7 recording path; use it only for derived/recovery jobs.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
 - [ ] explicit schedule_timezone handling for wall-clock schedules.
-- [ ] Recording Settings UI for prebuffer enable, 20s idle segment default, 5min formal segment default, and pre/post-roll.
+- [ ] Recording Settings UI for recording mode, nominal segment duration, and pre/post-roll; exact EVENT_ONLY pre-roll implementation follows the accepted POC result.
 - [ ] segment persistence.
 - [ ] UTC canonical recording timestamps and database timeline indexes.
 - [ ] compact human-readable local recording layout: name-id / date / name-id_date_start.mp4.
 - [ ] configurable effective recording timezone for all generated path/date/time values while DB stays UTC.
 - [ ] per-camera _camera.json convenience metadata for detached-disk browsing.
 - [ ] staging/atomic finalize and backend object-key mapping.
-- [ ] StoragePool / StoragePoolTarget persistence and default pool.
-- [ ] sticky_balanced recording target selection.
-- [ ] per-target health/free-space eligibility and hard reserve.
-- [ ] planned safe-boundary target switch under pressure.
-- [ ] mid-segment storage failover preserving RecordingSession/Intent.
-- [ ] recovered-target stability hysteresis and draining mode.
+- [ ] StorageTarget persistence and system default LOCAL_RECORDING target.
+- [ ] optional per-camera/policy explicit storage_target_id routing.
+- [ ] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
+- [ ] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
+- [ ] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
+- [ ] safe administrator target change/migration without losing historical RecordingLocations.
 - [ ] cross-day segments without midnight force-split.
 - [ ] source-loss segment finalize with completion_reason = source_lost.
 - [ ] post-reconnect new segment clock anchored at actual recovery time.
@@ -220,7 +220,7 @@ Acceptance:
 - [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] RetentionPolicy / RetentionClaim persistence.
 - [ ] normal age-based retention worker.
-- [ ] 80/85/92/96% storage-watermark health and cleanup state machine.
+- [ ] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [ ] priority-based emergency purge with structured logs.
 - [ ] recording/event/range lock and unlock.
 - [ ] safe local purge only after verified remote readiness where applicable.
@@ -434,86 +434,74 @@ Acceptance:
 - [ ] continuous/manual/schedule recording annotation without recorder restart.
 - [ ] hybrid recording policy.
 
-## Phase 10 — First-release integrations (optional to enable)
+## Phase 10 — Optional integrations and extensions
 
-- [ ] Home Assistant REST integration.
+### V1 optional integrations
+
+- [ ] Home Assistant REST/Webhook integration where useful.
 - [ ] RecordingTrigger external automation flow.
 - [ ] MQTT integration / Home Assistant MQTT Discovery.
-- [ ] Home Assistant Custom Integration package.
-- [ ] HIK bridge.
-- [ ] GB28181 / WVP.
-- [ ] TURN for remote WebRTC.
-- [ ] Frigate DetectionProvider.
-- [ ] advanced AI-provider adapter contract + at least one production provider.
-- [ ] advanced PTZ/presets/patrol where device capability allows.
+- [ ] Frigate DetectionProvider with Managed and External modes.
+- [ ] optional TURN support for remote WebRTC when deployment requires it.
 
 Acceptance:
 
-- HA/MQTT remain completely optional at deployment time.
-- external sensor triggers can create/update canonical RecordingTrigger sessions.
-- continuous recording is annotated/promoted instead of duplicated.
-- integration failure does not stop core recording, playback or storage.
+- integrations remain optional at deployment time;
+- external sensor/AI triggers normalize into canonical Event/RecordingTrigger state;
+- integration failure does not stop core recording, playback, storage, or authentication;
+- Frigate never becomes the zero-nvr recording/system-of-record authority.
 
-## Phase 11 — Operations, Backup, Recovery, and Scale
+### POST-V1 / non-blocking candidates
+
+- [ ] Home Assistant custom integration package.
+- [ ] HIK/vendor-private bridge where ONVIF is insufficient.
+- [ ] GB28181 / WVP.
+- [ ] additional AI-provider adapters beyond the first production provider.
+- [ ] advanced PTZ patrol/vendor-private features.
+
+These items do not block V1 unless explicitly re-promoted by product decision.
+
+## Phase 11 — Operations, Backup, Recovery, and Release
 
 - [ ] SecretStore KEK rotation workflow and health UI.
-- [ ] BackupPolicy / BackupSet / BackupManifest persistence and APIs.
-- [ ] StorageTarget backup role and capability probing.
+- [ ] lightweight BackupPolicy / BackupSet / BackupManifest persistence and APIs.
 - [ ] SQLite Online Backup API consistent snapshot backend.
-- [ ] SQLite snapshot upload/verification through S3/rclone/OpenList/local StorageBackends.
-- [ ] Litestream continuous SQLite replication for compatible S3/S3-compatible/WebDAV/SFTP/local targets.
-- [ ] SQLite point-in-time restore planning with actual retained restore-boundary visibility.
-- [ ] pgBackRest integration for PostgreSQL full/differential/incremental backup.
-- [ ] PostgreSQL continuous WAL archive and PITR-window health.
-- [ ] unified latest / selected backup / point-in-time restore UX.
-- [ ] capability-aware continuous/PITR repository support.
-- [ ] snapshot/system-backup support through S3/rclone/OpenList/local backends.
+- [ ] PostgreSQL pg_dump backup backend.
+- [ ] restic backup repository integration, retention, snapshot identity, and periodic check.
 - [ ] encrypted RecoveryKit generation/download/staleness tracking.
-- [ ] backup-target bootstrap credential recovery without database dependency.
-- [ ] normal support/config export with secrets excluded.
-- [ ] versioned SQLite portable metadata-index export.
-- [ ] selected-camera/time-range portable SQLite export respecting authorization.
-- [ ] selected-media package: SQLite index + files + manifest/checksums.
-- [ ] sanitized diagnostic SQLite export.
-- [ ] portable SQLite import validation/conflict preview -> PostgreSQL domain writes.
-- [ ] offline/recovery indexing tools for detached media and manifests.
-- [ ] privileged portable encrypted migration backup including SecretStore recovery material.
-- [ ] backup verification: checksum/manifest/repository consistency.
-- [ ] isolated scheduled restore-test workflow.
-- [ ] backup retention: daily/weekly/monthly + PITR dependency preservation.
-- [ ] media disaster-protection coverage: local-only vs verified remote.
-- [ ] clean-host guided restore and preflight compatibility checks.
-- [ ] post-PITR non-destructive StorageObject/media reconciliation.
-- [ ] remote-only playback after local-disk disaster without bulk re-download.
-- [ ] backup/PITR/RecoveryKit system-health alerts.
-- [ ] backup.view / backup.manage / backup.restore / backup.export authorization.
-- [ ] Backup & Recovery UI.
-- [ ] restore diagnostics for missing/wrong keyring and unavailable credentials.
-- [ ] metrics.
+- [ ] backup-target bootstrap recovery without depending on the lost production database.
+- [ ] scheduled/manual/pre-upgrade backup reasons and protected rollback retention.
+- [ ] clean-host restore via deploy.sh + compatible release + RecoveryKit.
+- [ ] restore diagnostics for missing/wrong keyring and unavailable repository credentials.
+- [ ] non-destructive post-restore RecordingLocation/media reconciliation.
+- [ ] configuration-only export distinct from disaster backup.
+- [ ] backup/restore authorization and audit.
+- [ ] Backup & Recovery UI for normal administration.
 - [ ] user/role/camera-scope administration UI.
 - [ ] audit UI.
 - [ ] release manifest/version/digest compatibility metadata.
-- [ ] stable/preview update channels and update-availability checks.
-- [ ] update policy: notify/manual/scheduled maintenance window.
-- [ ] persisted UpgradePlan + UpgradeHistory.
-- [ ] upgrade preflight: version/schema/DB/component/free-space/keyring/backup checks.
-- [ ] mandatory verified pre-upgrade safety backup for schema/non-reconstructable changes.
-- [ ] maintenance impact classification: online / control-plane / full.
-- [ ] Alembic migration classes A/B/C with expand-contract preference.
-- [ ] SQLite migration batch/table-rebuild safety and post-migration integrity verification.
-- [ ] PostgreSQL bounded-lock/restartable large migration behavior.
-- [ ] durable DataMigrationJob for large backfills.
+- [ ] update-availability/version display in System UI.
+- [ ] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
+- [ ] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.
+- [ ] Alembic migration classes A/B/C and SQLite batch/table-rebuild safety.
+- [ ] PostgreSQL bounded-lock/restartable migration behavior where required.
 - [ ] startup application/database/schema compatibility gate.
-- [ ] pinned previous artifacts until upgrade commit/rollback window expiry.
-- [ ] post-upgrade readiness/reconciliation validation.
-- [ ] automatic rollback only for unambiguous lossless rollback paths.
-- [ ] recovery-point rollback for incompatible/destructive schema changes.
-- [ ] pre-upgrade backup retention lock through rollback window.
-- [ ] Upgrade UI with release notes, migration class, maintenance impact and step progress.
-- [ ] update.view / update.manage / database.migrate permissions and audit.
-- [ ] upgrade/rollback.
-- [ ] long-duration multi-camera acceptance.
-- [ ] evaluate multi-host media/storage topology.
+- [ ] pinned previous artifacts until successful update/rollback decision.
+- [ ] post-upgrade readiness and media/catalog reconciliation.
+- [ ] rollback command/path for compatible and recovery-point rollback.
+- [ ] separate SQLite <-> PostgreSQL migration workflow with validation and rollback grace period.
+- [ ] deploy.sh status / doctor / backup / restore / rollback flows.
+- [ ] long-duration 8-camera baseline acceptance.
+- [ ] 16-camera extended-target benchmark.
+- [ ] Core static footprint < 2 GB validation.
+- [ ] Core idle RAM < 1 GB target validation, excluding page cache/large ZLM buffers.
+
+Optional/non-blocking operational extensions:
+
+- [ ] Prometheus/OpenTelemetry export.
+- [ ] Grafana example dashboards.
+- [ ] Litestream/pgBackRest/PITR integration if later justified.
+- [ ] multi-host media/storage topology evaluation.
 
 ## Out of current product scope
 
@@ -524,6 +512,10 @@ These are intentionally outside the first production release because mature comp
 - custom generic cloud-drive implementations replacing S3/rclone/OpenList adapters;
 - making Frigate a competing NVR/source-of-truth database;
 - Kubernetes-first deployment;
-- distributed multi-site/multi-host clustering/federation.
+- distributed multi-site/multi-host clustering/federation;
+- a zero-nvr-managed RAID/JBOD/StoragePool layer;
+- a competing RTSP packet monitor/reconnect engine beside ZLMediaKit;
+- mandatory PITR/replication infrastructure for V1;
+- an in-app Docker orchestrator or unrestricted Docker-socket control.
 
 See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
