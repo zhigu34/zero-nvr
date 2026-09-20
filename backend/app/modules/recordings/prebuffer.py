@@ -12,9 +12,81 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import Settings
 from app.core.errors import ApiError
 from app.modules.recordings.models import RecordingSegment
 from app.modules.storage.models import RecordingLocation
+
+
+
+
+def _mount_filesystem_type(path: Path) -> str | None:
+    """Return the Linux filesystem type for the longest matching mount."""
+
+    try:
+        lines = Path("/proc/self/mountinfo").read_text(
+            encoding="utf-8"
+        ).splitlines()
+    except OSError:
+        return None
+
+    resolved = path.resolve()
+    best: tuple[int, str] | None = None
+
+    for line in lines:
+        if " - " not in line:
+            continue
+        left, right = line.split(" - ", 1)
+        left_fields = left.split()
+        right_fields = right.split()
+        if len(left_fields) < 5 or not right_fields:
+            continue
+
+        mount_text = (
+            left_fields[4]
+            .replace("\\040", " ")
+            .replace("\\011", "\t")
+            .replace("\\134", "\\")
+        )
+        mount = Path(mount_text)
+        try:
+            resolved.relative_to(mount)
+        except ValueError:
+            continue
+
+        score = len(mount.parts)
+        fs_type = right_fields[0]
+        if best is None or score > best[0]:
+            best = (score, fs_type)
+
+    return best[1] if best is not None else None
+
+
+def validate_prebuffer_root(settings: Settings) -> Path:
+    root = settings.prebuffer_dir.resolve()
+    if not root.is_dir():
+        raise ApiError(
+            status_code=409,
+            code="prebuffer_unavailable",
+            message="EVENT_ONLY recording requires the configured prebuffer mount.",
+        )
+    if not os.access(root, os.W_OK | os.X_OK):
+        raise ApiError(
+            status_code=409,
+            code="prebuffer_unwritable",
+            message="The configured prebuffer mount is not writable.",
+        )
+
+    if settings.prebuffer_require_tmpfs:
+        fs_type = _mount_filesystem_type(root)
+        if fs_type != "tmpfs":
+            raise ApiError(
+                status_code=409,
+                code="prebuffer_not_tmpfs",
+                message="EVENT_ONLY prebuffer must be backed by a bounded tmpfs mount.",
+                details={"filesystem_type": fs_type},
+            )
+    return root
 
 
 @dataclass(frozen=True, slots=True)
