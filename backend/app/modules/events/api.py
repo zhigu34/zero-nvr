@@ -1,0 +1,138 @@
+from __future__ import annotations
+
+import uuid
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
+
+from app.core.db import get_db_session
+from app.core.errors import ApiError
+from app.modules.auth.dependencies import (
+    get_effective_camera_scope,
+    require_permission,
+)
+from app.modules.auth.service import AuthContext
+
+from .models import Event
+from .query import EventQueryService
+from .schemas import EventPage, EventView
+
+
+router = APIRouter()
+
+
+def _normalized_utc(
+    value: datetime | None,
+    *,
+    field_name: str,
+) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ApiError(
+            status_code=422,
+            code="timezone_required",
+            message=f"{field_name} must include a timezone offset.",
+        )
+    return value.astimezone(UTC)
+
+
+def _event_view(event: Event) -> EventView:
+    return EventView(
+        id=event.id,
+        source=event.source,
+        source_instance_id=event.source_instance_id,
+        source_event_id=event.source_event_id,
+        camera_id=event.camera_id,
+        category=event.category,
+        label=event.label,
+        started_at=event.started_at,
+        ended_at=event.ended_at,
+        confidence=event.confidence,
+        severity=event.severity,
+        zone=event.zone,
+        snapshot_ref=event.snapshot_ref,
+        correlation_id=event.correlation_id,
+        metadata=event.metadata_json or {},
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+    )
+
+
+@router.get("/events", response_model=EventPage)
+def list_events(
+    camera_id: uuid.UUID | None = None,
+    from_at: datetime | None = Query(default=None, alias="from"),
+    to_at: datetime | None = Query(default=None, alias="to"),
+    source: str | None = None,
+    category: str | None = None,
+    label: str | None = None,
+    zone: str | None = None,
+    min_confidence: float | None = Query(
+        default=None,
+        alias="confidence",
+    ),
+    severity: str | None = None,
+    cursor: str | None = None,
+    limit: int = 100,
+    context: AuthContext = Depends(
+        require_permission("event.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> EventPage:
+    scope = get_effective_camera_scope(context, session)
+    if camera_id is not None and not scope.allows(camera_id):
+        raise ApiError(
+            status_code=404,
+            code="camera_not_found",
+            message="Camera was not found.",
+        )
+
+    page = EventQueryService.list(
+        session,
+        allowed_camera_ids=(
+            None if scope.all_cameras else scope.camera_ids
+        ),
+        camera_id=camera_id,
+        start_at=_normalized_utc(
+            from_at,
+            field_name="from",
+        ),
+        end_at=_normalized_utc(
+            to_at,
+            field_name="to",
+        ),
+        source=source,
+        category=category,
+        label=label,
+        zone=zone,
+        min_confidence=min_confidence,
+        severity=severity,
+        cursor=cursor,
+        limit=limit,
+    )
+    return EventPage(
+        items=[_event_view(item) for item in page.items],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/events/{event_id}", response_model=EventView)
+def get_event(
+    event_id: uuid.UUID,
+    context: AuthContext = Depends(
+        require_permission("event.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> EventView:
+    event = EventQueryService.get(session, event_id)
+    if event.camera_id is not None:
+        scope = get_effective_camera_scope(context, session)
+        if not scope.allows(event.camera_id):
+            raise ApiError(
+                status_code=404,
+                code="event_not_found",
+                message="Event was not found.",
+            )
+    return _event_view(event)
