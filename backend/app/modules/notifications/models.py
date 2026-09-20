@@ -13,6 +13,7 @@ from sqlalchemy import (
     JSON,
     String,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,6 +61,11 @@ class NotificationTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class NotificationDelivery(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "notification_deliveries"
     __table_args__ = (
+        UniqueConstraint(
+            "alert_id",
+            "notification_target_id",
+            name="uq_notification_deliveries_alert_target",
+        ),
         Index(
             "ix_notification_deliveries_alert_created",
             "alert_id",
