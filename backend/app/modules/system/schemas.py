@@ -159,3 +159,28 @@ class CameraClockHealthView(BaseModel):
     degraded: int
     error: int
     results: list[CameraClockHealthResultView]
+
+
+
+class ConfigurationImportValidateRequest(BaseModel):
+    bundle: dict[str, object]
+
+
+class ConfigurationCredentialRequirementView(BaseModel):
+    section: str
+    resource_type: str
+    resource_id: str | None = None
+    name: str | None = None
+    credential: str
+
+
+class ConfigurationImportValidationView(BaseModel):
+    valid: Literal[True] = True
+    format: Literal["zero-nvr.configuration"] = "zero-nvr.configuration"
+    format_version: Literal[1] = 1
+    source_application_version: str | None = None
+    section_counts: dict[str, int]
+    credentials_required: list[
+        ConfigurationCredentialRequirementView
+    ]
+    warnings: list[str]

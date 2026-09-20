@@ -298,3 +298,135 @@ def test_configuration_export_is_portable_and_secret_free(
             "system.configuration.export"
             in actions
         )
+
+
+
+def test_configuration_import_validation_checks_refs_and_secrets(
+    tmp_path: Path,
+) -> None:
+    import copy
+
+    app = make_app(tmp_path)
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "admin@example.com",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        camera = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Import Camera",
+                "location": None,
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://camera-user:"
+                        "camera-import-secret"
+                        "@10.0.0.9/live"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert camera.status_code == 201
+
+        exported = client.get(
+            "/api/v1/system/configuration/export"
+        )
+        assert exported.status_code == 200
+        bundle = exported.json()
+
+        validated = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={"bundle": bundle},
+        )
+        assert validated.status_code == 200
+        result = validated.json()
+        assert result["valid"] is True
+        assert (
+            result["format"]
+            == "zero-nvr.configuration"
+        )
+        assert result[
+            "section_counts"
+        ]["cameras"] >= 3
+        assert any(
+            item["credential"]
+            == "stream_uri"
+            for item in result[
+                "credentials_required"
+            ]
+        )
+
+        with_secret = copy.deepcopy(
+            bundle
+        )
+        with_secret["sections"][
+            "oidc_providers"
+        ] = [
+            {
+                "id": (
+                    "11111111-1111-1111-"
+                    "1111-111111111111"
+                ),
+                "key": "bad",
+                "name": "Bad",
+                "client_secret": (
+                    "must-not-be-imported"
+                ),
+            }
+        ]
+        rejected = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={"bundle": with_secret},
+        )
+        assert rejected.status_code == 400
+        assert (
+            rejected.json()["error"]["code"]
+            == "configuration_import_secret_field"
+        )
+
+        broken = copy.deepcopy(bundle)
+        broken_binding = broken[
+            "sections"
+        ]["cameras"]["stream_bindings"][0]
+        broken_binding[
+            "stream_profile_id"
+        ] = (
+            "22222222-2222-2222-"
+            "2222-222222222222"
+        )
+        invalid_ref = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={"bundle": broken},
+        )
+        assert invalid_ref.status_code == 400
+        assert (
+            invalid_ref.json()["error"]["code"]
+            == (
+                "configuration_import_reference_invalid"
+            )
+        )

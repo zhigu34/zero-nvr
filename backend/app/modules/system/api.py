@@ -28,6 +28,7 @@ from app.modules.auth.service import AuthContext
 
 from .camera_ntp import CameraNtpService
 from .config_export import ConfigurationExportService
+from .config_import import ConfigurationImportService
 from .health import SystemHealthService
 from .frigate_managed import ManagedFrigateConfigService
 from .settings import SystemSettingsService
@@ -38,6 +39,9 @@ from .frigate import (
 )
 from .schemas import (
     CameraClockHealthResultView,
+    ConfigurationCredentialRequirementView,
+    ConfigurationImportValidateRequest,
+    ConfigurationImportValidationView,
     CameraClockHealthView,
     CameraNtpApplyView,
     CameraNtpDeviceResultView,
@@ -449,6 +453,84 @@ def queue_frigate_backfill(
 
 
 
+
+
+
+
+
+@router.post(
+    "/configuration/import/validate",
+    response_model=ConfigurationImportValidationView,
+)
+def validate_configuration_import(
+    body: ConfigurationImportValidateRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> ConfigurationImportValidationView:
+    result = ConfigurationImportService.validate(
+        body.bundle,
+        settings=request.app.state.settings,
+    )
+    try:
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action=(
+                "system.configuration.import.validate"
+            ),
+            resource_type=(
+                "system_configuration"
+            ),
+            metadata={
+                "format": (
+                    "zero-nvr.configuration"
+                ),
+                "format_version": 1,
+                "section_counts": (
+                    result.section_counts
+                ),
+                "credentials_required": len(
+                    result.credentials_required
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return ConfigurationImportValidationView(
+        source_application_version=(
+            result.source_application_version
+        ),
+        section_counts=(
+            result.section_counts
+        ),
+        credentials_required=[
+            ConfigurationCredentialRequirementView(
+                section=item.section,
+                resource_type=(
+                    item.resource_type
+                ),
+                resource_id=(
+                    item.resource_id
+                ),
+                name=item.name,
+                credential=item.credential,
+            )
+            for item
+            in result.credentials_required
+        ],
+        warnings=list(
+            result.warnings
+        ),
+    )
 
 
 @router.get("/configuration/export")
