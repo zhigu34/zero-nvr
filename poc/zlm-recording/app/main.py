@@ -81,6 +81,20 @@ def init_db() -> None:
                 payload_json TEXT NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS poc_stream_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                received_at TEXT NOT NULL,
+                schema TEXT NOT NULL,
+                vhost TEXT,
+                app TEXT NOT NULL,
+                stream TEXT NOT NULL,
+                regist INTEGER NOT NULL,
+                payload_json TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_poc_stream_events_stream_time
+            ON poc_stream_events(stream, received_at);
+
             CREATE TABLE IF NOT EXISTS poc_recording_triggers (
                 id TEXT PRIMARY KEY,
                 camera_id TEXT NOT NULL,
@@ -226,6 +240,79 @@ async def zlm_record_mp4(request: Request, token: str) -> dict[str, Any]:
         conn.commit()
 
     return {"code": 0, "msg": "success"}
+
+
+@app.post("/internal/hooks/zlm/stream-changed")
+async def zlm_stream_changed(request: Request, token: str) -> dict[str, Any]:
+    if not secrets.compare_digest(token, HOOK_TOKEN):
+        raise HTTPException(status_code=403, detail="invalid hook token")
+
+    raw = await request.body()
+    payload = parse_hook_payload(raw, request.headers.get("content-type", ""))
+    schema = str(payload.get("schema", ""))
+    app_name = str(payload.get("app", ""))
+    stream = str(payload.get("stream", ""))
+    vhost = str(payload.get("vhost", "__defaultVhost__"))
+    raw_regist = payload.get("regist", False)
+    if isinstance(raw_regist, str):
+        regist = raw_regist.strip().lower() in {"1", "true", "yes", "on"}
+    else:
+        regist = bool(raw_regist)
+
+    if schema and app_name and stream:
+        with connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO poc_stream_events(
+                    received_at, schema, vhost, app, stream, regist, payload_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    utc_now(),
+                    schema,
+                    vhost,
+                    app_name,
+                    stream,
+                    1 if regist else 0,
+                    json.dumps(payload, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+
+    return {"code": 0, "msg": "success"}
+
+
+@app.get("/debug/stream-events")
+def stream_events(stream: str | None = None) -> dict[str, Any]:
+    with connect() as conn:
+        if stream:
+            rows = conn.execute(
+                """
+                SELECT id, received_at, schema, vhost, app, stream, regist, payload_json
+                FROM poc_stream_events
+                WHERE stream = ?
+                ORDER BY id
+                """,
+                (stream,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, received_at, schema, vhost, app, stream, regist, payload_json
+                FROM poc_stream_events
+                ORDER BY id
+                """
+            ).fetchall()
+
+    return {
+        "items": [
+            {
+                **dict(row),
+                "regist": bool(row["regist"]),
+                "payload": json.loads(row["payload_json"]),
+            }
+            for row in rows
+        ]
+    }
 
 
 @app.post("/debug/drop-next-hook")
