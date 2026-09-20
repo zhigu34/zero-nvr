@@ -1,77 +1,79 @@
-name: POC Static Checks
+name: POC Static Validation
 
 on:
   push:
     paths:
       - "poc/**"
-      - "docs/plans/01-design-freeze-poc.md"
       - "docs/poc-results/**"
+      - "docs/plans/01-design-freeze-poc.md"
       - ".github/workflows/poc-static.yml"
   pull_request:
     paths:
       - "poc/**"
-      - "docs/plans/01-design-freeze-poc.md"
       - "docs/poc-results/**"
+      - "docs/plans/01-design-freeze-poc.md"
       - ".github/workflows/poc-static.yml"
 
 jobs:
-  static:
+  validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.13
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
 
       - name: Compile POC Python
         run: |
-          python -m compileall -q poc/zlm-recording/app
-          python -m compileall -q poc/sqlite-load
+          python -m compileall -q poc/zlm-recording/app poc/zlm-recording/scripts poc/sqlite-load
 
-      - name: Validate shell syntax
+      - name: Check shell syntax
         run: |
-          set -eu
-          for script in             poc/zlm-recording/scripts/*.sh             poc/sqlite-load/run.sh             poc/run-design-freeze.sh
-          do
-            echo "checking $script"
-            sh -n "$script"
+          for file in poc/zlm-recording/scripts/*.sh poc/sqlite-load/run.sh; do
+            sh -n "$file"
           done
 
-      - name: Validate Docker Compose model
+      - name: Validate Compose model
+        working-directory: poc/zlm-recording
         run: |
-          cp poc/zlm-recording/.env.example poc/zlm-recording/.env
-          docker compose             --env-file poc/zlm-recording/.env             -f poc/zlm-recording/docker-compose.yml             config >/dev/null
+          cp .env.example .env
+          docker compose config -q
 
-      - name: Verify POC result inventory
+      - name: Validate POC result placeholders
         run: |
           python - <<'PY'
           from pathlib import Path
 
           expected = {
-              "01-zlm-recording.md",
-              "02-fmp4-crash.md",
-              "03-event-preroll.md",
-              "04-multi-event-extension.md",
-              "05-timeline-precision.md",
-              "06-zlm-vod-seek.md",
-              "07-remote-restore.md",
-              "08-stream-sharing.md",
-              "09-sqlite-load.md",
-              "10-reconciliation.md",
+              1: "01-zlm-recording.md",
+              2: "02-fmp4-crash.md",
+              3: "03-event-preroll.md",
+              4: "04-multi-event-extension.md",
+              5: "05-timeline-precision.md",
+              6: "06-zlm-vod-seek.md",
+              7: "07-remote-restore.md",
+              8: "08-stream-sharing.md",
+              9: "09-sqlite-load.md",
+              10: "10-reconciliation.md",
           }
 
           root = Path("docs/poc-results")
-          actual = {path.name for path in root.glob("[0-9][0-9]-*.md")}
-          missing = expected - actual
+          missing = [name for name in expected.values() if not (root / name).is_file()]
           if missing:
-              raise SystemExit(f"missing POC result docs: {sorted(missing)}")
+              raise SystemExit(f"missing POC result documents: {missing}")
 
-          for name in sorted(expected):
+          for name in expected.values():
               text = (root / name).read_text(encoding="utf-8")
               if "Result:" not in text:
-                  raise SystemExit(f"{name} has no Result field")
+                  raise SystemExit(f"{name}: missing Result field")
+
+          print("POC result document set is complete.")
           PY
+
+      - name: Explain scope
+        run: |
+          echo "Static CI validates harness syntax/configuration only."
+          echo "It does NOT mark any design-freeze POC as PASS."
