@@ -49,6 +49,9 @@ class ZlmMediaProbe:
     audio: ZlmTrackProbe | None
 
 
+MP4_RECORD_TYPE = 1
+
+
 class ZlmAdapter:
     """Minimal ZLMediaKit control adapter.
 
@@ -267,6 +270,61 @@ class ZlmAdapter:
             return int(result) == 0
         except (TypeError, ValueError):
             return False
+
+    def start_mp4_recording(
+        self,
+        *,
+        app: str,
+        stream: str,
+        customized_path: str,
+        max_second: int,
+    ) -> bool:
+        payload = self._call(
+            "startRecord",
+            params={
+                "type": MP4_RECORD_TYPE,
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+                "customized_path": customized_path,
+                "max_second": max_second,
+            },
+        )
+        return bool(payload.get("result", True))
+
+    def stop_mp4_recording(
+        self,
+        *,
+        app: str,
+        stream: str,
+    ) -> bool:
+        payload = self._call(
+            "stopRecord",
+            params={
+                "type": MP4_RECORD_TYPE,
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+            },
+        )
+        return bool(payload.get("result", True))
+
+    def is_mp4_recording(
+        self,
+        *,
+        app: str,
+        stream: str,
+    ) -> bool:
+        payload = self._call(
+            "isRecording",
+            params={
+                "type": MP4_RECORD_TYPE,
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+            },
+        )
+        return bool(payload.get("status", False))
 
     def get_media_list(
         self,
