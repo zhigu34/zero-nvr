@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 import paho.mqtt.client as mqtt
+from sqlalchemy import inspect
 
 from app.core.config import Settings
 from app.core.db import Database
@@ -69,6 +70,13 @@ class FrigateMqttRuntime:
             )
 
     def _load_config(self) -> FrigateProviderConfig | None:
+        # Optional integrations must not make the API unbootable before the
+        # schema migration/bootstrap step has created product setting tables.
+        if not inspect(self.database.engine).has_table(
+            "system_settings"
+        ):
+            return None
+
         service = FrigateProviderSettingsService(
             self.settings
         )
