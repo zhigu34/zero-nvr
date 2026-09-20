@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import hmac
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.modules.cameras.models import CameraStreamProfile
 from app.modules.recordings.catalog import (
     FinalizedRecordingEvidence,
     RecordingCatalogService,
 )
+from app.modules.recordings.models import RecordingPolicy
 
 
 router = APIRouter()
@@ -132,6 +136,63 @@ def zlm_record_mp4(
     )
 
     try:
+        settings = request.app.state.settings
+        prebuffer_root = settings.prebuffer_dir.resolve()
+        hook_path = Path(body.file_path).resolve(strict=False)
+        is_prebuffer = False
+        try:
+            hook_path.relative_to(prebuffer_root)
+            is_prebuffer = True
+        except ValueError:
+            pass
+
+        if is_prebuffer:
+            if body.app != RecordingCatalogService.expected_app:
+                return _ack()
+
+            profile_id = RecordingCatalogService.profile_id_from_stream(
+                body.stream
+            )
+            profile = session.get(CameraStreamProfile, profile_id)
+            if profile is None:
+                raise ApiError(
+                    status_code=422,
+                    code="recording_stream_unknown",
+                    message="Recording stream profile does not exist.",
+                )
+
+            policy = session.scalar(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.camera_id == profile.camera_id
+                )
+            )
+            if (
+                policy is None
+                or not policy.enabled
+                or not policy.event_recording_enabled
+            ):
+                # A stale finalized tmpfs hook can arrive after policy mode
+                # changed. It remains ephemeral and is not promoted/canonical.
+                return _ack()
+
+            request.app.state.prebuffer_fragments.observe(
+                camera_id=profile.camera_id,
+                profile_id=profile.id,
+                continuity_id=(
+                    resolution.continuity_id
+                    if resolution is not None
+                    else None
+                ),
+                vhost=body.vhost,
+                app=body.app,
+                stream=body.stream,
+                file_path=body.file_path,
+                start_time_epoch=body.start_time,
+                duration_seconds=body.time_len,
+                size_bytes=body.file_size,
+            )
+            return _ack()
+
         result = RecordingCatalogService.ingest_finalized(
             session,
             evidence=FinalizedRecordingEvidence(
