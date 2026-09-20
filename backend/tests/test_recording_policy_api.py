@@ -34,6 +34,7 @@ def make_app(tmp_path: Path):
         prebuffer_dir=tmp_path / "prebuffer",
         session_cookie_secure=False,
     )
+    settings.prebuffer_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
     return app
