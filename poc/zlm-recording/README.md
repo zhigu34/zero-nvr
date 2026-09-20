@@ -82,7 +82,7 @@ one normal ZLM recorder
 -> verify + atomic persistent publish
 ~~~
 
-It tests ~2s and ~5s GOP sources, ten Event times, overlapping Events, deduplicated promotion, tmpfs GC, and comparison evidence for startRecordTask / GOP-ring startRecord.
+It tests H.264 with ~2s and ~5s GOPs plus H.265/HEVC with ~2s GOP, ten Event times per run, overlapping Events, deduplicated promotion, tmpfs GC, actual codec verification, and comparison evidence for startRecordTask / GOP-ring startRecord.
 
 ### POC-05 + POC-06
 
