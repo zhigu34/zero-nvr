@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     zlm_timeout_seconds: float = 8.0
     zlm_probe_timeout_seconds: float = 12.0
 
+    onvif_timeout_seconds: float = 10.0
+    onvif_discovery_timeout_seconds: float = 3.0
+
     log_level: str = "INFO"
 
     @field_validator("secret_key")
@@ -77,11 +80,16 @@ class Settings(BaseSettings):
             )
         return value
 
-    @field_validator("zlm_timeout_seconds", "zlm_probe_timeout_seconds")
+    @field_validator(
+        "zlm_timeout_seconds",
+        "zlm_probe_timeout_seconds",
+        "onvif_timeout_seconds",
+        "onvif_discovery_timeout_seconds",
+    )
     @classmethod
     def validate_positive_timeout(cls, value: float) -> float:
         if value <= 0 or value > 120:
-            raise ValueError("ZLM timeouts must be greater than 0 and at most 120 seconds")
+            raise ValueError("integration timeouts must be greater than 0 and at most 120 seconds")
         return value
 
     @field_validator("zlm_base_url")
