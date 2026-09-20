@@ -9,13 +9,14 @@ Core lifecycle tasks in this roadmap belong to the first production-ready zero-n
 
 ## Design-freeze gate
 
-Current project state: **V1 Design Freeze Candidate**.
+Current project state: **V1 Architecture Frozen**.
 
-Before core architecture is declared frozen:
+The architecture-freeze gate is complete:
 
-1. complete the POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md);
-2. accept the persistence boundary in [plans/02-v1-schema-freeze.md](plans/02-v1-schema-freeze.md);
-3. complete the API/module freeze plan before broad feature implementation.
+1. all 10 POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md) have accepted runtime results;
+2. the persistence boundary in [plans/02-v1-schema-freeze.md](plans/02-v1-schema-freeze.md) is frozen;
+3. the public/internal API and module boundary in [plans/03-v1-api-module-freeze.md](plans/03-v1-api-module-freeze.md) is frozen;
+4. [ADR 0011](adr/0011-v1-architecture-freeze.md) records the freeze and change-control rule.
 
 POC gates:
 
@@ -72,7 +73,7 @@ Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-re
 - [x] Complete API/module-boundary freeze document and public/internal ownership contract.
 - [x] Commit executable harnesses and NOT RUN result records for all 10 design-freeze POCs.
 - [x] Execute all design-freeze POCs on real Docker runners and record measured results/artifacts.
-- [ ] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
+- [x] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
 
 ## Phase 1 — Platform foundation
 
