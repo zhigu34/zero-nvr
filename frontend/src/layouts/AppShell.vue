@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
+import AccountPanel from "../components/account/AccountPanel.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -14,6 +15,7 @@ const sidebarOpen = ref(false)
 const sidebarCollapsed = ref(
   window.localStorage.getItem("zero-nvr.sidebar-collapsed") === "1"
 )
+const accountOpen = ref(false)
 
 const navigation = [
   { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
@@ -63,7 +65,12 @@ function toggleNavigation(): void {
   )
 }
 
+function toggleAccount(): void {
+  accountOpen.value = !accountOpen.value
+}
+
 async function logout(): Promise<void> {
+  accountOpen.value = false
   await auth.logout()
   await router.push({ name: "login" })
 }
@@ -146,13 +153,20 @@ onBeforeUnmount(() => {
         <div class="topbar__actions">
           <ThemeControl />
 
-          <div class="topbar__user">
+          <button
+            class="topbar__user"
+            :class="{ 'topbar__user--active': accountOpen }"
+            type="button"
+            aria-label="Open account"
+            title="Account"
+            @click="toggleAccount"
+          >
             <span class="user-avatar">{{ userInitial }}</span>
             <div class="topbar__identity">
               <strong>{{ auth.user?.display_name }}</strong>
               <span>{{ auth.user?.username }}</span>
             </div>
-          </div>
+          </button>
 
           <button
             class="icon-button topbar-icon-button"
@@ -165,6 +179,11 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </header>
+
+      <AccountPanel
+        v-if="accountOpen"
+        @close="accountOpen = false"
+      />
 
       <main
         class="page-surface"

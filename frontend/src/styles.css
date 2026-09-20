@@ -371,8 +371,20 @@ strong {
 
 .topbar__user {
   gap: 8px;
+  min-height: 36px;
   margin-left: 4px;
-  padding: 0 6px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.topbar__user:hover,
+.topbar__user--active {
+  background: var(--surface-hover);
 }
 
 .topbar__divider {

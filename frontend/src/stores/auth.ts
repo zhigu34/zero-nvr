@@ -87,6 +87,19 @@ export const useAuthStore = defineStore("auth", {
       this.user = null
     },
 
+    async changePassword(input: {
+      current_password: string
+      new_password: string
+    }): Promise<void> {
+      this.user = await apiRequest<AuthUser>(
+        "/auth/password/change",
+        {
+          method: "POST",
+          json: input
+        }
+      )
+    },
+
     async logout(): Promise<void> {
       try {
         await apiRequest<void>("/auth/logout", { method: "POST" })
