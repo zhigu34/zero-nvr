@@ -151,6 +151,12 @@ def test_user_can_revoke_other_and_current_sessions(tmp_path: Path) -> None:
 
         revoked_current = client.delete(f"/api/v1/sessions/{current['id']}")
         assert revoked_current.status_code == 204
-        assert client.cookies.get(COOKIE) is None
+        set_cookie = revoked_current.headers.get("set-cookie", "")
+        assert "zero_nvr_session=" in set_cookie
+        assert "Max-Age=0" in set_cookie
 
+        # The test manually injected a host-less cookie, so the TestClient jar
+        # may keep that stale value even though the response contains the
+        # correct browser deletion directive. Server-side revocation is
+        # authoritative and must reject it.
         assert client.get("/api/v1/auth/me").status_code == 401
