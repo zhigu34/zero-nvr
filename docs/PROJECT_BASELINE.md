@@ -351,17 +351,22 @@ These can exist as optional/future integrations without weakening the V1 product
 
 ## Design-freeze gate
 
-The architecture remains **V1 Design Freeze Candidate** until the following POCs pass:
+The architecture remains **V1 Design Freeze Candidate** until every Core gate has a clean accepted runtime result.
 
-1. ZLM continuous recording + on_record_mp4 indexing;
-2. fMP4 abnormal termination/crash recovery;
-3. EVENT_ONLY pre-roll;
-4. multi-event recording-window extension;
-5. recording wall-clock/timeline precision;
-6. ZLM VOD seek;
-7. remote restore -> cache -> ZLM playback;
-8. ZLM stream sharing and expected camera connection count;
-9. SQLite load at baseline/extended targets;
-10. recovery reconciliation after lost hooks/control-plane restart.
+Already passed and incorporated into this baseline:
 
-After these gates pass, changes to core ownership or deployment boundaries require an explicit ADR.
+- POC-02 — fMP4 abnormal termination/crash recovery;
+- POC-03 — EVENT_ONLY pre-roll;
+- POC-04 — overlapping Event promotion-window extension;
+- POC-07 — remote restore -> bounded cache -> ZLM playback;
+- POC-09 — SQLite load at 8/16-camera representative targets;
+- POC-10 — recovery reconciliation after lost hooks/control-plane/SQLite/process faults.
+
+Remaining clean-rerun gates:
+
+- POC-01 — ZLM continuous recording + on_record_mp4 indexing + control-plane restart continuity;
+- POC-05 — recording wall-clock / Timeline precision using ZLM-observed media-session boundaries;
+- POC-06 — ZLM VOD seek at beginning/middle/near-end positions;
+- POC-08 — ZLM stream sharing and expected source-camera connection count.
+
+After these remaining gates pass, the status becomes **V1 Architecture Frozen** and changes to core ownership or deployment boundaries require an explicit ADR.
