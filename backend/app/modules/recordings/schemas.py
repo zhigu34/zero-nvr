@@ -33,12 +33,10 @@ class TimelineRangeView(BaseModel):
     end_at: datetime
 
 
-class TimelineSegmentView(BaseModel):
-    id: uuid.UUID
+class TimelineRecordingRangeView(BaseModel):
     start_at: datetime
     end_at: datetime
     availability: TimelineAvailability
-    playback_ref: uuid.UUID
 
 
 class TimelineGapView(BaseModel):
@@ -58,7 +56,7 @@ class TimelineEventView(BaseModel):
 class PlaybackTimelineView(BaseModel):
     camera_id: uuid.UUID
     range: TimelineRangeView
-    segments: list[TimelineSegmentView]
+    recording_ranges: list[TimelineRecordingRangeView]
     gaps: list[TimelineGapView]
     events: list[TimelineEventView]
 
@@ -120,3 +118,43 @@ class RecordingTriggerView(BaseModel):
     state: str
     reason: str | None
     correlation_id: str
+
+
+
+class RecordingSegmentView(BaseModel):
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    stream_profile_id: uuid.UUID | None
+    start_at: datetime
+    end_at: datetime
+    duration_ms: int
+    timing_status: str
+    timing_source: str
+    recording_reasons: list[str]
+    size_bytes: int
+    codec: str | None
+    container: str
+    integrity_status: str
+    completion_reason: str | None
+    created_at: datetime
+
+
+class RecordingLocationView(BaseModel):
+    id: uuid.UUID
+    recording_segment_id: uuid.UUID
+    storage_target_id: uuid.UUID
+    storage_target_name: str
+    storage_type: str
+    storage_role: str
+    object_path: str
+    state: str
+    size_bytes: int
+    checksum: str | None
+    verified_at: datetime | None
+    created_at: datetime
+    deleted_at: datetime | None
+
+
+class RecordingSegmentPage(BaseModel):
+    items: list[RecordingSegmentView]
+    next_cursor: str | None = None
