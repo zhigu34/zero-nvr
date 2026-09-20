@@ -48,11 +48,13 @@ No FUSE mount is used.
 10. Start prefetching remote segment 2.
 11. While prefetch runs, play segment 1 through ZLM RTSP VOD.
 12. Complete and publish segment 2.
-13. Evict segment 1 from playback cache.
-14. Verify a separate canonical local RecordingSegment file still exists.
-15. Kill the WebDAV remote.
-16. Require remote rclone access to fail.
-17. Require the local ZLM recorder to continue finalizing new segments.
+13. Record first-frame wall time for segment 1 through ZLM RTSP VOD.
+14. Compute a deterministic cache byte limit that can hold one restored segment but not both.
+15. Enforce the cache limit by oldest-entry eviction and record bytes/files before and after.
+16. Verify a separate canonical local RecordingSegment file still exists.
+17. Kill the WebDAV remote.
+18. Require remote rclone access to fail.
+19. Require the local ZLM recorder to continue finalizing new segments.
 
 ## Required checks
 
@@ -61,6 +63,9 @@ No FUSE mount is used.
 - retry produces a valid media file;
 - ZLM VOD decodes restored media;
 - next-segment prefetch can run while current restored media is being played;
+- restore retry-to-READY time and first-frame wall time are recorded;
+- cache eviction is triggered by an explicit byte limit rather than a manual one-off delete;
+- cache bytes/files before and after eviction are recorded;
 - cache eviction stays inside playback cache;
 - canonical local recording media is untouched by cache eviction;
 - remote outage is observable as remote failure;
