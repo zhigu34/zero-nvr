@@ -508,13 +508,16 @@ def reconcile_recording_policy_boundary(
 def restore_playback_segment(segment_id: str) -> str:
     settings = Settings()
     database = _database(settings)
+    segment_uuid = uuid.UUID(segment_id)
+    cache = PlaybackCacheService(settings)
     try:
-        result = PlaybackCacheService(settings).execute(
+        result = cache.execute(
             database,
-            segment_id=uuid.UUID(segment_id),
+            segment_id=segment_uuid,
         )
         return str(result.path)
     finally:
+        cache.clear_restore_request(segment_id=segment_uuid)
         database.close()
 
 

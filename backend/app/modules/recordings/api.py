@@ -34,6 +34,7 @@ from .playback import (
     PlayablePlan,
     PlaybackResolverService,
 )
+from .playback_cache import PlaybackCacheService
 from .policy import RecordingPolicyService
 from .protection import RecordingProtectionService
 from .query import RecordingCatalogQueryService
@@ -890,9 +891,17 @@ def resolve_camera_playback(
         )
 
     if isinstance(plan, PendingPlan):
-        request.app.state.storage_tasks.restore_playback_segment(
-            segment_id=plan.segment_id,
-        )
+        cache = PlaybackCacheService(request.app.state.settings)
+        if cache.reserve_restore(segment_id=plan.segment_id):
+            try:
+                request.app.state.storage_tasks.restore_playback_segment(
+                    segment_id=plan.segment_id,
+                )
+            except Exception:
+                cache.clear_restore_request(
+                    segment_id=plan.segment_id,
+                )
+                raise
         return PlaybackPendingView(
             reason=plan.reason,
             segment_id=plan.segment_id,

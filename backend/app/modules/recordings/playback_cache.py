@@ -62,6 +62,51 @@ class PlaybackCacheService:
     def path_for(self, segment_id: uuid.UUID) -> Path:
         return self.root / f"{segment_id.hex}.mp4"
 
+    def request_path(self, segment_id: uuid.UUID) -> Path:
+        return self.root / f"{segment_id.hex}.request"
+
+    def reserve_restore(self, *, segment_id: uuid.UUID) -> bool:
+        self.root.mkdir(parents=True, exist_ok=True)
+        marker = self.request_path(segment_id)
+
+        def create() -> bool:
+            try:
+                fd = os.open(
+                    marker,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+            except FileExistsError:
+                return False
+            try:
+                os.write(fd, str(os.getpid()).encode("ascii"))
+            finally:
+                os.close(fd)
+            return True
+
+        if create():
+            return True
+
+        try:
+            age = time.time() - marker.stat().st_mtime
+        except OSError:
+            age = 0
+
+        if age <= self.settings.playback_restore_lock_ttl_seconds:
+            return False
+
+        try:
+            marker.unlink(missing_ok=True)
+        except OSError:
+            return False
+        return create()
+
+    def clear_restore_request(self, *, segment_id: uuid.UUID) -> None:
+        try:
+            self.request_path(segment_id).unlink(missing_ok=True)
+        except OSError:
+            pass
+
     def cached_file(
         self,
         *,

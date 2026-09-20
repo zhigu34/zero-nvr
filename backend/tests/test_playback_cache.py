@@ -305,3 +305,15 @@ def test_pending_playback_queues_restore(tmp_path: Path) -> None:
         assert response.json()["status"] == "pending"
         assert response.json()["segment_id"] == str(segment_id)
         assert fake_tasks.segment_ids == [segment_id]
+
+        again = client.post(
+            f"/api/v1/cameras/{camera_id}/playback/resolve",
+            json={
+                "at": (
+                    started_at + timedelta(seconds=30)
+                ).isoformat()
+            },
+        )
+        assert again.status_code == 200
+        assert again.json()["status"] == "pending"
+        assert fake_tasks.segment_ids == [segment_id]
