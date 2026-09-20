@@ -179,6 +179,26 @@ class AuthAdminService:
         session.flush()
         return user
 
+    def reset_user_password(
+        self,
+        session: Session,
+        *,
+        user: User,
+        new_password: str,
+    ) -> User:
+        user.password_hash = self.passwords.hash(new_password)
+        now = utc_now()
+        active_sessions = session.scalars(
+            select(UserSession).where(
+                UserSession.user_id == user.id,
+                UserSession.revoked_at.is_(None),
+            )
+        ).all()
+        for user_session in active_sessions:
+            user_session.revoked_at = now
+        session.flush()
+        return user
+
     @classmethod
     def disable_user(
         cls,

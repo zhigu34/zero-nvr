@@ -227,6 +227,19 @@ export function createUser(body: {
   })
 }
 
+export function resetUserPassword(
+  userId: string,
+  newPassword: string
+): Promise<AdminUser> {
+  return apiRequest<AdminUser>(
+    `/users/${encodeURIComponent(userId)}/reset-password`,
+    {
+      method: "POST",
+      json: { new_password: newPassword }
+    }
+  )
+}
+
 export function setUserEnabled(
   userId: string,
   enabled: boolean

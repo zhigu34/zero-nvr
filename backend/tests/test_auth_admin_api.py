@@ -93,6 +93,33 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
 
         use_token(client, admin_token)
 
+        reset_password = client.post(
+            f"/api/v1/users/{viewer_id}/reset-password",
+            json={"new_password": "viewer-new-correct-horse-battery"},
+        )
+        assert reset_password.status_code == 200
+
+        use_token(client, new_viewer_token)
+        assert client.get("/api/v1/auth/me").status_code == 401
+
+        old_password = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "viewer",
+                "password": VIEWER_PASSWORD,
+            },
+        )
+        assert old_password.status_code == 401
+
+        new_viewer_token = login(
+            client,
+            "viewer",
+            "viewer-new-correct-horse-battery",
+        )
+        assert new_viewer_token
+
+        use_token(client, admin_token)
+
         last_admin_disable = client.post(
             f"/api/v1/users/{admin_id}/disable"
         )
@@ -152,4 +179,9 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
     with app.state.database.session() as session:
         actions = set(session.scalars(select(AuditEvent.action)).all())
 
-    assert {"user.create", "user.disable", "role.create"} <= actions
+    assert {
+        "user.create",
+        "user.disable",
+        "user.password.reset",
+        "role.create",
+    } <= actions

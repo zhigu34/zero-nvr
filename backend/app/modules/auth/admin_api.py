@@ -22,6 +22,7 @@ from .schemas import (
     RoleView,
     UserAdminView,
     UserCreate,
+    UserPasswordReset,
     UserUpdate,
 )
 from .service import AuthContext
@@ -182,6 +183,42 @@ def update_user(
             resource_id=user.id,
             before=before,
             after=_user_audit_snapshot(user),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _user_view(user)
+
+
+@router.post(
+    "/users/{user_id}/reset-password",
+    response_model=UserAdminView,
+)
+def reset_user_password(
+    user_id: uuid.UUID,
+    body: UserPasswordReset,
+    request: Request,
+    context: AuthContext = Depends(require_permission("user.manage")),
+    session: Session = Depends(get_db_session),
+) -> UserAdminView:
+    service = AuthAdminService(request.app.state.settings)
+    try:
+        user = service.get_user(session, user_id)
+        user = service.reset_user_password(
+            session,
+            user=user,
+            new_password=body.new_password,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="user.password.reset",
+            resource_type="user",
+            resource_id=user.id,
+            metadata={"sessions_revoked": True},
         )
         session.commit()
     except Exception:

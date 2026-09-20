@@ -94,6 +94,10 @@ class UserUpdate(BaseModel):
     role_ids: list[uuid.UUID] | None = None
 
 
+class UserPasswordReset(BaseModel):
+    new_password: str = Field(min_length=12, max_length=256)
+
+
 class CameraScopeView(BaseModel):
     mode: Literal["inherit", "all", "selected", "none"]
     camera_ids: list[uuid.UUID] = Field(default_factory=list)

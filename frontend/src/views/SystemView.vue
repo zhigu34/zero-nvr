@@ -37,6 +37,7 @@ import {
   patchSystemSettings,
   putFrigateProvider,
   runBackup,
+  resetUserPassword,
   setUserEnabled,
   testFrigateProvider,
   testNotificationTarget,
@@ -85,6 +86,13 @@ const roles = ref<Role[]>([])
 const cameras = ref<CameraSummary[]>([])
 const userPanelOpen = ref(false)
 const userSaving = ref(false)
+const passwordResetPanelOpen = ref(false)
+const passwordResetSaving = ref(false)
+const passwordResetUser = ref<AdminUser | null>(null)
+const passwordResetForm = reactive({
+  password: "",
+  confirmPassword: ""
+})
 const userForm = reactive({
   username: "",
   displayName: "",
@@ -446,6 +454,47 @@ async function toggleUser(user: AdminUser): Promise<void> {
     await loadUsers()
   } catch (caught) {
     error.value = errorMessage(caught)
+  }
+}
+
+function openPasswordReset(user: AdminUser): void {
+  userPanelOpen.value = false
+  passwordResetUser.value = user
+  passwordResetForm.password = ""
+  passwordResetForm.confirmPassword = ""
+  passwordResetPanelOpen.value = true
+  notice.value = null
+}
+
+async function savePasswordReset(): Promise<void> {
+  if (!passwordResetUser.value) return
+  if (
+    passwordResetForm.password !==
+    passwordResetForm.confirmPassword
+  ) {
+    error.value = "Passwords do not match."
+    return
+  }
+
+  passwordResetSaving.value = true
+  error.value = null
+  try {
+    await resetUserPassword(
+      passwordResetUser.value.id,
+      passwordResetForm.password
+    )
+    const username = passwordResetUser.value.username
+    passwordResetPanelOpen.value = false
+    passwordResetUser.value = null
+    passwordResetForm.password = ""
+    passwordResetForm.confirmPassword = ""
+    notice.value =
+      `Password reset for @${username}. All existing sessions were revoked.`
+    await loadUsers()
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    passwordResetSaving.value = false
   }
 }
 
@@ -906,13 +955,22 @@ onBeforeUnmount(() => {
                   </span>
                 </td>
                 <td class="system-table__actions">
-                  <button
-                    class="button button--ghost button--compact"
-                    type="button"
-                    @click="toggleUser(user)"
-                  >
-                    {{ user.enabled ? "Disable" : "Enable" }}
-                  </button>
+                  <div class="system-user-actions">
+                    <button
+                      class="button button--ghost button--compact"
+                      type="button"
+                      @click="openPasswordReset(user)"
+                    >
+                      Reset password
+                    </button>
+                    <button
+                      class="button button--ghost button--compact"
+                      type="button"
+                      @click="toggleUser(user)"
+                    >
+                      {{ user.enabled ? "Disable" : "Enable" }}
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -971,6 +1029,80 @@ onBeforeUnmount(() => {
               </button>
               <button class="button button--primary" type="submit" :disabled="userSaving">
                 {{ userSaving ? "Saving…" : "Create user" }}
+              </button>
+            </div>
+          </form>
+        </aside>
+
+        <aside
+          v-if="passwordResetPanelOpen && passwordResetUser"
+          class="system-drawer"
+        >
+          <header class="storage-editor__header">
+            <div>
+              <strong>Reset password</strong>
+              <span>
+                {{ passwordResetUser.display_name }}
+                · @{{ passwordResetUser.username }}
+              </span>
+            </div>
+            <button
+              class="icon-button"
+              type="button"
+              @click="passwordResetPanelOpen = false"
+            >
+              <UiIcon name="close" :size="16" />
+            </button>
+          </header>
+
+          <form
+            class="storage-editor__form"
+            @submit.prevent="savePasswordReset"
+          >
+            <p class="system-password-reset-warning">
+              Saving a new password immediately revokes every existing
+              session for this account.
+            </p>
+            <label>
+              <span>New password</span>
+              <input
+                v-model="passwordResetForm.password"
+                type="password"
+                minlength="12"
+                maxlength="256"
+                autocomplete="new-password"
+                required
+              />
+            </label>
+            <label>
+              <span>Confirm password</span>
+              <input
+                v-model="passwordResetForm.confirmPassword"
+                type="password"
+                minlength="12"
+                maxlength="256"
+                autocomplete="new-password"
+                required
+              />
+            </label>
+            <div class="storage-editor__actions">
+              <button
+                class="button button--ghost"
+                type="button"
+                @click="passwordResetPanelOpen = false"
+              >
+                Cancel
+              </button>
+              <button
+                class="button button--primary"
+                type="submit"
+                :disabled="passwordResetSaving"
+              >
+                {{
+                  passwordResetSaving
+                    ? "Resetting…"
+                    : "Reset password"
+                }}
               </button>
             </div>
           </form>
