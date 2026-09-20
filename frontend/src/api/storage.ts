@@ -114,7 +114,7 @@ export function createRetentionPolicy(
 
 export function updateRetentionPolicy(
   policyId: string,
-  changes: Record<string, unknown>
+  changes: Partial<RetentionPolicyCreate>
 ): Promise<RetentionPolicy> {
   return apiRequest<RetentionPolicy>(
     `/storage/retention-policies/${encodeURIComponent(policyId)}`,
