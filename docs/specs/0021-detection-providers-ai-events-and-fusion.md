@@ -1,875 +1,315 @@
-# Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion
+# Spec 0021 — Detection Providers, AI Events, and Frigate Integration
 
 Status: **accepted**
 
 ## Goal
 
-Define the complete first-production-release event-ingestion and AI detection model.
+Define a lightweight provider boundary for camera-native events and optional AI while keeping zero-nvr as the canonical Event/Alert/RecordingTrigger system.
 
 Core rule:
 
-> Providers observe. zero-nvr normalizes, persists, correlates, and decides how those observations affect recording, timeline, alerts, and retention.
+> Providers observe. zero-nvr normalizes product-relevant observations. Providers do not become recording authority or the product source of truth.
 
-ONVIF/HIK/Frigate/local detectors remain replaceable event sources. They never own RecordingSession lifecycle or zero-nvr's event history.
+V1 does not require a generic multi-provider fusion engine.
 
-## Layer separation
+See [Project Baseline](../PROJECT_BASELINE.md) and [Spec 0013](0013-first-production-release-scope.md).
 
-```text
-ONVIF / HIK / Frigate / local detector
-                ↓
-       DetectionProvider
-                ↓
-      DetectionObservation
-                ↓
-       EventNormalizer
-                ↓
-       DetectionEvent
-          ↓          ↓
- EventCorrelation   Event policy
- / Fusion Group     recording / alert
-```
+## V1 event sources
 
-DetectionObservation preserves source updates. DetectionEvent is the provider-neutral business event. Event fusion is a non-destructive correlation layer and never erases source truth.
+Supported source categories may include:
 
-## DetectionProvider
+- ONVIF events;
+- optional vendor-native events;
+- Frigate AI;
+- manual/API/Home Assistant/MQTT triggers;
+- zero-nvr system health events.
 
-Conceptual contract:
+Frigate is the primary supported optional AI provider for V1.
 
-```text
-capabilities()
-start(binding)
-stop(binding)
-health()
-reconcile()
-snapshot(event_ref)
-```
+Additional AI providers may use the same adapter contract later.
 
-Initial provider types:
+## Provider boundary
 
-```text
-onvif_native
-hik_native
-frigate
-local_motion
-integration/custom
-```
+A provider adapter is responsible for:
 
-Provider implementations may be in-process adapters, isolated bridges, MQTT consumers, or external integrations.
+- connection/subscription;
+- provider-specific authentication;
+- mapping provider camera/source identity to zero-nvr Camera;
+- parsing provider event payloads;
+- preserving provider event identity;
+- normalizing only the fields zero-nvr needs.
 
-## DetectionProviderInstance
+A provider adapter is not responsible for:
 
-System/provider configuration:
+- starting/stopping ZLM recorder directly;
+- retention;
+- timeline storage;
+- Alert policy decisions;
+- zero-nvr user permissions;
+- deleting canonical Event history.
+
+## Canonical Event
+
+Conceptual fields:
 
 ```text
-DetectionProviderInstance
+Event
   id
-  type
-  name
-  enabled
-  config
-  credential_secret_ref nullable
-  health_state
-  last_connected_at
-  last_observation_at
-  last_error_code
-  sanitized_error
-  created_at
-  updated_at
-```
-
-External service credentials belong in SecretStore.
-
-## DetectionProviderBinding
-
-Maps an external provider source to a canonical Camera.
-
-```text
-DetectionProviderBinding
-  id
-  provider_instance_id
+  source
+  source_event_id
   camera_id
-  external_source_key
-  enabled
-  priority
-  timeline_enabled
-  recording_enabled
-  alert_enabled
-  event_type_filter
-  object_class_filter
-  zone_mapping
-  config
-  created_at
-  updated_at
-```
-
-One Camera may have multiple providers simultaneously.
-
-Disabling a provider for recording or alerts does not suppress its canonical event persistence when timeline ingestion remains enabled.
-
-## Provider capabilities
-
-Normalized capability report may include:
-
-```text
-stateful_events
-instant_events
-tracked_objects
-bounding_boxes
-zones
-snapshots
-object_classes
-sub_labels
-face_recognition
-license_plate_recognition
-audio_detection
-confidence_scores
-source_timestamps
-reconciliation
-```
-
-UI exposes what a provider can actually supply rather than assuming every AI provider behaves like Frigate.
-
-## DetectionObservation
-
-Append-oriented normalized source update:
-
-```text
-DetectionObservation
-  id
-  provider_instance_id
-  binding_id
-  camera_id
-
-  provider_event_key
-  provider_track_key nullable
-  provider_sequence nullable
-
-  transition             start | update | end | pulse | instant
-  provider_event_type
-  canonical_hint
-
-  source_occurred_at
-  received_at
-  occurred_at
-  timestamp_quality
-
-  object_class nullable
-  object_subclass nullable
-  confidence nullable
-  bounding_box nullable
-  provider_zones
-  attributes
-
-  snapshot_ref nullable
-  payload_digest
+  category
+  label
+  started_at
+  ended_at
+  confidence
+  zone
+  severity
+  snapshot_ref
   metadata
   created_at
-```
-
-Coordinates are normalized to the source frame where present:
-
-```text
-x, y, width, height in [0,1]
-```
-
-Raw payload retention is optional/bounded. Credentials and unnecessary sensitive transport data are never stored in raw payload metadata.
-
-## Observation idempotency
-
-Provider delivery is assumed at-least-once unless the provider guarantees otherwise.
-
-Stable local idempotency uses provider identity plus provider event/track key and provider revision/sequence or payload digest.
-
-Repeated MQTT messages, PullPoint redelivery, bridge retries, or process restart must not create duplicate DetectionEvents.
-
-## DetectionEvent
-
-DetectionEvent becomes the provider-neutral aggregate produced from one logical source event/track.
-
-Recommended fields:
-
-```text
-id
-camera_id
-source_kind
-provider
-provider_instance_id
-external_id
-
-event_type
-object_class nullable
-object_subclass nullable
-
-lifecycle_kind          stateful | instant
-status                  active | completed
-end_reason nullable
-
-source_occurred_at
-received_at
-occurred_at
-timestamp_source
-timestamp_quality
-clock_offset_ms_applied
-
-started_at
-last_activity_at
-ended_at
-confidence
-
-current_zones
-snapshot_object_id
-recording_session_id
-correlation_id
-fusion_group_id nullable
-
-metadata
-created_at
-updated_at
-```
-
-`last_activity_at` is distinct from `started_at` and is useful for providers that refresh an active track many times.
-
-## Canonical taxonomy
-
-Do not encode every vendor label directly into one fixed enum.
-
-Canonical event_type families:
-
-```text
-motion
-object
-zone_entry
-zone_exit
-intrusion
-line_crossing
-loitering
-tamper
-digital_input
-audio
-face
-plate
-custom
-unknown
-```
-
-`object_class` carries semantic target labels:
-
-```text
-person
-vehicle
-car
-truck
-bicycle
-motorcycle
-animal
-dog
-cat
-package
-provider-defined class
-```
-
-AlertRule/recording filters may use event_type and/or object_class.
-
-Legacy simple event labels such as person/vehicle can be mapped into `event_type=object` plus the corresponding object_class at the adapter boundary.
-
-## Provider-specific labels
-
-Unknown AI labels are preserved as object_class/provider metadata rather than discarded.
-
-Canonical aliases may normalize common synonyms, for example vendor-specific human/person labels, without rewriting the provider's original value.
-
-## Stateful lifecycle
-
-Provider adapters normalize to:
-
-```text
-START -> UPDATE* -> END
-```
-
-Updates mutate the DetectionEvent aggregate summary while DetectionObservation preserves the update history.
-
-Repeated activity for the same provider_event_key/provider_track_key never creates a new business event.
-
-Once a DetectionEvent is completed, late stale updates do not reopen it. They may be retained as late observations/diagnostics.
-
-## Instant lifecycle
-
-Instant sources produce:
-
-```text
-started_at = occurred_at
-ended_at   = occurred_at
-status     = completed
-```
-
-Spec 0002 recording pre/post-roll semantics apply.
-
-## Pulse-only lifecycle
-
-Pulse-only providers may derive one stateful event using an adapter-owned hold deadline:
-
-```text
-pulse
-  -> START if idle
-  -> refresh liveness deadline
-
-no pulse before deadline
-  -> END
-```
-
-The hold timeout is event normalization policy, not recording duration.
-
-## Provider disconnect during active event
-
-A stateful event must not remain ACTIVE forever because its provider disappeared.
-
-Provider binding may define:
-
-```text
-disconnect_grace
-active_event_liveness_timeout
-```
-
-On disconnect:
-
-- do not immediately falsify an END if the source may reconnect;
-- mark active source state uncertain;
-- attempt provider reconciliation/reconnect;
-- after the bounded liveness deadline, close unresolved source events with `end_reason = provider_lost`;
-- RecordingManager then applies normal post-roll.
-
-Reconnection with authoritative active-state reconciliation may preserve/repair the event where provider semantics safely allow it.
-
-## Out-of-order events
-
-Business state transitions are monotonic.
-
-Rules:
-
-- source timestamp is preserved even when delivery is late;
-- current aggregate state does not regress because an older UPDATE arrives;
-- END before START may be reconciled into a completed event if the adapter has sufficient identity/timestamps;
-- ambiguous malformed transitions are stored as rejected/diagnostic observations rather than corrupting active state.
-
-## Time normalization
-
-Spec 0009 owns canonical time provenance.
-
-Provider timestamps are normalized into:
-
-```text
-source_occurred_at
-received_at
-occurred_at
-timestamp_source
-timestamp_quality
-clock_offset_ms_applied
-```
-
-Frigate/server-originated time and camera-originated ONVIF/HIK time are not assumed to have the same trust/offset characteristics.
-
-## Bounding boxes and tracks
-
-Tracked-object providers may update bounding boxes over time.
-
-DetectionEvent keeps only the current/best summary needed for ordinary UI; DetectionObservation can retain sampled historical boxes.
-
-Do not persist every video-frame box by default.
-
-Sampling/retention limits protect SQLite/PostgreSQL size and write rate.
-
-## EventZone
-
-zero-nvr supports canonical per-Camera zones:
-
-```text
-EventZone
-  id
-  camera_id
-  name
-  enabled
-  normalized_polygon
-  color/presentation
-  created_at
   updated_at
 ```
 
-Coordinates are normalized to the Camera frame/profile reference geometry.
+Examples:
 
-## Provider zone mapping
+- person detected;
+- vehicle detected;
+- ONVIF motion;
+- line-crossing where supplied by device/provider;
+- camera offline;
+- storage critical;
+- archive failed.
 
-Provider-defined zones map into canonical zones:
+AI/device details that are useful but not worth first-class columns remain in bounded metadata.
 
-```text
-ProviderZoneBinding
-  detection_provider_binding_id
-  provider_zone_key
-  event_zone_id
-```
+## Provider identity and idempotency
 
-Provider zone semantics are preserved.
+Provider-originated events must retain a stable external identity.
 
-For example, if an external provider defines its own rule for deciding when a bounding box is 'inside' a zone, zero-nvr does not silently recompute and overwrite that result unless explicitly configured.
-
-## Zone membership history
-
-For stateful tracked objects, zero-nvr may persist:
+Recommended uniqueness:
 
 ```text
-DetectionEventZoneInterval
-  detection_event_id
-  event_zone_id
-  entered_at
-  exited_at nullable
+(source/provider instance, source_event_id)
 ```
 
-This supports precise zone-entry/exit timelines and alert rules without losing the provider's current-zone updates.
+When a provider sends updates for the same tracked object/event, zero-nvr performs idempotent UPSERT rather than creating a new Event on every update.
 
-## Snapshots and evidence
+At-least-once delivery is assumed unless a provider guarantees otherwise.
 
-Provider snapshots are evidence, not provider ownership of zero-nvr history.
+## Frigate integration
 
-When policy requests an event snapshot:
+Preferred flow:
 
 ```text
-provider snapshot / media-plane frame
-        ↓
-validate size/type
-        ↓
-store as zero-nvr StorageObject
-        ↓
-DetectionEvent.snapshot_object_id
+Camera main/sub
+   -> ZLMediaKit
+   -> ZLM internal stream
+   -> Frigate AI_DETECT input
+   -> Frigate event updates
+   -> FrigateAdapter
+   -> zero-nvr Event
 ```
 
-Failure to capture/import a snapshot does not drop the DetectionEvent.
+In Managed mode, Frigate should consume the ZLM internal stream rather than independently pulling the same camera when practical.
 
-Do not rely on Frigate/vendor thumbnail retention for long-term zero-nvr event history.
+This reduces duplicate camera connections and keeps ZLM as the camera-facing media bus.
 
-## Best snapshot selection
+## Frigate event lifecycle
 
-Tracked-object providers may submit improved snapshots during UPDATE.
-
-zero-nvr may replace the DetectionEvent's preferred snapshot reference when the new evidence is better according to provider score/quality policy, while prior observations remain traceable if retained.
-
-## Recognition attributes
-
-Face/LPR/sub-label information is optional structured metadata:
+Frigate tracked objects may emit:
 
 ```text
-recognition_kind
-recognition_value
-recognition_confidence
+new
+update
+end
 ```
 
-These values may be sensitive and follow camera-scope authorization, export permissions, retention configuration, and log-redaction rules.
+All updates for the same Frigate event ID map to the same zero-nvr Event.
 
-Recognition metadata is never used as an authentication identity.
+Typical mapping:
 
-## Event fusion problem
+- Frigate ID -> source_event_id;
+- camera mapping -> camera_id;
+- label -> Event.label;
+- start/end -> canonical timestamps;
+- score/confidence -> confidence;
+- zones -> zone/metadata;
+- snapshot -> snapshot_ref.
 
-Multiple providers may report the same physical occurrence:
+Do not duplicate every raw Frigate message into a separate product event table unless needed for diagnostics.
 
-```text
-ONVIF motion
-HIK smart event
-Frigate person
-local motion
-```
+## Event and RecordingTrigger
 
-Do not destructively merge these independent source events.
+Event and RecordingTrigger are related but not identical.
 
-Instead create a correlation layer.
-
-## EventFusionGroup
-
-```text
-EventFusionGroup
-  id
-  camera_id
-  opened_at
-  last_activity_at
-  closed_at
-  fusion_key
-  summary_type
-  summary_object_class
-  canonical_zone_ids
-  created_at
-  updated_at
-```
-
-## EventFusionMember
-
-```text
-EventFusionMember
-  fusion_group_id
-  detection_event_id
-  relation
-  confidence
-  created_at
-```
-
-Possible relations:
-
-```text
-same_occurrence
-supports
-derived_from
-possibly_related
-```
-
-## Conservative fusion
-
-Automatic cross-provider correlation may consider:
-
-- same Camera;
-- overlapping/near timestamps;
-- compatible event/object classes;
-- matching canonical zones;
-- bounding-box overlap when comparable;
-- provider/source priority;
-- track identity supplied by an integration.
-
-Fusion must be conservative.
-
-Low-confidence correlation remains separate or `possibly_related`; it never deletes events.
-
-## Fusion effects
-
-Fusion is a presentation/policy hint:
-
-- timeline UI may collapse one fusion group into one card with provider badges;
-- AlertEvaluator may use fusion_group_id for dedup/grouping;
-- forensic detail always exposes every member event/observation;
-- RecordingManager still sees valid canonical source events and its one-pipeline intent arbitration prevents duplicate recorder creation.
-
-Fusion must not rewrite member timestamps/end state to force providers to agree.
-
-## Provider priority and policy
-
-Camera detection policy may specify which providers are eligible for which actions.
+An AlertPolicy/recording policy may turn an Event into a RecordingTrigger.
 
 Example:
 
 ```text
-ONVIF motion
-  timeline = true
-  recording = true
-  alerts = false
-
-Frigate person
-  timeline = true
-  recording = true
-  alerts = true
+Frigate person Event
+-> recording policy matches
+-> RecordingTrigger
+   type = AI_OBJECT
+   source = frigate
+   source_event_id = ...
+   correlation_id = ...
 ```
 
-This allows native motion to preserve prebuffer/recording while AI object events drive human notifications.
+If continuous recording is already active, the Event is simply a timeline marker and may protect/annotate the existing footage. It does not require a second event video copy.
 
-## DetectionPolicy
+For EVENT_ONLY recording, the trigger participates in pre/post-roll and recording-window extension semantics.
 
-Conceptual model:
+## Frigate snapshots
+
+Snapshot preference:
+
+1. use Frigate event snapshot when the AI event already has one;
+2. use ZLM snapshot for live/manual current image;
+3. FFmpeg historical frame extraction only as fallback.
+
+Do not regenerate an existing good Frigate snapshot with FFmpeg.
+
+## Zones, labels, and confidence
+
+Frigate owns its native:
+
+- object detection;
+- tracking;
+- zones;
+- confidence;
+- model-specific attributes.
+
+zero-nvr stores enough normalized fields to search, display, alert, and link playback.
+
+The normal zero-nvr UI may expose common managed Frigate settings, but it should not reproduce every advanced Frigate configuration field. Advanced/raw override or External mode is preferable to cloning the full Frigate UI.
+
+## Managed and External mode
+
+### Managed
+
+zero-nvr deployment may provide a Frigate container/profile and generate the subset of configuration it owns.
+
+### External
+
+The user may connect an already-running Frigate instance.
+
+Both modes normalize into the same provider adapter/Event contract.
+
+Frigate availability is capability-specific:
 
 ```text
-DetectionPolicy
-  camera_id
-  enabled
-  provider_bindings
-  recording_event_filters
-  alert_event_filters
-  fusion_enabled
-  fusion_window_ms
-  snapshot_policy
-  observation_retention
-  updated_at
+Camera       ONLINE
+Recording    OK
+AI           DEGRADED/OFFLINE
 ```
 
-Recording policy still owns pre/post-roll and RecordingIntent behavior; DetectionPolicy only decides which canonical events are eligible inputs.
+AI failure must not stop normal recording.
 
-## ONVIF provider
+## MQTT
 
-ONVIF event ingestion uses the maintained ONVIF library/event service rather than hand-built SOAP.
+If Frigate event integration uses MQTT:
 
-Support includes:
+- use an existing external broker when configured;
+- optionally deploy Managed Mosquitto;
+- do not force a duplicate broker when one already exists.
 
-- PullPoint subscription where supported;
-- renew/unsubscribe/reconnect;
-- synchronization point/state recovery where supported;
-- canonical topic mapping;
-- motion/property-state START/END normalization;
-- instant analytics/alarm topics;
-- unknown topic preservation as custom events.
+MQTT is transport, not the Event source of truth.
 
-Subscription lifecycle follows Spec 0019 generation fencing.
+## Camera-native events
 
-## HIK provider
+ONVIF/device motion/smart events use the same canonical Event model.
 
-HIK/vendor bridge may provide richer smart events than ONVIF.
+Do not route ordinary standard camera events through Frigate merely for normalization.
 
-Rules:
+Vendor-private adapters are optional enhancements when ONVIF cannot expose the required signal.
 
-- map vendor events into the same DetectionObservation contract;
-- correlate with the same canonical Device/Camera;
-- do not create duplicate Camera identities;
-- retain vendor event code in metadata;
-- use fusion/correlation when ONVIF and HIK report the same physical occurrence.
+## Multi-provider duplication
 
-## Frigate provider
+V1 does not implement a generic Event Fusion Engine.
 
-Frigate is an optional-to-enable DetectionProvider, not a competing NVR database.
+If the same physical occurrence is reported by ONVIF and Frigate, both source Events may exist.
 
-Initial integration:
+Product UI may later add simple correlation/grouping for presentation, but V1 must not risk deleting or rewriting source truth to force deduplication.
 
-```text
-Frigate MQTT events
-  -> tracked-object lifecycle observations
+Advanced provider fusion/correlation is POST-V1 unless a concrete use case proves it necessary.
 
-Frigate API
-  -> capability/health/detail/snapshot reconciliation where needed
-```
+## Provider liveness
 
-Frigate camera names are mapped explicitly to zero-nvr Camera IDs through DetectionProviderBinding.
+Provider health includes:
 
-Frigate's tracked object ID becomes provider_event_key/provider_track_key; repeated new/update/end messages update one DetectionEvent.
+- reachable/connected;
+- degraded;
+- offline;
+- disabled.
 
-Frigate zones map to canonical EventZones where configured.
+Persist meaningful provider state transitions as SystemEvents when useful.
 
-Frigate review items may enrich severity/context/fusion but do not create a second duplicate DetectionEvent by default for every underlying tracked object.
+Do not write high-frequency provider heartbeat samples into SQLite.
 
-zero-nvr never treats Frigate recordings, retention, or event database as authoritative NVR history.
+## Alerting
 
-## Frigate reconnection
+AlertPolicy evaluates canonical Event fields such as:
 
-MQTT reconnect is idempotent.
-
-After a connectivity gap, the adapter reconciles recent/active provider state through available Frigate interfaces where practical, then closes unresolved stale events by liveness policy.
-
-Do not fabricate continuous AI coverage across an interval where the provider was unavailable.
-
-## Local lightweight motion provider
-
-Built-in local motion is a DetectionProvider consuming the `detection` MediaStream role.
-
-It implements the hysteresis/hold state machine from Spec 0002:
-
-```text
-IDLE
-  -> sustained motion
-ACTIVE
-  -> sustained quiet
-IDLE
-```
-
-Detection compute must not run on the FastAPI request loop.
-
-Sampling rate/resolution and CPU/resource limits are configurable.
-
-Local detector overload degrades/drops detection work explicitly; it must not destabilize recording.
-
-## AI provider resource isolation
-
-External AI or local detection failure does not stop normal camera recording unless the user's RecordingPolicy specifically requires event-only recording and no event source remains available.
-
-System health distinguishes:
-
-```text
-provider unavailable
-detection delayed
-detection backlog
-observation dropped/invalid
-event normalizer error
-```
-
-Recording transport/source health remains separate.
-
-## Provider health
-
-Normalized states:
-
-```text
-disabled
-starting
-healthy
-degraded
-disconnected
-auth_failed
-misconfigured
-unsupported
-```
-
-Metrics include:
-
-```text
-last_observation_at
-ingest_rate
-processing_lag
-reconnect_count
-invalid_observation_count
-deduplicated_count
-active_event_count
-observation_backlog
-```
-
-## Event Center UI
-
-Event Center supports:
-
-- event type;
-- object class/sub-label;
-- Camera/CameraGroup;
-- provider;
+- camera;
+- source/category;
+- label;
 - zone;
 - confidence;
-- active/completed;
-- time range;
-- snapshot availability;
-- fusion group/provider detail.
+- duration;
+- severity;
+- time window.
 
-An event card shows canonical summary first and provider detail on demand.
-
-Tracked-object detail may show:
-
-```text
-person
-confidence 92%
-Front Yard
-Frigate
-12:01:04 - 12:01:17
-snapshot
-linked recording
-correlated native motion
-```
-
-## Provider settings UI
-
-System/Detection settings include:
-
-```text
-Providers
-  ONVIF native
-  HIK native
-  Frigate
-  Local motion
-
-Per Camera
-  provider bindings
-  timeline/recording/alert eligibility
-  object/event filters
-  zone mappings
-  fusion policy
-  snapshot policy
-```
-
-Frigate setup provides connection test, MQTT/API health, Camera mapping, and sample-event diagnostics.
+The rule system remains NVR-specific; it is not a generic expression/automation platform.
 
 ## Permissions
 
-Existing `event.view` governs viewing canonical events within camera scope.
+Users only see AI/device Events for Cameras within their effective camera scope.
 
-`camera.manage` or `integration.manage` is required for provider/camera binding and detection configuration according to where the setting lives.
+Provider administration requires system/integration management permissions.
 
-Changing system-wide external provider credentials/configuration requires `integration.manage`.
-
-Event export/download remains governed by existing recording/export permissions for linked media/evidence.
-
-## Audit
-
-Audit at minimum:
-
-```text
-detection.provider_created
-detection.provider_updated
-detection.provider_disabled
-detection.binding_created
-detection.binding_updated
-detection.policy_updated
-detection.zone_created
-detection.zone_updated
-detection.zone_deleted
-```
-
-Automatic observations/events are operational/business records, not one AuditEvent per detection.
-
-## Interaction with RecordingManager
-
-DetectionProvider never starts/stops FFmpeg or ZLM recording.
-
-```text
-DetectionObservation
-      ↓
-DetectionEvent
-      ↓
-DetectionPolicy eligibility
-      ↓
-RecordingManager
-      ↓
-RecordingIntent(event)
-```
-
-Multiple simultaneous/fused events still result in one formal media pipeline because RecordingManager arbitrates additive intents.
-
-Provider failure/end semantics affect only the event intents owned by those events; continuous/manual/schedule intents remain independent.
-
-## Interaction with Alerting
-
-AlertEvaluator consumes canonical DetectionEvent transitions.
-
-AlertRule may filter:
-
-```text
-event_type
-object_class
-object_subclass
-provider
-zone
-confidence
-fusion_group
-```
-
-Event fusion/grouping helps suppress duplicate notifications but never suppresses source event persistence.
-
-## Restart recovery
-
-After zero-nvr restart:
-
-- provider bindings are reconstructed;
-- subscriptions/MQTT consumers reconnect with generation fencing;
-- active DetectionEvents reconcile through provider state where possible;
-- unresolved stale stateful events close via liveness timeout rather than remaining active forever;
-- observation deduplication survives restart through durable provider event identity;
-- RecordingManager reconstructs active event intents from canonical state/policy.
+Raw provider credentials are never returned through normal APIs.
 
 ## Acceptance tests
 
-1. repeated Frigate new/update messages with the same tracked-object ID update one DetectionEvent rather than creating duplicates;
-2. Frigate end completes the same event and preserves zone/snapshot updates;
-3. ONVIF motion true/false normalizes into one START/END DetectionEvent;
-4. pulse-only native event refreshes one hold deadline rather than creating repeated markers;
-5. provider disconnect cannot leave a stateful event active forever;
-6. out-of-order stale update cannot reopen a completed DetectionEvent;
-7. same physical occurrence reported by ONVIF + HIK/Frigate can enter one EventFusionGroup while all member events remain queryable;
-8. low-confidence cross-provider match remains separate and is never destructively merged;
-9. provider zone mapping preserves external zone semantics and canonical zone history;
-10. snapshot failure does not drop the event;
-11. recognition/sub-label metadata is retained without appearing in logs/secrets;
-12. recording-disabled/alert-enabled provider event remains in timeline and may alert without creating RecordingIntent;
-13. Frigate outage does not corrupt zero-nvr Camera/Recording history or make Frigate authoritative;
-14. local motion overload degrades detector health without interrupting recorder/media runtime;
-15. restart/reconnect deduplication prevents replayed provider messages from duplicating events.
+1. Frigate new/update/end:
+   - one zero-nvr Event is updated idempotently;
+   - start/end/confidence/zones are preserved.
+
+2. Duplicate provider delivery:
+   - retrying the same source event does not create duplicate Events.
+
+3. Frigate offline:
+   - AI health degrades;
+   - ZLM live/recording remains healthy.
+
+4. Managed stream path:
+   - Frigate consumes the intended ZLM internal detect stream;
+   - camera RTSP connection count does not multiply per downstream consumer.
+
+5. External Frigate:
+   - can map provider camera names/IDs to zero-nvr Camera.
+
+6. Event recording:
+   - matching AI Event creates/updates RecordingTrigger semantics without starting duplicate recorders.
+
+7. Continuous recording:
+   - AI Event is linked to existing footage rather than creating a second MP4 copy.
+
+8. Snapshot:
+   - existing Frigate event snapshot is reused.
+
+9. Camera-native event:
+   - ONVIF event maps into the same canonical Event API without requiring Frigate.
 
 ## Invariants
 
-1. DetectionProvider reports observations; zero-nvr owns canonical DetectionEvent state.
-2. External provider databases/recordings never become zero-nvr's event/media source of truth.
-3. DetectionObservation is append-oriented source evidence; DetectionEvent is the canonical business aggregate.
-4. Provider ingress is idempotent and tolerant of at-least-once delivery.
-5. Stateful event transitions are monotonic; stale updates cannot reopen completed events.
-6. Provider loss cannot leave active events indefinitely.
-7. Canonical time provenance follows Spec 0009.
-8. Unknown provider labels/topics are preserved without polluting the canonical taxonomy.
-9. Event fusion is non-destructive correlation, not source-event deletion.
-10. Zone semantics from external providers are preserved and explicitly mapped.
-11. Provider snapshot/evidence failure never causes event loss.
-12. Recording eligibility and alert eligibility are independent provider/event policy decisions.
-13. Multiple providers/events never create duplicate recorder pipelines; RecordingManager remains sole lifecycle owner.
-14. AI/local detection resource pressure never destabilizes healthy recording.
-15. Provider configuration/secrets obey camera/integration authorization and SecretStore rules.
-16. Non-obvious deduplication, out-of-order handling, liveness timeout, fusion, and provider normalization logic requires comments per Development Guidelines.
+1. zero-nvr Event is canonical product event state.
+2. Frigate owns AI detection/tracking, not recording authority.
+3. Provider event identity is preserved for idempotent UPSERT.
+4. AI failure never stops normal ZLM recording.
+5. Events reference existing recording time ranges; they do not automatically duplicate media.
+6. V1 does not require generic multi-provider event fusion.
+7. Provider-specific raw detail is bounded metadata, not a second business database.
+8. External and Managed provider modes share the same product contract.
