@@ -253,7 +253,10 @@ For EVENT_ONLY/pre-roll tests, include at least two different GOP/keyframe inter
 Pass only if:
 
 - at least three consecutive normal recording segments finalize and index correctly;
-- catalog start/end/duration uses actual media metadata rather than assuming exactly 300 seconds;
+- catalog duration uses actual muxed media metadata rather than assuming exactly 300 seconds;
+- current ZLM Hook start_time semantics are measured explicitly;
+- a session-first GOP-sized Hook timing bias is corrected through proven same-session next-boundary normalization rather than by widening generic Gap tolerance;
+- deliberate source unregister/reconnect splits continuity so normalization never bridges a real outage;
 - restarting FastAPI does not deliberately stop an already-running ZLM recorder;
 - one intentionally dropped hook is recovered by reconciliation;
 - reconciliation is idempotent and creates no duplicate RecordingSegment row for the same physical media;
