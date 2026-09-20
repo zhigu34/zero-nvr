@@ -1,590 +1,279 @@
-# Spec 0007 — Recording Intent Arbitration and Mode Composition
+# Spec 0007 — Recording Intent Arbitration
 
 Status: **accepted**
 
 ## Goal
 
-Define how zero-nvr behaves when continuous, schedule, event, manual, and hybrid recording requirements overlap.
+Define how multiple business reasons to record one camera combine without starting duplicate recorder processes.
 
-The design must guarantee:
+Core rule:
 
-- only one formal media-recording pipeline per camera;
-- no recorder restart merely because the reason for recording changes;
-- no loss of event/manual/schedule semantics when multiple reasons overlap;
-- stable 5-minute segment cadence while recording remains continuously required;
-- predictable UI behavior for start/stop/manual controls;
-- correct retention claims for shared physical segments.
+> A camera has one normal ZLMediaKit recording runtime. Recording reasons are additive policy/intents that decide whether that runtime should be active; they are not separate recorders.
 
-## Core principle
+## Recording reasons
 
-> Recording reasons are additive. Media recording is shared.
-
-zero-nvr must not model recording modes as mutually destructive states such as:
+V1 reasons include:
 
 ```text
-continuous → manual → event → schedule
+CONTINUOUS
+SCHEDULE
+EVENT
+MANUAL
 ```
 
-where one mode replaces another.
+DISABLED means the policy does not request normal recording.
+
+EVENT is backed by one or more RecordingTriggers.
+
+## Effective recording requirement
+
+Conceptually:
+
+```text
+should_record =
+    continuous_enabled
+ OR schedule_window_active
+ OR active_event_trigger_window
+ OR manual_recording_active
+```
+
+When `should_record` changes:
+
+```text
+false -> true
+    request ZLM recorder start if not already active
+
+true -> true
+    keep current recorder; do not restart
+
+true -> false
+    request ZLM recorder stop at the appropriate boundary
+```
+
+All operations are idempotent.
+
+## One recorder rule
+
+Do not create:
+
+- one FFmpeg process for continuous;
+- another recorder for events;
+- another recorder for manual mode.
 
 Instead:
 
 ```text
-RecordingIntent(s)
-       ↓
-RecordingManager
-       ↓
-one RecordingSession
-       ↓
-one formal recording pipeline
+many reasons
+   -> one recording decision
+   -> one ZLM recorder
 ```
 
-A camera may have several active RecordingIntents at the same time, but it still has only one formal recording runtime and one uninterrupted physical segment clock.
+This prevents duplicated camera bandwidth, duplicated files, and recorder races.
 
-## RecordingIntent
+## Continuous
 
-RecordingIntent represents one business reason why a camera must currently remain in formal recording.
+CONTINUOUS keeps recording requested while the camera/policy is enabled.
 
-Conceptual fields:
+Events occurring during continuous recording:
 
-```text
-id
-camera_id
-intent_type
-source_type
-source_id
-started_at
-planned_end_at
-ended_at
-state
-correlation_id
-metadata
-created_at
-updated_at
-```
+- remain independent Event markers;
+- may create RecordingTrigger/product linkage;
+- may protect/annotate the relevant time range;
+- do not start a second recorder;
+- do not create a duplicate event MP4 unless the user explicitly exports a clip.
 
-Initial intent types:
+## Schedule
 
-```text
-continuous
-schedule
-event
-manual
-```
+SCHEDULE is active only inside configured wall-clock schedule windows.
 
-Initial states:
+Schedules carry an explicit timezone.
 
-```text
-pending
-active
-post_roll
-completed
-cancelled
-```
+DST/time corrections are handled by schedule evaluation, while persisted recording timestamps remain UTC.
 
-Hybrid is a RecordingPolicy composition mode, not a fifth runtime intent type.
+Schedule entry/exit changes only the schedule recording reason. If another reason remains active, the recorder continues without restart.
 
-## RecordingSession meaning
+## Manual
 
-RecordingSession represents one maximal uninterrupted formal-recording interval for a camera.
+MANUAL begins on an explicit authorized user/API action and ends on explicit stop or an optional configured timeout.
 
-It is no longer classified by exactly one recording_type because several recording reasons may overlap during the same uninterrupted media interval.
+Stopping MANUAL removes only the manual reason.
 
-Conceptual fields:
+If CONTINUOUS/SCHEDULE/EVENT still requires recording, the recorder remains active.
 
-```text
-id
-camera_id
-started_at
-planned_end_at
-ended_at
-actual_media_started_at
-actual_media_ended_at
-status
-origin_intent_type
-created_at
-updated_at
-```
+## Event
 
-origin_intent_type records which intent caused an idle camera to enter formal recording. It is diagnostic/history information only; it does not imply that later overlapping intents are secondary or ignored.
-
-A RecordingSession continues as long as at least one RecordingIntent still requires formal recording.
-
-## Active-intent set
-
-For every camera, RecordingManager maintains the effective active intent set:
-
-```text
-active_recording_intents
-```
-
-The media requirement is:
-
-```text
-active_recording_intents != empty
-    → FORMAL_RECORDING
-
-active_recording_intents == empty
-    → IDLE_PREBUFFER
-       (when prebuffer is enabled)
-```
-
-The transition from zero active intents to one-or-more active intents creates/starts one RecordingSession.
-
-Adding or removing intents while the set remains non-empty does not restart the recorder and does not reset the formal segment clock.
-
-The transition from one-or-more active intents to zero ends the RecordingSession and returns the camera to idle prebuffer mode.
-
-## Continuous mode
-
-When RecordingPolicy.mode = continuous and the camera/policy is enabled:
-
-```text
-continuous intent = active
-```
-
-The continuous intent remains active while continuous recording is enabled.
-
-Events during continuous recording:
-
-- create/update DetectionEvent;
-- add event markers;
-- add event retention claims to affected RecordingSegments;
-- do not create another physical recorder;
-- do not reset segment cadence;
-- do not stop the continuous intent.
-
-Manual recording during continuous recording:
-
-- creates a manual intent for audit/retention/user-visible state;
-- does not restart the recorder;
-- stopping manual removes only the manual intent;
-- continuous recording continues because the continuous intent remains active.
-
-## Schedule mode
-
-A schedule occurrence creates a schedule intent at its start boundary.
-
-At schedule end:
-
-- complete that schedule intent;
-- stop formal recording only if no other active intent remains.
+EVENT recording is represented by RecordingTrigger windows.
 
 Example:
 
 ```text
-schedule: 08:00 ───────────── 18:00
-manual:                    17:55 ───────── 18:30
+Event A:
+  planned_start = 20:00:00
+  planned_end   = 20:00:20
 
-formal recording:
-          08:00 ────────────────────────── 18:30
+Event B arrives at 20:00:17:
+  effective event recording requirement extends to 20:00:27
 ```
 
-At 18:00 the schedule intent ends, but the RecordingSession remains active because manual recording still requires media.
+Event A and Event B remain separate Event/Trigger records.
 
-Starting/ending a schedule must not reset an already-active session's 5-minute segment clock.
+The physical recording runtime remains one recorder.
 
-## Event mode
+## RecordingTrigger aggregation
 
-Event recording remains governed by Spec 0002.
+For a camera, effective event coverage is the union of active trigger windows.
 
-For an isolated event while no other intent is active:
+The system may efficiently track the current latest event deadline, but canonical trigger rows remain independently queryable.
 
-```text
-event at T
-pre_roll = P
+Closing one trigger must not stop recording while another trigger/reason still requires it.
 
-event intent / RecordingSession logical start = T - P
-```
+## Pre-roll
 
-The pre-roll is assembled from PrebufferFragments according to Spec 0003.
+The product semantics may request about 10 seconds of EVENT_ONLY pre-roll.
 
-While any stateful DetectionEvent remains active, the event intent remains active.
+The physical mechanism is not part of RecordingIntent arbitration.
 
-After the last event ends:
+It is resolved by the design-freeze POC using mature ZLM capabilities.
 
-```text
-event intent
-active → post_roll
-```
+Recording arbitration only requests/records:
 
-and completes after configured post-roll unless another event extends/cancels that pending completion.
+- desired pre-roll;
+- desired post-roll;
+- planned trigger window;
+- whether pre-roll coverage was actually available.
 
-When an event occurs while another intent already keeps formal recording active:
+Do not encode a specific tmpfs/rolling-MP4 implementation into the intent state model.
 
-- no new media pipeline starts;
-- the event lifecycle still exists;
-- event markers are created;
-- event retention claims are attached to overlapping RecordingSegments;
-- the event intent may exist for lifecycle/audit purposes but does not control the already-running media by itself.
+## RecordingSession
 
-When the event/post-roll ends, removing the event intent stops recording only if no other active intent remains.
+A RecordingSession may represent one continuous business interval during which `should_record=true`.
 
-## Manual mode / manual recording action
+It can span several physical RecordingSegments because of:
 
-Manual recording is an explicit user/API intent:
+- normal segmentation;
+- source outage/recovery;
+- ZLM restart;
+- storage interruption;
+- profile reconfiguration.
 
-```text
-manual start
-    ↓
-manual intent ACTIVE
+RecordingSession is product/business structure; actual RecordingSegment times remain media truth.
 
-manual stop
-    ↓
-manual intent COMPLETED
-```
+If implementation can express the required behavior without persisting a separate RecordingSession table, persistence should remain as simple as possible.
 
-Manual start never creates a second recorder if formal recording is already active.
+## Interaction with source outages
 
-Manual stop means:
+Recording reason and media availability are different facts.
 
-> stop the manual reason for recording
+If should_record remains true while source media disappears:
 
-not:
+- do not clear CONTINUOUS/SCHEDULE/EVENT/MANUAL merely because video is unavailable;
+- actual finalized media ends at its real time;
+- timeline shows a gap;
+- when ZLM media returns, recording desired state is reconciled.
 
-> force-stop the camera recorder regardless of all other policies.
+zero-nvr does not run a second reconnect engine.
 
-Examples:
+## Interaction with storage failure
 
-### Manual inside continuous
+A local recording target failure does not silently redirect recording to cloud/archive storage.
 
-```text
-continuous  ─────────────────────────────
-manual            ─────────
+Recording reason may remain active while recording capability is degraded/critical.
 
-media       ─────────────────────────────
-```
-
-Stopping manual changes no physical recording state.
-
-### Manual extends an event recording
-
-```text
-event       ──────── post-roll
-manual             ──────────────────
-
-media       ──────────────────────────
-```
-
-When event/post-roll ends, manual keeps the same RecordingSession alive.
-
-### Manual starts while idle
-
-A new RecordingSession begins at manual start time.
-
-Manual recording does not automatically consume event pre-roll unless a future explicit manual-pre-roll setting is introduced.
-
-## Hybrid policy
-
-Initial V2 meaning of:
-
-```text
-mode = hybrid
-```
-
-is:
-
-> scheduled baseline recording + event-triggered recording outside scheduled windows.
-
-Behavior:
-
-```text
-inside configured schedule
-    → schedule intent keeps recording active
-    → events annotate/add retention only
-
-outside schedule
-    → idle prebuffer
-    → event can create event intent with pre/post-roll
-```
-
-This gives a useful hybrid model without running continuous recording 24/7.
-
-Example:
-
-```text
-schedule 08:00-18:00
-
-07:15 person event
-  → event recording around 07:15
-
-08:00-18:00
-  → scheduled recording continuously
-
-12:30 motion
-  → marker + event retention on existing schedule media
-
-20:10 vehicle
-  → event recording around 20:10
-```
-
-If a future product mode needs continuous 24/7 plus event annotation, that is already represented by continuous mode because events are always detected/annotated independently.
-
-## Segment clock rule
-
-This rule is critical:
-
-> Active-intent changes do not reset formal segment cadence.
-
-Example:
-
-```text
-RecordingSession starts from event pre-roll at 12:00:07
-segment duration = 5m
-
-segments:
-12:00:07 ─ 12:05:07
-12:05:07 ─ 12:10:07
-12:10:07 ─ 12:15:07
-```
-
-If:
-
-```text
-12:03 manual starts
-12:04 event ends
-12:04:10 post-roll ends
-12:11 schedule begins
-```
-
-and at least one intent remains active throughout, segment boundaries stay anchored to:
-
-```text
-12:00:07
-12:05:07
-12:10:07
-12:15:07
-```
-
-There is no 12:03 or 12:11 force-cut.
-
-A new segment clock begins only when the previous RecordingSession truly ended and a later request starts a new RecordingSession.
-
-## Session merge / split rule
-
-Two recording reasons belong to the same RecordingSession when there is no period in which the effective active-intent set becomes empty.
-
-Conceptually:
-
-```text
-same session
-⇔
-union(active intent intervals) is continuous
-```
-
-Example:
-
-```text
-event     10:00:00 ───── 10:00:20 + post-roll to 10:00:30
-manual                         10:00:25 ───── 10:05:00
-```
-
-Because manual starts before event post-roll ends, the intervals overlap and one RecordingSession continues.
-
-But:
-
-```text
-event     ends 10:00:30
-manual    starts 10:00:35
-```
-
-there is a true 5-second period with no active recording intent.
-
-Result:
-
-```text
-RecordingSession A ends 10:00:30
-IDLE_PREBUFFER 10:00:30 ─ 10:00:35
-RecordingSession B begins 10:00:35
-```
-
-Do not merge across a true no-intent gap merely to make history look continuous.
-
-## Policy changes while recording
-
-Changing RecordingPolicy updates intents rather than force-restarting media.
-
-Examples:
-
-### continuous → event
-
-If continuous mode is disabled while no event/manual/schedule intent remains:
-
-- complete continuous intent;
-- end current RecordingSession;
-- return to idle prebuffer.
-
-If an event/manual intent is still active:
-
-- complete continuous intent;
-- keep the same RecordingSession;
-- continue recording under remaining intent(s).
-
-### event → continuous
-
-If an event RecordingSession is active and policy changes to continuous:
-
-- activate continuous intent;
-- keep the same RecordingSession;
-- do not restart recorder;
-- do not reset 5-minute segment clock.
-
-### schedule edit
-
-Editing a schedule recalculates current/future schedule intents.
-
-Do not force-cut media merely because schedule configuration changed if another intent still requires recording.
-
-## Retention interaction
-
-RecordingIntent controls why media is recorded.
-
-RetentionClaim controls how long resulting media must remain.
-
-They are related but separate.
-
-Examples:
-
-```text
-continuous intent
-    → continuous retention claim
-
-event overlaps existing segment
-    → event retention claim
-
-manual overlaps existing segment
-    → manual retention claim
-```
-
-A RecordingSegment may therefore be created once and carry several claims.
-
-Effective retention follows Spec 0005.
-
-## UI behavior
-
-The UI should not force one mutually-exclusive recording badge when several reasons are active.
-
-Recommended state display:
-
-```text
-Recording
-  reasons:
-    Continuous
-    Motion Event
-    Manual
-```
-
-For compact views, show one recording indicator plus badges/icons for active reasons.
-
-The manual recording button reflects only the manual intent:
-
-```text
-manual inactive → Start manual recording
-manual active   → Stop manual recording
-```
-
-If continuous recording is also active, pressing "Stop manual recording" must not make the UI imply that all recording stopped.
-
-After the manual intent ends, the UI should still show "Recording · Continuous".
-
-## API behavior
-
-Prefer intent-oriented control endpoints.
-
-Conceptually:
-
-```text
-POST /cameras/{id}/recording/manual/start
-POST /cameras/{id}/recording/manual/stop
-
-GET /cameras/{id}/recording/state
-```
-
-State response may contain:
-
-```json
-{
-  "media_state": "formal_recording",
-  "recording_session_id": "session_01",
-  "active_intents": [
-    { "type": "continuous" },
-    { "type": "event", "source_id": "evt_01" },
-    { "type": "manual" }
-  ]
-}
-```
-
-External integrations still express RecordingTrigger/event intent and never manipulate the media process directly.
+The host storage or configured local target must recover/change before media can be reliably written again.
 
 ## Restart recovery
 
-After zero-nvr restart:
+After API/worker restart:
 
-- continuous intent is reconstructed from enabled RecordingPolicy;
-- schedule intent is reconstructed from current schedule occurrence;
-- active event intent is reconstructed from persisted DetectionEvent/event lifecycle where possible;
-- manual intent must be persisted so an intentional manual recording can resume until explicitly stopped or administratively recovered;
-- RecordingSession/media recovery follows actual segment/runtime state and records any interruption.
+1. load durable policy/manual/event-trigger state;
+2. evaluate current schedule/time windows;
+3. query ZLM actual recorder state;
+4. reconcile desired recorder state;
+5. do not blindly restart an already-running recorder.
 
-A runtime restart may create a physical discontinuity/partial segment, but it must not silently discard the business reasons that were still active.
+Manual/event state that must survive restart is persisted.
+
+Derived continuous/schedule activity may be recomputed from policy/time.
 
 ## Concurrency
 
-RecordingManager serializes/reconciles intent transitions per camera.
+Recording arbitration for one camera must be serialized enough that simultaneous:
 
-Required properties:
+- event update;
+- schedule boundary;
+- manual click;
+- policy change
 
-- duplicate manual start is idempotent;
-- duplicate manual stop is idempotent;
-- repeated schedule evaluation does not create duplicate schedule intents;
-- repeated event START for the same logical DetectionEvent does not create duplicate intents;
-- event post-roll cancellation and new intent arrival are race-safe;
-- no two workers independently decide to start two formal recorders for the same camera.
+cannot cause duplicate start/stop commands or lose an active reason.
 
-Implementation must document the per-camera synchronization/locking strategy.
+SQLite and PostgreSQL implementations may use different locking mechanics behind one service contract.
 
-## Structured logging
+Do not build a distributed consensus/lease system for a single-host V1.
 
-Important actions include:
+## UI
+
+Recording state should explain both:
 
 ```text
-intent_started
-intent_completed
-intent_cancelled
-intent_joined_session
-intent_left_session
-recording_session_started
-recording_session_continued
-recording_session_completed
-recording_reason_changed
+why recording is requested
+and
+whether media is actually being written
 ```
 
-EventLog details should make it possible to answer:
+Example:
 
-- what currently requires this camera to keep recording?
-- why did recording start?
-- why did it continue after one reason ended?
-- why did clicking manual stop not stop the recorder?
-- which intent caused the final stop?
+```text
+Reasons: CONTINUOUS + EVENT(person)
+Recorder: active
+Storage: OK
+```
+
+or:
+
+```text
+Reasons: EVENT(person)
+Recorder: unavailable
+Media: source offline
+```
+
+## Acceptance tests
+
+1. Continuous + event:
+   - event does not restart recorder;
+   - Event marker links to existing footage.
+
+2. Schedule ends while event active:
+   - recorder stays active until event/post-roll ends.
+
+3. Manual starts during continuous:
+   - no second recorder starts.
+
+4. Manual stops while continuous active:
+   - recorder continues.
+
+5. Two overlapping events:
+   - one recorder remains;
+   - latest required end time is respected;
+   - both Events remain separate.
+
+6. API restart:
+   - desired reasons are reconstructed;
+   - already-running ZLM recorder is not duplicated.
+
+7. Source outage:
+   - recording reasons remain logically active;
+   - real media gap is preserved.
+
+8. Storage failure:
+   - no automatic cloud hot-recording fallback occurs.
 
 ## Invariants
 
-1. A camera has at most one formal recording media pipeline.
-2. Recording reasons are additive RecordingIntents, not mutually destructive recorder modes.
-3. RecordingSession spans one uninterrupted formal-recording interval and may contain several intent types over its lifetime.
-4. A RecordingSession stays active while at least one RecordingIntent requires media.
-5. Adding/removing an intent while another remains active never restarts the recorder.
-6. Intent changes never reset the formal segment clock.
-7. Manual stop removes only the manual intent.
-8. Events never restart continuous/schedule/manual recording.
-9. Hybrid means scheduled baseline + event-triggered recording outside schedule in initial V2.
-10. Event pre/post-roll applies to event intent; it does not rewrite other intents' lifecycles.
-11. A true interval with zero active intents ends the RecordingSession.
-12. RetentionClaims are separate from RecordingIntents and can coexist on one RecordingSegment.
-13. Manual intent survives control-plane restart until explicitly stopped/recovered.
-14. Per-camera intent transitions are serialized/idempotent to prevent duplicate recorders.
-15. Non-obvious intent arbitration/state-transition/concurrency behavior requires comments per Development Guidelines.
-
-## Transport outage interaction
-
-RecordingIntent expresses the requirement to record, not proof that media is currently available. A camera source outage does not remove active RecordingIntents and does not end RecordingSession while at least one intent remains active. The physical RecordingSegment closes at confirmed media loss and recovery starts a new segment. See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](0008-stream-reconnect-and-recording-recovery.md).
+1. One camera has at most one normal ZLM recording runtime.
+2. Recording reasons are additive and independently removable.
+3. A change of reason does not restart the recorder while another reason remains active.
+4. Events never require a duplicate event recorder during existing continuous/scheduled/manual recording.
+5. RecordingTrigger is the canonical EVENT recording request/evidence model.
+6. Pre-roll physical implementation is separate and POC-gated.
+7. Media availability does not rewrite business recording reasons.
+8. Arbitration is idempotent and serialized per camera.
