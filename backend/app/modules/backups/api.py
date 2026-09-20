@@ -248,14 +248,17 @@ def update_backup_policy(
                 code="backup_credentials_invalid",
                 message="Backup credentials cannot be cleared.",
             )
-        changes["credentials"] = {
-            "password": (
+        credential_changes: dict[str, object] = {}
+        if body.credentials.password is not None:
+            credential_changes["password"] = (
                 body.credentials.password.get_secret_value()
-            ),
-            "environment": _environment(
-                body.credentials
-            ),
-        }
+            )
+        if body.credentials.environment is not None:
+            credential_changes["environment"] = {
+                key: value.get_secret_value()
+                for key, value in body.credentials.environment.items()
+            }
+        changes["credentials"] = credential_changes
 
     try:
         policy = service.update(

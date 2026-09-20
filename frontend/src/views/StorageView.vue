@@ -62,7 +62,7 @@ const targetForm = reactive({
 
 const policyForm = reactive({
   name: "Default retention",
-  scopeType: "GLOBAL" as "GLOBAL" | "CAMERA",
+  scopeType: "GLOBAL" as "GLOBAL" | "CAMERA" | "CAMERA_GROUP",
   scopeId: "",
   ordinaryDays: 14,
   eventDays: 30,
@@ -352,14 +352,8 @@ function openPolicyPanel(): void {
 function openEditPolicy(policy: RetentionPolicy): void {
   editingPolicy.value = policy
   policyForm.name = policy.name
-  policyForm.scopeType =
-    policy.scope_type === "CAMERA"
-      ? "CAMERA"
-      : "GLOBAL"
-  policyForm.scopeId =
-    policy.scope_type === "CAMERA" && policy.scope_id
-      ? policy.scope_id
-      : ""
+  policyForm.scopeType = policy.scope_type
+  policyForm.scopeId = policy.scope_id ?? ""
   policyForm.ordinaryDays = policy.ordinary_keep_days
   policyForm.eventDays = policy.event_keep_days
   policyForm.manualDays = policy.manual_keep_days
@@ -379,7 +373,8 @@ async function savePolicy(): Promise<void> {
     name: policyForm.name.trim(),
     scope_type: policyForm.scopeType,
     scope_id:
-      policyForm.scopeType === "CAMERA"
+      policyForm.scopeType === "CAMERA" ||
+      policyForm.scopeType === "CAMERA_GROUP"
         ? policyForm.scopeId || null
         : null,
     ordinary_keep_days: Number(policyForm.ordinaryDays),
@@ -938,6 +933,14 @@ onBeforeUnmount(() => {
             <select v-model="policyForm.scopeType">
               <option value="GLOBAL">All cameras</option>
               <option value="CAMERA">Single camera</option>
+              <option
+                v-if="
+                  editingPolicy?.scope_type === 'CAMERA_GROUP'
+                "
+                value="CAMERA_GROUP"
+              >
+                Existing camera group
+              </option>
             </select>
           </label>
 
@@ -953,6 +956,20 @@ onBeforeUnmount(() => {
                 {{ camera.name }}
               </option>
             </select>
+          </label>
+
+          <label
+            v-if="policyForm.scopeType === 'CAMERA_GROUP'"
+          >
+            <span>Camera group</span>
+            <input
+              :value="policyForm.scopeId"
+              readonly
+            />
+            <small>
+              Existing group scope is preserved. Group selection is managed
+              from Cameras → Groups.
+            </small>
           </label>
 
           <div class="retention-days-grid">
