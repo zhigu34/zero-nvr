@@ -49,15 +49,36 @@ Target product behavior:
 - no duplicate recorder is started;
 - independent events remain independent markers.
 
-Evaluate mature ZLM-native mechanisms first:
+Evaluate the current mature ZLM-native candidates in this order:
 
-- rolling HLS/fMP4 segments;
-- recorder/GOP cache behavior;
-- other existing ZLM capabilities.
+1. **rolling normal ZLM MP4/fMP4 recorder into bounded tmpfs + whole-fragment promotion**;
+2. ordinary startRecord with a pre-created ZLM frame GOP Ring;
+3. startRecordTask(back_ms, forward_ms) as a fixed-clip comparison/fallback.
+
+Source audit already shows important constraints that the runtime POC must confirm:
+
+- startRecordTask creates an independent MP4Muxer/RingReader per call and has no task-extension ID/API;
+- startRecordTask does not use the normal MP4Recorder on_record_mp4 finalize path;
+- ordinary makeRecorder() can flush an existing GOP Ring into the standard recorder, but Ring creation/lifecycle and absolute timing must be proven;
+- rolling tmpfs promotion keeps the ordinary ZLM recorder/hook path and naturally supports unknown Event duration.
 
 Do not implement a custom compressed-video packet ring buffer.
 
-Pass condition: stable pre-roll coverage is demonstrated across real cameras/codecs/GOP intervals with explicit degradation when coverage is unavailable.
+Primary candidate-C test:
+
+```text
+Camera
+ -> one ZLM recorder
+ -> short finalized fragments in bounded tmpfs
+ -> on_record_mp4
+ -> Event/Trigger overlap selects whole fragments
+ -> copy + verify + atomic publish
+ -> persistent RecordingSegment + RecordingLocation
+```
+
+The recorder stays active while Events only change the promotion window.
+
+Pass condition: stable pre-roll coverage is demonstrated across fragment boundaries and GOP intervals, with bounded measured tmpfs usage and explicit degradation when coverage is unavailable.
 
 ## POC-04 — multi-event extension
 
@@ -68,7 +89,18 @@ event A -> planned end 20:00:20
 event B at 20:00:17 -> extend planned end to 20:00:27
 ```
 
-Validate that media recording remains one logical active interval while Event A and Event B remain separately queryable and visible on the timeline.
+For the primary rolling-tmpfs candidate, validate that Event A/B/C only extend the effective **promotion window**; they must not start/restart ZLM recording.
+
+Validate:
+
+- Event A/B/C remain separately queryable;
+- one source-facing ZLM stream and one normal ZLM recorder remain;
+- overlapping finalized tmpfs fragments are promoted once;
+- a fragment needed by several Events creates one canonical RecordingSegment/RecordingLocation, not duplicate copies;
+- the effective end moves to the latest required post-roll;
+- after the final end is covered and finalized, promotion stops while the rolling tmpfs recorder continues.
+
+Also run a small startRecordTask repeated-call comparison so the result records whether the current upstream open repeated-call issue is still reproducible on the tested ZLM commit.
 
 ## POC-05 — timeline precision
 
@@ -239,21 +271,32 @@ If fMP4 causes unacceptable VOD/browser/export regressions, do not make it the d
 
 ### POC-03 — EVENT_ONLY pre-roll
 
-For configured pre-roll `P` and the chosen ZLM-native buffer fragment/granularity `G`:
+For the primary rolling-fragment candidate, whole overlapping fragments are retained, so exact file boundaries do not need to equal the requested pre-roll boundary.
+
+For every Event trigger at T with configured pre-roll P:
 
 ```text
-expected usable coverage >= P - G
+earliest promoted media start <= T - P
+latest promoted media end    >= final_event_end + post_roll
 ```
 
-unless the source itself makes this impossible.
+unless source loss, event-delivery delay beyond the retained buffer, or explicit buffer pressure makes that impossible.
 
 Pass only if:
 
 - no custom H.264/H.265 packet ring buffer is required;
-- repeated triggers obtain stable pre-event coverage within the documented ZLM mechanism/granularity;
-- H.264 and H.265/GOP differences are documented;
+- one normal ZLM recorder stays active before/during/after the Event;
+- at least 10 repeated triggers at varied positions relative to fragment boundaries satisfy requested coverage;
+- tests use at least two GOP/keyframe intervals;
+- H.265 is exercised where the test image supports it, otherwise the limitation is explicit;
+- whole-fragment extra coverage is measured;
+- finalized hook timing is sufficient for canonical RecordingSegment timing;
+- tmpfs capacity is explicitly bounded and measured;
+- protection/promotion wins races with ephemeral GC;
 - unavailable coverage is reported as degraded rather than fabricated;
-- memory/disk use of the rolling mechanism is bounded and calculable per camera.
+- control-plane restart can reconstruct finalized ephemeral fragments without a PrebufferFragment table.
+
+Also record comparison results for startRecordTask and ordinary GOP-ring startRecord when practical. A comparison mechanism does not need to pass if the primary candidate passes and its rejection reason is documented.
 
 If no mature ZLM-native mechanism can meet the product target reliably, the architecture decision must be revisited before freeze.
 
@@ -263,9 +306,12 @@ Pass only if:
 
 - two overlapping Events remain two independent Event/RecordingTrigger records;
 - only one normal ZLM recorder is active;
-- the effective stop deadline extends to the latest required post-roll;
-- a third update near the deadline can extend it again without recorder restart;
-- removal/completion of one trigger never stops recording while another reason remains active.
+- the effective **promotion** deadline extends to the latest required post-roll;
+- a third update near the deadline extends promotion again without recorder restart;
+- one tmpfs fragment overlapping multiple Events is promoted only once;
+- removal/completion of one trigger never causes required media to be garbage-collected while another trigger still needs it;
+- after the final required fragment is promoted, rolling prebuffer recording continues without a mode transition;
+- the startRecordTask repeated-call comparison is recorded separately and is not mistaken for task extension.
 
 ### POC-05 — Timeline precision
 
