@@ -31,9 +31,12 @@ def make_app(tmp_path: Path, *, hook_secret: str | None = HOOK_SECRET):
         database_url=f"sqlite:///{tmp_path / 'zlm-hooks.db'}",
         data_dir=tmp_path / "data",
         cache_dir=tmp_path / "cache",
+        prebuffer_dir=tmp_path / "prebuffer",
+        prebuffer_require_tmpfs=False,
         session_cookie_secure=False,
         zlm_hook_secret=hook_secret,
     )
+    settings.prebuffer_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
     return app
