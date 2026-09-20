@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 
 
-SOURCE = Path("/opt/media/conf/config.ini")
+SOURCE = Path("/out/config.ini")
 TARGET = Path("/out/config.ini")
 
 
@@ -53,6 +53,11 @@ def main() -> None:
     hook_token = os.environ["ZLM_HOOK_TOKEN"]
     enable_fmp4 = os.getenv("POC_ZLM_ENABLE_FMP4", "0")
     gop_cache = os.getenv("POC_ZLM_GOP_CACHE", "10")
+
+    if not SOURCE.is_file() or SOURCE.stat().st_size == 0:
+        raise RuntimeError(
+            "ZLM source config was not copied into the shared init volume"
+        )
 
     text = SOURCE.read_text(encoding="utf-8")
 
