@@ -99,7 +99,7 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         )
         assert reset_password.status_code == 200
 
-        use_token(client, new_viewer_token)
+        use_token(client, viewer_token)
         assert client.get("/api/v1/auth/me").status_code == 401
 
         old_password = client.post(
@@ -168,7 +168,7 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         assert disabled.status_code == 200
         assert disabled.json()["enabled"] is False
 
-        use_token(client, viewer_token)
+        use_token(client, new_viewer_token)
         assert client.get("/api/v1/auth/me").status_code == 401
 
         use_token(client, admin_token)
