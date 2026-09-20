@@ -462,3 +462,90 @@ def test_personal_api_token_is_hashed_scoped_and_revocable(
             headers=headers,
         )
         assert after_revoke.status_code == 401
+
+
+
+def test_login_and_reset_rate_limits_are_non_enumerating(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "admin@example.com",
+                "password": "correct-horse-battery-staple",
+            },
+        ).status_code == 201
+
+        for _ in range(4):
+            wrong = client.post(
+                "/api/v1/auth/login",
+                json={
+                    "username": "admin",
+                    "password": "wrong-password",
+                },
+            )
+            assert wrong.status_code == 401
+            assert (
+                wrong.json()["error"]["code"]
+                == "invalid_credentials"
+            )
+
+        blocked = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": "wrong-password",
+            },
+        )
+        assert blocked.status_code == 429
+        assert (
+            blocked.json()["error"]["code"]
+            == "too_many_attempts"
+        )
+        assert (
+            blocked.json()["error"]["details"][
+                "retry_after_seconds"
+            ]
+            >= 1
+        )
+
+        still_blocked = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": "correct-horse-battery-staple",
+            },
+        )
+        assert still_blocked.status_code == 429
+
+        for index in range(12):
+            reset = client.post(
+                "/api/v1/auth/password-reset/request",
+                json={
+                    "identifier": (
+                        "admin@example.com"
+                        if index % 2 == 0
+                        else f"missing-{index}@example.com"
+                    )
+                },
+            )
+            assert reset.status_code == 202
+            assert reset.json() == {
+                "accepted": True
+            }
+
+    with app.state.database.session() as session:
+        from app.modules.audit.models import AuditEvent
+
+        actions = set(
+            session.scalars(
+                select(AuditEvent.action)
+            ).all()
+        )
+    assert "auth.login.rate_limited" in actions
+    assert "auth.password_reset.rate_limited" in actions
