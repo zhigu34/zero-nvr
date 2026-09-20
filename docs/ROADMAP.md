@@ -48,7 +48,7 @@ Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-re
 - [x] Define event recording lifecycle, RecordingTrigger, correlation_id, and intent arbitration.
 - [x] Define instant-event 10s pre-roll + 10s post-roll semantics.
 - [x] Define required code-comment/documentation standard.
-- [x] Define EVENT_ONLY pre/post-roll semantics; exact ZLM-native pre-roll mechanism remains a design-freeze POC.
+- [x] Freeze EVENT_ONLY pre/post-roll mechanism: one ZLM rolling short-fragment recorder in bounded tmpfs, whole-fragment promotion from RecordingTrigger windows.
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
@@ -374,7 +374,7 @@ Acceptance:
 - [ ] derive desired recording state from baseline policy + active trigger windows.
 - [ ] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [ ] continuous/scheduled/manual existing recording is annotated rather than restarted.
-- [ ] POC-approved ZLM-native EVENT_ONLY pre-roll mechanism.
+- [ ] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.
 - [ ] configurable pre_roll_seconds / post_roll_seconds.
 - [ ] honest degraded-pre-roll state when required past coverage is unavailable.
 - [ ] actual ZLM segment finalize hooks feed RecordingSegment catalog.
