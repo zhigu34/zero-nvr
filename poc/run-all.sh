@@ -27,20 +27,23 @@ archive_runtime() {
   # Preserve compact evidence/log/config outputs. Large generated media stays
   # in the disposable per-harness runtime directory unless explicitly copied
   # by the operator.
-  find "$source_dir" -maxdepth 1 -type f \( \
-      -name '*.json' -o \
-      -name '*.log' -o \
-      -name '*.txt' -o \
-      -name '*.sqlite3' -o \
-      -name '*.db' \
-    \) -exec cp -p {} "$destination/" \; 2>/dev/null || true
+  for pattern in '*.json' '*.log' '*.txt' '*.sqlite3' '*.db'; do
+    for file in "$source_dir"/$pattern; do
+      [ -f "$file" ] || continue
+      cp -p "$file" "$destination/" 2>/dev/null || true
+    done
+  done
 
   # Keep a deterministic manifest of generated media/cache files without
   # duplicating potentially large MP4 payloads into the aggregate archive.
   (
     cd "$source_dir" 2>/dev/null || exit 0
-    find . -type f \( -name '*.mp4' -o -name '*.partial' \) \
-      -printf '%p\t%s bytes\n' 2>/dev/null | sort
+    find . -type f \( -name '*.mp4' -o -name '*.partial' \) -print 2>/dev/null |
+      while IFS= read -r file; do
+        size=$(wc -c < "$file" 2>/dev/null || echo 0)
+        printf '%s\t%s bytes\n' "$file" "$size"
+      done |
+      sort
   ) > "$destination/media-manifest.tsv" || true
 }
 
