@@ -14,10 +14,13 @@ import {
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
 import {
+  createOidcProvider,
   createRole,
   createUser,
+  deleteOidcProvider,
   getRoleCameraScope,
   getUserCameraScope,
+  listOidcProviders,
   listPermissions,
   listRoles,
   listUsers,
@@ -25,20 +28,29 @@ import {
   setRoleCameraScope,
   setUserCameraScope,
   setUserEnabled,
+  updateOidcProvider,
   updateRole,
   updateUser,
   type AdminUser,
   type CameraScope,
+  type OidcProvider,
   type Role
 } from "../../api/system"
 import UiIcon from "../ui/UiIcon.vue"
 
-type AccessTab = "users" | "roles"
-type EditorKind = "user" | "role" | "password" | "scope" | null
+type AccessTab = "users" | "roles" | "oidc"
+type EditorKind =
+  | "user"
+  | "role"
+  | "password"
+  | "scope"
+  | "oidc"
+  | null
 
 const tab = ref<AccessTab>("users")
 const users = ref<AdminUser[]>([])
 const roles = ref<Role[]>([])
+const oidcProviders = ref<OidcProvider[]>([])
 const permissions = ref<string[]>([])
 const cameras = ref<CameraSummary[]>([])
 const cameraGroups = ref<CameraGroup[]>([])
@@ -49,6 +61,7 @@ const notice = ref<string | null>(null)
 const editorKind = ref<EditorKind>(null)
 const editingUser = ref<AdminUser | null>(null)
 const editingRole = ref<Role | null>(null)
+const editingOidc = ref<OidcProvider | null>(null)
 const scopeOwnerType = ref<"user" | "role">("user")
 const scopeOwnerId = ref("")
 const scopeOwnerLabel = ref("")
@@ -66,6 +79,18 @@ const roleForm = reactive({
   name: "",
   description: "",
   permissionIds: [] as string[]
+})
+
+const oidcForm = reactive({
+  key: "",
+  name: "",
+  issuer: "",
+  clientId: "",
+  clientSecret: "",
+  enabled: true,
+  autoProvision: false,
+  emailLinking: false,
+  defaultRoleIds: [] as string[]
 })
 
 const issuedReset = ref<{
@@ -99,6 +124,7 @@ function closeEditor(): void {
   editorKind.value = null
   editingUser.value = null
   editingRole.value = null
+  editingOidc.value = null
   scopeOwnerId.value = ""
   scopeOwnerLabel.value = ""
   scopeForm.groupIds = []
@@ -111,18 +137,21 @@ async function refresh(): Promise<void> {
     const [
       userItems,
       roleItems,
+      oidcItems,
       permissionItems,
       cameraItems,
       groupItems
     ] = await Promise.all([
       listUsers(),
       listRoles(),
+      listOidcProviders(),
       listPermissions(),
       listCameras().catch(() => []),
       listCameraGroups().catch(() => [])
     ])
     users.value = userItems
     roles.value = roleItems
+    oidcProviders.value = oidcItems
     permissions.value = permissionItems
     cameras.value = cameraItems
     cameraGroups.value = groupItems
@@ -284,6 +313,138 @@ async function saveRole(): Promise<void> {
   }
 }
 
+function openCreateOidc(): void {
+  editingOidc.value = null
+  oidcForm.key = ""
+  oidcForm.name = ""
+  oidcForm.issuer = ""
+  oidcForm.clientId = ""
+  oidcForm.clientSecret = ""
+  oidcForm.enabled = true
+  oidcForm.autoProvision = false
+  oidcForm.emailLinking = false
+  const viewer = roles.value.find(
+    (item) => item.name === "Viewer"
+  )
+  oidcForm.defaultRoleIds = viewer
+    ? [viewer.id]
+    : []
+  editorKind.value = "oidc"
+  notice.value = null
+}
+
+function openEditOidc(provider: OidcProvider): void {
+  editingOidc.value = provider
+  oidcForm.key = provider.key
+  oidcForm.name = provider.name
+  oidcForm.issuer = provider.issuer
+  oidcForm.clientId = provider.client_id
+  oidcForm.clientSecret = ""
+  oidcForm.enabled = provider.enabled
+  oidcForm.autoProvision =
+    provider.auto_provision
+  oidcForm.emailLinking =
+    provider.email_linking
+  oidcForm.defaultRoleIds = [
+    ...provider.default_role_ids
+  ]
+  editorKind.value = "oidc"
+  notice.value = null
+}
+
+async function saveOidc(): Promise<void> {
+  saving.value = true
+  error.value = null
+  try {
+    if (
+      oidcForm.autoProvision &&
+      !oidcForm.defaultRoleIds.length
+    ) {
+      throw new Error(
+        "Select at least one default role when auto-provisioning is enabled."
+      )
+    }
+
+    if (editingOidc.value) {
+      const changes: {
+        name: string
+        enabled: boolean
+        issuer: string
+        client_id: string
+        auto_provision: boolean
+        email_linking: boolean
+        default_role_ids: string[]
+        client_secret?: string
+      } = {
+        name: oidcForm.name.trim(),
+        enabled: oidcForm.enabled,
+        issuer: oidcForm.issuer.trim(),
+        client_id: oidcForm.clientId.trim(),
+        auto_provision: oidcForm.autoProvision,
+        email_linking: oidcForm.emailLinking,
+        default_role_ids: [
+          ...oidcForm.defaultRoleIds
+        ]
+      }
+      if (oidcForm.clientSecret) {
+        changes.client_secret =
+          oidcForm.clientSecret
+      }
+      await updateOidcProvider(
+        editingOidc.value.key,
+        changes
+      )
+      notice.value = "OIDC provider updated."
+    } else {
+      await createOidcProvider({
+        key: oidcForm.key.trim(),
+        name: oidcForm.name.trim(),
+        enabled: oidcForm.enabled,
+        issuer: oidcForm.issuer.trim(),
+        client_id: oidcForm.clientId.trim(),
+        client_secret:
+          oidcForm.clientSecret,
+        auto_provision:
+          oidcForm.autoProvision,
+        email_linking:
+          oidcForm.emailLinking,
+        default_role_ids: [
+          ...oidcForm.defaultRoleIds
+        ]
+      })
+      notice.value = "OIDC provider created."
+    }
+    closeEditor()
+    await refresh()
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removeOidc(
+  provider: OidcProvider
+): Promise<void> {
+  if (
+    !window.confirm(
+      `Delete OIDC provider "${provider.name}"? Existing external identity links remain in user history, but this provider can no longer sign users in.`
+    )
+  ) {
+    return
+  }
+
+  error.value = null
+  try {
+    await deleteOidcProvider(provider.key)
+    notice.value =
+      `${provider.name} deleted.`
+    await refresh()
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  }
+}
+
 async function openUserScope(user: AdminUser): Promise<void> {
   error.value = null
   try {
@@ -415,13 +576,22 @@ onMounted(() => {
           Add user
         </button>
         <button
-          v-else
+          v-else-if="tab === 'roles'"
           class="button button--primary"
           type="button"
           @click="openCreateRole"
         >
           <UiIcon name="plus" :size="14" />
           Add role
+        </button>
+        <button
+          v-else
+          class="button button--primary"
+          type="button"
+          @click="openCreateOidc"
+        >
+          <UiIcon name="plus" :size="14" />
+          Add OIDC provider
         </button>
       </div>
     </header>
@@ -442,6 +612,14 @@ onMounted(() => {
       >
         Roles
         <span>{{ roles.length }}</span>
+      </button>
+      <button
+        type="button"
+        :class="{ 'access-tab--active': tab === 'oidc' }"
+        @click="tab = 'oidc'"
+      >
+        OIDC
+        <span>{{ oidcProviders.length }}</span>
       </button>
     </div>
 
@@ -520,7 +698,10 @@ onMounted(() => {
       </table>
     </div>
 
-    <div v-else class="role-card-grid">
+    <div
+      v-else-if="tab === 'roles'"
+      class="role-card-grid"
+    >
       <article
         v-for="role in roles"
         :key="role.id"
@@ -568,6 +749,76 @@ onMounted(() => {
           </button>
         </footer>
       </article>
+    </div>
+
+    <div v-else class="system-table-wrap">
+      <table class="system-table">
+        <thead>
+          <tr>
+            <th>Provider</th>
+            <th>Issuer</th>
+            <th>Provisioning</th>
+            <th>Status</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-if="!oidcProviders.length">
+            <td colspan="5">
+              No OIDC providers configured.
+            </td>
+          </tr>
+          <tr
+            v-for="provider in oidcProviders"
+            :key="provider.id"
+          >
+            <td>
+              <strong>{{ provider.name }}</strong>
+              <small>{{ provider.key }} · {{ provider.client_id }}</small>
+            </td>
+            <td>{{ provider.issuer }}</td>
+            <td>
+              {{
+                provider.auto_provision
+                  ? "Auto-provision"
+                  : provider.email_linking
+                    ? "Verified email linking"
+                    : "Linked identities only"
+              }}
+            </td>
+            <td>
+              <span
+                class="status-pill"
+                :class="
+                  provider.enabled
+                    ? 'status-pill--ok'
+                    : 'status-pill--muted'
+                "
+              >
+                {{ provider.enabled ? "Enabled" : "Disabled" }}
+              </span>
+            </td>
+            <td class="system-table__actions">
+              <div class="access-row-actions">
+                <button
+                  class="button button--ghost button--compact"
+                  type="button"
+                  @click="openEditOidc(provider)"
+                >
+                  Edit
+                </button>
+                <button
+                  class="button button--ghost button--compact"
+                  type="button"
+                  @click="removeOidc(provider)"
+                >
+                  Delete
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <aside
@@ -746,6 +997,180 @@ onMounted(() => {
             :disabled="saving"
           >
             {{ saving ? "Issuing…" : "Issue reset token" }}
+          </button>
+        </div>
+      </form>
+    </aside>
+
+    <aside
+      v-if="editorKind === 'oidc'"
+      class="system-drawer"
+    >
+      <header class="storage-editor__header">
+        <div>
+          <strong>
+            {{
+              editingOidc
+                ? "Edit OIDC provider"
+                : "Add OIDC provider"
+            }}
+          </strong>
+          <span>
+            OpenID Connect identity provider
+          </span>
+        </div>
+        <button
+          class="icon-button"
+          type="button"
+          @click="closeEditor"
+        >
+          <UiIcon name="close" :size="16" />
+        </button>
+      </header>
+
+      <form
+        class="storage-editor__form"
+        @submit.prevent="saveOidc"
+      >
+        <label>
+          <span>Provider key</span>
+          <input
+            v-model="oidcForm.key"
+            required
+            maxlength="64"
+            pattern="[a-z0-9][a-z0-9_-]{0,63}"
+            :disabled="Boolean(editingOidc)"
+            placeholder="authentik"
+          />
+          <small>
+            Lowercase identifier used in the callback URL.
+          </small>
+        </label>
+
+        <label>
+          <span>Display name</span>
+          <input
+            v-model="oidcForm.name"
+            required
+            maxlength="128"
+            placeholder="Authentik"
+          />
+        </label>
+
+        <label>
+          <span>Issuer URL</span>
+          <input
+            v-model="oidcForm.issuer"
+            required
+            type="url"
+            placeholder="https://id.example.com/application/o/zero-nvr/"
+          />
+          <small>
+            HTTPS required except localhost/loopback development.
+          </small>
+        </label>
+
+        <label>
+          <span>Client ID</span>
+          <input
+            v-model="oidcForm.clientId"
+            required
+            autocomplete="off"
+          />
+        </label>
+
+        <label>
+          <span>Client secret</span>
+          <input
+            v-model="oidcForm.clientSecret"
+            type="password"
+            :required="!editingOidc"
+            autocomplete="new-password"
+            :placeholder="
+              editingOidc
+                ? 'Leave blank to keep the current secret'
+                : ''
+            "
+          />
+          <small>
+            Stored encrypted and never returned to the browser.
+          </small>
+        </label>
+
+        <label class="storage-check">
+          <input
+            v-model="oidcForm.enabled"
+            type="checkbox"
+          />
+          <span>Provider enabled</span>
+        </label>
+
+        <label class="storage-check">
+          <input
+            v-model="oidcForm.emailLinking"
+            type="checkbox"
+          />
+          <span>
+            Link existing users by verified email
+            <small>
+              Only email_verified=true identities are eligible.
+            </small>
+          </span>
+        </label>
+
+        <label class="storage-check">
+          <input
+            v-model="oidcForm.autoProvision"
+            type="checkbox"
+          />
+          <span>
+            Auto-provision new users
+            <small>
+              New users receive only the default roles selected below.
+            </small>
+          </span>
+        </label>
+
+        <fieldset class="system-role-list">
+          <legend>Default roles</legend>
+          <label
+            v-for="role in roles"
+            :key="role.id"
+          >
+            <input
+              v-model="oidcForm.defaultRoleIds"
+              type="checkbox"
+              :value="role.id"
+            />
+            <span>
+              <strong>{{ role.name }}</strong>
+              <small>
+                {{ role.description || "No description" }}
+              </small>
+            </span>
+          </label>
+        </fieldset>
+
+        <div class="storage-editor__actions">
+          <button
+            class="button button--ghost"
+            type="button"
+            @click="closeEditor"
+          >
+            Cancel
+          </button>
+          <button
+            class="button button--primary"
+            type="submit"
+            :disabled="saving"
+          >
+            {{
+              saving
+                ? "Saving…"
+                : editingOidc
+                  ? "Save provider"
+                  : "Create provider"
+            }}
           </button>
         </div>
       </form>

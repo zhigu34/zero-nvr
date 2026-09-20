@@ -266,6 +266,71 @@ export function getUpdateInfo(): Promise<SystemUpdateInfo> {
   return apiRequest<SystemUpdateInfo>("/system/update-info")
 }
 
+export interface OidcProvider {
+  id: string
+  key: string
+  name: string
+  enabled: boolean
+  issuer: string
+  client_id: string
+  client_secret_configured: boolean
+  auto_provision: boolean
+  email_linking: boolean
+  default_role_ids: string[]
+}
+
+export function listOidcProviders(): Promise<OidcProvider[]> {
+  return apiRequest<OidcProvider[]>("/oidc/providers")
+}
+
+export function createOidcProvider(input: {
+  key: string
+  name: string
+  enabled: boolean
+  issuer: string
+  client_id: string
+  client_secret: string
+  auto_provision: boolean
+  email_linking: boolean
+  default_role_ids: string[]
+}): Promise<OidcProvider> {
+  return apiRequest<OidcProvider>("/oidc/providers", {
+    method: "POST",
+    json: input
+  })
+}
+
+export function updateOidcProvider(
+  providerKey: string,
+  changes: {
+    name?: string
+    enabled?: boolean
+    issuer?: string
+    client_id?: string
+    client_secret?: string
+    auto_provision?: boolean
+    email_linking?: boolean
+    default_role_ids?: string[]
+  }
+): Promise<OidcProvider> {
+  return apiRequest<OidcProvider>(
+    `/oidc/providers/${encodeURIComponent(providerKey)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function deleteOidcProvider(
+  providerKey: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/oidc/providers/${encodeURIComponent(providerKey)}`,
+    { method: "DELETE" }
+  )
+}
+
 export function listUsers(): Promise<AdminUser[]> {
   return apiRequest<AdminUser[]>("/users")
 }
