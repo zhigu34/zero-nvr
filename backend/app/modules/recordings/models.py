@@ -24,6 +24,54 @@ from app.core.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 from app.core.db.types import UTCDateTime, UUIDType, utc_now
 
 
+class RetentionPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "retention_policies"
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('GLOBAL','CAMERA','CAMERA_GROUP')",
+            name="retention_policy_scope_type",
+        ),
+        CheckConstraint(
+            "mode IN ('BEST_EFFORT','HARD')",
+            name="retention_policy_mode",
+        ),
+        CheckConstraint(
+            "ordinary_keep_days >= 0",
+            name="retention_policy_ordinary_days_nonnegative",
+        ),
+        CheckConstraint(
+            "event_keep_days >= 0",
+            name="retention_policy_event_days_nonnegative",
+        ),
+        CheckConstraint(
+            "manual_keep_days >= 0",
+            name="retention_policy_manual_days_nonnegative",
+        ),
+    )
+
+    name: Mapped[str] = mapped_column(
+        String(128),
+        nullable=False,
+        unique=True,
+    )
+    scope_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    scope_id: Mapped[uuid.UUID | None] = mapped_column(UUIDType, nullable=True)
+    ordinary_keep_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    event_keep_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    manual_keep_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    require_archive_before_delete: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
+
+
 class RecordingPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "recording_policies"
     __table_args__ = (
@@ -32,8 +80,8 @@ class RecordingPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="uq_recording_policies_camera_id",
         ),
         CheckConstraint(
-            "mode IN ('CONTINUOUS','SCHEDULE','EVENT_ONLY','DISABLED')",
-            name="recording_policy_mode",
+            "baseline_mode IN ('continuous','schedule','disabled')",
+            name="recording_policy_baseline_mode",
         ),
         CheckConstraint(
             "segment_target_seconds > 0",
@@ -54,20 +102,29 @@ class RecordingPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("cameras.id", ondelete="CASCADE"),
         nullable=False,
     )
-    mode: Mapped[str] = mapped_column(
+    baseline_mode: Mapped[str] = mapped_column(
         String(32),
         nullable=False,
-        default="CONTINUOUS",
+        default="continuous",
     )
-    enabled: Mapped[bool] = mapped_column(
+    schedule_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )
+    schedule_timezone: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
+    event_recording_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
-        default=True,
+        default=False,
     )
-    storage_target_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUIDType,
-        ForeignKey("storage_targets.id", ondelete="RESTRICT"),
-        nullable=True,
+    event_filter_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
     )
     segment_target_seconds: Mapped[int] = mapped_column(
         Integer,
@@ -84,24 +141,72 @@ class RecordingPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=10,
     )
-    schedule_timezone: Mapped[str | None] = mapped_column(
-        String(128),
+    storage_target_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("storage_targets.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    schedule_json: Mapped[list[dict[str, Any]]] = mapped_column(
-        "schedule",
-        JSON,
+    retention_policy_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("retention_policies.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean,
         nullable=False,
-        default=list,
+        default=True,
+    )
+
+
+class RecordingProtection(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "recording_protections"
+    __table_args__ = (
+        Index(
+            "ix_recording_protections_camera_range",
+            "camera_id",
+            "started_at",
+            "ended_at",
+        ),
+        CheckConstraint(
+            "ended_at > started_at",
+            name="recording_protection_positive_range",
+        ),
+    )
+
+    camera_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("cameras.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUIDType,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(),
+        nullable=True,
     )
 
 
 class RecordingTrigger(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "recording_triggers"
     __table_args__ = (
-        CheckConstraint(
-            "state IN ('PENDING','ACTIVE','COMPLETED','CANCELLED','FAILED')",
-            name="recording_trigger_state",
+        Index(
+            "uq_recording_triggers_source_event",
+            "source",
+            "source_event_id",
+            unique=True,
+            sqlite_where=text("source_event_id IS NOT NULL"),
+            postgresql_where=text("source_event_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_recording_triggers_camera_planned_start",
+            "camera_id",
+            "planned_start_at",
         ),
         CheckConstraint(
             "pre_roll_seconds >= 0",
@@ -112,29 +217,14 @@ class RecordingTrigger(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="recording_trigger_post_roll_nonnegative",
         ),
         CheckConstraint(
-            "planned_end_at >= planned_start_at",
+            "planned_end_at IS NULL OR planned_end_at >= planned_start_at",
             name="recording_trigger_window",
-        ),
-        Index(
-            "uq_recording_triggers_source_event",
-            "camera_id",
-            "source",
-            "source_event_id",
-            unique=True,
-            sqlite_where=text("source_event_id IS NOT NULL"),
-            postgresql_where=text("source_event_id IS NOT NULL"),
-        ),
-        Index(
-            "ix_recording_triggers_camera_state_end",
-            "camera_id",
-            "state",
-            "planned_end_at",
         ),
     )
 
     camera_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
-        ForeignKey("cameras.id", ondelete="CASCADE"),
+        ForeignKey("cameras.id", ondelete="RESTRICT"),
         nullable=False,
     )
     type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -148,122 +238,92 @@ class RecordingTrigger(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=utc_now,
     )
-    pre_roll_seconds: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=10,
-    )
-    post_roll_seconds: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=10,
-    )
+    pre_roll_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    post_roll_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
     planned_start_at: Mapped[datetime] = mapped_column(
         UTCDateTime(),
         nullable=False,
     )
-    planned_end_at: Mapped[datetime] = mapped_column(
+    planned_end_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(),
-        nullable=False,
-    )
-    state: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="PENDING",
-    )
-    reason: Mapped[str | None] = mapped_column(
-        String(256),
         nullable=True,
     )
-    correlation_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUIDType,
-        nullable=True,
-    )
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String(128), nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(
-        "metadata",
         JSON,
         nullable=False,
         default=dict,
     )
 
 
-class RecordingSegment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+class RecordingSegment(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "recording_segments"
     __table_args__ = (
-        CheckConstraint(
-            "ended_at > started_at",
-            name="recording_segment_positive_window",
-        ),
-        CheckConstraint(
-            "duration_ms > 0",
-            name="recording_segment_positive_duration",
-        ),
-        CheckConstraint(
-            "timing_status IN ('PROVISIONAL','FINAL')",
-            name="recording_segment_timing_status",
-        ),
-        CheckConstraint(
-            "timing_source IN ('HOOK_RAW','NEXT_SEGMENT_BOUNDARY','RECORDER_STOP','SOURCE_UNREGISTER','RECOVERY')",
-            name="recording_segment_timing_source",
-        ),
-        CheckConstraint(
-            "integrity_status IN ('UNKNOWN','OK','DEGRADED','CORRUPT')",
-            name="recording_segment_integrity_status",
-        ),
         Index(
-            "ix_recording_segments_camera_started_at",
+            "ix_recording_segments_camera_started",
             "camera_id",
             "started_at",
         ),
         Index(
-            "ix_recording_segments_camera_end_start_id",
+            "ix_recording_segments_camera_ended_started_id",
             "camera_id",
             "ended_at",
             "started_at",
             "id",
         ),
         Index(
-            "ix_recording_segments_continuity_created",
-            "continuity_id",
-            "created_at",
+            "ix_recording_segments_source_identity",
+            "source_media_server_id",
+            "source_app",
+            "source_stream",
+            "started_at",
+        ),
+        CheckConstraint(
+            "ended_at > started_at",
+            name="recording_segment_positive_range",
+        ),
+        CheckConstraint(
+            "duration_ms >= 0",
+            name="recording_segment_duration_nonnegative",
+        ),
+        CheckConstraint(
+            "timing_status IN ('PROVISIONAL','FINAL')",
+            name="recording_segment_timing_status",
+        ),
+        CheckConstraint(
+            "timing_source IN ('HOOK_RAW','NEXT_SEGMENT_BOUNDARY','EXPLICIT_STOP','RECOVERY')",
+            name="recording_segment_timing_source",
         ),
     )
 
     camera_id: Mapped[uuid.UUID] = mapped_column(
         UUIDType,
-        ForeignKey("cameras.id", ondelete="CASCADE"),
+        ForeignKey("cameras.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    stream_profile_id: Mapped[uuid.UUID] = mapped_column(
+    stream_profile_id: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
-        ForeignKey("camera_stream_profiles.id", ondelete="RESTRICT"),
-        nullable=False,
+        ForeignKey("camera_stream_profiles.id", ondelete="SET NULL"),
+        nullable=True,
     )
-    started_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(),
-        nullable=False,
-    )
-    ended_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(),
-        nullable=False,
-    )
+    started_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
-    recording_reasons: Mapped[list[str]] = mapped_column(
+    timing_status: Mapped[str] = mapped_column(String(32), nullable=False)
+    timing_source: Mapped[str] = mapped_column(String(64), nullable=False)
+    recording_reasons_json: Mapped[list[str]] = mapped_column(
         JSON,
         nullable=False,
         default=list,
     )
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     codec: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    container: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="fmp4",
-    )
+    container: Mapped[str] = mapped_column(String(32), nullable=False)
     source_media_server_id: Mapped[str] = mapped_column(
         String(128),
         nullable=False,
-        default="default",
     )
     source_app: Mapped[str] = mapped_column(String(128), nullable=False)
     source_stream: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -272,99 +332,20 @@ class RecordingSegment(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default="UNKNOWN",
     )
-    completion_reason: Mapped[str] = mapped_column(
+    completion_reason: Mapped[str | None] = mapped_column(
         String(64),
-        nullable=False,
-        default="NORMAL",
-    )
-    timing_status: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="PROVISIONAL",
-    )
-    timing_source: Mapped[str] = mapped_column(
-        String(64),
-        nullable=False,
-        default="HOOK_RAW",
-    )
-    continuity_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUIDType,
         nullable=True,
     )
-
-    locations: Mapped[list["RecordingLocation"]] = relationship(
-        back_populates="segment",
-        cascade="all, delete-orphan",
-        lazy="selectin",
-    )
-
-
-class RecordingLocation(UUIDPrimaryKeyMixin, Base):
-    __tablename__ = "recording_locations"
-    __table_args__ = (
-        CheckConstraint(
-            "state IN ('AVAILABLE','ARCHIVING','FAILED','DELETING','DELETED','MISSING')",
-            name="recording_location_state",
-        ),
-        UniqueConstraint(
-            "storage_target_id",
-            "object_path",
-            name="uq_recording_locations_target_path",
-        ),
-        Index(
-            "ix_recording_locations_segment_target_state",
-            "recording_segment_id",
-            "storage_target_id",
-            "state",
-        ),
-        Index(
-            "ix_recording_locations_target_state_segment",
-            "storage_target_id",
-            "state",
-            "recording_segment_id",
-        ),
-    )
-
-    recording_segment_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("recording_segments.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    storage_target_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("storage_targets.id", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    object_path: Mapped[str] = mapped_column(Text, nullable=False)
-    state: Mapped[str] = mapped_column(
-        String(32),
-        nullable=False,
-        default="AVAILABLE",
-    )
-    size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    checksum: Mapped[str | None] = mapped_column(
-        String(256),
-        nullable=True,
-    )
-    verified_at: Mapped[datetime | None] = mapped_column(
-        UTCDateTime(),
-        nullable=True,
-    )
-    last_attempt_at: Mapped[datetime | None] = mapped_column(
-        UTCDateTime(),
-        nullable=True,
-    )
-    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(),
         nullable=False,
         default=utc_now,
     )
-    deleted_at: Mapped[datetime | None] = mapped_column(
-        UTCDateTime(),
-        nullable=True,
+
+    locations: Mapped[list["RecordingLocation"]] = relationship(
+        back_populates="recording_segment",
+        lazy="selectin",
     )
 
-    segment: Mapped[RecordingSegment] = relationship(
-        back_populates="locations",
-    )
+
+from app.modules.storage.models import RecordingLocation  # noqa: E402
