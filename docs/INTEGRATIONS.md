@@ -103,7 +103,7 @@ ZLM
   └── AI provider
 ```
 
-AI events return through a provider adapter and normalize to DetectionEvent.
+AI events return through a provider adapter and normalize to Event.
 
 ## Storage integration
 
@@ -136,7 +136,7 @@ doorbell pressed
 manual automation trigger
 ```
 
-zero-nvr converts that intent into a canonical DetectionEvent and/or RecordingTrigger.
+zero-nvr converts that intent into a canonical Event and, when recording policy matches, a RecordingTrigger.
 
 Home Assistant must not receive an API that directly controls FFmpeg processes or ZLMediaKit stream internals.
 
@@ -217,27 +217,27 @@ SMTP failure never blocks recording or event persistence.
 
 ## Alert and notification routing
 
-External channels are NotificationTargets behind the AlertDelivery pipeline rather than direct side effects inside DetectionEvent/RecordingManager transactions.
+External channels are NotificationTargets behind the Alert / NotificationDelivery pipeline rather than direct side effects inside Event or recording transactions.
 
 ```text
-DetectionEvent / health
-        ↓
-AlertRule / AlertIncident
-        ↓
-AlertDelivery
-        ├─ SMTP
-        ├─ Apprise
-        ├─ Webhook
-        ├─ Home Assistant
-        └─ MQTT
+Event
+  ↓
+AlertPolicy
+  ↓
+Alert
+  ↓
+NotificationDelivery
+  ├─ SMTP
+  ├─ Apprise
+  ├─ Webhook
+  └─ MQTT
 ```
 
-Grouping/cooldown/silence affect delivery only; they never remove canonical events or stop recording.
+Cooldown affects repeated outbound delivery only; it never removes canonical Events or stops recording.
 
-Each target has independent health, retry, and SecretStore-backed credentials as needed. Webhook payloads carry stable delivery/idempotency identifiers. Home Assistant and MQTT actions continue to go through IntegrationAdapter.
+Each target has independent health/retry state and SecretStore-backed credentials as needed.
 
-See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
-
+See [Spec 0014 — Alerts and Notifications](specs/0014-alerting-notification-and-escalation.md).
 
 ## Device identity across protocol adapters
 
@@ -252,24 +252,29 @@ If a future WVP/GB28181 adapter is enabled, WVP restart/re-registration must not
 See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Selection](specs/0018-camera-onboarding-discovery-and-stream-selection.md).
 
 
-## Frigate DetectionProvider contract
+## Frigate AI provider contract
 
-Frigate is a first-release optional-to-enable AI DetectionProvider.
+Frigate is the primary V1 optional AI provider.
 
-Primary flow:
+Preferred managed flow:
 
 ```text
-Frigate MQTT tracked-object events
-        ↓
-DetectionObservation
-        ↓
-DetectionEvent
+Camera main/sub
+   -> ZLMediaKit
+   -> AI_DETECT internal stream
+   -> Frigate
+   -> FrigateAdapter
+   -> Event
 ```
 
-The adapter maps Frigate Camera names explicitly to zero-nvr Camera IDs. Object track IDs are provider event/track identities, so new/update/end for the same tracked object update one canonical DetectionEvent.
+The adapter maps Frigate camera identity explicitly to zero-nvr Camera IDs.
 
-Frigate HTTP API may support connection health, event detail/snapshot lookup, and reconciliation after gaps. Frigate review items may enrich context/severity but do not create duplicate zero-nvr events for every underlying tracked object by default.
+Frigate event IDs are preserved as provider source_event_id so new/update/end messages UPSERT one canonical Event.
 
-Frigate zones/sub-labels/model metadata are preserved/mapped where useful. Frigate recordings and retention remain external implementation detail; zero-nvr recording/storage metadata stays authoritative.
+Frigate HTTP/MQTT integration may be used according to the supported Frigate version for event updates, health, detail, and snapshots.
 
-See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
+Frigate zones/labels/confidence/snapshot references are normalized only as far as zero-nvr needs for search, timeline, recording policy, Alerts, and UI.
+
+Frigate recordings/retention remain outside zero-nvr authority; zero-nvr continues to use ZLM RecordingSegment/RecordingLocation as its recording truth.
+
+See [Spec 0021 — Detection Providers, AI Events, and Frigate Integration](specs/0021-detection-providers-ai-events-and-fusion.md).
