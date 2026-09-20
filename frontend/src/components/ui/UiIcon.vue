@@ -45,7 +45,31 @@ const icons: Record<string, string> = {
   chevron:
     '<path d="m8 10 4 4 4-4"/>',
   activity:
-    '<path d="M3 12h4l2.2-5 4.3 10 2.2-5H21"/>'
+    '<path d="M3 12h4l2.2-5 4.3 10 2.2-5H21"/>',
+  search:
+    '<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>',
+  refresh:
+    '<path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 8.5A7 7 0 0 1 18.8 7L20 12M4 12l1.2 5A7 7 0 0 0 17.9 15.5"/>',
+  maximize:
+    '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+  minimize:
+    '<path d="M8 8H3V3M16 8h5V3M8 16H3v5M16 16h5v5"/>',
+  volume:
+    '<path d="M11 5 6.5 9H3v6h3.5L11 19Z"/><path d="M15 9a4 4 0 0 1 0 6M17.5 6.5a8 8 0 0 1 0 11"/>',
+  "volume-off":
+    '<path d="M11 5 6.5 9H3v6h3.5L11 19Z"/><path d="m16 10 5 5M21 10l-5 5"/>',
+  focus:
+    '<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/><circle cx="12" cy="12" r="2"/>',
+  panel:
+    '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>',
+  grid1:
+    '<rect x="4" y="4" width="16" height="16" rx="2"/>',
+  grid4:
+    '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
+  grid9:
+    '<path d="M3 3h5v5H3zM9.5 3h5v5h-5zM16 3h5v5h-5zM3 9.5h5v5H3zM9.5 9.5h5v5h-5zM16 9.5h5v5h-5zM3 16h5v5H3zM9.5 16h5v5h-5zM16 16h5v5h-5z"/>',
+  warning:
+    '<path d="M12 3 2.8 20h18.4Z"/><path d="M12 9v4M12 17h.01"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

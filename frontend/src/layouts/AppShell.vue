@@ -93,7 +93,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="brand__copy">
           <strong>zero-nvr</strong>
-          <span>Protect</span>
+          <span>video security</span>
         </div>
       </div>
 
@@ -166,7 +166,13 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <main class="page-surface">
+      <main
+        class="page-surface"
+        :class="{
+          'page-surface--media':
+            route.name === 'live' || route.name === 'playback'
+        }"
+      >
         <RouterView />
       </main>
     </div>

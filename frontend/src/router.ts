@@ -8,6 +8,7 @@ import AppShell from "./layouts/AppShell.vue"
 import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
 import LoginView from "./views/LoginView.vue"
+import LiveView from "./views/LiveView.vue"
 import SetupView from "./views/SetupView.vue"
 import WorkspaceView from "./views/WorkspaceView.vue"
 import { useAuthStore } from "./stores/auth"
@@ -39,11 +40,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: "live",
         name: "live",
-        component: WorkspaceView,
+        component: LiveView,
         meta: {
-          title: "Live",
-          description:
-            "Live-view workspace will consume zero-nvr media-session descriptors without exposing camera credentials."
+          title: "Live"
         }
       },
       {
