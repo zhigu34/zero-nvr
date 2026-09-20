@@ -134,6 +134,45 @@ class StorageTargetService:
                 )
 
     @staticmethod
+    def _ensure_default_archive_unique(
+        session: Session,
+        *,
+        target_id: uuid.UUID | None,
+        target_type: str,
+        role: str,
+        enabled: bool,
+        config: dict[str, object],
+    ) -> None:
+        if not (
+            target_type == "rclone"
+            and role == "archive"
+            and enabled
+            and bool(config.get("default_archive"))
+        ):
+            return
+
+        statement = select(StorageTarget.id).where(
+            StorageTarget.type == "rclone",
+            StorageTarget.role == "archive",
+            StorageTarget.enabled.is_(True),
+        )
+        if target_id is not None:
+            statement = statement.where(
+                StorageTarget.id != target_id
+            )
+
+        for existing_id in session.scalars(statement):
+            existing = session.get(StorageTarget, existing_id)
+            if existing is not None and bool(
+                (existing.config_json or {}).get("default_archive")
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="default_archive_target_conflict",
+                    message="Only one enabled rclone archive target can be the default.",
+                )
+
+    @staticmethod
     def list(session: Session) -> list[StorageTarget]:
         return list(
             session.scalars(
@@ -208,7 +247,7 @@ class StorageTargetService:
                 code="storage_target_role_invalid",
                 message="rclone targets are archive targets; cameras always record locally first.",
             )
-        if set(config) - {"remote", "base_path"}:
+        if set(config) - {"remote", "base_path", "default_archive"}:
             raise ApiError(
                 status_code=400,
                 code="storage_target_config_invalid",
@@ -241,10 +280,13 @@ class StorageTargetService:
                 code="rclone_base_path_invalid",
                 message="rclone archive base path is invalid.",
             )
-        return {
+        normalized: dict[str, object] = {
             "remote": remote.strip(),
             "base_path": "/".join(parts),
         }
+        if bool(config.get("default_archive", False)):
+            normalized["default_archive"] = True
+        return normalized
 
     @classmethod
     def normalize_config(
@@ -340,6 +382,14 @@ class StorageTargetService:
             enabled=enabled,
             config=normalized,
         )
+        self._ensure_default_archive_unique(
+            session,
+            target_id=None,
+            target_type=target_type,
+            role=role,
+            enabled=enabled,
+            config=normalized,
+        )
 
         target = StorageTarget(
             type=target_type,
@@ -414,6 +464,14 @@ class StorageTargetService:
             )
 
         self._ensure_default_recording_unique(
+            session,
+            target_id=target.id,
+            target_type=target.type,
+            role=target.role,
+            enabled=target.enabled,
+            config=target.config_json or {},
+        )
+        self._ensure_default_archive_unique(
             session,
             target_id=target.id,
             target_type=target.type,
