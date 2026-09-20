@@ -1,10 +1,40 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Iterable
+import uuid
+
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
+from app.modules.alerts.models import AlertPolicy
+from app.modules.alerts.service import AlertPolicyService
+from app.modules.auth.admin_service import AuthAdminService
+from app.modules.auth.camera_scope import CameraScopeService
+from app.modules.auth.models import Role
+from app.modules.auth.oidc import OidcProviderSettingsService
+from app.modules.backups.models import BackupPolicy
+from app.modules.backups.service import BackupPolicyService
+from app.modules.cameras.groups import CameraGroupService
+from app.modules.cameras.models import (
+    Camera,
+    CameraGroup,
+    CameraStreamProfile,
+    Device,
+    DeviceEndpoint,
+)
+from app.modules.notifications.models import NotificationTarget
+from app.modules.notifications.service import NotificationTargetService
+from app.modules.recordings.models import RetentionPolicy
+from app.modules.recordings.policy import RecordingPolicyService
+from app.modules.storage.models import StorageTarget
+from app.modules.storage.retention_admin import RetentionPolicyAdminService
+from app.modules.storage.service import StorageTargetService
+
+from .settings import SystemSettingsService
 
 
 _FORBIDDEN_KEYS = frozenset(
@@ -64,6 +94,25 @@ class ConfigurationValidation:
         ...,
     ]
     warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationApplyItem:
+    section: str
+    resource_type: str
+    source_id: str | None
+    target_id: str | None
+    name: str | None
+    action: str
+    reason: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ConfigurationApplyResult:
+    applied: tuple[ConfigurationApplyItem, ...]
+    skipped: tuple[ConfigurationApplyItem, ...]
+    warnings: tuple[str, ...]
+    camera_ids_to_reconcile: tuple[uuid.UUID, ...]
 
 
 class ConfigurationImportService:
@@ -1084,4 +1133,2037 @@ class ConfigurationImportService:
                 requirements
             ),
             warnings=tuple(warnings),
+        )
+
+
+    @staticmethod
+    def _source_uuid(
+        item: dict[str, Any],
+    ) -> uuid.UUID:
+        return uuid.UUID(str(item["id"]))
+
+    @staticmethod
+    def _apply_item(
+        *,
+        section: str,
+        resource_type: str,
+        item: dict[str, Any],
+        action: str,
+        target_id: uuid.UUID | None = None,
+        reason: str | None = None,
+    ) -> ConfigurationApplyItem:
+        source_id = item.get("id")
+        name = item.get("name")
+        return ConfigurationApplyItem(
+            section=section,
+            resource_type=resource_type,
+            source_id=(
+                str(source_id)
+                if source_id is not None
+                else None
+            ),
+            target_id=(
+                str(target_id)
+                if target_id is not None
+                else None
+            ),
+            name=(
+                str(name)
+                if name is not None
+                else None
+            ),
+            action=action,
+            reason=reason,
+        )
+
+    @staticmethod
+    def _existing_by_name(
+        session: Session,
+        model,
+        name: str,
+    ):
+        return session.scalar(
+            select(model).where(
+                model.name == name
+            )
+        )
+
+    @classmethod
+    def apply(
+        cls,
+        session: Session,
+        *,
+        settings: Settings,
+        bundle: dict[str, Any],
+    ) -> ConfigurationApplyResult:
+        validation = cls.validate(
+            bundle,
+            settings=settings,
+        )
+        sections = bundle["sections"]
+        assert isinstance(sections, dict)
+
+        applied: list[
+            ConfigurationApplyItem
+        ] = []
+        skipped: list[
+            ConfigurationApplyItem
+        ] = []
+        reconcile: set[uuid.UUID] = set()
+
+        role_map: dict[str, uuid.UUID] = {}
+        device_map: dict[str, uuid.UUID] = {}
+        camera_map: dict[str, uuid.UUID] = {}
+        profile_map: dict[str, uuid.UUID] = {}
+        group_map: dict[str, uuid.UUID] = {}
+        storage_map: dict[str, uuid.UUID] = {}
+        retention_map: dict[str, uuid.UUID] = {}
+        notification_map: dict[
+            str,
+            uuid.UUID,
+        ] = {}
+
+        general = sections.get(
+            "general",
+            {},
+        )
+        if isinstance(general, dict) and general:
+            SystemSettingsService.update(
+                session,
+                settings=settings,
+                changes=dict(general),
+            )
+            applied.append(
+                ConfigurationApplyItem(
+                    section="general",
+                    resource_type="system_settings",
+                    source_id=None,
+                    target_id=None,
+                    name="General",
+                    action="updated",
+                )
+            )
+
+        roles = sections.get("roles", [])
+        assert isinstance(roles, list)
+        for raw in roles:
+            assert isinstance(raw, dict)
+            item = raw
+            source_id = str(item["id"])
+            name = str(item["name"])
+            source_builtin = bool(
+                item.get("built_in", False)
+            )
+            target = cls._existing_by_name(
+                session,
+                Role,
+                name,
+            )
+
+            if source_builtin:
+                if (
+                    target is None
+                    or not target.built_in
+                ):
+                    skipped.append(
+                        cls._apply_item(
+                            section="roles",
+                            resource_type="role",
+                            item=item,
+                            action="skipped",
+                            reason=(
+                                "builtin_role_unavailable"
+                            ),
+                        )
+                    )
+                    continue
+                role_map[source_id] = target.id
+                applied.append(
+                    cls._apply_item(
+                        section="roles",
+                        resource_type="role",
+                        item=item,
+                        action="matched",
+                        target_id=target.id,
+                    )
+                )
+                continue
+
+            permissions = item.get(
+                "permissions",
+                [],
+            )
+            if not isinstance(
+                permissions,
+                list,
+            ):
+                raise cls._error(
+                    "configuration_import_invalid",
+                    "Role permissions must be a list.",
+                )
+            description = item.get(
+                "description"
+            )
+            description_text = (
+                str(description)
+                if description is not None
+                else None
+            )
+
+            if target is None:
+                target = (
+                    AuthAdminService.create_role(
+                        session,
+                        name=name,
+                        description=(
+                            description_text
+                        ),
+                        permissions=[
+                            str(value)
+                            for value in permissions
+                        ],
+                    )
+                )
+                action = "created"
+            elif target.built_in:
+                skipped.append(
+                    cls._apply_item(
+                        section="roles",
+                        resource_type="role",
+                        item=item,
+                        action="skipped",
+                        target_id=target.id,
+                        reason="role_name_conflict",
+                    )
+                )
+                continue
+            else:
+                target = (
+                    AuthAdminService.update_role(
+                        session,
+                        role=target,
+                        changes={
+                            "description": (
+                                description_text
+                            ),
+                            "permissions": [
+                                str(value)
+                                for value
+                                in permissions
+                            ],
+                        },
+                    )
+                )
+                action = "updated"
+
+            role_map[source_id] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="roles",
+                    resource_type="role",
+                    item=item,
+                    action=action,
+                    target_id=target.id,
+                )
+            )
+
+        devices_section = sections.get(
+            "devices",
+            {},
+        )
+        assert isinstance(
+            devices_section,
+            dict,
+        )
+        devices = devices_section.get(
+            "devices",
+            [],
+        )
+        endpoints = devices_section.get(
+            "endpoints",
+            [],
+        )
+        credentials = devices_section.get(
+            "credentials",
+            [],
+        )
+        assert isinstance(devices, list)
+        assert isinstance(endpoints, list)
+        assert isinstance(credentials, list)
+
+        source_endpoints: dict[
+            str,
+            list[dict[str, Any]],
+        ] = defaultdict(list)
+        for raw in endpoints:
+            assert isinstance(raw, dict)
+            source_endpoints[
+                str(raw["device_id"])
+            ].append(raw)
+
+        for raw in devices:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            source_id = str(source_uuid)
+            target = session.get(
+                Device,
+                source_uuid,
+            )
+
+            if target is None:
+                hardware_id = item.get(
+                    "hardware_id"
+                )
+                if (
+                    isinstance(hardware_id, str)
+                    and hardware_id
+                ):
+                    matches = list(
+                        session.scalars(
+                            select(Device).where(
+                                Device.hardware_id
+                                == hardware_id
+                            )
+                        )
+                    )
+                    if len(matches) == 1:
+                        target = matches[0]
+
+            if (
+                target is None
+                and item.get("adapter_type")
+                == "manual_rtsp"
+            ):
+                candidates: set[
+                    uuid.UUID
+                ] = set()
+                for endpoint in (
+                    source_endpoints.get(
+                        source_id,
+                        [],
+                    )
+                ):
+                    host = endpoint.get("host")
+                    endpoint_type = (
+                        endpoint.get("type")
+                    )
+                    port = endpoint.get("port")
+                    if (
+                        not isinstance(host, str)
+                        or not isinstance(
+                            endpoint_type,
+                            str,
+                        )
+                    ):
+                        continue
+                    statement = (
+                        select(DeviceEndpoint)
+                        .where(
+                            DeviceEndpoint.type
+                            == endpoint_type,
+                            DeviceEndpoint.host
+                            == host,
+                        )
+                    )
+                    if port is None:
+                        statement = (
+                            statement.where(
+                                DeviceEndpoint.port
+                                .is_(None)
+                            )
+                        )
+                    else:
+                        statement = (
+                            statement.where(
+                                DeviceEndpoint.port
+                                == port
+                            )
+                        )
+                    for found in (
+                        session.scalars(
+                            statement
+                        )
+                    ):
+                        device = session.get(
+                            Device,
+                            found.device_id,
+                        )
+                        if (
+                            device is not None
+                            and device.adapter_type
+                            == "manual_rtsp"
+                        ):
+                            candidates.add(
+                                device.id
+                            )
+                if len(candidates) == 1:
+                    target = session.get(
+                        Device,
+                        next(
+                            iter(candidates)
+                        ),
+                    )
+
+            if target is None:
+                skipped.append(
+                    cls._apply_item(
+                        section="devices",
+                        resource_type="device",
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "credentials_required"
+                        ),
+                    )
+                )
+                continue
+
+            if (
+                str(item.get("adapter_type"))
+                != target.adapter_type
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="devices",
+                        resource_type="device",
+                        item=item,
+                        action="skipped",
+                        target_id=target.id,
+                        reason=(
+                            "adapter_type_mismatch"
+                        ),
+                    )
+                )
+                continue
+
+            target.name = str(
+                item["name"]
+            )
+            for field in (
+                "manufacturer",
+                "model",
+                "serial_number",
+                "hardware_id",
+            ):
+                value = item.get(field)
+                setattr(
+                    target,
+                    field,
+                    (
+                        str(value)
+                        if value is not None
+                        else None
+                    ),
+                )
+            target.capabilities_json = dict(
+                item.get("capabilities")
+                or {}
+            )
+            session.flush()
+            device_map[source_id] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="devices",
+                    resource_type="device",
+                    item=item,
+                    action="updated",
+                    target_id=target.id,
+                )
+            )
+
+        for raw in endpoints:
+            assert isinstance(raw, dict)
+            item = raw
+            skipped.append(
+                cls._apply_item(
+                    section="devices",
+                    resource_type="device_endpoint",
+                    item=item,
+                    action="skipped",
+                    reason=(
+                        "endpoint_address_preserved"
+                    ),
+                )
+            )
+        for raw in credentials:
+            assert isinstance(raw, dict)
+            item = raw
+            skipped.append(
+                cls._apply_item(
+                    section="devices",
+                    resource_type="device_credential",
+                    item=item,
+                    action="skipped",
+                    reason="credential_required",
+                )
+            )
+
+        cameras_section = sections.get(
+            "cameras",
+            {},
+        )
+        assert isinstance(
+            cameras_section,
+            dict,
+        )
+        cameras = cameras_section.get(
+            "cameras",
+            [],
+        )
+        profiles = cameras_section.get(
+            "stream_profiles",
+            [],
+        )
+        bindings = cameras_section.get(
+            "stream_bindings",
+            [],
+        )
+        groups = cameras_section.get(
+            "groups",
+            [],
+        )
+        members = cameras_section.get(
+            "group_members",
+            [],
+        )
+        assert isinstance(cameras, list)
+        assert isinstance(profiles, list)
+        assert isinstance(bindings, list)
+        assert isinstance(groups, list)
+        assert isinstance(members, list)
+
+        for raw in cameras:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            source_id = str(source_uuid)
+            target = session.get(
+                Camera,
+                source_uuid,
+            )
+            if target is None:
+                source_device = item.get(
+                    "device_id"
+                )
+                target_device = (
+                    device_map.get(
+                        str(source_device)
+                    )
+                    if source_device
+                    is not None
+                    else None
+                )
+                if target_device is not None:
+                    target = session.scalar(
+                        select(Camera).where(
+                            Camera.device_id
+                            == target_device,
+                            Camera.channel_key
+                            == str(
+                                item[
+                                    "channel_key"
+                                ]
+                            ),
+                        )
+                    )
+
+            if target is None:
+                skipped.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type="camera",
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "camera_onboarding_required"
+                        ),
+                    )
+                )
+                continue
+
+            target.name = str(
+                item["name"]
+            )
+            target.location = (
+                str(item["location"])
+                if item.get("location")
+                is not None
+                else None
+            )
+            target.storage_label = (
+                str(
+                    item["storage_label"]
+                )
+                if item.get(
+                    "storage_label"
+                )
+                is not None
+                else None
+            )
+            session.flush()
+            camera_map[source_id] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="cameras",
+                    resource_type="camera",
+                    item=item,
+                    action="updated",
+                    target_id=target.id,
+                )
+            )
+
+        for raw in profiles:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            source_camera = str(
+                item["camera_id"]
+            )
+            target_camera = camera_map.get(
+                source_camera
+            )
+            if target_camera is None:
+                skipped.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type=(
+                            "camera_stream_profile"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "camera_onboarding_required"
+                        ),
+                    )
+                )
+                continue
+
+            target = session.get(
+                CameraStreamProfile,
+                source_uuid,
+            )
+            if target is None:
+                target = session.scalar(
+                    select(
+                        CameraStreamProfile
+                    ).where(
+                        CameraStreamProfile.camera_id
+                        == target_camera,
+                        CameraStreamProfile.adapter_profile_key
+                        == str(
+                            item[
+                                "adapter_profile_key"
+                            ]
+                        ),
+                    )
+                )
+            if (
+                target is None
+                or target.stream_uri_ref
+                is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type=(
+                            "camera_stream_profile"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason="credential_required",
+                    )
+                )
+                continue
+            profile_map[
+                str(source_uuid)
+            ] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="cameras",
+                    resource_type=(
+                        "camera_stream_profile"
+                    ),
+                    item=item,
+                    action="matched",
+                    target_id=target.id,
+                )
+            )
+
+        bindings_by_camera: dict[
+            str,
+            list[dict[str, Any]],
+        ] = defaultdict(list)
+        for raw in bindings:
+            assert isinstance(raw, dict)
+            bindings_by_camera[
+                str(raw["camera_id"])
+            ].append(raw)
+
+        for source_camera, items in (
+            bindings_by_camera.items()
+        ):
+            target_camera = camera_map.get(
+                source_camera
+            )
+            if target_camera is None:
+                for item in items:
+                    skipped.append(
+                        cls._apply_item(
+                            section="cameras",
+                            resource_type=(
+                                "camera_stream_binding"
+                            ),
+                            item=item,
+                            action="skipped",
+                            reason=(
+                                "camera_onboarding_required"
+                            ),
+                        )
+                    )
+                continue
+
+            mapped_bindings: list[
+                tuple[str, uuid.UUID, str]
+            ] = []
+            missing = False
+            for item in items:
+                target_profile = (
+                    profile_map.get(
+                        str(
+                            item[
+                                "stream_profile_id"
+                            ]
+                        )
+                    )
+                )
+                if target_profile is None:
+                    missing = True
+                    break
+                mapped_bindings.append(
+                    (
+                        str(item["purpose"]),
+                        target_profile,
+                        str(
+                            item[
+                                "selection_mode"
+                            ]
+                        ),
+                    )
+                )
+            if missing:
+                for item in items:
+                    skipped.append(
+                        cls._apply_item(
+                            section="cameras",
+                            resource_type=(
+                                "camera_stream_binding"
+                            ),
+                            item=item,
+                            action="skipped",
+                            reason=(
+                                "stream_profile_unmapped"
+                            ),
+                        )
+                    )
+                continue
+
+            camera = session.get(
+                Camera,
+                target_camera,
+            )
+            assert camera is not None
+            CameraService(
+                settings
+            ).replace_bindings(
+                session,
+                camera=camera,
+                bindings=mapped_bindings,
+            )
+            reconcile.add(target_camera)
+            for item in items:
+                applied.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type=(
+                            "camera_stream_binding"
+                        ),
+                        item=item,
+                        action="updated",
+                        target_id=target_camera,
+                    )
+                )
+
+        member_map: dict[
+            str,
+            list[str],
+        ] = defaultdict(list)
+        for raw in members:
+            assert isinstance(raw, dict)
+            member_map[
+                str(
+                    raw["camera_group_id"]
+                )
+            ].append(
+                str(raw["camera_id"])
+            )
+
+        pending_groups = [
+            raw
+            for raw in groups
+            if isinstance(raw, dict)
+        ]
+        progress = True
+        while pending_groups and progress:
+            progress = False
+            remaining: list[
+                dict[str, Any]
+            ] = []
+            for item in pending_groups:
+                source_id = str(
+                    item["id"]
+                )
+                source_parent = item.get(
+                    "parent_id"
+                )
+                target_parent = None
+                if source_parent is not None:
+                    target_parent = (
+                        group_map.get(
+                            str(
+                                source_parent
+                            )
+                        )
+                    )
+                    if target_parent is None:
+                        remaining.append(
+                            item
+                        )
+                        continue
+
+                target_cameras: list[
+                    uuid.UUID
+                ] = []
+                member_missing = False
+                for source_camera in (
+                    member_map.get(
+                        source_id,
+                        [],
+                    )
+                ):
+                    target_camera = (
+                        camera_map.get(
+                            source_camera
+                        )
+                    )
+                    if target_camera is None:
+                        member_missing = True
+                        break
+                    target_cameras.append(
+                        target_camera
+                    )
+                if member_missing:
+                    remaining.append(item)
+                    continue
+
+                source_uuid = cls._source_uuid(
+                    item
+                )
+                target = session.get(
+                    CameraGroup,
+                    source_uuid,
+                )
+                if target is None:
+                    target = (
+                        cls._existing_by_name(
+                            session,
+                            CameraGroup,
+                            str(item["name"]),
+                        )
+                    )
+                description = item.get(
+                    "description"
+                )
+                if target is None:
+                    target = (
+                        CameraGroupService.create(
+                            session,
+                            name=str(
+                                item["name"]
+                            ),
+                            description=(
+                                str(description)
+                                if description
+                                is not None
+                                else None
+                            ),
+                            parent_id=(
+                                target_parent
+                            ),
+                            camera_ids=(
+                                target_cameras
+                            ),
+                        )
+                    )
+                    action = "created"
+                else:
+                    target = (
+                        CameraGroupService.update(
+                            session,
+                            group=target,
+                            changes={
+                                "name": str(
+                                    item["name"]
+                                ),
+                                "description": (
+                                    str(description)
+                                    if description
+                                    is not None
+                                    else None
+                                ),
+                                "parent_id": (
+                                    target_parent
+                                ),
+                                "camera_ids": (
+                                    target_cameras
+                                ),
+                            },
+                        )
+                    )
+                    action = "updated"
+                group_map[
+                    source_id
+                ] = target.id
+                applied.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type=(
+                            "camera_group"
+                        ),
+                        item=item,
+                        action=action,
+                        target_id=target.id,
+                    )
+                )
+                progress = True
+            pending_groups = remaining
+
+        for item in pending_groups:
+            skipped.append(
+                cls._apply_item(
+                    section="cameras",
+                    resource_type=(
+                        "camera_group"
+                    ),
+                    item=item,
+                    action="skipped",
+                    reason=(
+                        "camera_or_parent_unmapped"
+                    ),
+                )
+            )
+
+        for raw in roles:
+            assert isinstance(raw, dict)
+            item = raw
+            target_role = role_map.get(
+                str(item["id"])
+            )
+            scope = item.get(
+                "camera_scope"
+            )
+            if (
+                target_role is None
+                or scope is None
+            ):
+                continue
+            assert isinstance(scope, dict)
+            mode = str(scope["mode"])
+            target_cameras: list[
+                uuid.UUID
+            ] = []
+            target_groups: list[
+                uuid.UUID
+            ] = []
+            missing = False
+            for source_id in scope.get(
+                "camera_ids",
+                [],
+            ):
+                mapped = camera_map.get(
+                    str(source_id)
+                )
+                if mapped is None:
+                    missing = True
+                    break
+                target_cameras.append(mapped)
+            if not missing:
+                for source_id in scope.get(
+                    "camera_group_ids",
+                    [],
+                ):
+                    mapped = group_map.get(
+                        str(source_id)
+                    )
+                    if mapped is None:
+                        missing = True
+                        break
+                    target_groups.append(mapped)
+            if missing:
+                skipped.append(
+                    cls._apply_item(
+                        section="roles",
+                        resource_type=(
+                            "role_camera_scope"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=target_role,
+                        reason=(
+                            "camera_scope_dependency_unmapped"
+                        ),
+                    )
+                )
+                continue
+            CameraScopeService.set_scope(
+                session,
+                principal_type="role",
+                principal_id=target_role,
+                mode=mode,
+                camera_ids=target_cameras,
+                camera_group_ids=(
+                    target_groups
+                ),
+            )
+            applied.append(
+                cls._apply_item(
+                    section="roles",
+                    resource_type=(
+                        "role_camera_scope"
+                    ),
+                    item=item,
+                    action="updated",
+                    target_id=target_role,
+                )
+            )
+
+        storage_service = (
+            StorageTargetService(settings)
+        )
+        storage_targets = sections.get(
+            "storage_targets",
+            [],
+        )
+        assert isinstance(
+            storage_targets,
+            list,
+        )
+        for raw in storage_targets:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            target = session.get(
+                StorageTarget,
+                source_uuid,
+            )
+            if target is None:
+                target = cls._existing_by_name(
+                    session,
+                    StorageTarget,
+                    str(item["name"]),
+                )
+
+            source_type = str(
+                item["type"]
+            )
+            source_role = str(
+                item["role"]
+            )
+            config = dict(
+                item.get("config")
+                or {}
+            )
+            if target is not None and (
+                target.type != source_type
+                or target.role != source_role
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="storage_targets",
+                        resource_type=(
+                            "storage_target"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=target.id,
+                        reason=(
+                            "storage_target_type_conflict"
+                        ),
+                    )
+                )
+                continue
+
+            if source_type == "rclone":
+                if (
+                    target is None
+                    or target.credential_secret_ref
+                    is None
+                ):
+                    skipped.append(
+                        cls._apply_item(
+                            section="storage_targets",
+                            resource_type=(
+                                "storage_target"
+                            ),
+                            item=item,
+                            action="skipped",
+                            target_id=(
+                                target.id
+                                if target
+                                is not None
+                                else None
+                            ),
+                            reason=(
+                                "credential_required"
+                            ),
+                        )
+                    )
+                    continue
+                target = storage_service.update(
+                    session,
+                    target=target,
+                    changes={
+                        "enabled": bool(
+                            item["enabled"]
+                        ),
+                        "config": config,
+                    },
+                )
+                action = "updated"
+            elif target is None:
+                target = storage_service.create(
+                    session,
+                    target_type=source_type,
+                    role=source_role,
+                    name=str(item["name"]),
+                    enabled=bool(
+                        item["enabled"]
+                    ),
+                    config=config,
+                    rclone_config=None,
+                )
+                action = "created"
+            else:
+                target = storage_service.update(
+                    session,
+                    target=target,
+                    changes={
+                        "enabled": bool(
+                            item["enabled"]
+                        ),
+                        "config": config,
+                    },
+                )
+                action = "updated"
+
+            storage_map[
+                str(source_uuid)
+            ] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="storage_targets",
+                    resource_type=(
+                        "storage_target"
+                    ),
+                    item=item,
+                    action=action,
+                    target_id=target.id,
+                )
+            )
+
+        retention = (
+            sections.get(
+                "recording",
+                {},
+            )
+        )
+        assert isinstance(retention, dict)
+        retention_items = retention.get(
+            "retention_policies",
+            [],
+        )
+        assert isinstance(
+            retention_items,
+            list,
+        )
+        for raw in retention_items:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            scope_type = str(
+                item["scope_type"]
+            )
+            source_scope = item.get(
+                "scope_id"
+            )
+            target_scope: uuid.UUID | None = None
+            if scope_type == "CAMERA":
+                target_scope = (
+                    camera_map.get(
+                        str(source_scope)
+                    )
+                )
+            elif (
+                scope_type
+                == "CAMERA_GROUP"
+            ):
+                target_scope = (
+                    group_map.get(
+                        str(source_scope)
+                    )
+                )
+            if (
+                scope_type != "GLOBAL"
+                and target_scope is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="recording",
+                        resource_type=(
+                            "retention_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "scope_dependency_unmapped"
+                        ),
+                    )
+                )
+                continue
+
+            target = session.get(
+                RetentionPolicy,
+                source_uuid,
+            )
+            if target is None:
+                target = (
+                    cls._existing_by_name(
+                        session,
+                        RetentionPolicy,
+                        str(item["name"]),
+                    )
+                )
+            if target is None:
+                statement = select(
+                    RetentionPolicy
+                ).where(
+                    RetentionPolicy.scope_type
+                    == scope_type
+                )
+                if target_scope is None:
+                    statement = (
+                        statement.where(
+                            RetentionPolicy.scope_id
+                            .is_(None)
+                        )
+                    )
+                else:
+                    statement = (
+                        statement.where(
+                            RetentionPolicy.scope_id
+                            == target_scope
+                        )
+                    )
+                target = session.scalar(
+                    statement
+                )
+
+            values = {
+                "name": str(
+                    item["name"]
+                ),
+                "scope_type": scope_type,
+                "scope_id": target_scope,
+                "ordinary_keep_days": int(
+                    item[
+                        "ordinary_keep_days"
+                    ]
+                ),
+                "event_keep_days": int(
+                    item["event_keep_days"]
+                ),
+                "manual_keep_days": int(
+                    item["manual_keep_days"]
+                ),
+                "mode": str(item["mode"]),
+                "require_archive_before_delete": bool(
+                    item[
+                        "require_archive_before_delete"
+                    ]
+                ),
+                "enabled": bool(
+                    item["enabled"]
+                ),
+            }
+            if target is None:
+                target = (
+                    RetentionPolicyAdminService.create(
+                        session,
+                        **values,
+                    )
+                )
+                action = "created"
+            else:
+                target = (
+                    RetentionPolicyAdminService.update(
+                        session,
+                        policy=target,
+                        changes=values,
+                    )
+                )
+                action = "updated"
+
+            retention_map[
+                str(source_uuid)
+            ] = target.id
+            applied.append(
+                cls._apply_item(
+                    section="recording",
+                    resource_type=(
+                        "retention_policy"
+                    ),
+                    item=item,
+                    action=action,
+                    target_id=target.id,
+                )
+            )
+
+        recording_policies = (
+            retention.get(
+                "policies",
+                [],
+            )
+        )
+        assert isinstance(
+            recording_policies,
+            list,
+        )
+        for raw in recording_policies:
+            assert isinstance(raw, dict)
+            item = raw
+            target_camera = camera_map.get(
+                str(item["camera_id"])
+            )
+            if target_camera is None:
+                skipped.append(
+                    cls._apply_item(
+                        section="recording",
+                        resource_type=(
+                            "recording_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "camera_unmapped"
+                        ),
+                    )
+                )
+                continue
+
+            source_storage = item.get(
+                "storage_target_id"
+            )
+            target_storage = (
+                storage_map.get(
+                    str(source_storage)
+                )
+                if source_storage
+                is not None
+                else None
+            )
+            if (
+                source_storage is not None
+                and target_storage is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="recording",
+                        resource_type=(
+                            "recording_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "storage_target_unmapped"
+                        ),
+                    )
+                )
+                continue
+
+            source_retention = item.get(
+                "retention_policy_id"
+            )
+            target_retention = (
+                retention_map.get(
+                    str(source_retention)
+                )
+                if source_retention
+                is not None
+                else None
+            )
+            if (
+                source_retention
+                is not None
+                and target_retention
+                is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="recording",
+                        resource_type=(
+                            "recording_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "retention_policy_unmapped"
+                        ),
+                    )
+                )
+                continue
+
+            RecordingPolicyService.put(
+                session,
+                camera_id=target_camera,
+                values={
+                    "baseline_mode": str(
+                        item[
+                            "baseline_mode"
+                        ]
+                    ),
+                    "schedule_json": dict(
+                        item.get(
+                            "schedule"
+                        )
+                        or {}
+                    ),
+                    "schedule_timezone": (
+                        item.get(
+                            "schedule_timezone"
+                        )
+                    ),
+                    "event_recording_enabled": bool(
+                        item[
+                            "event_recording_enabled"
+                        ]
+                    ),
+                    "event_filter_json": dict(
+                        item.get(
+                            "event_filter"
+                        )
+                        or {}
+                    ),
+                    "segment_target_seconds": int(
+                        item[
+                            "segment_target_seconds"
+                        ]
+                    ),
+                    "pre_roll_seconds": int(
+                        item[
+                            "pre_roll_seconds"
+                        ]
+                    ),
+                    "post_roll_seconds": int(
+                        item[
+                            "post_roll_seconds"
+                        ]
+                    ),
+                    "storage_target_id": (
+                        target_storage
+                    ),
+                    "retention_policy_id": (
+                        target_retention
+                    ),
+                    "enabled": bool(
+                        item["enabled"]
+                    ),
+                },
+            )
+            reconcile.add(
+                target_camera
+            )
+            applied.append(
+                cls._apply_item(
+                    section="recording",
+                    resource_type=(
+                        "recording_policy"
+                    ),
+                    item=item,
+                    action="updated",
+                    target_id=target_camera,
+                )
+            )
+
+        notification_service = (
+            NotificationTargetService(
+                settings
+            )
+        )
+        notification_items = (
+            sections.get(
+                "notification_targets",
+                [],
+            )
+        )
+        assert isinstance(
+            notification_items,
+            list,
+        )
+        for raw in notification_items:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            target = session.get(
+                NotificationTarget,
+                source_uuid,
+            )
+            if target is None:
+                target = (
+                    cls._existing_by_name(
+                        session,
+                        NotificationTarget,
+                        str(item["name"]),
+                    )
+                )
+            if (
+                target is None
+                or target.secret_ref is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section=(
+                            "notification_targets"
+                        ),
+                        resource_type=(
+                            "notification_target"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=(
+                            target.id
+                            if target is not None
+                            else None
+                        ),
+                        reason=(
+                            "credential_required"
+                        ),
+                    )
+                )
+                continue
+            target = (
+                notification_service.update(
+                    session,
+                    target=target,
+                    changes={
+                        "enabled": bool(
+                            item["enabled"]
+                        ),
+                        "config": dict(
+                            item.get(
+                                "config"
+                            )
+                            or {}
+                        ),
+                    },
+                )
+            )
+            notification_map[
+                str(source_uuid)
+            ] = target.id
+            applied.append(
+                cls._apply_item(
+                    section=(
+                        "notification_targets"
+                    ),
+                    resource_type=(
+                        "notification_target"
+                    ),
+                    item=item,
+                    action="updated",
+                    target_id=target.id,
+                )
+            )
+
+        oidc_items = sections.get(
+            "oidc_providers",
+            [],
+        )
+        assert isinstance(oidc_items, list)
+        oidc_service = (
+            OidcProviderSettingsService(
+                settings
+            )
+        )
+        existing_oidc = {
+            item.key: item
+            for item in oidc_service.list(
+                session
+            )
+        }
+        for raw in oidc_items:
+            assert isinstance(raw, dict)
+            item = raw
+            provider = existing_oidc.get(
+                str(item["key"])
+            )
+            if (
+                provider is None
+                or provider.secret_ref is None
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="oidc_providers",
+                        resource_type=(
+                            "oidc_provider"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=(
+                            provider.id
+                            if provider
+                            is not None
+                            else None
+                        ),
+                        reason=(
+                            "credential_required"
+                        ),
+                    )
+                )
+                continue
+            mapped_roles: list[
+                uuid.UUID
+            ] = []
+            role_missing = False
+            for source_role in (
+                item.get(
+                    "default_role_ids",
+                    [],
+                )
+            ):
+                target_role = role_map.get(
+                    str(source_role)
+                )
+                if target_role is None:
+                    role_missing = True
+                    break
+                mapped_roles.append(
+                    target_role
+                )
+            if role_missing:
+                skipped.append(
+                    cls._apply_item(
+                        section="oidc_providers",
+                        resource_type=(
+                            "oidc_provider"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=provider.id,
+                        reason=(
+                            "default_role_unmapped"
+                        ),
+                    )
+                )
+                continue
+            provider = oidc_service.update(
+                session,
+                provider=provider,
+                changes={
+                    "name": str(
+                        item["name"]
+                    ),
+                    "enabled": bool(
+                        item["enabled"]
+                    ),
+                    "issuer": str(
+                        item["issuer"]
+                    ),
+                    "client_id": str(
+                        item["client_id"]
+                    ),
+                    "auto_provision": bool(
+                        item[
+                            "auto_provision"
+                        ]
+                    ),
+                    "email_linking": bool(
+                        item[
+                            "email_linking"
+                        ]
+                    ),
+                    "default_role_ids": (
+                        mapped_roles
+                    ),
+                },
+            )
+            applied.append(
+                cls._apply_item(
+                    section="oidc_providers",
+                    resource_type=(
+                        "oidc_provider"
+                    ),
+                    item=item,
+                    action="updated",
+                    target_id=provider.id,
+                )
+            )
+
+        backup_items = sections.get(
+            "backup_policies",
+            [],
+        )
+        assert isinstance(backup_items, list)
+        backup_service = (
+            BackupPolicyService(settings)
+        )
+        for raw in backup_items:
+            assert isinstance(raw, dict)
+            item = raw
+            source_uuid = cls._source_uuid(
+                item
+            )
+            target = session.get(
+                BackupPolicy,
+                source_uuid,
+            )
+            if target is None:
+                target = (
+                    cls._existing_by_name(
+                        session,
+                        BackupPolicy,
+                        str(item["name"]),
+                    )
+                )
+            if target is None:
+                skipped.append(
+                    cls._apply_item(
+                        section="backup_policies",
+                        resource_type=(
+                            "backup_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "credential_required"
+                        ),
+                    )
+                )
+                continue
+            if (
+                target.database_backend
+                != str(
+                    item[
+                        "database_backend"
+                    ]
+                )
+            ):
+                skipped.append(
+                    cls._apply_item(
+                        section="backup_policies",
+                        resource_type=(
+                            "backup_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        target_id=target.id,
+                        reason=(
+                            "database_backend_mismatch"
+                        ),
+                    )
+                )
+                continue
+            target = backup_service.update(
+                session,
+                policy=target,
+                changes={
+                    "enabled": bool(
+                        item["enabled"]
+                    ),
+                    "schedule": dict(
+                        item.get(
+                            "schedule"
+                        )
+                        or {}
+                    ),
+                    "retention": dict(
+                        item.get(
+                            "retention"
+                        )
+                        or {}
+                    ),
+                    "verify_after_backup": bool(
+                        item[
+                            "verify_after_backup"
+                        ]
+                    ),
+                    "repository_check_schedule": dict(
+                        item.get(
+                            "repository_check_schedule"
+                        )
+                        or {}
+                    ),
+                    "include_deployment_config": bool(
+                        item[
+                            "include_deployment_config"
+                        ]
+                    ),
+                },
+            )
+            applied.append(
+                cls._apply_item(
+                    section="backup_policies",
+                    resource_type=(
+                        "backup_policy"
+                    ),
+                    item=item,
+                    action="updated",
+                    target_id=target.id,
+                )
+            )
+
+        alert_items = sections.get(
+            "alert_policies",
+            [],
+        )
+        assert isinstance(alert_items, list)
+        for raw in alert_items:
+            assert isinstance(raw, dict)
+            item = raw
+            match = dict(
+                item.get("match")
+                or {}
+            )
+            actions = dict(
+                item.get("action")
+                or {}
+            )
+            dependency_missing = False
+
+            source_cameras = match.get(
+                "camera_ids"
+            )
+            if isinstance(
+                source_cameras,
+                list,
+            ):
+                mapped_camera_ids: list[
+                    str
+                ] = []
+                for source_id in (
+                    source_cameras
+                ):
+                    mapped = camera_map.get(
+                        str(source_id)
+                    )
+                    if mapped is None:
+                        dependency_missing = (
+                            True
+                        )
+                        break
+                    mapped_camera_ids.append(
+                        str(mapped)
+                    )
+                match[
+                    "camera_ids"
+                ] = mapped_camera_ids
+
+            source_targets = actions.get(
+                "notification_target_ids"
+            )
+            if (
+                not dependency_missing
+                and isinstance(
+                    source_targets,
+                    list,
+                )
+            ):
+                mapped_target_ids: list[
+                    str
+                ] = []
+                for source_id in (
+                    source_targets
+                ):
+                    mapped = (
+                        notification_map.get(
+                            str(source_id)
+                        )
+                    )
+                    if mapped is None:
+                        dependency_missing = (
+                            True
+                        )
+                        break
+                    mapped_target_ids.append(
+                        str(mapped)
+                    )
+                actions[
+                    "notification_target_ids"
+                ] = mapped_target_ids
+
+            if dependency_missing:
+                skipped.append(
+                    cls._apply_item(
+                        section="alert_policies",
+                        resource_type=(
+                            "alert_policy"
+                        ),
+                        item=item,
+                        action="skipped",
+                        reason=(
+                            "alert_dependency_unmapped"
+                        ),
+                    )
+                )
+                continue
+
+            source_uuid = cls._source_uuid(
+                item
+            )
+            target = session.get(
+                AlertPolicy,
+                source_uuid,
+            )
+            if target is None:
+                target = (
+                    cls._existing_by_name(
+                        session,
+                        AlertPolicy,
+                        str(item["name"]),
+                    )
+                )
+            if target is None:
+                target = (
+                    AlertPolicyService.create(
+                        session,
+                        name=str(
+                            item["name"]
+                        ),
+                        enabled=bool(
+                            item["enabled"]
+                        ),
+                        severity=str(
+                            item["severity"]
+                        ),
+                        match=match,
+                        actions=actions,
+                        cooldown_seconds=int(
+                            item[
+                                "cooldown_seconds"
+                            ]
+                        ),
+                    )
+                )
+                action = "created"
+            else:
+                target = (
+                    AlertPolicyService.update(
+                        session,
+                        policy=target,
+                        changes={
+                            "name": str(
+                                item["name"]
+                            ),
+                            "enabled": bool(
+                                item[
+                                    "enabled"
+                                ]
+                            ),
+                            "severity": str(
+                                item[
+                                    "severity"
+                                ]
+                            ),
+                            "match": match,
+                            "actions": actions,
+                            "cooldown_seconds": int(
+                                item[
+                                    "cooldown_seconds"
+                                ]
+                            ),
+                        },
+                    )
+                )
+                action = "updated"
+            applied.append(
+                cls._apply_item(
+                    section="alert_policies",
+                    resource_type=(
+                        "alert_policy"
+                    ),
+                    item=item,
+                    action=action,
+                    target_id=target.id,
+                )
+            )
+
+        frigate = sections.get(
+            "frigate"
+        )
+        if isinstance(frigate, dict):
+            skipped.append(
+                ConfigurationApplyItem(
+                    section="frigate",
+                    resource_type=(
+                        "frigate_provider"
+                    ),
+                    source_id=None,
+                    target_id=None,
+                    name="Frigate",
+                    action="skipped",
+                    reason=(
+                        "runtime_configuration_requires_manual_apply"
+                    ),
+                )
+            )
+
+        warnings = list(
+            validation.warnings
+        )
+        warnings.append(
+            (
+                "Import merge never deletes target resources "
+                "and never overwrites stored credential material."
+            )
+        )
+        if skipped:
+            warnings.append(
+                (
+                    f"{len(skipped)} resource(s) were skipped; "
+                    "re-run import after resolving the reported "
+                    "credential or dependency requirements."
+                )
+            )
+
+        return ConfigurationApplyResult(
+            applied=tuple(applied),
+            skipped=tuple(skipped),
+            warnings=tuple(warnings),
+            camera_ids_to_reconcile=tuple(
+                sorted(
+                    reconcile,
+                    key=str,
+                )
+            ),
         )

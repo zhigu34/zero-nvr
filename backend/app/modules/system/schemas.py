@@ -184,3 +184,36 @@ class ConfigurationImportValidationView(BaseModel):
         ConfigurationCredentialRequirementView
     ]
     warnings: list[str]
+
+
+
+class ConfigurationImportApplyRequest(BaseModel):
+    bundle: dict[str, object]
+
+
+class ConfigurationImportApplyItemView(BaseModel):
+    section: str
+    resource_type: str
+    source_id: str | None = None
+    target_id: str | None = None
+    name: str | None = None
+    action: Literal[
+        "created",
+        "updated",
+        "matched",
+        "skipped",
+    ]
+    reason: str | None = None
+
+
+class ConfigurationImportApplyView(BaseModel):
+    mode: Literal["merge"] = "merge"
+    applied_count: int
+    skipped_count: int
+    applied: list[
+        ConfigurationImportApplyItemView
+    ]
+    skipped: list[
+        ConfigurationImportApplyItemView
+    ]
+    warnings: list[str]

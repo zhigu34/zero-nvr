@@ -430,3 +430,287 @@ def test_configuration_import_validation_checks_refs_and_secrets(
                 "configuration_import_reference_invalid"
             )
         )
+
+
+
+def test_configuration_import_apply_merges_without_overwriting_secrets(
+    tmp_path: Path,
+) -> None:
+    import copy
+    import uuid
+
+    app = make_app(tmp_path)
+    app.state.recording_tasks = type(
+        "RecordingTasks",
+        (),
+        {
+            "reconciled": [],
+            "reconcile_runtime": (
+                lambda self, camera_id: (
+                    self.reconciled.append(
+                        camera_id
+                    )
+                )
+            ),
+        },
+    )()
+
+    local_path = (
+        tmp_path / "recordings"
+    ).resolve()
+    local_path.mkdir()
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "admin@example.com",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        assert client.patch(
+            "/api/v1/system/settings",
+            json={
+                "general": {
+                    "system_name": "Export Source",
+                    "display_timezone": "UTC",
+                    "camera_ntp_servers": [
+                        "time.example.test"
+                    ],
+                }
+            },
+        ).status_code == 200
+
+        custom_role = client.post(
+            "/api/v1/roles",
+            json={
+                "name": "Door Viewer",
+                "description": (
+                    "Imported role description"
+                ),
+                "permissions": [
+                    "camera.view"
+                ],
+            },
+        )
+        assert custom_role.status_code == 201
+
+        camera = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Original Camera",
+                "location": "Entry",
+                "storage_label": None,
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://camera:"
+                        "secret-preserved"
+                        "@10.0.0.44/live"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert camera.status_code == 201
+        camera_id = camera.json()["id"]
+
+        storage = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Primary local",
+                "enabled": True,
+                "config": {
+                    "path": str(
+                        local_path
+                    ),
+                    "default_recording": True,
+                },
+            },
+        )
+        assert storage.status_code == 201
+
+        retention = client.post(
+            (
+                "/api/v1/storage/"
+                "retention-policies"
+            ),
+            json={
+                "name": "Global retention",
+                "scope_type": "GLOBAL",
+                "scope_id": None,
+                "ordinary_keep_days": 14,
+                "event_keep_days": 30,
+                "manual_keep_days": 90,
+                "mode": "BEST_EFFORT",
+                "require_archive_before_delete": False,
+                "enabled": True,
+            },
+        )
+        assert retention.status_code == 201
+
+        recording = client.put(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                "/recording-policy"
+            ),
+            json={
+                "baseline_mode": "continuous",
+                "schedule": {},
+                "schedule_timezone": None,
+                "event_recording_enabled": True,
+                "event_filter": {},
+                "segment_target_seconds": 300,
+                "pre_roll_seconds": 10,
+                "post_roll_seconds": 20,
+                "storage_target_id": (
+                    storage.json()["id"]
+                ),
+                "retention_policy_id": (
+                    retention.json()["id"]
+                ),
+                "enabled": True,
+            },
+        )
+        assert recording.status_code == 200
+
+        exported = client.get(
+            "/api/v1/system/configuration/export"
+        )
+        assert exported.status_code == 200
+        bundle = exported.json()
+
+        assert client.patch(
+            "/api/v1/system/settings",
+            json={
+                "general": {
+                    "system_name": "Changed",
+                    "camera_ntp_servers": [],
+                }
+            },
+        ).status_code == 200
+        assert client.patch(
+            f"/api/v1/cameras/{camera_id}",
+            json={
+                "name": "Changed Camera",
+                "location": "Changed",
+            },
+        ).status_code == 200
+        assert client.patch(
+            (
+                "/api/v1/roles/"
+                + custom_role.json()["id"]
+            ),
+            json={
+                "description": "Changed",
+                "permissions": [],
+            },
+        ).status_code == 200
+
+        with_extra = copy.deepcopy(
+            bundle
+        )
+        with_extra["sections"][
+            "storage_targets"
+        ].append(
+            {
+                "id": str(
+                    uuid.uuid4()
+                ),
+                "type": "rclone",
+                "role": "archive",
+                "name": "Missing remote",
+                "enabled": True,
+                "config": {
+                    "remote": "archive",
+                    "base_path": "zero-nvr",
+                    "default_archive": True,
+                },
+                "credentials_configured": True,
+            }
+        )
+
+        applied = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/apply"
+            ),
+            json={
+                "bundle": with_extra
+            },
+        )
+        assert applied.status_code == 200
+        result = applied.json()
+        assert result["mode"] == "merge"
+        assert result["applied_count"] > 0
+        assert any(
+            item["name"] == "Missing remote"
+            and item["reason"]
+            == "credential_required"
+            for item in result["skipped"]
+        )
+
+        settings = client.get(
+            "/api/v1/system/settings"
+        )
+        assert (
+            settings.json()["general"][
+                "system_name"
+            ]
+            == "Export Source"
+        )
+        assert settings.json()["general"][
+            "camera_ntp_servers"
+        ] == ["time.example.test"]
+
+        restored_camera = client.get(
+            f"/api/v1/cameras/{camera_id}"
+        )
+        assert (
+            restored_camera.json()["name"]
+            == "Original Camera"
+        )
+        assert (
+            restored_camera.json()[
+                "location"
+            ]
+            == "Entry"
+        )
+
+        roles = client.get(
+            "/api/v1/roles"
+        ).json()
+        restored_role = next(
+            item
+            for item in roles
+            if item["name"] == "Door Viewer"
+        )
+        assert (
+            restored_role["description"]
+            == "Imported role description"
+        )
+        assert restored_role[
+            "permissions"
+        ] == ["camera.view"]
+
+        live = client.get(
+            f"/api/v1/cameras/{camera_id}/live"
+        )
+        assert live.status_code == 200
+
+        assert (
+            app.state.recording_tasks.reconciled
+        )

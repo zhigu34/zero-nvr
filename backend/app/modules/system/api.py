@@ -40,6 +40,9 @@ from .frigate import (
 from .schemas import (
     CameraClockHealthResultView,
     ConfigurationCredentialRequirementView,
+    ConfigurationImportApplyItemView,
+    ConfigurationImportApplyRequest,
+    ConfigurationImportApplyView,
     ConfigurationImportValidateRequest,
     ConfigurationImportValidationView,
     CameraClockHealthView,
@@ -456,6 +459,119 @@ def queue_frigate_backfill(
 
 
 
+
+
+
+
+
+@router.post(
+    "/configuration/import/apply",
+    response_model=ConfigurationImportApplyView,
+)
+def apply_configuration_import(
+    body: ConfigurationImportApplyRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> ConfigurationImportApplyView:
+    try:
+        result = ConfigurationImportService.apply(
+            session,
+            settings=request.app.state.settings,
+            bundle=body.bundle,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action=(
+                "system.configuration.import.apply"
+            ),
+            resource_type=(
+                "system_configuration"
+            ),
+            metadata={
+                "format": (
+                    "zero-nvr.configuration"
+                ),
+                "format_version": 1,
+                "mode": "merge",
+                "applied_count": len(
+                    result.applied
+                ),
+                "skipped_count": len(
+                    result.skipped
+                ),
+                "skipped_reasons": sorted(
+                    {
+                        item.reason
+                        for item in result.skipped
+                        if item.reason
+                    }
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    warnings = list(result.warnings)
+    runtime_failures: list[str] = []
+    for camera_id in (
+        result.camera_ids_to_reconcile
+    ):
+        try:
+            request.app.state.recording_tasks.reconcile_runtime(
+                camera_id
+            )
+        except Exception:
+            runtime_failures.append(
+                str(camera_id)
+            )
+    if runtime_failures:
+        warnings.append(
+            (
+                "Configuration was committed, but runtime "
+                "recording reconciliation could not be queued "
+                f"for {len(runtime_failures)} camera(s)."
+            )
+        )
+
+    def view(
+        item,
+    ) -> ConfigurationImportApplyItemView:
+        return ConfigurationImportApplyItemView(
+            section=item.section,
+            resource_type=item.resource_type,
+            source_id=item.source_id,
+            target_id=item.target_id,
+            name=item.name,
+            action=item.action,
+            reason=item.reason,
+        )
+
+    return ConfigurationImportApplyView(
+        applied_count=len(
+            result.applied
+        ),
+        skipped_count=len(
+            result.skipped
+        ),
+        applied=[
+            view(item)
+            for item in result.applied
+        ],
+        skipped=[
+            view(item)
+            for item in result.skipped
+        ],
+        warnings=warnings,
+    )
 
 
 @router.post(
