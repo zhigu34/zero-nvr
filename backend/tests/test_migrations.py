@@ -46,6 +46,8 @@ EXPECTED_FOUNDATION_TABLES = {
     "notification_deliveries",
     "exports",
     "export_share_tokens",
+    "backup_policies",
+    "backup_sets",
 }
 
 
@@ -107,3 +109,5 @@ def test_alembic_downgrade_base_sqlite(tmp_path, monkeypatch) -> None:
     assert "notification_deliveries" not in tables
     assert "exports" not in tables
     assert "export_share_tokens" not in tables
+    assert "backup_policies" not in tables
+    assert "backup_sets" not in tables
