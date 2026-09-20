@@ -1,3 +1,4 @@
+from .continuity import ZlmContinuityTracker, ZlmStreamIdentity
 from .adapter import (
     ZlmAdapter,
     ZlmIntegrationError,
@@ -7,6 +8,8 @@ from .adapter import (
 
 __all__ = [
     "ZlmAdapter",
+    "ZlmContinuityTracker",
+    "ZlmStreamIdentity",
     "ZlmIntegrationError",
     "ZlmMediaProbe",
     "ZlmTrackProbe",
