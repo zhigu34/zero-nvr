@@ -14,8 +14,8 @@ A committed harness is **not** a passing result. A POC moves to PASS only from r
 |---|---|---|---|
 | 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | RERUN REQUIRED — restart/reconciliation subtest passed; MediaMTX metrics-auth harness issue fixed |
 | 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | RERUN REQUIRED — ordinary MP4 baseline failed recovery as expected; harness cleanup bug fixed before fMP4 phase |
-| 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | RUNNING / first runtime round |
-| 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | RUNNING / first runtime round |
+| 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | PASS |
+| 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | PASS |
 | 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | RERUN REQUIRED — first run exposed raw ZLM Hook start-time GOP bias; timing normalization added |
 | 06 | ZLM VOD seek | same as POC-05 | RERUN REQUIRED — first run stopped at POC-05 timing gate before seek checks |
 | 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | PASS |
