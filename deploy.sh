@@ -17,6 +17,7 @@ Usage:
   ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
+  ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh migrate
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>]
   ./deploy.sh backup [reason] [policy-id-or-name]
@@ -541,6 +542,11 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
+    ;;
+  benchmark)
+    ensure_env
+    ensure_host_dirs
+    "$SCRIPT_DIR/benchmark.sh" "$@"
     ;;
   migrate)
     ensure_env

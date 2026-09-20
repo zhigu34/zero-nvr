@@ -71,6 +71,7 @@ jobs:
           ./scripts/database-migrate.sh sqlite --help >/tmp/database-migrate-help
           grep -Fq "postgres|sqlite" /tmp/database-migrate-help
           ./deploy.sh help | grep -Fq "database migrate"
+          ./deploy.sh help | grep -Fq "benchmark <8|16>"
 
       - name: Test deployment state helpers
         shell: bash
@@ -78,6 +79,7 @@ jobs:
           bash scripts/test-deployment-state.sh
           bash scripts/test-feature-profiles.sh
           bash scripts/test-rollback.sh
+          bash scripts/test-benchmark.sh
 
       - name: Validate Compose model
         shell: bash

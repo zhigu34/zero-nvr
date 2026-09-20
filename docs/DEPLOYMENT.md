@@ -121,6 +121,7 @@ update
 rollback [version]
 status
 doctor
+benchmark <8|16>
 feature list
 feature enable <name>
 feature disable <name>
@@ -227,6 +228,37 @@ The command edits only `COMPOSE_PROFILES` plus feature-specific bootstrap secret
 Managed PostgreSQL startup does not silently switch an existing SQLite deployment to PostgreSQL. Database-engine migration remains a separate, explicit workflow.
 
 Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
+
+### benchmark
+
+Release-gate validation is host-operated:
+
+```bash
+./deploy.sh benchmark 8
+./deploy.sh benchmark 16
+./deploy.sh benchmark 8 --samples 10 --interval 2
+```
+
+The command does not generate synthetic RTSP sources. It validates the real
+configured workload and should be run on the intended deployment host while
+the target cameras and recording policies are active.
+
+The runtime gate requires at least the selected number of enabled,
+non-retired cameras to have an active recording mode, an online RECORD stream
+in ZLMediaKit, and an active ZLMediaKit MP4 recorder.
+
+The host-side resource report records:
+
+- the conservative sum of unique zero-nvr and ZLMediaKit Docker image virtual
+  sizes, gated below 2 GiB;
+- API + worker Docker memory average/peak, gated below 1 GiB;
+- ZLMediaKit memory separately because media buffers and page cache vary with
+  workload;
+- combined Core memory as informational context.
+
+The 8-camera command is the V1 baseline gate. The 16-camera command is the
+extended benchmark. The command emits one JSON report suitable for release
+validation evidence and exits non-zero when a gate fails.
 
 ### doctor
 
