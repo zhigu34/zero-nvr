@@ -44,3 +44,6 @@ tmp/
 
 # Containers / generated
 docker-compose.override.yml
+
+# POC aggregate runtime evidence
+poc/runtime-results/
