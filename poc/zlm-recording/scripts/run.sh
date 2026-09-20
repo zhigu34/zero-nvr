@@ -17,7 +17,7 @@ set +a
 docker compose down -v --remove-orphans >/dev/null 2>&1 || true
 
 rm -rf runtime
-mkdir -p runtime/recordings
+mkdir -p runtime/recordings runtime/vod
 
 docker compose up -d --build
 
