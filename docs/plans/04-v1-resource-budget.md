@@ -229,7 +229,7 @@ The cache quota is user/deployment configuration and is reported separately from
 
 ## EVENT_ONLY tmpfs budget
 
-If POC-03 validates the rolling tmpfs candidate, prebuffer memory is explicitly budgeted by bitrate and configured buffer duration.
+POC-03 validated the rolling tmpfs design. Prebuffer memory is explicitly budgeted by bitrate and configured buffer duration.
 
 Approximation:
 
@@ -247,6 +247,30 @@ Example only:
 The product must calculate/display expected prebuffer memory before enabling a large camera count.
 
 tmpfs must be bounded.
+
+### POC-03 measured reference
+
+The design-freeze POC used:
+
+~~~text
+segment target = 5 s
+pre-roll = 10 s
+post-roll = 10 s
+buffer window = 35 s
+tmpfs hard cap = 256 MiB
+~~~
+
+Observed per-test-group peaks with one EVENT_ONLY stream were:
+
+~~~text
+H.264 / ~2 s GOP   ≈ 7.60 MB
+H.264 / ~5 s GOP   ≈ 3.61 MB
+H.265 / ~2 s GOP   ≈ 3.33 MB
+~~~
+
+These are reference measurements for the synthetic bitrates used by the POC, **not fixed per-camera memory promises**.
+
+Production sizing continues to use configured/observed bitrate × buffer duration plus a safety margin. The UI/deploy preflight should report the aggregate expected tmpfs reservation/pressure for all enabled EVENT_ONLY cameras.
 
 ## V1 RAM targets
 
