@@ -211,6 +211,26 @@ class RetentionPolicyAdminService:
         policy: RetentionPolicy,
         changes: dict[str, object],
     ) -> RetentionPolicy:
+        non_nullable = {
+            "name",
+            "scope_type",
+            "ordinary_keep_days",
+            "event_keep_days",
+            "manual_keep_days",
+            "mode",
+            "require_archive_before_delete",
+            "enabled",
+        }
+        if any(
+            key in changes and changes[key] is None
+            for key in non_nullable
+        ):
+            raise ApiError(
+                status_code=400,
+                code="retention_patch_null_invalid",
+                message="Retention policy field cannot be null.",
+            )
+
         name = str(changes.get("name", policy.name)).strip()
         if not name:
             raise ApiError(
