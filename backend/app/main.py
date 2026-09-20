@@ -12,6 +12,7 @@ from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
+from app.modules.notifications.dispatcher import NotificationTaskDispatcher
 from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 from app.modules.recordings.prebuffer import PrebufferFragmentTracker
 from app.modules.recordings.runtime import RecorderModeTracker
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     recorder_modes = RecorderModeTracker()
     prebuffer_fragments = PrebufferFragmentTracker()
     recording_tasks = RecordingTaskDispatcher(resolved_settings)
+    notification_tasks = NotificationTaskDispatcher()
     storage_tasks = StorageTaskDispatcher()
     frigate_tasks = FrigateTaskDispatcher()
     frigate_mqtt = FrigateMqttRuntime(
@@ -35,6 +37,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database,
         logger=logger,
         recording_tasks=recording_tasks,
+        notification_tasks=notification_tasks,
     )
 
     @asynccontextmanager
@@ -71,6 +74,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.recorder_modes = recorder_modes
     app.state.prebuffer_fragments = prebuffer_fragments
     app.state.recording_tasks = recording_tasks
+    app.state.notification_tasks = notification_tasks
     app.state.storage_tasks = storage_tasks
     app.state.frigate_tasks = frigate_tasks
     app.state.frigate_mqtt = frigate_mqtt
