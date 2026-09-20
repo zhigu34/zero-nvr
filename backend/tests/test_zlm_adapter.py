@@ -203,3 +203,69 @@ def test_missing_zlm_secret_is_explicit_and_sanitized() -> None:
 
     assert captured.value.code == "zlm_not_configured"
     assert captured.value.status_code == 503
+
+
+
+def test_mp4_recorder_control_uses_zlm_native_api() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        api = request.url.path.rsplit("/", 1)[-1]
+        if api == "startRecord":
+            return httpx.Response(
+                200,
+                json={"code": 0, "result": True},
+            )
+        if api == "isRecording":
+            return httpx.Response(
+                200,
+                json={"code": 0, "status": True},
+            )
+        if api == "stopRecord":
+            return httpx.Response(
+                200,
+                json={"code": 0, "result": True},
+            )
+        raise AssertionError(api)
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        assert adapter.start_mp4_recording(
+            app="zero-nvr",
+            stream="profile-abc",
+            customized_path="/recordings",
+            max_second=300,
+        ) is True
+        assert adapter.is_mp4_recording(
+            app="zero-nvr",
+            stream="profile-abc",
+        ) is True
+        assert adapter.stop_mp4_recording(
+            app="zero-nvr",
+            stream="profile-abc",
+        ) is True
+
+    assert [
+        request.url.path.rsplit("/", 1)[-1]
+        for request in requests
+    ] == [
+        "startRecord",
+        "isRecording",
+        "stopRecord",
+    ]
+
+    for request in requests:
+        assert not request.url.query
+        body = form(request)
+        assert body["secret"] == [ZLM_SECRET]
+        assert body["type"] == ["1"]
+        assert body["vhost"] == ["__defaultVhost__"]
+        assert body["app"] == ["zero-nvr"]
+        assert body["stream"] == ["profile-abc"]
+
+    start_body = form(requests[0])
+    assert start_body["customized_path"] == ["/recordings"]
+    assert start_body["max_second"] == ["300"]
