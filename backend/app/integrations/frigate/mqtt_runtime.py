@@ -42,14 +42,17 @@ class FrigateMqttRuntime:
         *,
         logger: logging.Logger,
         recording_tasks: RecordingTaskDispatcher,
-        notification_tasks: NotificationTaskDispatcher,
+        notification_tasks: NotificationTaskDispatcher | None = None,
         client_factory: Callable[..., Any] = mqtt.Client,
     ) -> None:
         self.settings = settings
         self.database = database
         self.logger = logger
         self.recording_tasks = recording_tasks
-        self.notification_tasks = notification_tasks
+        self.notification_tasks = (
+            notification_tasks
+            or NotificationTaskDispatcher()
+        )
         self._client_factory = client_factory
         self._lock = threading.Lock()
         self._client: Any | None = None
