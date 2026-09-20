@@ -95,7 +95,17 @@ const icons: Record<string, string> = {
   cloud:
     '<path d="M7 18h10a4 4 0 0 0 .7-7.9A6 6 0 0 0 6.4 8.4 4.5 4.5 0 0 0 7 18Z"/>',
   shield:
-    '<path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6Z"/><path d="m9 12 2 2 4-4"/>'
+    '<path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6Z"/><path d="m9 12 2 2 4-4"/>',
+  users:
+    '<path d="M16 20v-1.5a4.5 4.5 0 0 0-4.5-4.5h-4A4.5 4.5 0 0 0 3 18.5V20"/><circle cx="9.5" cy="7" r="4"/><path d="M17 11a3.5 3.5 0 0 1 4 3.5V20"/>',
+  bell:
+    '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+  brain:
+    '<path d="M9.5 4.5A3.5 3.5 0 0 0 6 8v1a3.5 3.5 0 0 0-1 6.85A3.5 3.5 0 0 0 9.5 20H12V4.5Z"/><path d="M14.5 4.5A3.5 3.5 0 0 1 18 8v1a3.5 3.5 0 0 1 1 6.85A3.5 3.5 0 0 1 14.5 20H12V4.5Z"/><path d="M8 10h4M12 14h4"/>',
+  backup:
+    '<path d="M4 7v13h16V7l-3-3H7Z"/><path d="M8 4v6h8V4M8 16h8"/>',
+  audit:
+    '<path d="M6 3h12v18H6Z"/><path d="M9 7h6M9 11h6M9 15h4"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

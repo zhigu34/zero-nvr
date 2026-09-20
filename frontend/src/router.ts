@@ -13,7 +13,7 @@ import LiveView from "./views/LiveView.vue"
 import PlaybackView from "./views/PlaybackView.vue"
 import SetupView from "./views/SetupView.vue"
 import StorageView from "./views/StorageView.vue"
-import WorkspaceView from "./views/WorkspaceView.vue"
+import SystemView from "./views/SystemView.vue"
 import { useAuthStore } from "./stores/auth"
 
 const routes: RouteRecordRaw[] = [
@@ -81,11 +81,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: "system",
         name: "system",
-        component: WorkspaceView,
+        component: SystemView,
         meta: {
-          title: "System",
-          description:
-            "Health, users, notifications, integrations, backup and audit configuration belong under System."
+          title: "System"
         }
       }
     ]
