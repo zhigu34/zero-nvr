@@ -542,7 +542,7 @@ def download_shared_export(
     session: Session = Depends(get_db_session),
 ):
     try:
-        job = ExportShareService.authorize_download(
+        authorized = ExportShareService.authorize_download(
             session,
             token=token,
             password=(
@@ -551,7 +551,7 @@ def download_shared_export(
                 else None
             ),
         )
-        session.commit()
+        job = authorized.export
     except Exception:
         session.rollback()
         raise
@@ -561,11 +561,22 @@ def download_shared_export(
         job.output_path,
     )
     if path is None or not path.is_file():
+        session.rollback()
         raise ApiError(
             status_code=409,
             code="export_output_missing",
             message="Shared export output is unavailable.",
         )
+
+    try:
+        ExportShareService.consume_download(
+            session,
+            share_id=authorized.share_id,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
 
     return FileResponse(
         path,
