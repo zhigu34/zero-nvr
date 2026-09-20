@@ -294,6 +294,45 @@ def camera_clock_normalization_evidence() -> dict[str, Any]:
     }
 
 
+def resolve_wall_clock(
+    items: list[dict[str, Any]],
+    at_ts: float,
+) -> dict[str, Any]:
+    for item in items:
+        start = parse_iso(item["start_at"])
+        end = parse_iso(item["end_at"])
+        if start <= at_ts < end:
+            return {
+                "status": "playable",
+                "segment_id": item["id"],
+                "segment_start_at": item["start_at"],
+                "segment_end_at": item["end_at"],
+                "offset_seconds": at_ts - start,
+            }
+
+    previous_end = max(
+        (
+            parse_iso(item["end_at"])
+            for item in items
+            if parse_iso(item["end_at"]) <= at_ts
+        ),
+        default=None,
+    )
+    next_start = min(
+        (
+            parse_iso(item["start_at"])
+            for item in items
+            if parse_iso(item["start_at"]) > at_ts
+        ),
+        default=None,
+    )
+    return {
+        "status": "gap",
+        "previous_at": iso(previous_end) if previous_end is not None else None,
+        "next_at": iso(next_start) if next_start is not None else None,
+    }
+
+
 def event_marker_evidence(segment: dict[str, Any]) -> dict[str, Any]:
     start = parse_iso(segment["start_at"])
     end = parse_iso(segment["end_at"])
@@ -398,6 +437,21 @@ def verify(outage_start: float, outage_end: float) -> None:
         "reason": "source_lost",
     }
 
+    gap_midpoint = (ranges[0]["end"] + ranges[1]["start"]) / 2
+    gap_resolution = resolve_wall_clock(items, gap_midpoint)
+    if gap_resolution["status"] != "gap":
+        raise AssertionError(
+            f"gap midpoint unexpectedly resolved as playable: {gap_resolution}"
+        )
+    if gap_resolution["previous_at"] != gap["start_at"]:
+        raise AssertionError(
+            f"gap previous boundary mismatch: {gap_resolution} vs {gap}"
+        )
+    if gap_resolution["next_at"] != gap["end_at"]:
+        raise AssertionError(
+            f"gap next boundary mismatch: {gap_resolution} vs {gap}"
+        )
+
     # Select a healthy finalized segment for VOD/seek checks.
     playable = max(
         items,
@@ -449,6 +503,19 @@ def verify(outage_start: float, outage_end: float) -> None:
     if not event_marker["inside_segment"]:
         raise AssertionError(f"event marker projection failed: {event_marker}")
 
+    event_resolution = resolve_wall_clock(
+        items,
+        parse_iso(event_marker["event_at"]),
+    )
+    if event_resolution["status"] != "playable":
+        raise AssertionError(
+            f"event marker did not resolve to playable media: {event_resolution}"
+        )
+    if event_resolution["segment_id"] != playable["id"]:
+        raise AssertionError(
+            f"event marker resolved to wrong segment: {event_resolution}"
+        )
+
     dst = dst_roundtrip_evidence()
     if not (
         dst["both_roundtrip"]
@@ -460,6 +527,21 @@ def verify(outage_start: float, outage_end: float) -> None:
     clock = camera_clock_normalization_evidence()
     if not clock["normalizes_back_to_canonical"]:
         raise AssertionError(f"camera clock normalization failed: {clock}")
+
+    partial_segments = [
+        {
+            "id": item["id"],
+            "duration_seconds": item["duration_ms"] / 1000.0,
+        }
+        for item in items
+        if abs(item["duration_ms"] / 1000.0 - SEGMENT_TARGET_SECONDS)
+        > 1.5
+    ]
+    if not partial_segments:
+        raise AssertionError(
+            "source-outage sequence produced no partial/non-target segment; "
+            "POC-05 partial-segment behavior was not exercised"
+        )
 
     evidence = {
         "result": "PASS",
@@ -483,16 +565,11 @@ def verify(outage_start: float, outage_end: float) -> None:
             for row in ranges
         ],
         "projected_gap": gap,
-        "partial_or_non_target_durations": [
-            {
-                "id": item["id"],
-                "duration_seconds": item["duration_ms"] / 1000.0,
-            }
-            for item in items
-            if abs(item["duration_ms"] / 1000.0 - SEGMENT_TARGET_SECONDS)
-            > 1.5
-        ],
+        "gap_midpoint_at": iso(gap_midpoint),
+        "gap_resolution": gap_resolution,
+        "partial_or_non_target_durations": partial_segments,
         "event_marker": event_marker,
+        "event_marker_resolution": event_resolution,
         "dst_roundtrip": dst,
         "camera_clock_normalization": clock,
         "vod": {
