@@ -169,11 +169,37 @@ At minimum it must preserve:
 
 Multiple events may extend one logical recording window without starting duplicate recorders. Events remain independent timeline markers.
 
-### Pre-roll is not frozen yet
+### EVENT_ONLY pre-roll baseline
 
-The ~10 second EVENT_ONLY pre-roll implementation is a **POC gate**, not a frozen implementation.
+The V1 EVENT_ONLY pre-roll mechanism is **accepted**, validated by [POC-03](poc-results/03-event-preroll.md) and [POC-04](poc-results/04-multi-event-extension.md).
 
-Preferred candidates use ZLMediaKit's own rolling media/GOP/HLS/fMP4 capabilities. zero-nvr must not implement a custom H.264/H.265 packet ring buffer.
+~~~text
+Camera
+  -> one normal ZLM recorder
+  -> short finalized fragments in bounded tmpfs
+  -> on_record_mp4
+  -> RecordingTrigger/Event overlap selects whole fragments
+  -> copy to destination *.partial
+  -> verify
+  -> atomic publish
+  -> RecordingSegment + RecordingLocation
+~~~
+
+Accepted behavior:
+
+- default product target remains about 10 seconds pre-roll and 10 seconds post-roll;
+- Event arrival/updates change a derived promotion/protection window, not recorder lifecycle;
+- overlapping Events remain independent Event/RecordingTrigger facts;
+- one fragment serving several Events is promoted once;
+- whole-fragment extra coverage is acceptable; exact trimming is an Export concern;
+- FastAPI restart reconstructs required coverage from durable RecordingTrigger facts plus tmpfs scan;
+- no PrebufferFragment/RecordingSession table is required;
+- tmpfs must be explicitly bounded and monitored;
+- H.264 and H.265/HEVC passed the design-freeze matrix.
+
+zero-nvr still must not implement a custom H.264/H.265 packet ring buffer or a second permanent event recorder.
+
+The recorder container format (ordinary MP4 vs fMP4) remains a separate POC-02 decision.
 
 ## Recording format validation
 
