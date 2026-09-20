@@ -8,7 +8,11 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
-from app.integrations.onvif import OnvifAdapter, OnvifIntegrationError
+from app.integrations.onvif import (
+    OnvifAdapter,
+    OnvifInspection,
+    OnvifIntegrationError,
+)
 from app.integrations.zlm import (
     ZlmAdapter,
     ZlmIntegrationError,
@@ -46,6 +50,10 @@ from .schemas import (
     CameraUpdate,
     DiscoveryCandidateView,
     DiscoverySessionView,
+    OnvifCameraTestInput,
+    OnvifDeviceInfoView,
+    OnvifInspectionView,
+    OnvifProfileView,
 )
 from .service import CameraService
 
@@ -80,6 +88,38 @@ def _probe_stream_view(
         name=name,
         video=_probe_track_view(probe.video),
         audio=_probe_track_view(probe.audio),
+    )
+
+
+def _onvif_inspection_view(
+    inspection: OnvifInspection,
+) -> OnvifInspectionView:
+    return OnvifInspectionView(
+        device=OnvifDeviceInfoView(
+            manufacturer=inspection.device.manufacturer,
+            model=inspection.device.model,
+            firmware_version=inspection.device.firmware_version,
+            serial_number=inspection.device.serial_number,
+            hardware_id=inspection.device.hardware_id,
+        ),
+        capabilities=list(inspection.capabilities),
+        profiles=[
+            OnvifProfileView(
+                token=profile.token,
+                name=profile.name,
+                video_source_token=profile.video_source_token,
+                codec=profile.codec,
+                width=profile.width,
+                height=profile.height,
+                fps=profile.fps,
+                bitrate_kbps=profile.bitrate_kbps,
+                gop_seconds=profile.gop_seconds,
+                audio_codec=profile.audio_codec,
+                has_audio=profile.has_audio,
+                stream_uri_available=profile.stream_uri_available,
+            )
+            for profile in inspection.profiles
+        ],
     )
 
 
@@ -328,6 +368,32 @@ def test_camera_configuration(
         ) from exc
 
     return CameraProbeResult(streams=results)
+
+
+@router.post("/cameras/onvif/test", response_model=OnvifInspectionView)
+async def test_onvif_camera(
+    body: OnvifCameraTestInput,
+    request: Request,
+    _context: AuthContext = Depends(require_permission("camera.configure")),
+) -> OnvifInspectionView:
+    try:
+        inspection = await OnvifAdapter(
+            request.app.state.settings
+        ).inspect_device(
+            host=body.host,
+            port=body.port,
+            username=body.username,
+            password=body.password.get_secret_value(),
+        )
+    except OnvifIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    return _onvif_inspection_view(inspection)
 
 
 @router.post(
