@@ -188,7 +188,7 @@ case "$command" in
     update_stack
     ;;
   rollback)
-    "$SCRIPT_DIR/rollback.sh" "$@"
+    bash "$SCRIPT_DIR/rollback.sh" "$@"
     ;;
   status)
     ensure_env
