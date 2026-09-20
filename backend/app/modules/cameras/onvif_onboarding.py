@@ -76,31 +76,54 @@ class OnvifOnboardingService:
         return usable
 
     @staticmethod
-    def _ensure_not_duplicate(
+    def _existing_device(
         session: Session,
         *,
         inspection: OnvifInspection,
-        host: str,
-        port: int,
-    ) -> None:
-        device_info = inspection.device
-
-        if device_info.hardware_id:
-            existing = session.scalar(
-                select(Device.id).where(
+    ) -> Device | None:
+        info = inspection.device
+        if info.hardware_id:
+            return session.scalar(
+                select(Device).where(
                     Device.adapter_type == "onvif",
-                    Device.hardware_id == device_info.hardware_id,
+                    Device.hardware_id == info.hardware_id,
                 )
             )
-            if existing is not None:
+
+        if info.serial_number and info.manufacturer and info.model:
+            matches = list(
+                session.scalars(
+                    select(Device).where(
+                        Device.adapter_type == "onvif",
+                        Device.serial_number == info.serial_number,
+                        Device.manufacturer == info.manufacturer,
+                        Device.model == info.model,
+                    )
+                )
+            )
+            if len(matches) > 1:
                 raise ApiError(
                     status_code=409,
-                    code="onvif_device_already_exists",
-                    message="This ONVIF device has already been imported.",
+                    code="onvif_device_identity_ambiguous",
+                    message=(
+                        "More than one imported ONVIF device matches "
+                        "this stable identity."
+                    ),
                 )
+            return matches[0] if matches else None
 
-        existing_endpoint = session.scalar(
-            select(DeviceEndpoint.id)
+        return None
+
+    @staticmethod
+    def _ensure_endpoint_available(
+        session: Session,
+        *,
+        host: str,
+        port: int,
+        existing_device_id: uuid.UUID | None,
+    ) -> None:
+        endpoint = session.scalar(
+            select(DeviceEndpoint)
             .join(Device, Device.id == DeviceEndpoint.device_id)
             .where(
                 Device.adapter_type == "onvif",
@@ -109,12 +132,230 @@ class OnvifOnboardingService:
                 DeviceEndpoint.port == port,
             )
         )
-        if existing_endpoint is not None:
+        if (
+            endpoint is not None
+            and endpoint.device_id != existing_device_id
+        ):
             raise ApiError(
                 status_code=409,
                 code="onvif_device_already_exists",
-                message="This ONVIF endpoint has already been imported.",
+                message=(
+                    "This ONVIF endpoint belongs to another imported device."
+                ),
             )
+
+    def _replace_secret(
+        self,
+        *,
+        record: SecretRecord,
+        value: dict[str, str],
+    ) -> None:
+        encrypted = self.secret_store.encrypt_json(value)
+        record.key_id = encrypted.key_id
+        record.encrypted_payload = encrypted.ciphertext
+        record.version = encrypted.version
+
+    def _reconfigure_existing(
+        self,
+        session: Session,
+        *,
+        device: Device,
+        inspection: OnvifInspection,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        discovery_candidate_id: uuid.UUID | None,
+    ) -> tuple[Device, list[Camera], bool]:
+        usable = {
+            item.token: item
+            for item in inspection.profiles
+            if item.stream_uri_available and item.stream_uri
+        }
+        cameras = list(
+            session.scalars(
+                select(Camera)
+                .where(Camera.device_id == device.id)
+                .order_by(Camera.channel_key, Camera.id)
+            )
+        )
+        if not cameras:
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_topology_invalid",
+                message="Imported ONVIF device has no Camera channels.",
+            )
+
+        profile_updates: list[
+            tuple[CameraStreamProfile, OnvifProfileProbe]
+        ] = []
+        for camera in cameras:
+            for model in camera.stream_profiles:
+                probe = usable.get(model.adapter_profile_key)
+                if (
+                    probe is None
+                    or (probe.video_source_token or "default")
+                    != camera.channel_key
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="onvif_device_topology_changed",
+                        message=(
+                            "ONVIF channel/profile identity changed; "
+                            "automatic address refresh was not applied."
+                        ),
+                        details={
+                            "camera_id": str(camera.id),
+                            "profile_token": model.adapter_profile_key,
+                        },
+                    )
+                profile_updates.append((model, probe))
+
+        self._ensure_endpoint_available(
+            session,
+            host=host,
+            port=port,
+            existing_device_id=device.id,
+        )
+
+        now = utc_now()
+        device.manufacturer = inspection.device.manufacturer
+        device.model = inspection.device.model
+        device.serial_number = inspection.device.serial_number
+        device.hardware_id = (
+            inspection.device.hardware_id or device.hardware_id
+        )
+        device.capabilities_json = {
+            "onvif_services": list(inspection.capabilities),
+        }
+        device.capabilities_updated_at = now
+
+        endpoint = next(
+            (
+                item
+                for item in sorted(
+                    device.endpoints,
+                    key=lambda value: (value.priority, str(value.id)),
+                )
+                if item.type == "onvif"
+            ),
+            None,
+        )
+        if endpoint is None:
+            endpoint = DeviceEndpoint(
+                device_id=device.id,
+                type="onvif",
+                host=host,
+                port=port,
+                scheme="http",
+                path=None,
+                priority=100,
+                enabled=True,
+                last_verified_at=now,
+                metadata_json={},
+            )
+            session.add(endpoint)
+            session.flush()
+        else:
+            endpoint.host = host
+            endpoint.port = port
+            endpoint.scheme = "http"
+            endpoint.path = None
+            endpoint.enabled = True
+            endpoint.last_verified_at = now
+
+        credential = next(
+            (
+                item
+                for item in device.credentials
+                if item.kind == "onvif"
+            ),
+            None,
+        )
+        if credential is None:
+            encrypted = self.secret_store.encrypt_json(
+                {"username": username, "password": password}
+            )
+            secret = SecretRecord(
+                kind="onvif_credential",
+                owner_type="device",
+                owner_id=device.id,
+                key_id=encrypted.key_id,
+                encrypted_payload=encrypted.ciphertext,
+                version=encrypted.version,
+            )
+            session.add(secret)
+            session.flush()
+            credential = DeviceCredential(
+                device_id=device.id,
+                endpoint_id=endpoint.id,
+                kind="onvif",
+                secret_ref=secret.id,
+            )
+            session.add(credential)
+        else:
+            credential.endpoint_id = endpoint.id
+            secret = session.get(SecretRecord, credential.secret_ref)
+            if secret is None:
+                raise ApiError(
+                    status_code=409,
+                    code="device_credential_unavailable",
+                    message="ONVIF device credential secret is unavailable.",
+                )
+            self._replace_secret(
+                record=secret,
+                value={"username": username, "password": password},
+            )
+
+        for model, probe in profile_updates:
+            model.video_source_key = probe.video_source_token
+            model.name = probe.name
+            model.codec = probe.codec
+            model.width = probe.width
+            model.height = probe.height
+            model.fps = probe.fps
+            model.bitrate_kbps = probe.bitrate_kbps
+            model.gop_seconds = probe.gop_seconds
+            model.audio_codec = probe.audio_codec
+            model.has_audio = probe.has_audio
+            model.status = "available"
+            model.last_verified_at = now
+
+            uri_secret = (
+                session.get(SecretRecord, model.stream_uri_ref)
+                if model.stream_uri_ref is not None
+                else None
+            )
+            assert probe.stream_uri is not None
+            if uri_secret is None:
+                encrypted = self.secret_store.encrypt_json(
+                    {"uri": probe.stream_uri}
+                )
+                uri_secret = SecretRecord(
+                    kind="rtsp_uri",
+                    owner_type="camera_stream_profile",
+                    owner_id=model.id,
+                    key_id=encrypted.key_id,
+                    encrypted_payload=encrypted.ciphertext,
+                    version=encrypted.version,
+                )
+                session.add(uri_secret)
+                session.flush()
+                model.stream_uri_ref = uri_secret.id
+            else:
+                self._replace_secret(
+                    record=uri_secret,
+                    value={"uri": probe.stream_uri},
+                )
+
+        self._mark_discovery_candidate_imported(
+            session,
+            candidate_id=discovery_candidate_id,
+            host=host,
+            port=port,
+        )
+        session.flush()
+        return device, cameras, False, True
 
     @staticmethod
     def _mark_discovery_candidate_imported(
@@ -164,16 +405,32 @@ class OnvifOnboardingService:
         storage_label: str | None,
         selected_profile_tokens: list[str] | None,
         discovery_candidate_id: uuid.UUID | None,
-    ) -> tuple[Device, list[Camera]]:
+    ) -> tuple[Device, list[Camera], bool]:
+        existing = self._existing_device(
+            session,
+            inspection=inspection,
+        )
+        if existing is not None:
+            return self._reconfigure_existing(
+                session,
+                device=existing,
+                inspection=inspection,
+                host=host,
+                port=port,
+                username=username,
+                password=password,
+                discovery_candidate_id=discovery_candidate_id,
+            )
+
+        self._ensure_endpoint_available(
+            session,
+            host=host,
+            port=port,
+            existing_device_id=None,
+        )
         profiles = self._usable_profiles(
             inspection,
             selected_profile_tokens,
-        )
-        self._ensure_not_duplicate(
-            session,
-            inspection=inspection,
-            host=host,
-            port=port,
         )
 
         device_info = inspection.device
