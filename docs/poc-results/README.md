@@ -23,6 +23,22 @@ A committed harness is **not** a passing result. Every POC stays `NOT RUN` until
 | 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | NOT RUN |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | NOT RUN |
 
+## Aggregate runner
+
+Run all current design-freeze harnesses from the repository root:
+
+~~~bash
+sh ./poc/run-all.sh
+~~~
+
+Per-group compact evidence is archived under:
+
+~~~text
+poc/runtime-results/<UTC timestamp>/
+~~~
+
+The script records runner exit codes and preserves later independent results even if an earlier group fails.
+
 ## Evidence rule
 
 Each result document must contain:
