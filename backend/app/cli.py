@@ -40,6 +40,9 @@ from app.modules.backups.database_snapshot import (
 from app.modules.system.benchmark import (
     ReleaseBenchmarkService,
 )
+from app.modules.system.soak import (
+    ReleaseSoakService,
+)
 
 
 def _settings_database() -> tuple[Settings, Database]:
@@ -608,6 +611,141 @@ def benchmark_status_command(
                             "error": item.error,
                         }
                         for item in status.cameras
+                    ],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if status.passed else 1
+    finally:
+        database.close()
+
+
+
+
+
+def _parse_aware_datetime(
+    value: str,
+    *,
+    field: str,
+) -> datetime:
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = (
+            normalized[:-1] + "+00:00"
+        )
+    try:
+        parsed = datetime.fromisoformat(
+            normalized
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            f"{field} must be an ISO 8601 timestamp"
+        ) from exc
+    if parsed.tzinfo is None:
+        raise RuntimeError(
+            f"{field} must include a timezone"
+        )
+    return parsed.astimezone(UTC)
+
+
+def soak_status_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        status = ReleaseSoakService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=(
+                args.expected_cameras
+            ),
+            since=_parse_aware_datetime(
+                args.since,
+                field="since",
+            ),
+            require_progress=(
+                args.require_progress
+            ),
+        )
+        print(
+            json.dumps(
+                {
+                    "expected_cameras": (
+                        status.expected_cameras
+                    ),
+                    "sampled_at": (
+                        status.sampled_at
+                        .isoformat()
+                    ),
+                    "since": (
+                        status.since.isoformat()
+                    ),
+                    "passed": status.passed,
+                    "failures": list(
+                        status.failures
+                    ),
+                    "required_health": (
+                        status.required_health
+                    ),
+                    "runtime": {
+                        "passed": (
+                            status.runtime.passed
+                        ),
+                        "enabled_cameras": (
+                            status.runtime
+                            .enabled_cameras
+                        ),
+                        "recording_expected_cameras": (
+                            status.runtime
+                            .recording_expected_cameras
+                        ),
+                        "record_streams_online": (
+                            status.runtime
+                            .record_streams_online
+                        ),
+                        "recorders_active": (
+                            status.runtime
+                            .recorders_active
+                        ),
+                        "failures": list(
+                            status.runtime
+                            .failures
+                        ),
+                    },
+                    "progress_required": (
+                        status.progress_required
+                    ),
+                    "persistent_progress": [
+                        {
+                            "camera_id": str(
+                                item.camera_id
+                            ),
+                            "name": item.name,
+                            "segment_target_seconds": (
+                                item.segment_target_seconds
+                            ),
+                            "segments_since_start": (
+                                item.segments_since_start
+                            ),
+                            "available_local_segments_since_start": (
+                                item.available_local_segments_since_start
+                            ),
+                            "bytes_since_start": (
+                                item.bytes_since_start
+                            ),
+                            "latest_segment_created_at": (
+                                item.latest_segment_created_at
+                                .isoformat()
+                                if item.latest_segment_created_at
+                                is not None
+                                else None
+                            ),
+                            "passed": item.passed,
+                        }
+                        for item
+                        in status.persistent_progress
                     ],
                 },
                 sort_keys=True,
@@ -1283,6 +1421,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     benchmark.set_defaults(
         handler=benchmark_status_command
+    )
+
+    soak = sub.add_parser(
+        "soak-status"
+    )
+    soak.add_argument(
+        "--expected-cameras",
+        type=int,
+        required=True,
+    )
+    soak.add_argument(
+        "--since",
+        required=True,
+    )
+    soak.add_argument(
+        "--require-progress",
+        action="store_true",
+    )
+    soak.set_defaults(
+        handler=soak_status_command
     )
 
     reset = sub.add_parser(
