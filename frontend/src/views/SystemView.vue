@@ -21,7 +21,6 @@ import {
   backfillFrigate,
   createBackupPolicy,
   createNotificationTarget,
-  createUser,
   deleteNotificationTarget,
   getCameraClockHealth,
   getFrigateProvider,
@@ -34,18 +33,14 @@ import {
   listBackups,
   listNotificationDeliveries,
   listNotificationTargets,
-  listRoles,
-  listUsers,
   patchSystemSettings,
   putFrigateProvider,
   runBackup,
-  setUserEnabled,
   testFrigateProvider,
   testNotificationTarget,
   updateBackupPolicy,
   updateNotificationTarget,
   verifyBackup,
-  type AdminUser,
   type AuditEvent,
   type BackupPolicy,
   type CameraClockHealth,
@@ -55,7 +50,6 @@ import {
   type HealthComponent,
   type NotificationDelivery,
   type NotificationTarget,
-  type Role,
   type SystemHealth,
   type SystemInfo,
   type SystemSettings,
@@ -88,25 +82,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
-const users = ref<AdminUser[]>([])
-const roles = ref<Role[]>([])
 const cameras = ref<CameraSummary[]>([])
-const userPanelOpen = ref(false)
-const userSaving = ref(false)
-const passwordResetPanelOpen = ref(false)
-const passwordResetSaving = ref(false)
-const passwordResetUser = ref<AdminUser | null>(null)
-const passwordResetForm = reactive({
-  password: "",
-  confirmPassword: ""
-})
-const userForm = reactive({
-  username: "",
-  displayName: "",
-  email: "",
-  password: "",
-  roleIds: [] as string[]
-})
 
 const targets = ref<NotificationTarget[]>([])
 const deliveries = ref<NotificationDelivery[]>([])
@@ -328,18 +304,6 @@ async function loadBase(): Promise<void> {
   }
 }
 
-async function loadUsers(): Promise<void> {
-  if (!auth.hasPermission("user.manage")) return
-  try {
-    ;[users.value, roles.value] = await Promise.all([
-      listUsers(),
-      listRoles()
-    ])
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  }
-}
-
 async function loadNotifications(): Promise<void> {
   if (!auth.hasPermission("alert.manage")) return
   try {
@@ -408,7 +372,6 @@ async function loadAudit(): Promise<void> {
 
 async function loadTab(value: SystemTab): Promise<void> {
   notice.value = null
-  if (value === "users") await loadUsers()
   if (value === "notifications") await loadNotifications()
   if (value === "ai") await loadFrigate()
   if (value === "backup") await loadBackups()
@@ -468,87 +431,6 @@ async function saveGeneral(): Promise<void> {
     error.value = errorMessage(caught)
   } finally {
     generalSaving.value = false
-  }
-}
-
-function openUserPanel(): void {
-  userForm.username = ""
-  userForm.displayName = ""
-  userForm.email = ""
-  userForm.password = ""
-  const defaultRole = roles.value.find((role) => role.name === "Viewer")
-  userForm.roleIds = defaultRole ? [defaultRole.id] : []
-  userPanelOpen.value = true
-}
-
-async function saveUser(): Promise<void> {
-  userSaving.value = true
-  error.value = null
-  try {
-    await createUser({
-      username: userForm.username.trim(),
-      display_name: userForm.displayName.trim(),
-      email: userForm.email.trim() || null,
-      password: userForm.password,
-      role_ids: userForm.roleIds
-    })
-    userPanelOpen.value = false
-    notice.value = "User created."
-    await loadUsers()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    userSaving.value = false
-  }
-}
-
-async function toggleUser(user: AdminUser): Promise<void> {
-  try {
-    await setUserEnabled(user.id, !user.enabled)
-    await loadUsers()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  }
-}
-
-function openPasswordReset(user: AdminUser): void {
-  userPanelOpen.value = false
-  passwordResetUser.value = user
-  passwordResetForm.password = ""
-  passwordResetForm.confirmPassword = ""
-  passwordResetPanelOpen.value = true
-  notice.value = null
-}
-
-async function savePasswordReset(): Promise<void> {
-  if (!passwordResetUser.value) return
-  if (
-    passwordResetForm.password !==
-    passwordResetForm.confirmPassword
-  ) {
-    error.value = "Passwords do not match."
-    return
-  }
-
-  passwordResetSaving.value = true
-  error.value = null
-  try {
-    await resetUserPassword(
-      passwordResetUser.value.id,
-      passwordResetForm.password
-    )
-    const username = passwordResetUser.value.username
-    passwordResetPanelOpen.value = false
-    passwordResetUser.value = null
-    passwordResetForm.password = ""
-    passwordResetForm.confirmPassword = ""
-    notice.value =
-      `Password reset for @${username}. All existing sessions were revoked.`
-    await loadUsers()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    passwordResetSaving.value = false
   }
 }
 
