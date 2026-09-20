@@ -103,7 +103,7 @@ def test_persistent_starts_native_recorder(tmp_path: Path) -> None:
     result = service.reconcile(item)
 
     assert result.desired_mode == "persistent"
-    assert result.recording is True
+    assert result.observed_recording is True
     assert result.changed is True
     assert (
         "start",
@@ -224,7 +224,7 @@ def test_offline_stream_is_already_off_without_camera_pull(
     )
 
     assert result.desired_mode == "off"
-    assert result.recording is False
+    assert result.observed_recording is False
     assert FakeZlm.calls == [
         ("online", "zero-nvr", "profile-test")
     ]
