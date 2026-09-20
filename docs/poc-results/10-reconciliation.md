@@ -24,6 +24,10 @@ poc/zlm-recording/scripts/run-reconciliation.sh
 
 ## Required behavior
 
+- the deliberately dropped hook's exact object_path becomes one AVAILABLE RecordingLocation after reconciliation;
+- the exact FastAPI downtime window is recorded and must contain AVAILABLE catalog coverage after reconciliation;
+- at least one reconcile-sourced segment must land in/near the FastAPI downtime window, proving media finalized while the control plane was unavailable;
+- the exact SQLite write-lock window is recorded and must contain AVAILABLE catalog coverage after convergence;
 - valid media is never deleted merely because DB metadata is stale;
 - missing catalogued media becomes RecordingLocation state MISSING;
 - a valid orphan whose stream/time identity can be proven is recovered into one RecordingSegment + RecordingLocation;
@@ -47,6 +51,7 @@ Once the real Huey worker is implemented, repeat a kill/restart smoke test aroun
 
 ~~~text
 poc/zlm-recording/runtime/reconciliation-evidence.json
+poc/zlm-recording/runtime/api-downtime.json
 poc/zlm-recording/runtime/reconciliation-runs.json
 poc/zlm-recording/runtime/reconciliation-fixtures.json
 poc/zlm-recording/runtime/reconciliation-simulated-crash.json
