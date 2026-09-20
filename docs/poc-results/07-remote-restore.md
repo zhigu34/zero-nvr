@@ -1,6 +1,6 @@
 # POC-07 — Remote Restore Playback
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
@@ -93,16 +93,107 @@ poc/zlm-recording/runtime/playback-cache/
 
 ## Tested versions
 
-Pending execution.
+First passing runtime execution:
+
+~~~text
+GitHub Actions run: 35489849518
+job: POC 07
+runner: Ubuntu 24.04.5 / linux amd64
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+rclone: v1.75.1
+ZLMediaKit image: zlmediakit/zlmediakit:master
+~~~
+
+The first POC-07 evidence did not yet serialize ZLM's `/index/api/version` result into its own JSON. The harness has been updated so future runs capture the exact ZLM commit/build time as well. Other jobs in the same matrix pulled current master commit `b794772`, but this result does not rely on cross-job inference for its PASS decision.
 
 ## Test environment
 
-Pending execution.
+GitHub-hosted Ubuntu 24.04.5 runner:
+
+~~~text
+kernel: 6.17.0-1022-azure
+architecture: x86_64
+host-visible RAM: ~15 GiB
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+~~~
+
+Remote endpoint was the deterministic POC WebDAV service consumed only through rclone. No FUSE mount was used.
 
 ## Evidence
 
-Pending execution.
+Runtime result:
+
+~~~text
+result = PASS
+
+interrupted restore:
+  final READY path published after interruption = false
+  retry_to_ready_seconds ≈ 0.066
+  interrupted attempt + retry wall time ≈ 1.644 s
+
+restored segment 1:
+  size = 1,555,980 bytes
+  media duration = 7.997 s
+
+prefetched segment 2:
+  size = 1,932,263 bytes
+  media duration = 10.000 s
+
+ZLM RTSP VOD:
+  first decoded frame after READY ≈ 2.093 s
+  current segment decoded while next segment prefetch ran = PASS
+
+bounded cache:
+  bytes before eviction = 3,488,243
+  enforced limit = 1,997,799
+  evicted = remote-1.mp4
+  bytes after eviction = 1,932,263
+  canonical local guard recording still exists = true
+
+remote outage:
+  rclone remote command failed as expected
+  local segment count: 4 -> 5
+  local ZLM recorder active = true
+~~~
+
+Primary artifact:
+
+~~~text
+GitHub Actions artifact:
+  poc-07-evidence
+  run 35489849518
+~~~
+
+The JSON artifact path produced by the harness is:
+
+~~~text
+poc/zlm-recording/runtime/remote-restore-evidence.json
+~~~
+
+## Known limitations
+
+- This validates rclone over WebDAV, not an actual OpenList process.
+- OpenList remains an optional protocol gateway; a later smoke test should point the same rclone WebDAV configuration at a real OpenList instance.
+- The first-frame number is a GitHub-runner operational measurement, not a universal WAN/cloud SLA.
+- A real Internet/cloud backend will have different throughput and startup latency.
 
 ## Architecture impact
 
-Pending execution.
+**V1 remote playback baseline is accepted:**
+
+~~~text
+remote RecordingLocation
+-> rclone restore/copyto
+-> bounded local playback cache
+-> verify
+-> atomic READY publish
+-> ZLMediaKit VOD
+~~~
+
+No FUSE/rclone mount is required for V1.
+
+Remote archive/playback failure remains isolated from healthy local recording.
+
+OpenList stays outside the zero-nvr storage-transfer implementation: when used, it supplies WebDAV to rclone rather than requiring a new zero-nvr cloud-drive adapter.
