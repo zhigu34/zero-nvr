@@ -12,6 +12,7 @@ from sqlalchemy import inspect
 from app.core.config import Settings
 from app.core.db import Database
 from app.modules.events.frigate import FrigateEventIngestService
+from app.modules.notifications.dispatcher import NotificationTaskDispatcher
 from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 from app.modules.system.frigate import (
     FrigateProviderConfig,
@@ -41,12 +42,14 @@ class FrigateMqttRuntime:
         *,
         logger: logging.Logger,
         recording_tasks: RecordingTaskDispatcher,
+        notification_tasks: NotificationTaskDispatcher,
         client_factory: Callable[..., Any] = mqtt.Client,
     ) -> None:
         self.settings = settings
         self.database = database
         self.logger = logger
         self.recording_tasks = recording_tasks
+        self.notification_tasks = notification_tasks
         self._client_factory = client_factory
         self._lock = threading.Lock()
         self._client: Any | None = None
@@ -270,6 +273,10 @@ class FrigateMqttRuntime:
             ):
                 self.recording_tasks.reconcile_camera(
                     result.trigger_camera_id
+                )
+            if result.notification_delivery_ids:
+                self.notification_tasks.deliver_many(
+                    result.notification_delivery_ids
                 )
         except Exception:
             # Provider payload and credentials are intentionally omitted.
