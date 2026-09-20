@@ -80,7 +80,8 @@ poc/sqlite-load/
 - [ADR 0008](adr/0008-persist-product-facts-derive-runtime-state.md) — persist product facts; derive runtime/projection state
 - [ADR 0009](adr/0009-fmp4-default-recording-container.md) — fMP4 is the default managed ZLM recording container
 - [ADR 0010](adr/0010-event-only-rolling-tmpfs-promotion.md)
-- [ADR 0011](adr/0011-zlm-recording-time-normalization.md) — normalize ZLM recording time only within proven continuous media sessions — EVENT_ONLY uses one rolling ZLM recorder + bounded tmpfs promotion
+- [ADR 0011](adr/0011-zlm-recording-time-normalization.md) — normalize ZLM recording time only within proven continuous media sessions
+- [ADR 0012](adr/0012-v1-architecture-freeze-baseline.md) — V1 frozen ownership/contracts and post-freeze change-control rule — EVENT_ONLY uses one rolling ZLM recorder + bounded tmpfs promotion
 
 ## Core product specs
 
