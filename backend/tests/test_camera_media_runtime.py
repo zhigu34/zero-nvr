@@ -40,6 +40,7 @@ class FakeZlm:
         self.online_checks: list[str] = []
         self.add_calls: list[dict[str, object]] = []
         self.close_calls: list[dict[str, object]] = []
+        self.delete_calls: list[str] = []
         self.instances.append(self)
 
     def __enter__(self):
@@ -61,6 +62,12 @@ class FakeZlm:
     def close_stream(self, **kwargs):
         self.close_calls.append(kwargs)
         return True
+
+    def delete_stream_proxy(
+        self,
+        key: str,
+    ):
+        self.delete_calls.append(key)
 
 
 def test_desired_streams_deduplicate_bindings_and_hide_source_uri_in_repr(
@@ -236,5 +243,68 @@ def test_disabled_camera_has_no_desired_streams_but_keeps_stop_references(
             assert len(
                 runtime.stream_references(camera=camera)
             ) == 2
+    finally:
+        database.close()
+
+
+
+def test_replace_streams_deletes_proxy_keys_before_readding(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=PRIMARY_URL,
+                secondary_name="Sub",
+                secondary_url=SECONDARY_URL,
+            )
+            session.commit()
+            camera_id = camera.id
+
+        FakeZlm.instances = []
+        runtime = CameraMediaRuntimeService(
+            settings,
+            zlm_factory=FakeZlm,
+        )
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            desired = runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+            session.commit()
+
+        references = runtime.replace_streams(desired)
+        zlm = FakeZlm.instances[-1]
+        assert zlm.delete_calls == [
+            item.reference.proxy_key
+            for item in desired
+        ]
+        assert [
+            item["stream"]
+            for item in zlm.add_calls
+        ] == [
+            item.stream
+            for item in desired
+        ]
+        assert {
+            item.proxy_key
+            for item in references
+        } == {
+            "__defaultVhost__/zero-nvr/"
+            + item.stream
+            for item in desired
+        }
     finally:
         database.close()

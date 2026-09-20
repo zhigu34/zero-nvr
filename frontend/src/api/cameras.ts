@@ -157,13 +157,22 @@ export function inspectOnvif(
   })
 }
 
+export interface OnvifImportResult {
+  device_id: string
+  reconfigured: boolean
+  cameras: CameraDetail[]
+}
+
 export function importOnvif(
   body: OnvifImportInput
-): Promise<unknown> {
-  return apiRequest("/cameras/onvif/import", {
-    method: "POST",
-    json: body
-  })
+): Promise<OnvifImportResult> {
+  return apiRequest<OnvifImportResult>(
+    "/cameras/onvif/import",
+    {
+      method: "POST",
+      json: body
+    }
+  )
 }
 
 

@@ -197,7 +197,7 @@ async function importDevice(): Promise<void> {
   clearMessages()
   working.value = "import"
   try {
-    await importOnvif({
+    const imported = await importOnvif({
       ...onvifCredentials(),
       name: normalizeOptional(onvifName.value),
       location: normalizeOptional(onvifLocation.value),
@@ -206,7 +206,9 @@ async function importDevice(): Promise<void> {
       discovery_candidate_id: selectedCandidateId.value
     })
     successMessage.value =
-      "ONVIF device imported. Stream credentials remain in the zero-nvr secret store."
+      imported.reconfigured
+        ? "Existing ONVIF device refreshed. Camera identity and history were preserved while endpoint, credentials and stream URIs were updated."
+        : "ONVIF device imported. Stream credentials remain in the zero-nvr secret store."
     onvifPassword.value = ""
     emit("created")
   } catch (caught) {
