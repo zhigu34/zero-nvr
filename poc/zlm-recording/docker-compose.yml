@@ -30,6 +30,7 @@ services:
     volumes:
       - zlm-conf:/opt/media/conf:ro
       - ./runtime/recordings:/recordings
+      - ./runtime/vod:/opt/media/bin/www/record
     ports:
       - "18080:80"
       - "18554:554"
@@ -57,6 +58,7 @@ services:
     volumes:
       - ./runtime:/runtime
       - ./runtime/recordings:/recordings
+      - ./runtime/vod:/vod
 
 volumes:
   zlm-conf:
