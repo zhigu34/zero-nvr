@@ -14,6 +14,7 @@ from app.core.logging import configure_logging
 from app.frontend import mount_frontend
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
+from app.modules.auth.rate_limit import AuthRateLimiter
 from app.modules.backups.dispatcher import BackupTaskDispatcher
 from app.modules.notifications.dispatcher import NotificationTaskDispatcher
 from app.modules.exports.dispatcher import ExportTaskDispatcher
@@ -30,6 +31,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger = configure_logging(resolved_settings.log_level)
     database = Database(resolved_settings)
     event_bus = RuntimeEventBus()
+    auth_rate_limiter = AuthRateLimiter()
     zlm_continuity = ZlmContinuityTracker()
     recorder_modes = RecorderModeTracker()
     prebuffer_fragments = PrebufferFragmentTracker()
@@ -76,6 +78,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.state.settings = resolved_settings
     app.state.event_bus = event_bus
+    app.state.auth_rate_limiter = auth_rate_limiter
     app.state.database = database
     app.state.logger = logger
     app.state.zlm_continuity = zlm_continuity

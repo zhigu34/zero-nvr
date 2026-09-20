@@ -10,6 +10,9 @@ from pydantic import SecretStr
 
 
 _PASSWORD_HASH = PasswordHash.recommended()
+_DUMMY_PASSWORD_HASH = _PASSWORD_HASH.hash(
+    "zero-nvr-dummy-password-verification"
+)
 _SESSION_CONTEXT = b"zero-nvr/session/v1:"
 
 
@@ -22,6 +25,22 @@ class PasswordService:
             return _PASSWORD_HASH.verify(password, password_hash)
         except Exception:
             return False
+
+    def verify_or_dummy(
+        self,
+        password: str,
+        password_hash: str | None,
+    ) -> bool:
+        candidate = (
+            password_hash
+            if password_hash
+            else _DUMMY_PASSWORD_HASH
+        )
+        valid = self.verify(
+            password,
+            candidate,
+        )
+        return bool(password_hash) and valid
 
 
 class SessionSigner:

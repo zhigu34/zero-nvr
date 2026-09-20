@@ -142,11 +142,18 @@ class AuthService:
         password: str,
     ) -> User:
         user = session.scalar(select(User).where(User.username == username))
+        valid_password = self.passwords.verify_or_dummy(
+            password,
+            (
+                user.password_hash
+                if user is not None and user.enabled
+                else None
+            ),
+        )
         if (
             user is None
             or not user.enabled
-            or not user.password_hash
-            or not self.passwords.verify(password, user.password_hash)
+            or not valid_password
         ):
             raise ApiError(
                 status_code=401,
