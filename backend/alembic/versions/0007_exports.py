@@ -25,6 +25,7 @@ def upgrade() -> None:
         sa.Column("requested_start_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("requested_end_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("requested_duration_ms", sa.BigInteger(), nullable=False),
+        sa.Column("idempotency_key_hash", sa.String(length=64), nullable=True),
         sa.Column("format", sa.String(length=16), nullable=False),
         sa.Column("codec_mode", sa.String(length=16), nullable=False),
         sa.Column("gap_policy", sa.String(length=16), nullable=False),
@@ -85,6 +86,10 @@ def upgrade() -> None:
             ondelete="SET NULL",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_exports"),
+        sa.UniqueConstraint(
+            "idempotency_key_hash",
+            name="uq_exports_idempotency_key_hash",
+        ),
     )
     op.create_index(
         "ix_exports_camera_created",
