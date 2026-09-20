@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     sqlite_busy_timeout_ms: int = 5000
     sqlite_synchronous: str = "NORMAL"
 
+    session_cookie_name: str = "zero_nvr_session"
+    session_cookie_secure: bool = True
+    session_ttl_hours: int = 24 * 30
+
     log_level: str = "INFO"
 
     @field_validator("secret_key")
@@ -58,6 +62,15 @@ class Settings(BaseSettings):
                     "every ZERO_NVR_SECRET_KEY_PREVIOUS entry must be at least 32 bytes"
                 )
         return values
+
+    @field_validator("session_ttl_hours")
+    @classmethod
+    def validate_session_ttl_hours(cls, value: int) -> int:
+        if value < 1 or value > 24 * 365:
+            raise ValueError(
+                "ZERO_NVR_SESSION_TTL_HOURS must be between 1 and 8760"
+            )
+        return value
 
     @field_validator("sqlite_synchronous")
     @classmethod
