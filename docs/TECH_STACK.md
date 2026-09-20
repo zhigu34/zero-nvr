@@ -274,17 +274,24 @@ Small CLI/library dependencies such as FFmpeg, rclone, restic, Apprise, ONVIF li
 
 Do not make Kubernetes a V1 prerequisite.
 
-## Implementation choices still requiring validation
+## Validated choices and remaining design-freeze work
 
-Architecture ownership is now fixed: ZLM owns normal recording, Huey owns background jobs, and V1 remote-only playback restores media into a bounded local cache before ZLM VOD.
+Architecture ownership is fixed: ZLM owns normal recording, Huey owns background jobs, and V1 remote-only playback restores media into a bounded local cache before ZLM VOD.
 
-Remaining design-freeze validation is intentionally narrow:
+Validated by runtime POCs:
 
-- whether ZLM fMP4 recording becomes the default recording container;
-- the exact ZLM-native mechanism for ~10s EVENT_ONLY pre-roll;
-- live-player protocol priority under browser/codec combinations;
-- timeline/VOD seek precision;
-- remote restore/prefetch performance.
+- ZLM fMP4 is the V1 default recording container mode (POC-02 / ADR 0009);
+- EVENT_ONLY uses one continuously running short-fragment ZLM recorder in bounded tmpfs plus whole-fragment promotion from RecordingTrigger windows (POC-03/04);
+- remote-only playback uses rclone restore into bounded local cache before ZLM VOD (POC-07);
+- SQLite + WAL remains the V1 default production database for the measured 8/16-camera target (POC-09);
+- reconciliation converges safely after missed hooks/control-plane/DB faults without guessing or deleting ambiguous media (POC-10).
+
+Remaining Core design-freeze validation is intentionally narrow:
+
+- POC-01 / POC-08 clean rerun for control-plane recording continuity and source-facing stream sharing;
+- POC-05 / POC-06 clean rerun for canonical Timeline session-boundary normalization and ZLM VOD seek precision.
+
+Browser/codec live-player fallback remains an implementation/integration validation task; it does not change recording authority or the frozen storage/database ownership model.
 
 Multi-node media topology is outside the V1 freeze gate.
 
