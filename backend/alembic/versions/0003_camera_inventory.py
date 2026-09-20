@@ -241,6 +241,7 @@ def upgrade() -> None:
         sa.Column("selection_mode", sa.String(length=16), nullable=False),
         sa.Column("selected_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("id", sa.Uuid(), nullable=False),
         sa.CheckConstraint(
             "purpose IN ('RECORD','LIVE_HIGH','LIVE_LOW','AI_DETECT','SNAPSHOT','AUDIO')",
             name="ck_camera_stream_bindings_camera_stream_binding_purpose",
