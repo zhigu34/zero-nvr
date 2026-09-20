@@ -443,7 +443,10 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
 
     monkeypatch.setattr(
         "app.modules.recordings.api.CameraMediaRuntimeService.ensure_streams",
-        lambda self, desired: [],
+        lambda self, desired: [
+            item.reference
+            for item in desired
+        ],
     )
     monkeypatch.setattr(
         "app.modules.recordings.api.RecordingRuntimeService.reconcile",
