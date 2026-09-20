@@ -835,30 +835,36 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 
 ## 7. Runtime roles
 
-The initial service split is conceptual and may initially share processes where operationally simpler.
+The default Core deployment is intentionally small:
 
 ```text
-zero-nvr-api
-zero-nvr-web
-zero-nvr-runtime
-zero-nvr-worker
-postgres
-zlmediakit
+Image: zero-nvr
+  ├─ container: zero-nvr-api
+  │    FastAPI + built Vue static assets
+  └─ container: zero-nvr-worker
+       Huey + FFmpeg/ffprobe + rclone + restic + Apprise
+
+Image: ZLMediaKit
+  └─ container: zlmediakit
 ```
 
-Optional:
+Default non-AI Core therefore targets **2 images / 3 containers**.
+
+SQLite is embedded and is the default production database. PostgreSQL is an optional managed/external service, not a Core container requirement.
+
+Optional independently running services may include:
 
 ```text
-hik-bridge
 frigate
 mosquitto
-home-assistant integration
 openlist
+postgres
 coturn
-wvp
+vendor bridge        # when genuinely required
+wvp                  # future GB28181 extension
 ```
 
-Optional means load-on-demand: the core zero-nvr deployment must not require the integration's process, broker, credentials or configuration to boot and record normally.
+Small libraries and CLI tools do not receive separate containers merely for conceptual modularity. Optional managed services are not pulled or started unless enabled by deployment configuration.
 
 ## 8. Deployment target
 
