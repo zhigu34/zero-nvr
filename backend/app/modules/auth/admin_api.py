@@ -13,11 +13,18 @@ from .admin_service import AuthAdminService
 from .camera_scope import CameraScopeService, CameraScopeValue
 from .dependencies import require_permission
 from .models import Role, User
+from .oidc import (
+    OidcProviderConfig,
+    OidcProviderSettingsService,
+)
 from .password_reset import PasswordResetService
 from .permissions import ALL_PERMISSIONS
 from .schemas import (
     CameraScopeUpdate,
     CameraScopeView,
+    OidcProviderCreate,
+    OidcProviderUpdate,
+    OidcProviderView,
     RoleCreate,
     RoleSummary,
     RoleUpdate,
@@ -548,3 +555,199 @@ def set_role_camera_scope(
         raise
 
     return after
+
+
+
+def _oidc_provider_view(
+    provider: OidcProviderConfig,
+) -> OidcProviderView:
+    return OidcProviderView(
+        id=provider.id,
+        key=provider.key,
+        name=provider.name,
+        enabled=provider.enabled,
+        issuer=provider.issuer,
+        client_id=provider.client_id,
+        client_secret_configured=(
+            provider.secret_ref is not None
+        ),
+        auto_provision=provider.auto_provision,
+        email_linking=provider.email_linking,
+        default_role_ids=list(
+            provider.default_role_ids
+        ),
+    )
+
+
+@router.get(
+    "/oidc/providers",
+    response_model=list[OidcProviderView],
+)
+def list_oidc_providers(
+    _context: AuthContext = Depends(
+        require_permission("user.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[OidcProviderView]:
+    return [
+        _oidc_provider_view(item)
+        for item in OidcProviderSettingsService.list(
+            session
+        )
+    ]
+
+
+@router.post(
+    "/oidc/providers",
+    response_model=OidcProviderView,
+    status_code=201,
+)
+def create_oidc_provider(
+    body: OidcProviderCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("user.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> OidcProviderView:
+    service = OidcProviderSettingsService(
+        request.app.state.settings
+    )
+    try:
+        provider = service.create(
+            session,
+            key=body.key,
+            name=body.name,
+            enabled=body.enabled,
+            issuer=body.issuer,
+            client_id=body.client_id,
+            client_secret=(
+                body.client_secret.get_secret_value()
+            ),
+            auto_provision=body.auto_provision,
+            email_linking=body.email_linking,
+            default_role_ids=body.default_role_ids,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="oidc_provider.create",
+            resource_type="oidc_provider",
+            resource_id=provider.id,
+            after={
+                "key": provider.key,
+                "name": provider.name,
+                "enabled": provider.enabled,
+                "issuer": provider.issuer,
+                "client_id": provider.client_id,
+                "auto_provision": provider.auto_provision,
+                "email_linking": provider.email_linking,
+                "default_role_ids": [
+                    str(item)
+                    for item in provider.default_role_ids
+                ],
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return _oidc_provider_view(provider)
+
+
+@router.patch(
+    "/oidc/providers/{provider_key}",
+    response_model=OidcProviderView,
+)
+def update_oidc_provider(
+    provider_key: str,
+    body: OidcProviderUpdate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("user.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> OidcProviderView:
+    service = OidcProviderSettingsService(
+        request.app.state.settings
+    )
+    try:
+        provider = service.get(
+            session,
+            provider_key,
+        )
+        changes = body.model_dump(
+            exclude_unset=True
+        )
+        if body.client_secret is not None:
+            changes["client_secret"] = (
+                body.client_secret.get_secret_value()
+            )
+        provider = service.update(
+            session,
+            provider=provider,
+            changes=changes,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="oidc_provider.update",
+            resource_type="oidc_provider",
+            resource_id=provider.id,
+            metadata={
+                "key": provider.key,
+                "secret_replaced": (
+                    body.client_secret is not None
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return _oidc_provider_view(provider)
+
+
+@router.delete(
+    "/oidc/providers/{provider_key}",
+    status_code=204,
+)
+def delete_oidc_provider(
+    provider_key: str,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("user.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> None:
+    service = OidcProviderSettingsService(
+        request.app.state.settings
+    )
+    try:
+        provider = service.get(
+            session,
+            provider_key,
+        )
+        service.delete(
+            session,
+            provider=provider,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="oidc_provider.delete",
+            resource_type="oidc_provider",
+            resource_id=provider.id,
+            before={
+                "key": provider.key,
+                "name": provider.name,
+                "issuer": provider.issuer,
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise

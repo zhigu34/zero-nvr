@@ -208,3 +208,137 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         "auth.password_reset.complete",
         "role.create",
     } <= actions
+
+
+
+def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
+    tmp_path: Path,
+) -> None:
+    from app.modules.auth.models import SecretRecord
+    from app.modules.auth.oidc import (
+        OidcProviderSettingsService,
+    )
+
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        roles = client.get("/api/v1/roles")
+        assert roles.status_code == 200
+        viewer_role_id = next(
+            item["id"]
+            for item in roles.json()
+            if item["name"] == "Viewer"
+        )
+
+        invalid_http = client.post(
+            "/api/v1/oidc/providers",
+            json={
+                "key": "unsafe",
+                "name": "Unsafe",
+                "issuer": "http://idp.example.com",
+                "client_id": "zero-nvr",
+                "client_secret": "top-secret-client-value",
+                "auto_provision": True,
+                "default_role_ids": [viewer_role_id],
+            },
+        )
+        assert invalid_http.status_code == 400
+        assert (
+            invalid_http.json()["error"]["code"]
+            == "oidc_issuer_insecure"
+        )
+
+        created = client.post(
+            "/api/v1/oidc/providers",
+            json={
+                "key": "authentik",
+                "name": "Authentik",
+                "issuer": (
+                    "https://id.example.com/application/o/zero-nvr/"
+                ),
+                "client_id": "zero-nvr",
+                "client_secret": "top-secret-client-value",
+                "auto_provision": True,
+                "email_linking": False,
+                "default_role_ids": [viewer_role_id],
+            },
+        )
+        assert created.status_code == 201
+        body = created.json()
+        assert body["key"] == "authentik"
+        assert body["issuer"] == (
+            "https://id.example.com/application/o/zero-nvr"
+        )
+        assert body["client_secret_configured"] is True
+        assert "top-secret-client-value" not in created.text
+
+        listed = client.get("/api/v1/oidc/providers")
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+
+        conflict = client.post(
+            "/api/v1/oidc/providers",
+            json={
+                "key": "authentik",
+                "name": "Duplicate",
+                "issuer": "https://id2.example.com",
+                "client_id": "duplicate",
+                "client_secret": "duplicate-secret",
+                "default_role_ids": [],
+            },
+        )
+        assert conflict.status_code == 409
+
+        updated = client.patch(
+            "/api/v1/oidc/providers/authentik",
+            json={
+                "name": "Authentik SSO",
+                "client_secret": "replacement-secret-value",
+                "email_linking": True,
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["name"] == "Authentik SSO"
+        assert updated.json()["email_linking"] is True
+        assert "replacement-secret-value" not in updated.text
+
+        with app.state.database.session() as session:
+            provider = OidcProviderSettingsService.get(
+                session,
+                "authentik",
+            )
+            secret = OidcProviderSettingsService(
+                app.state.settings
+            ).client_secret(
+                session,
+                provider,
+            )
+            assert secret == "replacement-secret-value"
+
+            stored = session.get(
+                SecretRecord,
+                provider.secret_ref,
+            )
+            assert stored is not None
+            assert (
+                b"replacement-secret-value"
+                not in stored.encrypted_payload
+            )
+
+        deleted = client.delete(
+            "/api/v1/oidc/providers/authentik"
+        )
+        assert deleted.status_code == 204
+        assert client.get(
+            "/api/v1/oidc/providers"
+        ).json() == []

@@ -4,7 +4,7 @@ import uuid
 from typing import Literal
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, SecretStr
 
 
 class SetupStatus(BaseModel):
@@ -147,3 +147,54 @@ class PersonalApiTokenView(BaseModel):
 
 class PersonalApiTokenCreated(PersonalApiTokenView):
     token: str
+
+
+
+class OidcProviderCreate(BaseModel):
+    key: str = Field(min_length=1, max_length=64)
+    name: str = Field(min_length=1, max_length=128)
+    enabled: bool = True
+    issuer: str = Field(min_length=1, max_length=1024)
+    client_id: str = Field(min_length=1, max_length=512)
+    client_secret: SecretStr
+    auto_provision: bool = False
+    email_linking: bool = False
+    default_role_ids: list[uuid.UUID] = Field(
+        default_factory=list
+    )
+
+
+class OidcProviderUpdate(BaseModel):
+    name: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+    )
+    enabled: bool | None = None
+    issuer: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=1024,
+    )
+    client_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=512,
+    )
+    client_secret: SecretStr | None = None
+    auto_provision: bool | None = None
+    email_linking: bool | None = None
+    default_role_ids: list[uuid.UUID] | None = None
+
+
+class OidcProviderView(BaseModel):
+    id: uuid.UUID
+    key: str
+    name: str
+    enabled: bool
+    issuer: str
+    client_id: str
+    client_secret_configured: bool
+    auto_provision: bool
+    email_linking: bool
+    default_role_ids: list[uuid.UUID]
