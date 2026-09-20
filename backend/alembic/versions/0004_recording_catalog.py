@@ -76,6 +76,11 @@ def upgrade() -> None:
             name="ck_retention_policies_retention_policy_mode",
         ),
         sa.CheckConstraint(
+            "(scope_type = 'GLOBAL' AND scope_id IS NULL) OR "
+            "(scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL)",
+            name="ck_retention_policies_retention_policy_scope_id_shape",
+        ),
+        sa.CheckConstraint(
             "ordinary_keep_days >= 0",
             name="ck_retention_policies_retention_policy_ordinary_days_nonnegative",
         ),
@@ -89,6 +94,27 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name="pk_retention_policies"),
         sa.UniqueConstraint("name", name="uq_retention_policies_name"),
+    )
+
+    op.create_index(
+        "uq_retention_policies_global_scope",
+        "retention_policies",
+        ["scope_type"],
+        unique=True,
+        sqlite_where=sa.text("scope_type = 'GLOBAL'"),
+        postgresql_where=sa.text("scope_type = 'GLOBAL'"),
+    )
+    op.create_index(
+        "uq_retention_policies_scoped_scope",
+        "retention_policies",
+        ["scope_type", "scope_id"],
+        unique=True,
+        sqlite_where=sa.text(
+            "scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL"
+        ),
+        postgresql_where=sa.text(
+            "scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL"
+        ),
     )
 
     op.create_table(
@@ -405,6 +431,14 @@ def downgrade() -> None:
     op.drop_table("recording_protections")
 
     op.drop_table("recording_policies")
+    op.drop_index(
+        "uq_retention_policies_scoped_scope",
+        table_name="retention_policies",
+    )
+    op.drop_index(
+        "uq_retention_policies_global_scope",
+        table_name="retention_policies",
+    )
     op.drop_table("retention_policies")
 
     op.drop_index(
