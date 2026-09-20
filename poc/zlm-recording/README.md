@@ -52,6 +52,8 @@ sh ./scripts/run.sh
 Validates:
 
 - continuous ZLM MP4 recording;
+- FastAPI stop/restart while the ZLM recorder continues independently;
+- recovery of finalized media produced during control-plane downtime;
 - on_record_mp4 indexing;
 - deliberate lost-hook reconciliation;
 - no ffprobe in the normal hook path;
