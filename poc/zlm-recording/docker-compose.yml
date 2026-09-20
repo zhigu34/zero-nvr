@@ -90,6 +90,7 @@ services:
       RCLONE_CONFIG_REMOTE_URL: http://rclone-remote:8080
       RCLONE_CONFIG_REMOTE_VENDOR: rclone
       POC_RCLONE_BWLIMIT: ${POC_RCLONE_BWLIMIT:-200k}
+      POC_PLAYBACK_CACHE_MAX_BYTES: ${POC_PLAYBACK_CACHE_MAX_BYTES:-2200000}
     volumes:
       - ./runtime:/runtime
       - ./runtime/recordings:/recordings
