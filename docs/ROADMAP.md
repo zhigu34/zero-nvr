@@ -30,12 +30,13 @@ POC gates:
 9. SQLite load at 8-camera baseline and 16-camera extended target;
 10. recovery reconciliation after lost hooks/control-plane restart.
 
-Resource targets to benchmark:
+Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-resource-budget.md):
 
-- Core static footprint < 2 GB;
-- Core idle RAM < 1 GB excluding page cache and large ZLM buffers;
-- 8 cameras baseline;
-- 16 cameras extended target.
+- non-AI Core static footprint < 2 GB;
+- non-AI Core idle RAM < 1 GB under the documented measurement method;
+- 2–4 camera small-host soak around the 2 GB RAM / 2 CPU class;
+- 8-camera baseline and 16-camera extended database/media benchmarks;
+- bounded logs, cache, and EVENT_ONLY tmpfs.
 
 
 ## Phase 0 — Repository and architecture baseline
@@ -51,7 +52,7 @@ Resource targets to benchmark:
 - [x] Define canonical recording storage layout, UTC indexing, and cross-day behavior.
 - [x] Define recording retention, disk-pressure cleanup, locks, and safe purge.
 - [x] Define historical playback timeline, gaps, event markers, and multi-camera synchronization.
-- [x] Define additive recording-intent arbitration across continuous/schedule/event/manual/hybrid modes.
+- [x] Define additive recording-requirement arbitration across continuous/schedule/event/manual/hybrid modes without a RecordingIntent table.
 - [x] Define ZLM-owned media reconnect boundary, zero-nvr health projection, recovery reconciliation, and timeline-gap semantics.
 - [x] Define canonical UTC, camera-clock offset handling, timezone semantics, and device time-sync policy.
 - [x] Define explicit StorageTarget routing, host-managed disk aggregation/redundancy, disk pressure, and remote-archive separation.
@@ -95,9 +96,9 @@ Resource targets to benchmark:
 - [ ] first-run one-time administrator bootstrap with no default password.
 - [ ] local authentication with modern password hashing and session revocation.
 - [ ] User email field + verification state.
-- [ ] SMTP settings persistence/API and SecretStore-backed credentials.
+- [ ] SMTP NotificationTarget(type=smtp) persistence/API with SecretStore-backed credentials and one system setting selecting the default security-email target.
 - [ ] SMTP connection test + test-email flow.
-- [ ] queued SMTP delivery with retry/backoff/result tracking.
+- [ ] password-reset/security email delivery through NotificationDelivery + Huey retry/backoff/result tracking.
 - [ ] self-service email password reset with non-enumerating public response.
 - [ ] PasswordResetToken persistence using one-way token hashes.
 - [ ] administrator-issued one-time password reset token.
@@ -110,11 +111,11 @@ Resource targets to benchmark:
 - [ ] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
 - [ ] short-lived scoped live/playback media session authorization.
-- [ ] service-principal credentials for integrations.
+- [ ] integration authentication through scoped Personal API Tokens / provider credentials without introducing a generic service-principal framework in V1.
 - [ ] append-oriented AuditEvent persistence with secret redaction.
 - [ ] Structured logging and health/readiness.
-- [ ] Base Camera / CameraConnection schema.
-- [ ] SystemTimeSettings persistence/API for recording timezone and managed-camera NTP settings.
+- [ ] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
+- [ ] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
 - [ ] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [ ] canonical UTC/timezone configuration and host clock-health checks.
 - [ ] Adapter contracts.
@@ -139,7 +140,7 @@ Acceptance:
 - [ ] CameraStreamProfile persistence and stream diagnostics.
 - [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
 - [ ] deterministic default profile binding with user override.
-- [ ] CameraClockStatus sampling for ONVIF-capable devices.
+- [ ] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
 - [ ] monitor/manage_ntp/ignore device-time mode where supported.
 - [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
@@ -446,8 +447,11 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [ ] deploy.sh status / doctor / backup / restore / rollback flows.
 - [ ] long-duration 8-camera baseline acceptance.
 - [ ] 16-camera extended-target benchmark.
+- [ ] execute Plan 04 R1 clean-Core image/static-footprint + no-camera idle measurement.
+- [ ] execute Plan 04 R2/R3 2-camera and 4-camera small-host soaks.
 - [ ] Core static footprint < 2 GB validation.
-- [ ] Core idle RAM < 1 GB target validation, excluding page cache/large ZLM buffers.
+- [ ] Core idle RAM < 1 GB validation under the documented resource-budget measurement method.
+- [ ] verify Docker log rotation, cache byte quota, and EVENT_ONLY tmpfs bounds.
 
 Optional/non-blocking operational extensions:
 
