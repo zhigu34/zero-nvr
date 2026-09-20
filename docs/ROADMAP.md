@@ -71,7 +71,7 @@ Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-re
 - [x] Freeze canonical V1 persistence boundary and explicit non-tables.
 - [x] Complete API/module-boundary freeze document and public/internal ownership contract.
 - [x] Commit executable harnesses and NOT RUN result records for all 10 design-freeze POCs.
-- [ ] Execute all design-freeze POCs on a real Docker host and replace NOT RUN with measured results.
+- [x] Execute all design-freeze POCs on real Docker runners and record measured results/artifacts.
 - [ ] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
 
 ## Phase 1 — Platform foundation
