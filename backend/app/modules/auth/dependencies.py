@@ -19,7 +19,11 @@ def get_auth_context(
 ) -> AuthContext:
     settings = request.app.state.settings
     token = request.cookies.get(settings.session_cookie_name)
-    return AuthService(settings).resolve_session(session, token)
+    context = AuthService(settings).resolve_session(session, token)
+    # Authentication reads must not leave a DB transaction open while an
+    # endpoint later performs ONVIF/ZLM/rclone/FFmpeg/network work.
+    session.commit()
+    return context
 
 
 def require_permission(permission: str) -> Callable[..., AuthContext]:
@@ -64,6 +68,7 @@ def require_camera_permission(permission: str) -> Callable[..., AuthContext]:
             )
 
         scope = get_effective_camera_scope(context, session)
+        session.commit()
         if not scope.allows(camera_id):
             raise ApiError(
                 status_code=404,
