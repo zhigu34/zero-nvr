@@ -253,3 +253,60 @@ class ResticAdapter:
                 "restic_snapshot_missing",
                 "restic snapshot is unavailable.",
             )
+
+
+    def latest_snapshot_for_tag(
+        self,
+        tag: str,
+    ) -> ResticBackupResult | None:
+        if (
+            not tag
+            or len(tag) > 256
+            or any(ch in tag for ch in "\r\n\x00")
+        ):
+            raise ResticIntegrationError(
+                "restic_tag_invalid",
+                "restic snapshot tag is invalid.",
+            )
+
+        completed = self._run(
+            [
+                "snapshots",
+                "--json",
+                "--latest",
+                "1",
+                "--tag",
+                tag,
+            ],
+            timeout=min(self.timeout_seconds, 60.0),
+        )
+        try:
+            rows = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise ResticIntegrationError(
+                "restic_invalid_response",
+                "restic returned an invalid snapshot response.",
+            ) from exc
+
+        if not isinstance(rows, list):
+            raise ResticIntegrationError(
+                "restic_invalid_response",
+                "restic returned an invalid snapshot response.",
+            )
+        if not rows:
+            return None
+
+        row = rows[-1]
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("id"), str)
+            or not row["id"]
+        ):
+            raise ResticIntegrationError(
+                "restic_invalid_response",
+                "restic returned an invalid snapshot response.",
+            )
+        return ResticBackupResult(
+            snapshot_id=row["id"],
+            size_bytes=None,
+        )
