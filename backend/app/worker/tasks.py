@@ -22,6 +22,10 @@ from app.modules.cameras.models import (
     CameraStreamProfile,
 )
 from app.modules.events.frigate import FrigateEventIngestService
+from app.modules.exports.execution import (
+    ExportCleanupService,
+    ExportExecutionService,
+)
 from app.modules.notifications.delivery import NotificationDeliveryService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.policy import RecordingPolicyService
@@ -733,5 +737,34 @@ def deliver_notification(
             delivery_id=uuid.UUID(delivery_id),
         )
         return result.state
+    finally:
+        database.close()
+
+
+
+@huey.task(retries=2, retry_delay=30)
+def render_export(export_id: str) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        result = ExportExecutionService(
+            settings
+        ).execute(
+            database,
+            export_id=uuid.UUID(export_id),
+        )
+        return result.state
+    finally:
+        database.close()
+
+
+@huey.periodic_task(crontab(minute="17"))
+def expire_exports() -> int:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        return ExportCleanupService.expire(
+            database
+        )
     finally:
         database.close()
