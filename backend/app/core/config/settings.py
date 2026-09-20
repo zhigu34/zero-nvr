@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 24 * 30
 
     zlm_base_url: str = "http://zlmediakit"
+    zlm_public_base_url: str = "/zlm"
     zlm_api_secret: SecretStr | None = None
     zlm_hook_secret: SecretStr | None = None
     zlm_timeout_seconds: float = 8.0
@@ -129,6 +130,18 @@ class Settings(BaseSettings):
         if value <= 0 or value > 120:
             raise ValueError("integration timeouts must be greater than 0 and at most 120 seconds")
         return value
+
+    @field_validator("zlm_public_base_url")
+    @classmethod
+    def validate_zlm_public_base_url(cls, value: str) -> str:
+        normalized = value.rstrip("/")
+        if normalized.startswith("/"):
+            return normalized or "/"
+        if normalized.startswith(("http://", "https://")):
+            return normalized
+        raise ValueError(
+            "ZERO_NVR_ZLM_PUBLIC_BASE_URL must be same-origin /path or http(s) URL"
+        )
 
     @field_validator("zlm_base_url")
     @classmethod
