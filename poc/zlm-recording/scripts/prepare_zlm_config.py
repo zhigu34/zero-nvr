@@ -52,6 +52,7 @@ def main() -> None:
     secret = os.environ["ZLM_API_SECRET"]
     hook_token = os.environ["ZLM_HOOK_TOKEN"]
     enable_fmp4 = os.getenv("POC_ZLM_ENABLE_FMP4", "0")
+    gop_cache = os.getenv("POC_ZLM_GOP_CACHE", "10")
 
     text = SOURCE.read_text(encoding="utf-8")
 
@@ -66,6 +67,7 @@ def main() -> None:
         ),
         ("record", "enableFmp4", enable_fmp4),
         ("record", "fastStart", "1"),
+        ("rtp_proxy", "gop_cache", gop_cache),
     ]
 
     for section, key, value in patches:
@@ -73,7 +75,10 @@ def main() -> None:
 
     TARGET.parent.mkdir(parents=True, exist_ok=True)
     TARGET.write_text(text, encoding="utf-8")
-    print(f"Wrote {TARGET}; enableFmp4={enable_fmp4}")
+    print(
+        f"Wrote {TARGET}; enableFmp4={enable_fmp4}; "
+        f"rtp_proxy.gop_cache={gop_cache}"
+    )
 
 
 if __name__ == "__main__":
