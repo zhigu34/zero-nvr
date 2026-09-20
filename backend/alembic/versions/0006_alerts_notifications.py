@@ -160,6 +160,11 @@ def upgrade() -> None:
             "id",
             name="pk_notification_deliveries",
         ),
+        sa.UniqueConstraint(
+            "alert_id",
+            "notification_target_id",
+            name="uq_notification_deliveries_alert_target",
+        ),
     )
     op.create_index(
         "ix_notification_deliveries_alert_created",
