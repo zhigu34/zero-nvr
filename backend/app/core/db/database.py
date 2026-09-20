@@ -46,6 +46,7 @@ class Database:
 
         if self.is_sqlite:
             busy_timeout_ms = self.settings.sqlite_busy_timeout_ms
+            synchronous = self.settings.sqlite_synchronous
 
             @event.listens_for(engine, "connect")
             def sqlite_connection_pragmas(dbapi_connection, _connection_record) -> None:
@@ -53,6 +54,7 @@ class Database:
                 try:
                     cursor.execute("PRAGMA foreign_keys = ON")
                     cursor.execute(f"PRAGMA busy_timeout = {busy_timeout_ms}")
+                    cursor.execute(f"PRAGMA synchronous = {synchronous}")
                 finally:
                     cursor.close()
 
