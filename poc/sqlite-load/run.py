@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import platform
 import shutil
 import sqlite3
 import statistics
@@ -735,6 +736,39 @@ def run_scenario(cameras: int) -> dict:
     }
 
 
+def environment_info() -> dict:
+    mem_total_kib = None
+    try:
+        for line in Path("/proc/meminfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("MemTotal:"):
+                mem_total_kib = int(line.split()[1])
+                break
+    except Exception:
+        pass
+
+    cgroup_memory_max = None
+    for candidate in (
+        Path("/sys/fs/cgroup/memory.max"),
+        Path("/sys/fs/cgroup/memory/memory.limit_in_bytes"),
+    ):
+        try:
+            raw = candidate.read_text(encoding="utf-8").strip()
+            if raw and raw != "max":
+                cgroup_memory_max = int(raw)
+                break
+        except Exception:
+            continue
+
+    return {
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "python_version": platform.python_version(),
+        "cpu_count": os.cpu_count(),
+        "mem_total_kib": mem_total_kib,
+        "cgroup_memory_max_bytes": cgroup_memory_max,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--cameras", type=int, choices=[8, 16])
@@ -746,6 +780,7 @@ def main() -> None:
 
     out = {
         "completed_at": iso(datetime.now(UTC)),
+        "environment": environment_info(),
         "results": results,
     }
     output = RUNTIME / "sqlite-load-evidence.json"
@@ -754,6 +789,13 @@ def main() -> None:
         encoding="utf-8",
     )
     print(json.dumps(out, indent=2, ensure_ascii=False))
+
+    baseline = next(
+        (item for item in results if item["camera_count"] == 8),
+        None,
+    )
+    if baseline is not None and baseline["result"] != "PASS":
+        raise SystemExit(2)
 
 
 if __name__ == "__main__":
