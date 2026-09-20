@@ -32,7 +32,7 @@ jobs:
 
       - name: Check shell syntax
         run: |
-          for file in poc/zlm-recording/scripts/*.sh poc/sqlite-load/run.sh; do
+          for file in poc/run-all.sh poc/zlm-recording/scripts/*.sh poc/sqlite-load/run.sh; do
             sh -n "$file"
           done
 
