@@ -279,11 +279,23 @@ def parse_time_from_path(path: Path) -> datetime | None:
 
 
 def infer_stream(path: Path) -> str:
-    parts = set(path.parts)
+    parts = list(path.parts)
+
+    # Normal ZLM recording hierarchy contains the app followed by the stream,
+    # e.g. .../record/poc/<stream>/<date>/<file>.mp4. Prefer that provable
+    # identity so reconciliation does not guess every unknown POC stream as
+    # cam-main.
+    for index, part in enumerate(parts[:-1]):
+        if part == POC_APP and index + 1 < len(parts):
+            candidate = parts[index + 1]
+            if candidate and not DATE_DIR.match(candidate):
+                return candidate
+
     for stream in STREAM_CAMERA_MAP:
         if stream in parts:
             return stream
-    return "cam-main"
+
+    raise RuntimeError(f"cannot prove stream identity from recording path: {path}")
 
 
 def inspect_recovery_file(path: Path) -> dict[str, Any]:
