@@ -152,7 +152,13 @@ class AuthService:
         )
         return roles, permissions
 
-    def create_session(self, session: Session, user: User) -> tuple[UserSession, str]:
+    def create_session(
+        self,
+        session: Session,
+        user: User,
+        *,
+        client_info: dict[str, object] | None = None,
+    ) -> tuple[UserSession, str]:
         now = utc_now()
         expires_at = now + timedelta(hours=self.settings.session_ttl_hours)
         user_session = UserSession(
@@ -160,7 +166,7 @@ class AuthService:
             created_at=now,
             last_seen_at=now,
             expires_at=expires_at,
-            client_info=None,
+            client_info=client_info,
         )
         session.add(user_session)
         session.flush()
@@ -188,18 +194,89 @@ class AuthService:
         if user is None or not user.enabled:
             raise self._unauthorized()
 
-        roles = tuple(sorted(role.name for role in user.roles))
-        permissions = frozenset(
-            permission.permission
-            for role in user.roles
-            for permission in role.permissions
-        )
+        roles, permissions = self.user_roles_and_permissions(user)
         return AuthContext(
             user=user,
             session=user_session,
             roles=roles,
             permissions=permissions,
         )
+
+    def change_password(
+        self,
+        session: Session,
+        *,
+        context: AuthContext,
+        current_password: str,
+        new_password: str,
+        client_info: dict[str, object] | None = None,
+    ) -> tuple[UserSession, str]:
+        user = context.user
+        if (
+            not user.password_hash
+            or not self.passwords.verify(current_password, user.password_hash)
+        ):
+            raise ApiError(
+                status_code=400,
+                code="invalid_current_password",
+                message="Current password is incorrect.",
+            )
+
+        user.password_hash = self.passwords.hash(new_password)
+        now = utc_now()
+
+        active_sessions = session.scalars(
+            select(UserSession).where(
+                UserSession.user_id == user.id,
+                UserSession.revoked_at.is_(None),
+            )
+        ).all()
+        for user_session in active_sessions:
+            user_session.revoked_at = now
+
+        return self.create_session(
+            session,
+            user,
+            client_info=client_info,
+        )
+
+    @staticmethod
+    def list_active_sessions(
+        session: Session,
+        *,
+        user_id: uuid.UUID,
+    ) -> list[UserSession]:
+        now = utc_now()
+        return list(
+            session.scalars(
+                select(UserSession)
+                .where(
+                    UserSession.user_id == user_id,
+                    UserSession.revoked_at.is_(None),
+                    UserSession.expires_at > now,
+                )
+                .order_by(UserSession.created_at.desc())
+            )
+        )
+
+    @staticmethod
+    def revoke_owned_session(
+        session: Session,
+        *,
+        user_id: uuid.UUID,
+        session_id: uuid.UUID,
+    ) -> UserSession:
+        user_session = session.get(UserSession, session_id)
+        if user_session is None or user_session.user_id != user_id:
+            raise ApiError(
+                status_code=404,
+                code="session_not_found",
+                message="Session was not found.",
+            )
+
+        if user_session.revoked_at is None:
+            user_session.revoked_at = utc_now()
+        return user_session
 
     def revoke_session(self, session: Session, token: str | None) -> None:
         if not token:
