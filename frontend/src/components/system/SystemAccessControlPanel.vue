@@ -7,7 +7,9 @@ import {
 } from "vue"
 
 import {
+  listCameraGroups,
   listCameras,
+  type CameraGroup,
   type CameraSummary
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
@@ -39,6 +41,7 @@ const users = ref<AdminUser[]>([])
 const roles = ref<Role[]>([])
 const permissions = ref<string[]>([])
 const cameras = ref<CameraSummary[]>([])
+const cameraGroups = ref<CameraGroup[]>([])
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
@@ -49,7 +52,7 @@ const editingRole = ref<Role | null>(null)
 const scopeOwnerType = ref<"user" | "role">("user")
 const scopeOwnerId = ref("")
 const scopeOwnerLabel = ref("")
-const preservedGroupIds = ref<string[]>([])
+
 
 const userForm = reactive({
   username: "",
@@ -72,7 +75,8 @@ const passwordForm = reactive({
 
 const scopeForm = reactive({
   mode: "inherit" as CameraScope["mode"],
-  cameraIds: [] as string[]
+  cameraIds: [] as string[],
+  groupIds: [] as string[]
 })
 
 const permissionGroups = computed(() => {
@@ -97,24 +101,31 @@ function closeEditor(): void {
   editingRole.value = null
   scopeOwnerId.value = ""
   scopeOwnerLabel.value = ""
-  preservedGroupIds.value = []
+  scopeForm.groupIds = []
 }
 
 async function refresh(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    const [userItems, roleItems, permissionItems, cameraItems] =
-      await Promise.all([
-        listUsers(),
-        listRoles(),
-        listPermissions(),
-        listCameras()
-      ])
+    const [
+      userItems,
+      roleItems,
+      permissionItems,
+      cameraItems,
+      groupItems
+    ] = await Promise.all([
+      listUsers(),
+      listRoles(),
+      listPermissions(),
+      listCameras().catch(() => []),
+      listCameraGroups().catch(() => [])
+    ])
     users.value = userItems
     roles.value = roleItems
     permissions.value = permissionItems
     cameras.value = cameraItems
+    cameraGroups.value = groupItems
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -275,7 +286,7 @@ async function openUserScope(user: AdminUser): Promise<void> {
     scopeOwnerLabel.value = `@${user.username}`
     scopeForm.mode = scope.mode
     scopeForm.cameraIds = [...scope.camera_ids]
-    preservedGroupIds.value = [...scope.camera_group_ids]
+    scopeForm.groupIds = [...scope.camera_group_ids]
     editorKind.value = "scope"
     notice.value = null
   } catch (caught) {
@@ -293,7 +304,7 @@ async function openRoleScope(role: Role): Promise<void> {
     scopeForm.mode =
       scope.mode === "inherit" ? "all" : scope.mode
     scopeForm.cameraIds = [...scope.camera_ids]
-    preservedGroupIds.value = [...scope.camera_group_ids]
+    scopeForm.groupIds = [...scope.camera_group_ids]
     editorKind.value = "scope"
     notice.value = null
   } catch (caught) {
@@ -310,6 +321,15 @@ function toggleScopeCamera(cameraId: string): void {
   }
 }
 
+function toggleScopeGroup(groupId: string): void {
+  const index = scopeForm.groupIds.indexOf(groupId)
+  if (index >= 0) {
+    scopeForm.groupIds.splice(index, 1)
+  } else {
+    scopeForm.groupIds.push(groupId)
+  }
+}
+
 async function saveScope(): Promise<void> {
   if (!scopeOwnerId.value) return
   saving.value = true
@@ -319,7 +339,7 @@ async function saveScope(): Promise<void> {
     const selected = scopeForm.mode === "selected"
     const cameraIds = selected ? [...scopeForm.cameraIds] : []
     const cameraGroupIds = selected
-      ? [...preservedGroupIds.value]
+      ? [...scopeForm.groupIds]
       : []
 
     if (scopeOwnerType.value === "user") {
@@ -827,8 +847,39 @@ onMounted(() => {
 
         <div
           v-if="scopeForm.mode === 'selected'"
-          class="access-camera-list"
+          class="access-scope-selection"
         >
+          <div v-if="cameraGroups.length" class="access-scope-group-list">
+            <span class="access-scope-selection__label">
+              Camera groups
+            </span>
+            <button
+              v-for="group in cameraGroups"
+              :key="group.id"
+              type="button"
+              :class="{
+                'access-group--selected':
+                  scopeForm.groupIds.includes(group.id)
+              }"
+              @click="toggleScopeGroup(group.id)"
+            >
+              <UiIcon name="folder" :size="14" />
+              <span>
+                <strong>{{ group.name }}</strong>
+                <small>{{ group.camera_ids.length }} direct camera(s)</small>
+              </span>
+              <UiIcon
+                v-if="scopeForm.groupIds.includes(group.id)"
+                name="check"
+                :size="14"
+              />
+            </button>
+          </div>
+
+          <span class="access-scope-selection__label">
+            Individual cameras
+          </span>
+          <div class="access-camera-list">
           <button
             v-for="camera in cameras"
             :key="camera.id"
@@ -855,20 +906,8 @@ onMounted(() => {
               :size="14"
             />
           </button>
+          </div>
         </div>
-
-        <p
-          v-if="
-            scopeForm.mode === 'selected' &&
-            preservedGroupIds.length
-          "
-          class="access-warning"
-        >
-          {{ preservedGroupIds.length }} existing camera-group scope
-          entr{{ preservedGroupIds.length === 1 ? "y is" : "ies are" }}
-          preserved. Camera Group management is not exposed in this
-          screen yet.
-        </p>
 
         <div class="storage-editor__actions">
           <button
@@ -885,7 +924,7 @@ onMounted(() => {
               saving ||
               (scopeForm.mode === 'selected' &&
                 !scopeForm.cameraIds.length &&
-                !preservedGroupIds.length)
+                !scopeForm.groupIds.length)
             "
           >
             {{ saving ? "Saving…" : "Save access" }}
@@ -1125,9 +1164,57 @@ onMounted(() => {
   background: var(--surface-raised);
 }
 
+.access-scope-selection {
+  display: grid;
+  gap: 9px;
+}
+
+.access-scope-selection__label {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.access-scope-group-list,
 .access-camera-list {
   display: grid;
   gap: 5px;
+}
+
+.access-scope-group-list button {
+  display: grid;
+  min-height: 44px;
+  grid-template-columns: 24px minmax(0, 1fr) 18px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+
+.access-scope-group-list .access-group--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.access-scope-group-list strong,
+.access-scope-group-list small {
+  display: block;
+}
+
+.access-scope-group-list strong {
+  font-size: 9px;
+}
+
+.access-scope-group-list small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 7px;
 }
 
 .access-camera-list button {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -30,6 +30,7 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.service import AuthContext
 
 from .discovery_service import CameraDiscoveryService
+from .groups import CameraGroupService
 from .media_runtime import CameraMediaRuntimeService
 from .onvif_onboarding import OnvifOnboardingService
 from .models import (
@@ -43,6 +44,9 @@ from .models import (
 from .schemas import (
     CameraCreate,
     CameraDetail,
+    CameraGroupCreate,
+    CameraGroupUpdate,
+    CameraGroupView,
     CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
@@ -240,6 +244,41 @@ def _camera_audit_snapshot(session: Session, camera: Camera) -> dict[str, Any]:
     }
 
 
+def _camera_group_view(
+    session: Session,
+    group,
+) -> CameraGroupView:
+    return CameraGroupView(
+        id=group.id,
+        name=group.name,
+        description=group.description,
+        parent_id=group.parent_id,
+        camera_ids=CameraGroupService.camera_ids(
+            session,
+            group.id,
+        ),
+    )
+
+
+def _camera_group_snapshot(
+    session: Session,
+    group,
+) -> dict[str, object]:
+    view = _camera_group_view(session, group)
+    return {
+        "name": view.name,
+        "description": view.description,
+        "parent_id": (
+            str(view.parent_id)
+            if view.parent_id is not None
+            else None
+        ),
+        "camera_ids": sorted(
+            str(item) for item in view.camera_ids
+        ),
+    }
+
+
 def _binding_audit_snapshot(camera: Camera) -> list[dict[str, str]]:
     return sorted(
         [
@@ -252,6 +291,158 @@ def _binding_audit_snapshot(camera: Camera) -> list[dict[str, str]]:
         ],
         key=lambda item: item["purpose"],
     )
+
+
+@router.get(
+    "/camera-groups",
+    response_model=list[CameraGroupView],
+)
+def list_camera_groups(
+    _context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[CameraGroupView]:
+    return [
+        _camera_group_view(session, group)
+        for group in CameraGroupService.list(session)
+    ]
+
+
+@router.post(
+    "/camera-groups",
+    response_model=CameraGroupView,
+    status_code=201,
+)
+def create_camera_group(
+    body: CameraGroupCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraGroupView:
+    try:
+        group = CameraGroupService.create(
+            session,
+            name=body.name,
+            description=body.description,
+            parent_id=body.parent_id,
+            camera_ids=body.camera_ids,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="camera_group.create",
+            resource_type="camera_group",
+            resource_id=group.id,
+            after=_camera_group_snapshot(
+                session,
+                group,
+            ),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _camera_group_view(session, group)
+
+
+@router.get(
+    "/camera-groups/{group_id}",
+    response_model=CameraGroupView,
+)
+def get_camera_group(
+    group_id: uuid.UUID,
+    _context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraGroupView:
+    return _camera_group_view(
+        session,
+        CameraGroupService.get(session, group_id),
+    )
+
+
+@router.patch(
+    "/camera-groups/{group_id}",
+    response_model=CameraGroupView,
+)
+def update_camera_group(
+    group_id: uuid.UUID,
+    body: CameraGroupUpdate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraGroupView:
+    group = CameraGroupService.get(session, group_id)
+    before = _camera_group_snapshot(session, group)
+    try:
+        group = CameraGroupService.update(
+            session,
+            group=group,
+            changes=body.model_dump(exclude_unset=True),
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="camera_group.update",
+            resource_type="camera_group",
+            resource_id=group.id,
+            before=before,
+            after=_camera_group_snapshot(
+                session,
+                group,
+            ),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _camera_group_view(session, group)
+
+
+@router.delete(
+    "/camera-groups/{group_id}",
+    status_code=204,
+)
+def delete_camera_group(
+    group_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    group = CameraGroupService.get(session, group_id)
+    before = _camera_group_snapshot(session, group)
+    resource_id = group.id
+    try:
+        CameraGroupService.delete(
+            session,
+            group=group,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="camera_group.delete",
+            resource_type="camera_group",
+            resource_id=resource_id,
+            before=before,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return Response(status_code=204)
 
 
 @router.get("/cameras", response_model=list[CameraSummary])

@@ -36,6 +36,28 @@ class CameraSummary(BaseModel):
     adapter_type: str | None
 
 
+class CameraGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2048)
+    parent_id: uuid.UUID | None = None
+    camera_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class CameraGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=2048)
+    parent_id: uuid.UUID | None = None
+    camera_ids: list[uuid.UUID] | None = None
+
+
+class CameraGroupView(BaseModel):
+    id: uuid.UUID
+    name: str
+    description: str | None
+    parent_id: uuid.UUID | None
+    camera_ids: list[uuid.UUID]
+
+
 class CameraStreamProfileView(BaseModel):
     id: uuid.UUID
     name: str

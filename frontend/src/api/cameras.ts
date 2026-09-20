@@ -235,3 +235,53 @@ export function replaceCameraBindings(
     }
   )
 }
+
+
+export interface CameraGroup {
+  id: string
+  name: string
+  description: string | null
+  parent_id: string | null
+  camera_ids: string[]
+}
+
+export function listCameraGroups(): Promise<CameraGroup[]> {
+  return apiRequest<CameraGroup[]>("/camera-groups")
+}
+
+export function createCameraGroup(body: {
+  name: string
+  description: string | null
+  parent_id: string | null
+  camera_ids: string[]
+}): Promise<CameraGroup> {
+  return apiRequest<CameraGroup>("/camera-groups", {
+    method: "POST",
+    json: body
+  })
+}
+
+export function updateCameraGroup(
+  groupId: string,
+  changes: {
+    name?: string
+    description?: string | null
+    parent_id?: string | null
+    camera_ids?: string[]
+  }
+): Promise<CameraGroup> {
+  return apiRequest<CameraGroup>(
+    `/camera-groups/${encodeURIComponent(groupId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function deleteCameraGroup(groupId: string): Promise<void> {
+  return apiRequest<void>(
+    `/camera-groups/${encodeURIComponent(groupId)}`,
+    { method: "DELETE" }
+  )
+}

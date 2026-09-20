@@ -109,7 +109,9 @@ const icons: Record<string, string> = {
   export:
     '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 13v7h14v-7"/>',
   download:
-    '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/>'
+    '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/>',
+  folder:
+    '<path d="M3 6h7l2 2h9v10H3Z"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

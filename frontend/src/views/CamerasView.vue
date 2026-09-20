@@ -4,6 +4,7 @@ import { onBeforeUnmount, onMounted, ref } from "vue"
 import { listCameras, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
 import CameraDetailPanel from "../components/cameras/CameraDetailPanel.vue"
+import CameraGroupsPanel from "../components/cameras/CameraGroupsPanel.vue"
 import CameraOnboardingPanel from "../components/cameras/CameraOnboardingPanel.vue"
 import { useAuthStore } from "../stores/auth"
 
@@ -13,6 +14,7 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showOnboarding = ref(false)
 const selectedCamera = ref<CameraSummary | null>(null)
+const workspace = ref<"cameras" | "groups">("cameras")
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -90,12 +92,42 @@ onBeforeUnmount(() => {
 
     <p v-if="error" class="notice notice--error">{{ error }}</p>
 
+    <div
+      v-if="auth.hasPermission('camera.configure')"
+      class="camera-workspace-tabs"
+    >
+      <button
+        type="button"
+        :class="{ 'camera-workspace-tab--active': workspace === 'cameras' }"
+        @click="workspace = 'cameras'"
+      >
+        Cameras
+      </button>
+      <button
+        type="button"
+        :class="{ 'camera-workspace-tab--active': workspace === 'groups' }"
+        @click="
+          workspace = 'groups';
+          showOnboarding = false;
+          selectedCamera = null
+        "
+      >
+        Groups
+      </button>
+    </div>
+
     <CameraOnboardingPanel
-      v-if="showOnboarding"
+      v-if="showOnboarding && workspace === 'cameras'"
       @created="handleCreated"
       @close="showOnboarding = false"
     />
 
+    <CameraGroupsPanel
+      v-if="workspace === 'groups'"
+      :cameras="cameras"
+    />
+
+    <template v-else>
     <section class="panel">
       <div class="panel__header">
         <div>
@@ -162,6 +194,8 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
+    </template>
+
     <CameraDetailPanel
       v-if="selectedCamera"
       :camera="selectedCamera"
@@ -172,6 +206,30 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.camera-workspace-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.camera-workspace-tabs button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.camera-workspace-tabs .camera-workspace-tab--active {
+  border-bottom-color: var(--accent);
+  color: var(--text-primary);
+}
+
 .camera-inventory-row {
   cursor: pointer;
 }
