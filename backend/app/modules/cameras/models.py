@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -390,11 +391,21 @@ class PrincipalCameraScopeEntry(UUIDPrimaryKeyMixin, Base):
             "(camera_id IS NULL AND camera_group_id IS NOT NULL)",
             name="principal_camera_scope_entry_one_target",
         ),
-        UniqueConstraint(
+        Index(
+            "uq_principal_camera_scope_entries_camera",
             "scope_id",
             "camera_id",
+            unique=True,
+            sqlite_where=text("camera_id IS NOT NULL"),
+            postgresql_where=text("camera_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_principal_camera_scope_entries_group",
+            "scope_id",
             "camera_group_id",
-            name="uq_principal_camera_scope_entries_target",
+            unique=True,
+            sqlite_where=text("camera_group_id IS NOT NULL"),
+            postgresql_where=text("camera_group_id IS NOT NULL"),
         ),
     )
 
