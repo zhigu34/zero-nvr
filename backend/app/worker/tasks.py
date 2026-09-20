@@ -782,12 +782,15 @@ def run_backup_set(backup_set_id: str) -> str:
     settings = Settings()
     database = _database(settings)
     try:
-        return BackupExecutionService(
+        state = BackupExecutionService(
             settings
         ).execute(
             database,
             backup_set_id=uuid.UUID(backup_set_id),
         )
+        if state == "FAILED":
+            raise RuntimeError("backup execution failed")
+        return state
     finally:
         database.close()
 
@@ -797,12 +800,15 @@ def verify_backup_set(backup_set_id: str) -> str:
     settings = Settings()
     database = _database(settings)
     try:
-        return BackupExecutionService(
+        state = BackupExecutionService(
             settings
         ).verify(
             database,
             backup_set_id=uuid.UUID(backup_set_id),
         )
+        if state == "FAILED":
+            raise RuntimeError("backup verification failed")
+        return state
     finally:
         database.close()
 
@@ -869,7 +875,13 @@ def schedule_backups() -> dict[str, int]:
                         .limit(1)
                     )
                     if latest is not None:
-                        verify_ids.append(latest.id)
+                        minute_start = now
+                        if (
+                            latest.last_verified_at is None
+                            or latest.last_verified_at < minute_start
+                        ):
+                            latest.verification_state = "PENDING"
+                            verify_ids.append(latest.id)
 
             session.commit()
 
