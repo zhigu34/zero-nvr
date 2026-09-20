@@ -20,7 +20,7 @@ A committed harness is **not** a passing result. A POC moves to PASS only from r
 | 06 | ZLM VOD seek | same as POC-05 | RERUN REQUIRED — first run stopped at POC-05 timing gate before seek checks |
 | 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | PASS |
 | 08 | ZLM stream sharing / source connection count | same as POC-01 | RERUN REQUIRED — MediaMTX metrics-auth harness issue fixed; reader-count assertion still needs clean rerun |
-| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | RERUN REQUIRED — first mixed-load run passed, but retention p95 was seconds; optimized index/query + <500ms gate added |
+| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | PASS — 8/16-camera mixed load passed; optimized retention p95 ≈ 12.11/11.31ms |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | PASS |
 
 ## Gate meaning
