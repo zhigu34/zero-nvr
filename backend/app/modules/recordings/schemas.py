@@ -195,3 +195,23 @@ PlaybackResolveView = (
     | PlaybackPendingView
     | PlaybackGapView
 )
+
+
+
+class RecordingProtectionCreate(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    reason: str = Field(min_length=1, max_length=1024)
+    expires_at: datetime | None = None
+
+
+class RecordingProtectionView(BaseModel):
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    started_at: datetime
+    ended_at: datetime
+    reason: str
+    created_by: uuid.UUID | None
+    expires_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
