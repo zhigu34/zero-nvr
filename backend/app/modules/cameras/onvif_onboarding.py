@@ -355,7 +355,7 @@ class OnvifOnboardingService:
             port=port,
         )
         session.flush()
-        return device, cameras, False, False, True
+        return device, cameras, False, False, False, True
 
     @staticmethod
     def _mark_discovery_candidate_imported(
