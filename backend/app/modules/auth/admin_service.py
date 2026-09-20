@@ -11,6 +11,7 @@ from app.core.config import Settings
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 
+from .camera_scope import CameraScopeService
 from .models import Role, RolePermission, User, UserSession
 from .permissions import ALL_PERMISSIONS
 from .security import PasswordService
@@ -234,6 +235,12 @@ class AuthAdminService:
         session.add(role)
         try:
             session.flush()
+            CameraScopeService.ensure_scope(
+                session,
+                principal_type="role",
+                principal_id=role.id,
+                mode="none",
+            )
         except IntegrityError as exc:
             raise ApiError(
                 status_code=409,
