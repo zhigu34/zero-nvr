@@ -113,7 +113,9 @@ const icons: Record<string, string> = {
   folder:
     '<path d="M3 6h7l2 2h9v10H3Z"/>',
   share:
-    '<circle cx="18" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="19" r="2"/><path d="m8 11 8-5M8 13l8 5"/>'
+    '<circle cx="18" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="19" r="2"/><path d="m8 11 8-5M8 13l8 5"/>',
+  record:
+    '<circle cx="12" cy="12" r="5"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

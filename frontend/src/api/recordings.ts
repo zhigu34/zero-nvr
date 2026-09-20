@@ -122,3 +122,52 @@ export function deleteRecordingProtection(
     { method: "DELETE" }
   )
 }
+
+
+export interface RecordingTrigger {
+  id: string
+  camera_id: string
+  type: string
+  source: string
+  requested_at: string
+  pre_roll_seconds: number
+  post_roll_seconds: number
+  planned_start_at: string
+  planned_end_at: string | null
+  state: string
+  reason: string | null
+  correlation_id: string
+}
+
+export function listRecordingTriggers(
+  cameraId: string
+): Promise<RecordingTrigger[]> {
+  return apiRequest<RecordingTrigger[]>(
+    `/cameras/${encodeURIComponent(cameraId)}/recording-triggers`
+  )
+}
+
+export function createRecordingTrigger(
+  cameraId: string,
+  reason: string | null = null
+): Promise<RecordingTrigger> {
+  return apiRequest<RecordingTrigger>(
+    `/cameras/${encodeURIComponent(cameraId)}/recording-triggers`,
+    {
+      method: "POST",
+      headers: {
+        "Idempotency-Key": crypto.randomUUID()
+      },
+      json: { reason }
+    }
+  )
+}
+
+export function stopRecordingTrigger(
+  triggerId: string
+): Promise<RecordingTrigger> {
+  return apiRequest<RecordingTrigger>(
+    `/recording-triggers/${encodeURIComponent(triggerId)}/stop`,
+    { method: "POST" }
+  )
+}
