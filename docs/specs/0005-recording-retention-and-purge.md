@@ -4,440 +4,270 @@ Status: **accepted**
 
 ## Goal
 
-Define how zero-nvr keeps recordings for the configured period, protects important media, preserves enough free disk space for continued recording, and safely removes local copies after verified remote upload.
+Define how zero-nvr deletes recording copies safely while respecting retention, explicit protection, archive requirements, and disk pressure.
 
-This specification applies to canonical RecordingSegments / StorageObjects. Idle PrebufferFragments follow the short-lived GC rules from Spec 0003.
+Core rule:
 
-## Core principles
+> Retention decides whether a RecordingLocation copy may be deleted. It never silently destroys protected evidence or assumes an archive is safe before verification.
 
-1. Retention is metadata-driven; never delete recordings by directory age alone.
-2. Expiration policy and emergency disk-pressure cleanup are separate mechanisms.
-3. Active/writing media is never a purge candidate.
-4. A verified remote copy makes a local copy cheaper to evict, but upload success alone is insufficient; verification is required.
-5. User-locked media is never automatically deleted.
-6. Event/manual media receives higher retention priority than ordinary continuous/schedule media.
-7. Disk-pressure deletion is observable: every early purge records why it happened.
+See [Project Baseline](../PROJECT_BASELINE.md), [Spec 0004](0004-recording-storage-layout.md), and [Spec 0010](0010-recording-storage-pool-and-failover.md).
 
 ## RetentionPolicy
 
-Retention is configurable and may be system-default or camera-specific.
-
-Initial V2 defaults:
-
-```text
-continuous_keep_days = 7
-schedule_keep_days   = 7
-event_keep_days      = 30
-manual_keep_days     = 30
-```
-
-These are product defaults, not hard-coded constants.
-
-A camera may inherit the system RetentionPolicy or override individual values.
-
-A policy of `0` means that class has no age-based guarantee after the recording is finalized, subject to safety/reference rules.
-
-"Forever" is not represented by an enormous day count. Long-term/indefinite preservation uses an explicit lock/hold.
-
-## Why retention is claim-based
-
-One physical RecordingSegment may satisfy more than one business purpose.
-
-Example:
-
-```text
-continuous RecordingSession
-12:00 ───────────────────────── 12:05
-
-motion event
-             12:02:10 ─ 12:02:45
-```
-
-The same 5-minute RecordingSegment is ordinary continuous footage **and** contains an event that may need 30-day retention.
-
-Therefore a segment must not be assigned only one destructive retention class.
-
-zero-nvr uses retention claims/holds conceptually:
-
-```text
-RetentionClaim
-  id
-  recording_segment_id
-  reason
-  priority
-  retain_until
-  source_type
-  source_id
-  created_at
-```
-
-Typical reasons:
-
-```text
-continuous_policy
-schedule_policy
-event_policy
-manual_policy
-user_lock
-upload_source
-export_job
-system_recovery
-```
-
-Effective segment retention is the strongest active claim.
-
-For finite claims:
-
-```text
-effective_retain_until = max(active retain_until values)
-```
-
-An indefinite `user_lock` has no automatic expiry.
-
-When an event overlaps an already-recording continuous/schedule segment, zero-nvr adds an event retention claim to the affected RecordingSegment(s); it does not duplicate the media merely to obtain longer retention.
-
-## Retention priority
-
-Initial priority order from easiest to sacrifice to hardest:
-
-```text
-0  temporary/staging/derived disposable artifacts
-1  continuous / schedule
-2  event
-3  manual
-4  user_locked
-```
-
-Priority is used only for cleanup ordering. It does not change the authoritative timeline.
-
-User lock always wins and is never automatically purged.
-
-## Normal expiration cleanup
-
-The normal retention worker deletes only media whose required retention has expired.
-
-A local StorageObject is normally purgeable only when all of the following are true:
-
-```text
-state == READY
-AND segment is not WRITING/FINALIZING
-AND no active playback/export/upload operation requires the local file
-AND no active/indefinite retention claim protects it
-AND effective_retain_until <= now
-AND deletion will not violate last-valid-copy rules
-```
-
-Before physical unlink/delete, the worker re-checks eligibility transactionally/conditionally to avoid races with a new event claim, user lock, upload, export, or playback request.
-
-## Last-valid-copy rule
-
-Retention applies to the recording, not merely one filesystem object.
-
-If no verified remote copy exists, the local object is normally the last valid copy.
-
-zero-nvr must not delete the last valid copy before the recording's effective retention expires.
-
-If a verified remote copy exists:
-
-```text
-local copy
-  ↓
-may become local-purge eligible
-  ↓
-RecordingSegment remains available through remote StorageObject
-```
-
-Metadata is retained while at least one valid media copy remains and while product history/retention rules require it.
-
-## Remote upload and local purge
-
-Upload lifecycle:
-
-```text
-LOCAL_READY
-   ↓
-UPLOADING
-   ↓
-VERIFYING
-   ↓
-REMOTE_READY
-   ↓
-LOCAL_PURGE_ELIGIBLE
-```
-
-Rules:
-
-- an upload command returning success is not sufficient;
-- remote object size/checksum/integrity must be verified according to backend capability;
-- only `REMOTE_READY` counts as a valid redundant copy;
-- failed/incomplete upload keeps the local source protected when it is the last valid copy;
-- local purge never deletes the database RecordingSegment itself when a verified remote StorageObject still exists.
-
-Under disk pressure, a local copy that already has a verified remote copy is preferred for deletion before an equivalent local-only recording.
-
-## Disk capacity guard
-
-Disk protection uses configurable watermarks.
-
-Initial defaults:
-
-```text
-warning_usage_percent       = 80
-cleanup_start_percent       = 85
-critical_usage_percent      = 92
-emergency_usage_percent     = 96
-cleanup_target_percent      = 80
-min_free_bytes              = configurable (deployment/storage specific)
-```
-
-The guard considers both percentage and absolute free bytes. A storage target enters pressure mode if either configured free-space constraint is violated.
-
-### NORMAL
-
-```text
-usage < 80%
-```
-
-- normal age-based retention cleanup;
-- no unexpired recording is deleted.
-
-### WARNING
-
-```text
-usage >= 80%
-```
-
-- surface health warning;
-- run cleanup/reconciliation promptly;
-- still delete only normally eligible/expired objects.
-
-### PRESSURE
-
-```text
-usage >= 85%
-```
-
-- aggressively remove expired media;
-- clean disposable derived/staging artifacts;
-- purge verified-remote local copies that are already normally local-purge eligible;
-- continue until usage is near `cleanup_target_percent` where possible.
-
-### CRITICAL
-
-```text
-usage >= 92%
-```
-
-After all normally eligible media is exhausted, zero-nvr may perform **early local eviction** to protect recording continuity.
-
-Order:
-
-1. verified-remote local copies, oldest first;
-2. oldest unexpired priority-1 continuous/schedule local-only recordings;
-3. only then higher-priority unlocked media if the system reaches emergency pressure.
-
-Every early eviction emits EventLog/health/audit data containing:
-
-```text
-storage_target_id
-recording_segment_id
-previous_retain_until
-priority
-reason = disk_pressure
-usage_before
-usage_after
-remote_copy_available
-```
-
-### EMERGENCY
-
-```text
-usage >= 96%
-or free space below hard reserve
-```
-
-Goal: avoid filesystem exhaustion and recorder corruption.
-
-Deletion ordering remains:
-
-```text
-verified-remote copies
-    ↓
-continuous/schedule
-    ↓
-event
-    ↓
-manual
-```
-
-Always oldest first within the same class unless another claim requires otherwise.
-
-Never automatically delete:
-
-- the currently WRITING/FINALIZING segment;
-- media required by an active transaction/assembly;
-- user-locked media.
-
-If no eligible object remains, zero-nvr must surface a critical `storage_exhausted` state rather than silently deleting user-locked media.
-
-Recording may then fail/stop because the storage target is exhausted; that failure must be explicit and recoverable.
-
-## Why event media is not absolutely undeletable
-
-Event footage is higher priority than normal continuous footage, but treating every event as permanent can eventually make a finite disk unusable.
-
-Therefore:
-
-- events receive longer default retention;
-- events are evicted after continuous/schedule media under severe pressure;
-- users can explicitly lock recordings/events that must never be auto-deleted.
-
-This keeps automatic operation sustainable while giving the user an explicit permanent-protection mechanism.
-
-## User lock / unlock
-
-The UI/API must support locking a RecordingSession/event or selected recording range.
-
-Lock behavior:
-
-- create indefinite retention claim(s) for all affected RecordingSegments;
-- display locked state clearly;
-- locked media is excluded from automatic retention and disk-pressure purge;
-- unlocking removes only the user-lock claim; other claims remain.
-
-A lock does not prevent an administrator from explicitly deleting media through a deliberate destructive operation with normal authorization/audit rules.
-
-## Shared segments and event claims
-
-Because a 5-minute formal RecordingSegment may contain several events, event retention attaches to the physical segment(s) needed for those events.
-
-Example:
-
-```text
-segment S1: 12:00 ─ 12:05
-event E1:          12:02:10 ─ 12:02:30
-event retention: 30 days
-continuous retention: 7 days
-```
-
-Result:
-
-```text
-S1 effective retention = 30 days
-```
-
-No media duplication is required.
-
-If future storage optimization introduces precise sub-segment extraction for long-term event archives, that is a derived optimization and must not change the correctness of this baseline.
-
-## Deletion transaction
-
-Safe conceptual local deletion flow:
-
-```text
-select candidate
-   ↓
-acquire conditional/transactional delete ownership
-   ↓
-re-check:
-  state
-  claims
-  active references
-  remote-copy state
-   ↓
-mark DELETING
-   ↓
-delete physical object
-   ↓
-confirm absence
-   ↓
-mark DELETED / update RecordingSegment availability
-   ↓
-clean empty date directory if applicable
-```
-
-If physical deletion fails, do not mark the StorageObject deleted.
-
-The operation is idempotent and retryable.
-
-## Recording directory cleanup
-
-The human-readable directory layout from Spec 0004 remains intact while files exist.
-
-After all recording files for a date are deleted:
-
-```text
-recordings/{name_id}/{YYYY-MM-DD}/
-```
-
-may be removed if empty.
-
-The Camera directory and `_camera.json` may remain even when no recordings currently exist, because they are useful for detached-disk identity.
-
-## Metadata retention after media purge
-
-Deleting media does not necessarily mean immediately deleting all business metadata.
-
-At minimum zero-nvr may retain lightweight history sufficient to show:
-
-- that a RecordingSession/Event existed;
-- recording/event timestamps;
-- why media is unavailable;
-- when/why the media was purged.
-
-The UI should distinguish:
-
-```text
-media available
-media remote-only
-media expired/purged
-media missing/error
-```
-
-Metadata-history duration can be configured separately from media retention later.
-
-## Configuration surface
-
-Storage/Retention settings should expose at least:
-
-```text
-continuous_keep_days
-schedule_keep_days
+Conceptual fields:
+
+~~~text
+id
+name
+scope_type                    global | camera_group | camera
+scope_id                      nullable
+ordinary_keep_days
 event_keep_days
 manual_keep_days
+mode                          best_effort | hard
+require_archive_before_delete
+enabled
+created_at
+updated_at
+~~~
 
-warning_usage_percent
-cleanup_start_percent
-critical_usage_percent
-emergency_usage_percent
-cleanup_target_percent
-min_free_bytes
-```
+More specific enabled policy may override the global default.
 
-Camera-level retention overrides belong with Camera Recording/Retention settings.
+The exact precedence rule must be deterministic and visible in the UI.
 
-User lock is per recording/event/range and is not a global day-count setting.
+## Recording reasons
+
+RecordingSegment may retain compact historical reason flags:
+
+~~~text
+continuous
+schedule
+event
+manual
+~~~
+
+Retention uses those durable facts plus overlapping Events/RecordingTriggers.
+
+A segment containing both ordinary continuous video and an Event may inherit the longer event retention without creating a second media copy.
+
+V1 does not require a RetentionClaim table merely to duplicate this derivable state.
+
+## RecordingProtection
+
+Explicit user/system protection is range-based:
+
+~~~text
+camera_id
+started_at
+ended_at
+reason
+created_by
+expires_at
+~~~
+
+If a RecordingSegment overlaps an active protection range, its canonical copies are protected from automatic retention deletion.
+
+Protection is metadata. Do not copy the media into a second locked directory merely to protect it.
+
+## Normal age retention
+
+For a segment/location, compute the required retention horizon from:
+
+- policy scope;
+- segment recording reasons;
+- overlapping Event/RecordingTrigger facts;
+- explicit RecordingProtection;
+- target/copy role where policy distinguishes local vs archive;
+- archive-before-delete requirement.
+
+A local location becomes an ordinary purge candidate only when:
+
+~~~text
+location.state == AVAILABLE
+AND segment is finalized
+AND no active RecordingProtection overlaps
+AND required retention has expired
+AND no active playback/export operation requires that local file
+AND archive-before-delete condition is satisfied
+~~~
+
+Eligibility must be rechecked immediately before deletion to avoid races.
+
+## Archive-before-delete
+
+When configured, local RecordingLocation AVAILABLE plus a configured remote target is not sufficient.
+
+Required:
+
+~~~text
+at least one required remote RecordingLocation == AVAILABLE
+AND backend verification succeeded
+~~~
+
+Then local deletion may become eligible.
+
+A remote location in ARCHIVING, FAILED, or MISSING never satisfies archive-before-delete.
+
+## Copy / verify / delete
+
+Archive path:
+
+~~~text
+local AVAILABLE
+-> remote ARCHIVING
+-> rclone copy/copyto
+-> verify
+-> remote AVAILABLE
+-> retention may delete local
+~~~
+
+Do not make rclone move the normal product archive workflow.
+
+Do not use whole-tree rclone sync semantics when local retention deletion could unintentionally mirror-delete archive content.
+
+## Physical deletion
+
+Deletion lifecycle:
+
+~~~text
+AVAILABLE
+-> DELETING
+-> physical delete
+-> DELETED
+~~~
+
+If physical delete fails:
+
+- do not claim DELETED;
+- retain an explainable failure/error state;
+- retry only through the background-task policy;
+- never delete the RecordingSegment merely to hide the inconsistency.
+
+A deleted local location may coexist with an AVAILABLE remote location.
+
+## Last-valid-copy safety
+
+Before deleting any copy, determine whether policy permits losing it.
+
+If it is the only AVAILABLE canonical copy and required retention has not expired, deletion is forbidden.
+
+Even after normal age retention expires, an active RecordingProtection still forbids automatic deletion.
+
+## Disk pressure
+
+Disk pressure is evaluated per local recording target using real filesystem free/used capacity.
+
+Initial configurable guidance:
+
+~~~text
+warning  ~ 80%
+high     ~ 85%
+critical ~ 95%
+~~~
+
+These are defaults/guidance, not hard-coded constants.
+
+### Warning
+
+- surface UI/system health;
+- normal retention continues.
+
+### High
+
+- immediately evaluate eligible expired recordings;
+- prioritize local copies that already have verified remote copies;
+- schedule cleanup until configured recovery headroom is restored.
+
+### Critical
+
+- continue deleting only copies that policy legally permits;
+- emit critical Alert/SystemEvent;
+- if no legal candidate exists, do not silently break hard retention or RecordingProtection.
+
+The product may have to stop/risk new recording rather than destroy explicitly protected evidence.
+
+## BEST_EFFORT vs HARD
+
+BEST_EFFORT is a target retention duration. Under severe disk pressure, old ordinary unprotected footage may be deleted earlier if policy explicitly allows it. The UI/audit trail must make early deletion explainable.
+
+HARD is a minimum retention guarantee. The cleanup engine may not violate it automatically.
+
+If disk pressure cannot be recovered without violating a HARD policy or protection:
+
+~~~text
+storage health = CRITICAL
+recording risk = explicit
+alert = raised
+~~~
+
+Do not silently downgrade HARD to BEST_EFFORT.
+
+## Cleanup priority
+
+When several legal candidates exist, prefer:
+
+1. disposable cache/derived artifacts, handled by their own cache cleanup;
+2. expired local recording copies that already have verified remote copies;
+3. expired ordinary unprotected local-only copies;
+4. event/manual copies only when their required retention has expired.
+
+Never treat current/writing media as a normal purge candidate.
+
+## Remote retention
+
+Remote RecordingLocations can have their own retention lifecycle.
+
+Remote deletion is also performed through the storage adapter/rclone and transitions the target RecordingLocation through DELETING/DELETED.
+
+Deleting local and remote copies should never be coupled through filesystem sync semantics.
+
+## Segment metadata after copy deletion
+
+RecordingSegment is separate from its locations.
+
+When one location is deleted:
+
+- segment timestamps/history do not change;
+- another AVAILABLE location may remain playable.
+
+When every canonical location is deleted/missing, the product may retain segment/tombstone metadata long enough to explain the historical gap according to metadata-retention policy.
+
+Metadata cleanup is a separate concern from physical-media deletion.
+
+## Audit / explainability
+
+Important destructive actions record:
+
+- camera/segment/location;
+- storage target;
+- policy/reason;
+- archive verification state;
+- actor for manual deletion;
+- time/result/error.
+
+A user should be able to distinguish normal expiry, BEST_EFFORT early deletion, manual deletion, copy deletion, and unexpected missing media.
+
+## Acceptance tests
+
+1. Normal retention deletes expired unprotected copies safely.
+2. Event-containing segment uses longer event retention without duplicate media.
+3. RecordingProtection blocks automatic deletion.
+4. ARCHIVING/FAILED remote copy does not permit archive-required local deletion; verified AVAILABLE remote can.
+5. rclone failure keeps the still-required local source.
+6. High disk pressure prefers eligible local copies with verified remote copies.
+7. HARD policy refuses illegal early deletion and raises critical health.
+8. BEST_EFFORT early deletion is policy-controlled and explainable.
+9. Physical delete failure is not falsely marked DELETED.
+10. A required last valid copy is not silently removed.
 
 ## Invariants
 
-1. Normal retention and emergency disk-pressure cleanup are separate.
-2. Retention is claim-based so one physical segment can satisfy multiple business purposes safely.
-3. Effective finite retention is the maximum of active claims.
-4. User lock creates indefinite automatic-retention protection.
-5. Active/writing/finalizing media is never automatically purged.
-6. Event media has higher purge priority than continuous/schedule media; manual is higher again.
-7. A verified remote copy is preferred for local eviction before deleting local-only media.
-8. Upload success without verification never makes the local source safely purgeable.
-9. The last valid copy is not deleted before effective retention expires during normal cleanup.
-10. Under critical disk pressure, unlocked unexpired media may be evicted by priority to preserve recording continuity.
-11. User-locked media is never automatically deleted even under emergency pressure.
-12. Every early disk-pressure purge is explicitly logged and observable.
-13. Deletion re-checks state/claims immediately before physical removal.
-14. Retention cleanup is idempotent and retryable.
-15. Directory age/name alone never authorizes deletion.
-16. Media purge and metadata-history deletion are separate concerns.
-17. Non-obvious retention/race/pressure behavior requires comments per Development Guidelines.
-
-## Storage-pool pressure reference
-
-Retention watermarks apply per StorageTarget. Placement may move future segments away from a pressured target at a safe boundary, while critical write failure may trigger target failover. Remote archive targets are not direct recording-hot fallbacks. See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](0010-recording-storage-pool-and-failover.md).
+1. Retention deletes copies/RecordingLocations, not abstract segment time.
+2. RecordingProtection cannot be silently overridden by disk pressure.
+3. Archive success means verified remote RecordingLocation AVAILABLE.
+4. Failed/pending archive never permits archive-required local deletion.
+5. rclone move/sync is not the default archive lifecycle.
+6. Physical-delete failure never becomes false DELETED state.
+7. Hard retention is actually hard.
+8. Remote archive failure never stops healthy local recording.
+9. Every destructive deletion is explainable.
