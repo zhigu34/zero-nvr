@@ -11,6 +11,7 @@ from app.core.db import Database
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.integrations.zlm import ZlmContinuityTracker
+from app.internal import router as internal_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -64,6 +65,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api_v1_router)
+    app.include_router(internal_router)
     install_error_handlers(app)
     return app
 
