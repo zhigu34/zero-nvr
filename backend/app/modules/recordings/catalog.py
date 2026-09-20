@@ -66,7 +66,7 @@ class RecordingCatalogService:
             ) from exc
 
     @staticmethod
-    def _recording_reasons(
+    def recording_reasons(
         session: Session,
         *,
         camera_id: uuid.UUID,
@@ -283,7 +283,7 @@ class RecordingCatalogService:
                 boundary_at=raw_started,
             )
 
-        reasons = cls._recording_reasons(
+        reasons = cls.recording_reasons(
             session,
             camera_id=profile.camera_id,
             started_at=raw_started,
