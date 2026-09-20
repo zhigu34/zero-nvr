@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - ".github/workflows/poc-runtime.yml"
+      - "poc/runtime-trigger.txt"
 
 jobs:
   runtime-poc:
