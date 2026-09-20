@@ -37,31 +37,31 @@ def _create_v2(name: str) -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
             "purpose IN ('alert','password_reset','security','system_test')",
-            name="ck_notification_deliveries_notification_delivery_purpose",
+            name="ck_notification_deliveries_v2_purpose",
         ),
         sa.CheckConstraint(
             "state IN ('PENDING','SENDING','SENT','FAILED','SKIPPED')",
-            name="ck_notification_deliveries_notification_delivery_state",
+            name="ck_notification_deliveries_v2_state",
         ),
         sa.CheckConstraint(
             "attempt_count >= 0",
-            name="ck_notification_attempt_count_nonnegative",
+            name="ck_notification_deliveries_v2_attempt_count",
         ),
         sa.ForeignKeyConstraint(
             ["alert_id"],
             ["alerts.id"],
-            name="fk_notification_deliveries_alert_id_alerts",
+            name="fk_notification_deliveries_v2_alert",
             ondelete="RESTRICT",
         ),
         sa.ForeignKeyConstraint(
             ["notification_target_id"],
             ["notification_targets.id"],
-            name="fk_notification_deliveries_target",
+            name="fk_notification_deliveries_v2_target",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint(
             "id",
-            name="pk_notification_deliveries",
+            name="pk_notification_deliveries_v2",
         ),
     )
 
@@ -167,7 +167,7 @@ def downgrade() -> None:
         ),
         sa.CheckConstraint(
             "attempts >= 0",
-            name="ck_notification_attempts_nonnegative",
+            name="ck_notification_deliveries_v1_attempts",
         ),
         sa.ForeignKeyConstraint(
             ["alert_id"],
