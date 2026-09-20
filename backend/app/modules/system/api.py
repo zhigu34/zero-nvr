@@ -14,6 +14,7 @@ from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
+from .settings import SystemSettingsService
 from .frigate import (
     FrigateCredentials,
     FrigateProviderConfig,
@@ -26,6 +27,10 @@ from .schemas import (
     FrigateProviderPut,
     FrigateProviderTestView,
     FrigateProviderView,
+    GeneralSystemSettingsView,
+    SystemSettingsPatch,
+    SystemSettingsView,
+    SystemUpdateInfoView,
 )
 
 
@@ -370,4 +375,115 @@ def queue_frigate_backfill(
 
     return FrigateBackfillQueuedView(
         lookback_seconds=body.lookback_seconds,
+    )
+
+
+
+@router.get(
+    "/settings",
+    response_model=SystemSettingsView,
+)
+def get_system_settings(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SystemSettingsView:
+    general = SystemSettingsService.get(
+        session,
+        settings=request.app.state.settings,
+    )
+    return SystemSettingsView(
+        general=GeneralSystemSettingsView(
+            system_name=general.system_name,
+            display_timezone=general.display_timezone,
+            camera_ntp_servers=list(
+                general.camera_ntp_servers
+            ),
+        )
+    )
+
+
+@router.patch(
+    "/settings",
+    response_model=SystemSettingsView,
+)
+def patch_system_settings(
+    body: SystemSettingsPatch,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SystemSettingsView:
+    before = SystemSettingsService.get(
+        session,
+        settings=request.app.state.settings,
+    )
+    changes: dict[str, object] = {}
+    if body.general is not None:
+        changes = body.general.model_dump(
+            exclude_unset=True
+        )
+
+    try:
+        after = SystemSettingsService.update(
+            session,
+            settings=request.app.state.settings,
+            changes=changes,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="system.settings.update",
+            resource_type="system_settings",
+            before={
+                "general": {
+                    "system_name": before.system_name,
+                    "display_timezone": before.display_timezone,
+                    "camera_ntp_servers": list(
+                        before.camera_ntp_servers
+                    ),
+                }
+            },
+            after={
+                "general": {
+                    "system_name": after.system_name,
+                    "display_timezone": after.display_timezone,
+                    "camera_ntp_servers": list(
+                        after.camera_ntp_servers
+                    ),
+                }
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return SystemSettingsView(
+        general=GeneralSystemSettingsView(
+            system_name=after.system_name,
+            display_timezone=after.display_timezone,
+            camera_ntp_servers=list(
+                after.camera_ntp_servers
+            ),
+        )
+    )
+
+
+@router.get(
+    "/update-info",
+    response_model=SystemUpdateInfoView,
+)
+def system_update_info(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+) -> SystemUpdateInfoView:
+    return SystemUpdateInfoView(
+        current_version=request.app.state.settings.app_version,
     )
