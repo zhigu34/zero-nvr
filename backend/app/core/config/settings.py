@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     onvif_timeout_seconds: float = 10.0
     onvif_discovery_timeout_seconds: float = 3.0
 
+    rclone_binary: str = "rclone"
+    rclone_timeout_seconds: float = 300.0
+
     log_level: str = "INFO"
 
     @field_validator("secret_key")
@@ -124,6 +127,7 @@ class Settings(BaseSettings):
         "zlm_probe_timeout_seconds",
         "onvif_timeout_seconds",
         "onvif_discovery_timeout_seconds",
+        "rclone_timeout_seconds",
     )
     @classmethod
     def validate_positive_timeout(cls, value: float) -> float:
