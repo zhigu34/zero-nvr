@@ -3,6 +3,7 @@ import { ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
 
 import { errorMessage } from "../api/client"
+import ThemeControl from "../components/ui/ThemeControl.vue"
 import { useAuthStore } from "../stores/auth"
 
 const auth = useAuthStore()
@@ -38,10 +39,12 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="auth-page">
+    <ThemeControl class="auth-theme-control" />
+
     <section class="auth-card">
       <div class="brand brand--auth">
         <div class="brand__mark">0</div>
-        <div>
+        <div class="brand__copy">
           <strong>zero-nvr</strong>
           <span>self-hosted NVR</span>
         </div>
