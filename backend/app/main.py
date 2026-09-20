@@ -11,6 +11,7 @@ from app.core.db import Database
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
 from app.integrations.zlm import ZlmContinuityTracker
+from app.modules.recordings.runtime import RecorderModeTracker
 from app.internal import router as internal_router
 
 
@@ -19,6 +20,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     logger = configure_logging(resolved_settings.log_level)
     database = Database(resolved_settings)
     zlm_continuity = ZlmContinuityTracker()
+    recorder_modes = RecorderModeTracker()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -49,6 +51,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.logger = logger
     app.state.zlm_continuity = zlm_continuity
+    app.state.recorder_modes = recorder_modes
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
