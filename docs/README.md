@@ -43,7 +43,7 @@ A conflict should be fixed rather than left as permanent dual truth.
 Current status:
 
 ```text
-V1 Design Freeze Candidate
+V1 Architecture Frozen
 ```
 
 ## Design-freeze POC results
