@@ -71,6 +71,164 @@ class RecordingTriggerService:
             )
         return policy
 
+    @staticmethod
+    def _event_matches(
+        policy: RecordingPolicy,
+        *,
+        label: str | None,
+        confidence: float | None,
+        zones: list[str],
+    ) -> bool:
+        event_filter = policy.event_filter_json or {}
+
+        labels = event_filter.get("labels")
+        if isinstance(labels, list) and labels:
+            if label not in labels:
+                return False
+
+        required_zones = event_filter.get("zones")
+        if isinstance(required_zones, list) and required_zones:
+            if not set(required_zones).intersection(zones):
+                return False
+
+        minimum = event_filter.get("min_confidence")
+        if isinstance(minimum, (int, float)):
+            if confidence is None or confidence < float(minimum):
+                return False
+
+        return True
+
+    @classmethod
+    def upsert_provider(
+        cls,
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        source: str,
+        source_instance_id: str,
+        source_event_id: str,
+        event_started_at: datetime,
+        event_ended_at: datetime | None,
+        trigger_type: str,
+        reason: str | None,
+        label: str | None,
+        confidence: float | None,
+        zones: list[str],
+        metadata: dict[str, object] | None = None,
+    ) -> tuple[RecordingTrigger | None, bool]:
+        policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id == camera_id
+            )
+        )
+        if (
+            policy is None
+            or not policy.enabled
+            or not policy.event_recording_enabled
+        ):
+            return None, False
+
+        provider_identity = (
+            f"{source_instance_id}:{source_event_id}"
+        )
+        if len(provider_identity) > 512:
+            raise ApiError(
+                status_code=422,
+                code="recording_trigger_identity_too_long",
+                message="Provider recording trigger identity is too long.",
+            )
+
+        existing = session.scalar(
+            select(RecordingTrigger).where(
+                RecordingTrigger.source == source,
+                RecordingTrigger.source_event_id
+                == provider_identity,
+            )
+        )
+
+        if existing is None and not cls._event_matches(
+            policy,
+            label=label,
+            confidence=confidence,
+            zones=zones,
+        ):
+            return None, False
+
+        if existing is None:
+            correlation_id = uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                (
+                    f"zero-nvr/recording-trigger/"
+                    f"{source}/{provider_identity}"
+                ),
+            ).hex
+            trigger = RecordingTrigger(
+                camera_id=camera_id,
+                type=trigger_type,
+                source=source,
+                source_event_id=provider_identity,
+                requested_at=event_started_at,
+                pre_roll_seconds=policy.pre_roll_seconds,
+                post_roll_seconds=policy.post_roll_seconds,
+                planned_start_at=event_started_at
+                - timedelta(seconds=policy.pre_roll_seconds),
+                planned_end_at=(
+                    event_ended_at
+                    + timedelta(
+                        seconds=policy.post_roll_seconds
+                    )
+                    if event_ended_at is not None
+                    else None
+                ),
+                state=(
+                    "COMPLETED"
+                    if event_ended_at is not None
+                    else "ACTIVE"
+                ),
+                reason=reason,
+                correlation_id=correlation_id,
+                metadata_json=dict(metadata or {}),
+            )
+            session.add(trigger)
+            session.flush()
+            return trigger, True
+
+        if existing.camera_id != camera_id:
+            raise ApiError(
+                status_code=409,
+                code="recording_trigger_camera_conflict",
+                message="Provider recording trigger is already mapped to another camera.",
+            )
+
+        changed = False
+        if event_ended_at is not None:
+            planned_end = event_ended_at + timedelta(
+                seconds=existing.post_roll_seconds
+            )
+            if (
+                existing.planned_end_at is None
+                or planned_end > existing.planned_end_at
+            ):
+                existing.planned_end_at = planned_end
+                changed = True
+            if existing.state != "COMPLETED":
+                existing.state = "COMPLETED"
+                changed = True
+
+        if metadata is not None:
+            new_metadata = dict(metadata)
+            if existing.metadata_json != new_metadata:
+                existing.metadata_json = new_metadata
+                changed = True
+
+        if reason and existing.reason != reason:
+            existing.reason = reason
+            changed = True
+
+        if changed:
+            session.flush()
+        return existing, changed
+
     @classmethod
     def create_manual(
         cls,
