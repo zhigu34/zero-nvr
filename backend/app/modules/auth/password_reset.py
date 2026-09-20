@@ -32,6 +32,13 @@ class PasswordResetIssue:
 
 
 @dataclass(frozen=True, slots=True)
+class AdminPasswordResetIssue:
+    user_id: uuid.UUID
+    token: str
+    expires_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
 class PasswordResetMail:
     recipient: str
     title: str
@@ -125,6 +132,70 @@ class PasswordResetService:
             message="Password reset token is invalid or expired.",
         )
 
+    def _create_reset(
+        self,
+        session: Session,
+        *,
+        user: User,
+        created_by: uuid.UUID | None,
+        request_metadata: dict[str, object] | None,
+    ) -> PasswordResetToken:
+        now = utc_now()
+        for item in session.scalars(
+            select(PasswordResetToken).where(
+                PasswordResetToken.user_id == user.id,
+                PasswordResetToken.used_at.is_(None),
+                PasswordResetToken.expires_at > now,
+            )
+        ):
+            item.used_at = now
+
+        reset = PasswordResetToken(
+            id=uuid.uuid4(),
+            user_id=user.id,
+            token_hash="pending",
+            requested_at=now,
+            expires_at=now + _RESET_TTL,
+            used_at=None,
+            request_metadata=request_metadata or None,
+            created_by=created_by,
+        )
+        reset.token_hash = self._hash_token(
+            self._token_for_key(
+                reset,
+                self.settings.secret_key.get_secret_value(),
+            )
+        )
+        session.add(reset)
+        session.flush()
+        return reset
+
+    def issue_admin(
+        self,
+        session: Session,
+        *,
+        user: User,
+        created_by: uuid.UUID,
+        request_metadata: dict[str, object] | None,
+    ) -> AdminPasswordResetIssue:
+        if not user.enabled:
+            raise ApiError(
+                status_code=409,
+                code="user_disabled",
+                message="Disabled user must be enabled before password reset.",
+            )
+        reset = self._create_reset(
+            session,
+            user=user,
+            created_by=created_by,
+            request_metadata=request_metadata,
+        )
+        return AdminPasswordResetIssue(
+            user_id=user.id,
+            token=self.token_for_record(reset),
+            expires_at=reset.expires_at,
+        )
+
     def issue(
         self,
         session: Session,
@@ -171,33 +242,12 @@ class PasswordResetService:
         if recent is not None:
             return None
 
-        for item in session.scalars(
-            select(PasswordResetToken).where(
-                PasswordResetToken.user_id == user.id,
-                PasswordResetToken.used_at.is_(None),
-                PasswordResetToken.expires_at > now,
-            )
-        ):
-            item.used_at = now
-
-        reset = PasswordResetToken(
-            id=uuid.uuid4(),
-            user_id=user.id,
-            token_hash="pending",
-            requested_at=now,
-            expires_at=now + _RESET_TTL,
-            used_at=None,
-            request_metadata=request_metadata or None,
+        reset = self._create_reset(
+            session,
+            user=user,
             created_by=None,
+            request_metadata=request_metadata,
         )
-        reset.token_hash = self._hash_token(
-            self._token_for_key(
-                reset,
-                self.settings.secret_key.get_secret_value(),
-            )
-        )
-        session.add(reset)
-        session.flush()
 
         delivery = NotificationDelivery(
             alert_id=None,

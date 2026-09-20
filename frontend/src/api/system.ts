@@ -380,16 +380,17 @@ export function setRoleCameraScope(
   )
 }
 
-export function resetUserPassword(
-  userId: string,
-  newPassword: string
-): Promise<AdminUser> {
-  return apiRequest<AdminUser>(
-    `/users/${encodeURIComponent(userId)}/reset-password`,
-    {
-      method: "POST",
-      json: { new_password: newPassword }
-    }
+export interface UserPasswordResetIssue {
+  token: string
+  expires_at: string
+}
+
+export function issueUserPasswordReset(
+  userId: string
+): Promise<UserPasswordResetIssue> {
+  return apiRequest<UserPasswordResetIssue>(
+    `/users/${encodeURIComponent(userId)}/password-reset`,
+    { method: "POST" }
   )
 }
 

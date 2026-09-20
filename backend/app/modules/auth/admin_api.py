@@ -13,6 +13,7 @@ from .admin_service import AuthAdminService
 from .camera_scope import CameraScopeService, CameraScopeValue
 from .dependencies import require_permission
 from .models import Role, User
+from .password_reset import PasswordResetService
 from .permissions import ALL_PERMISSIONS
 from .schemas import (
     CameraScopeUpdate,
@@ -23,7 +24,7 @@ from .schemas import (
     RoleView,
     UserAdminView,
     UserCreate,
-    UserPasswordReset,
+    UserPasswordResetIssue,
     UserUpdate,
 )
 from .service import AuthContext
@@ -194,39 +195,54 @@ def update_user(
 
 
 @router.post(
-    "/users/{user_id}/reset-password",
-    response_model=UserAdminView,
+    "/users/{user_id}/password-reset",
+    response_model=UserPasswordResetIssue,
 )
-def reset_user_password(
+def issue_user_password_reset(
     user_id: uuid.UUID,
-    body: UserPasswordReset,
     request: Request,
-    context: AuthContext = Depends(require_permission("user.manage")),
+    context: AuthContext = Depends(
+        require_permission("user.manage")
+    ),
     session: Session = Depends(get_db_session),
-) -> UserAdminView:
-    service = AuthAdminService(request.app.state.settings)
+) -> UserPasswordResetIssue:
+    service = PasswordResetService(
+        request.app.state.settings
+    )
     try:
-        user = service.get_user(session, user_id)
-        user = service.reset_user_password(
+        user = AuthAdminService.get_user(
+            session,
+            user_id,
+        )
+        issued = service.issue_admin(
             session,
             user=user,
-            new_password=body.new_password,
+            created_by=context.user.id,
+            request_metadata={
+                "source": "administrator",
+            },
         )
         append_audit_event(
             session,
             request=request,
             actor_id=context.user.id,
-            action="user.password.reset",
+            action="user.password_reset.issue",
             resource_type="user",
             resource_id=user.id,
-            metadata={"sessions_revoked": True},
+            metadata={
+                "expires_at": issued.expires_at.isoformat(),
+                "single_use": True,
+            },
         )
         session.commit()
     except Exception:
         session.rollback()
         raise
 
-    return _user_view(user)
+    return UserPasswordResetIssue(
+        token=issued.token,
+        expires_at=issued.expires_at,
+    )
 
 
 @router.post("/users/{user_id}/disable", response_model=UserAdminView)

@@ -21,7 +21,7 @@ import {
   listPermissions,
   listRoles,
   listUsers,
-  resetUserPassword,
+  issueUserPasswordReset,
   setRoleCameraScope,
   setUserCameraScope,
   setUserEnabled,
@@ -68,10 +68,10 @@ const roleForm = reactive({
   permissionIds: [] as string[]
 })
 
-const passwordForm = reactive({
-  password: "",
-  confirmPassword: ""
-})
+const issuedReset = ref<{
+  token: string
+  expires_at: string
+} | null>(null)
 
 const scopeForm = reactive({
   mode: "inherit" as CameraScope["mode"],
@@ -198,33 +198,40 @@ async function toggleUser(user: AdminUser): Promise<void> {
 
 function openPasswordReset(user: AdminUser): void {
   editingUser.value = user
-  passwordForm.password = ""
-  passwordForm.confirmPassword = ""
+  issuedReset.value = null
   editorKind.value = "password"
   notice.value = null
 }
 
 async function savePasswordReset(): Promise<void> {
   if (!editingUser.value) return
-  if (passwordForm.password !== passwordForm.confirmPassword) {
-    error.value = "Passwords do not match."
-    return
-  }
 
   saving.value = true
   error.value = null
   try {
-    await resetUserPassword(
-      editingUser.value.id,
-      passwordForm.password
-    )
+    issuedReset.value =
+      await issueUserPasswordReset(
+        editingUser.value.id
+      )
     notice.value =
-      `Password reset for @${editingUser.value.username}; active sessions were revoked.`
-    closeEditor()
+      `One-time reset token issued for @${editingUser.value.username}.`
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
     saving.value = false
+  }
+}
+
+async function copyIssuedReset(): Promise<void> {
+  if (!issuedReset.value) return
+  try {
+    await navigator.clipboard.writeText(
+      issuedReset.value.token
+    )
+    notice.value = "Reset token copied."
+  } catch {
+    notice.value =
+      "Copy was blocked by the browser. Select the token and copy it manually."
   }
 }
 
@@ -664,7 +671,7 @@ onMounted(() => {
     >
       <header class="storage-editor__header">
         <div>
-          <strong>Reset password</strong>
+          <strong>Issue password reset</strong>
           <span>
             {{ editingUser.display_name }} · @{{ editingUser.username }}
           </span>
@@ -678,34 +685,53 @@ onMounted(() => {
         </button>
       </header>
 
+      <div
+        v-if="issuedReset"
+        class="storage-editor__form"
+      >
+        <p class="access-warning">
+          This token is shown once and expires at
+          {{ new Date(issuedReset.expires_at).toLocaleString() }}.
+          The user must open the sign-in page, choose “I have a reset
+          token”, and set their own new password.
+        </p>
+        <label>
+          <span>One-time reset token</span>
+          <textarea
+            :value="issuedReset.token"
+            rows="4"
+            readonly
+            spellcheck="false"
+          />
+        </label>
+        <div class="storage-editor__actions">
+          <button
+            class="button button--ghost"
+            type="button"
+            @click="copyIssuedReset"
+          >
+            Copy token
+          </button>
+          <button
+            class="button button--primary"
+            type="button"
+            @click="closeEditor"
+          >
+            Done
+          </button>
+        </div>
+      </div>
+
       <form
+        v-else
         class="storage-editor__form"
         @submit.prevent="savePasswordReset"
       >
         <p class="access-warning">
-          Resetting the password immediately revokes all active sessions
-          for this account.
+          This issues a single-use 30-minute token. The administrator
+          never chooses or learns the user’s new password. Existing
+          sessions remain active until the user consumes the token.
         </p>
-        <label>
-          <span>New password</span>
-          <input
-            v-model="passwordForm.password"
-            type="password"
-            minlength="12"
-            maxlength="256"
-            required
-          />
-        </label>
-        <label>
-          <span>Confirm password</span>
-          <input
-            v-model="passwordForm.confirmPassword"
-            type="password"
-            minlength="12"
-            maxlength="256"
-            required
-          />
-        </label>
         <div class="storage-editor__actions">
           <button
             class="button button--ghost"
@@ -719,7 +745,7 @@ onMounted(() => {
             type="submit"
             :disabled="saving"
           >
-            {{ saving ? "Resetting…" : "Reset password" }}
+            {{ saving ? "Issuing…" : "Issue reset token" }}
           </button>
         </div>
       </form>

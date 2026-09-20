@@ -111,8 +111,9 @@ class UserUpdate(BaseModel):
     role_ids: list[uuid.UUID] | None = None
 
 
-class UserPasswordReset(BaseModel):
-    new_password: str = Field(min_length=12, max_length=256)
+class UserPasswordResetIssue(BaseModel):
+    token: str
+    expires_at: datetime
 
 
 class CameraScopeView(BaseModel):

@@ -101,13 +101,26 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
 
         use_token(client, admin_token)
 
-        reset_password = client.post(
-            f"/api/v1/users/{viewer_id}/reset-password",
-            json={"new_password": "viewer-new-correct-horse-battery"},
+        reset_issue = client.post(
+            f"/api/v1/users/{viewer_id}/password-reset"
         )
-        assert reset_password.status_code == 200
+        assert reset_issue.status_code == 200
+        reset_token = reset_issue.json()["token"]
+        assert reset_token.startswith("znr1.")
+        assert reset_issue.json()["expires_at"]
 
         use_token(client, viewer_token)
+        assert client.get("/api/v1/auth/me").status_code == 200
+
+        completed = client.post(
+            "/api/v1/auth/password-reset/complete",
+            json={
+                "token": reset_token,
+                "new_password": "viewer-new-correct-horse-battery",
+            },
+        )
+        assert completed.status_code == 200
+
         assert client.get("/api/v1/auth/me").status_code == 401
 
         old_password = client.post(
@@ -191,6 +204,7 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
     assert {
         "user.create",
         "user.disable",
-        "user.password.reset",
+        "user.password_reset.issue",
+        "auth.password_reset.complete",
         "role.create",
     } <= actions
