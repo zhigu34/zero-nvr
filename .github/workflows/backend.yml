@@ -1,0 +1,41 @@
+name: Backend
+
+on:
+  push:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      ZERO_NVR_SECRET_KEY: zero-nvr-ci-secret-key-32-bytes-minimum
+      ZERO_NVR_ENVIRONMENT: test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install backend
+        run: python -m pip install -e ".[dev]"
+
+      - name: Compile backend
+        run: python -m compileall -q app tests
+
+      - name: Run tests
+        run: pytest
