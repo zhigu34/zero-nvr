@@ -16,7 +16,13 @@ class Database:
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        self.url = make_url(settings.effective_database_url)
+        url = make_url(settings.effective_database_url)
+        # SQLAlchemy still treats bare postgresql:// as the legacy psycopg2
+        # driver. zero-nvr standardizes on psycopg3, while still accepting the
+        # conventional driver-less PostgreSQL URL in deployment settings.
+        if url.drivername in {"postgresql", "postgres"}:
+            url = url.set(drivername="postgresql+psycopg")
+        self.url = url
         self.engine = self._create_engine()
         self.session_factory = sessionmaker(
             bind=self.engine,
