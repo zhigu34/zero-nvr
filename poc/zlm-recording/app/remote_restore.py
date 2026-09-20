@@ -176,6 +176,87 @@ def decode_rtsp(url: str, seconds: int = 2) -> dict[str, Any]:
     }
 
 
+def first_frame_rtsp(url: str) -> dict[str, Any]:
+    started = time.perf_counter()
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            url,
+            "-frames:v",
+            "1",
+            "-an",
+            "-f",
+            "null",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return {
+        "url": url,
+        "first_frame_wall_seconds": time.perf_counter() - started,
+        "returncode": completed.returncode,
+    }
+
+
+def cache_usage() -> dict[str, Any]:
+    files = [
+        path for path in CACHE.glob("*.mp4")
+        if path.is_file()
+    ]
+    return {
+        "bytes": sum(path.stat().st_size for path in files),
+        "files": [
+            {
+                "path": str(path),
+                "size_bytes": path.stat().st_size,
+                "mtime_ns": path.stat().st_mtime_ns,
+            }
+            for path in sorted(files, key=lambda p: p.stat().st_mtime_ns)
+        ],
+    }
+
+
+def enforce_cache_limit(limit_bytes: int) -> dict[str, Any]:
+    before = cache_usage()
+    evicted: list[str] = []
+
+    files = sorted(
+        [path for path in CACHE.glob("*.mp4") if path.is_file()],
+        key=lambda path: path.stat().st_mtime_ns,
+    )
+
+    total = sum(path.stat().st_size for path in files)
+    for path in files:
+        if total <= limit_bytes:
+            break
+        size = path.stat().st_size
+        path.unlink()
+        total -= size
+        evicted.append(str(path))
+
+    after = cache_usage()
+    if after["bytes"] > limit_bytes:
+        raise AssertionError(
+            f"cache limit enforcement failed: {after['bytes']} > {limit_bytes}"
+        )
+
+    return {
+        "limit_bytes": limit_bytes,
+        "before": before,
+        "evicted": evicted,
+        "after": after,
+    }
+
+
 def upload_remote(logical_name: str, source: Path) -> dict[str, Any]:
     STAGING.mkdir(parents=True, exist_ok=True)
     upload_copy = STAGING / logical_name
@@ -194,6 +275,7 @@ def upload_remote(logical_name: str, source: Path) -> dict[str, Any]:
 
 
 def interrupted_restore(remote: str, final: Path) -> dict[str, Any]:
+    overall_started = time.perf_counter()
     CACHE.mkdir(parents=True, exist_ok=True)
     final.unlink(missing_ok=True)
     partial = final.with_name(final.name + ".partial")
@@ -234,6 +316,7 @@ def interrupted_restore(remote: str, final: Path) -> dict[str, Any]:
 
     # Retry to the same staging name. rclone may overwrite/restart the transfer;
     # either behavior is acceptable because the final path remains unpublished.
+    retry_started = time.perf_counter()
     run_rclone(
         [
             "copyto",
@@ -246,6 +329,7 @@ def interrupted_restore(remote: str, final: Path) -> dict[str, Any]:
         ],
         timeout=120,
     )
+    retry_ready_seconds = time.perf_counter() - retry_started
     probe = ffprobe(partial)
     if float(probe["format"]["duration"]) <= 0:
         raise AssertionError(f"restored media is not playable: {probe}")
@@ -261,6 +345,8 @@ def interrupted_restore(remote: str, final: Path) -> dict[str, Any]:
         "retry_probe": probe,
         "published_path": str(final),
         "published_size": final.stat().st_size,
+        "retry_to_ready_seconds": retry_ready_seconds,
+        "interrupted_attempt_plus_retry_seconds": time.perf_counter() - overall_started,
     }
 
 
@@ -355,33 +441,47 @@ def restore() -> None:
     # playable through ZLM. This exercises the desired playback/prefetch shape.
     prefetch_proc = prefetch(uploads[1]["remote"], second)
     time.sleep(0.5)
-    first_play = decode_rtsp("rtsp://zlm:554/record/cache/remote-1.mp4", seconds=2)
+    first_frame = first_frame_rtsp(
+        "rtsp://zlm:554/record/cache/remote-1.mp4"
+    )
+    first_play = decode_rtsp(
+        "rtsp://zlm:554/record/cache/remote-1.mp4",
+        seconds=2,
+    )
     second_result = finish_prefetch(prefetch_proc, second)
 
     if not guard.exists():
         raise AssertionError("local canonical guard segment disappeared unexpectedly")
+    if not first.exists() or not second.exists():
+        raise AssertionError("both restored cache entries must be READY before eviction test")
 
-    # Cache eviction is deliberately scoped to /playback-cache. Removing a
-    # cached derived copy must not touch canonical local recordings.
-    first.unlink()
-    if first.exists():
-        raise AssertionError("cache eviction failed")
+    # Force a deterministic bounded-cache eviction: choose a limit that can
+    # hold the larger single segment but not both together. This validates the
+    # policy mechanics without depending on a universal production cache size.
+    size_first = first.stat().st_size
+    size_second = second.stat().st_size
+    cache_limit = max(size_first, size_second) + 64 * 1024
+    if cache_limit >= size_first + size_second:
+        cache_limit = max(size_first, size_second)
+
+    cache_eviction = enforce_cache_limit(cache_limit)
+    if not cache_eviction["evicted"]:
+        raise AssertionError("bounded cache test did not evict any entry")
     if not guard.exists():
         raise AssertionError("cache eviction deleted canonical local recording")
-
-    if not second.exists():
-        raise AssertionError("prefetched next segment is not READY")
+    if not cache_eviction["after"]["files"]:
+        raise AssertionError("bounded cache evicted every restored segment unexpectedly")
 
     evidence = {
         "result": "RUNNING",
         "prepared": state,
         "restore": {
             "first_interrupted_and_retry": first_result,
+            "first_frame_after_ready": first_frame,
             "first_vod_while_second_prefetching": first_play,
             "second_prefetch": second_result,
             "cache_eviction": {
-                "evicted": str(first),
-                "evicted_exists_after": first.exists(),
+                **cache_eviction,
                 "canonical_guard_path": str(guard),
                 "canonical_guard_exists_after": guard.exists(),
             },
