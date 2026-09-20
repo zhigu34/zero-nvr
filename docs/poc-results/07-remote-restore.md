@@ -66,6 +66,9 @@ No FUSE mount is used.
 - restore retry-to-READY time and first-frame wall time are recorded;
 - cache eviction is triggered by an explicit byte limit rather than a manual one-off delete;
 - cache bytes/files before and after eviction are recorded;
+- the configured playback-cache byte limit is actually exceeded before eviction so the bound is exercised;
+- byte-based eviction returns READY cache bytes to or below the configured limit;
+- protected current/next cache media is not evicted;
 - cache eviction stays inside playback cache;
 - canonical local recording media is untouched by cache eviction;
 - remote outage is observable as remote failure;
