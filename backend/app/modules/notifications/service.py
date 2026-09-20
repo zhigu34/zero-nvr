@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -31,7 +32,7 @@ class NotificationTargetService:
     def _normalize_config(
         config: dict[str, object],
     ) -> dict[str, Any]:
-        if set(config) - {"notify_type"}:
+        if set(config) - {"notify_type", "password_reset"}:
             raise ApiError(
                 status_code=400,
                 code="notification_target_config_invalid",
@@ -51,7 +52,115 @@ class NotificationTargetService:
                 code="notification_target_type_invalid",
                 message="Notification type is invalid.",
             )
-        return {"notify_type": notify_type}
+        password_reset = config.get("password_reset", False)
+        if not isinstance(password_reset, bool):
+            raise ApiError(
+                status_code=400,
+                code="notification_target_config_invalid",
+                message="Notification target configuration is invalid.",
+            )
+        return {
+            "notify_type": notify_type,
+            "password_reset": password_reset,
+        }
+
+    @staticmethod
+    def is_password_reset_target(
+        target: NotificationTarget,
+    ) -> bool:
+        return (
+            (target.config_json or {}).get("password_reset")
+            is True
+        )
+
+    @classmethod
+    def _ensure_password_reset_unique(
+        cls,
+        session: Session,
+        *,
+        exclude_id: uuid.UUID | None = None,
+    ) -> None:
+        for item in session.scalars(
+            select(NotificationTarget)
+        ):
+            if (
+                item.id != exclude_id
+                and cls.is_password_reset_target(item)
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="password_reset_target_conflict",
+                    message=(
+                        "Only one notification target can be used "
+                        "for password reset email."
+                    ),
+                )
+
+    @staticmethod
+    def _validate_password_reset_url(url: str) -> None:
+        parsed = urlsplit(url.strip())
+        if (
+            parsed.scheme.lower()
+            not in {"mailto", "mailtos"}
+            or parsed.path not in {"", "/"}
+            or parsed.fragment
+        ):
+            raise ApiError(
+                status_code=400,
+                code="password_reset_target_invalid",
+                message=(
+                    "Password reset target must be a mailto/mailtos "
+                    "SMTP URL without recipients in the URL path."
+                ),
+            )
+
+    @classmethod
+    def password_reset_recipient_url(
+        cls,
+        url: str,
+        recipient: str,
+    ) -> str:
+        cls._validate_password_reset_url(url)
+        parsed = urlsplit(url.strip())
+        filtered = [
+            (key, value)
+            for key, value in parse_qsl(
+                parsed.query,
+                keep_blank_values=True,
+            )
+            if key.lower()
+            not in {
+                "to",
+                "cc",
+                "bcc",
+                "+to",
+                "+cc",
+                "+bcc",
+            }
+        ]
+        filtered.append(("to", recipient))
+        return urlunsplit(
+            (
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                urlencode(filtered, doseq=True),
+                "",
+            )
+        )
+
+    @classmethod
+    def password_reset_target(
+        cls,
+        session: Session,
+    ) -> NotificationTarget | None:
+        for item in cls.list(session):
+            if (
+                item.enabled
+                and cls.is_password_reset_target(item)
+            ):
+                return item
+        return None
 
     @staticmethod
     def list(session: Session) -> list[NotificationTarget]:
@@ -171,6 +280,15 @@ class NotificationTargetService:
                 message="Notification target URL is invalid.",
             )
 
+        normalized_config = self._normalize_config(
+            config
+        )
+        if normalized_config["password_reset"] is True:
+            self._ensure_password_reset_unique(session)
+            self._validate_password_reset_url(
+                normalized_url
+            )
+
         target_id = uuid.uuid4()
         secret_id = uuid.uuid4()
         encrypted = self.secret_store.encrypt_json(
@@ -190,7 +308,7 @@ class NotificationTargetService:
             name=normalized_name,
             kind="apprise",
             enabled=enabled,
-            config_json=self._normalize_config(config),
+            config_json=normalized_config,
             secret_ref=secret_id,
         )
         session.add_all([secret, target])
@@ -223,6 +341,7 @@ class NotificationTargetService:
         if "enabled" in changes:
             target.enabled = bool(changes["enabled"])
 
+        candidate_config = target.config_json or {}
         if "config" in changes:
             raw_config = changes["config"]
             if not isinstance(raw_config, dict):
@@ -231,10 +350,11 @@ class NotificationTargetService:
                     code="notification_target_config_invalid",
                     message="Notification target configuration is invalid.",
                 )
-            target.config_json = self._normalize_config(
+            candidate_config = self._normalize_config(
                 raw_config
             )
 
+        candidate_url: str | None = None
         if "url" in changes:
             raw_url = changes["url"]
             if not isinstance(raw_url, str):
@@ -243,27 +363,48 @@ class NotificationTargetService:
                     code="notification_url_invalid",
                     message="Notification target URL is invalid.",
                 )
+            candidate_url = raw_url.strip()
+        elif candidate_config.get("password_reset") is True:
+            candidate_url = self._secret_url(
+                session,
+                target=target,
+            )
+
+        if candidate_config.get("password_reset") is True:
+            self._ensure_password_reset_unique(
+                session,
+                exclude_id=target.id,
+            )
+            if candidate_url is None:
+                raise ApiError(
+                    status_code=409,
+                    code="notification_secret_unavailable",
+                    message="Notification target secret is unavailable.",
+                )
+            self._validate_password_reset_url(
+                candidate_url
+            )
+
+        if "config" in changes:
+            target.config_json = candidate_config
+
+        if "url" in changes:
+            assert candidate_url is not None
             self._replace_secret(
                 session,
                 target=target,
-                url=raw_url,
+                url=candidate_url,
             )
 
         session.flush()
         return target
 
-    def resolve(
+    def _secret_url(
         self,
         session: Session,
         *,
         target: NotificationTarget,
-    ) -> ResolvedNotificationTarget:
-        if not target.enabled:
-            raise ApiError(
-                status_code=409,
-                code="notification_target_disabled",
-                message="Notification target is disabled.",
-            )
+    ) -> str:
         secret = session.get(
             SecretRecord,
             target.secret_ref,
@@ -300,6 +441,24 @@ class NotificationTargetService:
                 message="Notification target secret is unavailable.",
             )
 
+        return url
+
+    def resolve(
+        self,
+        session: Session,
+        *,
+        target: NotificationTarget,
+    ) -> ResolvedNotificationTarget:
+        if not target.enabled:
+            raise ApiError(
+                status_code=409,
+                code="notification_target_disabled",
+                message="Notification target is disabled.",
+            )
+        url = self._secret_url(
+            session,
+            target=target,
+        )
         return ResolvedNotificationTarget(
             target_id=target.id,
             name=target.name,

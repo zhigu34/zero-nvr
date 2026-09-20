@@ -254,3 +254,64 @@ def test_alert_scope_and_acknowledge_permissions(
         assert acknowledged.status_code == 200
         assert acknowledged.json()["state"] == "ACKNOWLEDGED"
         assert acknowledged.json()["acknowledged_by"] == operator_id
+
+
+
+def test_password_reset_notification_target_requires_safe_mail_target(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        invalid = client.post(
+            "/api/v1/notification-targets",
+            json={
+                "name": "Unsafe reset",
+                "config": {
+                    "password_reset": True,
+                },
+                "url": "json://example.invalid/hook",
+            },
+        )
+        assert invalid.status_code == 400
+        assert (
+            invalid.json()["error"]["code"]
+            == "password_reset_target_invalid"
+        )
+
+        first = client.post(
+            "/api/v1/notification-targets",
+            json={
+                "name": "Security email",
+                "config": {
+                    "password_reset": True,
+                },
+                "url": (
+                    "mailtos://smtp-user:smtp-pass@mail.example.com"
+                    "?from=zero-nvr@example.com&to=old@example.com"
+                ),
+            },
+        )
+        assert first.status_code == 201
+        assert (
+            first.json()["config"]["password_reset"]
+            is True
+        )
+
+        conflict = client.post(
+            "/api/v1/notification-targets",
+            json={
+                "name": "Second reset email",
+                "config": {
+                    "password_reset": True,
+                },
+                "url": "mailto://localhost?from=zero@example.com",
+            },
+        )
+        assert conflict.status_code == 409
+        assert (
+            conflict.json()["error"]["code"]
+            == "password_reset_target_conflict"
+        )

@@ -115,7 +115,8 @@ const notificationSaving = ref(false)
 const testingNotificationId = ref<string | null>(null)
 const notificationForm = reactive({
   name: "",
-  url: ""
+  url: "",
+  passwordReset: false
 })
 
 const frigateConfigured = ref(false)
@@ -548,6 +549,7 @@ function openNotificationPanel(): void {
   editingNotification.value = null
   notificationForm.name = ""
   notificationForm.url = ""
+  notificationForm.passwordReset = false
   notificationPanelOpen.value = true
 }
 
@@ -555,6 +557,8 @@ function openEditNotification(item: NotificationTarget): void {
   editingNotification.value = item
   notificationForm.name = item.name
   notificationForm.url = ""
+  notificationForm.passwordReset =
+    item.config.password_reset === true
   notificationPanelOpen.value = true
   notice.value = null
 }
@@ -571,13 +575,26 @@ async function saveNotification(): Promise<void> {
       if (url) {
         changes.url = url
       }
+      changes.config = {
+        notify_type:
+          typeof editingNotification.value.config.notify_type === "string"
+            ? editingNotification.value.config.notify_type
+            : "info",
+        password_reset: notificationForm.passwordReset
+      }
       await updateNotificationTarget(
         editingNotification.value.id,
         changes
       )
       notice.value = "Notification target updated."
     } else {
-      await createNotificationTarget(name, url)
+      await createNotificationTarget(
+        name,
+        url,
+        {
+          password_reset: notificationForm.passwordReset
+        }
+      )
       notice.value = "Notification target created."
     }
 
@@ -1225,6 +1242,9 @@ onBeforeUnmount(() => {
               <strong>{{ item.name }}</strong>
               <span>
                 {{ item.url_configured ? "Destination configured" : "Destination missing" }}
+                <template v-if="item.config.password_reset === true">
+                  · Password reset email
+                </template>
               </span>
             </div>
             <span
@@ -1337,6 +1357,19 @@ onBeforeUnmount(() => {
                     : "Stored encrypted and never returned to the browser."
                 }}
               </small>
+            </label>
+            <label class="storage-check">
+              <input
+                v-model="notificationForm.passwordReset"
+                type="checkbox"
+              />
+              <span>
+                Use as password reset email target
+                <small>
+                  Requires mailto/mailtos. zero-nvr replaces To/CC/BCC
+                  with the account email for each reset message.
+                </small>
+              </span>
             </label>
             <div class="storage-editor__actions">
               <button class="button button--ghost" type="button" @click="notificationPanelOpen = false; editingNotification = null">

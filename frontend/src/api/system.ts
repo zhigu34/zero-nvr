@@ -409,14 +409,15 @@ export function listNotificationTargets(): Promise<NotificationTarget[]> {
 
 export function createNotificationTarget(
   name: string,
-  url: string
+  url: string,
+  config: Record<string, unknown> = {}
 ): Promise<NotificationTarget> {
   return apiRequest<NotificationTarget>("/notification-targets", {
     method: "POST",
     json: {
       name,
       enabled: true,
-      config: {},
+      config,
       url
     }
   })
