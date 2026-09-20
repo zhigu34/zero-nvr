@@ -127,7 +127,6 @@ class Settings(BaseSettings):
         "zlm_probe_timeout_seconds",
         "onvif_timeout_seconds",
         "onvif_discovery_timeout_seconds",
-        "rclone_timeout_seconds",
     )
     @classmethod
     def validate_positive_timeout(cls, value: float) -> float:
@@ -146,6 +145,15 @@ class Settings(BaseSettings):
         raise ValueError(
             "ZERO_NVR_ZLM_PUBLIC_BASE_URL must be same-origin /path or http(s) URL"
         )
+
+    @field_validator("rclone_timeout_seconds")
+    @classmethod
+    def validate_rclone_timeout(cls, value: float) -> float:
+        if value <= 0 or value > 3600:
+            raise ValueError(
+                "ZERO_NVR_RCLONE_TIMEOUT_SECONDS must be greater than 0 and at most 3600"
+            )
+        return value
 
     @field_validator("zlm_base_url")
     @classmethod
