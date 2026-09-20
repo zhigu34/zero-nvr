@@ -105,7 +105,11 @@ const icons: Record<string, string> = {
   backup:
     '<path d="M4 7v13h16V7l-3-3H7Z"/><path d="M8 4v6h8V4M8 16h8"/>',
   audit:
-    '<path d="M6 3h12v18H6Z"/><path d="M9 7h6M9 11h6M9 15h4"/>'
+    '<path d="M6 3h12v18H6Z"/><path d="M9 7h6M9 11h6M9 15h4"/>',
+  export:
+    '<path d="M12 3v12M8 7l4-4 4 4"/><path d="M5 13v7h14v-7"/>',
+  download:
+    '<path d="M12 3v12M8 11l4 4 4-4"/><path d="M5 20h14"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

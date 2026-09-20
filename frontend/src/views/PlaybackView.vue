@@ -13,7 +13,21 @@ import {
   type CameraSummary
 } from "../api/cameras"
 import { errorMessage } from "../api/client"
+import {
+  createExport,
+  deleteExport,
+  exportDownloadUrl,
+  getExport,
+  listExports,
+  type ExportJob
+} from "../api/exports"
 import { browserMediaUrl } from "../api/media"
+import {
+  createRecordingProtection,
+  deleteRecordingProtection,
+  listRecordingProtections,
+  type RecordingProtection
+} from "../api/recordings"
 import {
   getCameraTimeline,
   resolveCameraPlayback,
@@ -52,10 +66,23 @@ const error = ref<string | null>(null)
 const playing = ref(false)
 const muted = ref(true)
 const fullscreen = ref(false)
+const actionPanelOpen = ref(false)
+const actionMode = ref<"protect" | "export">("export")
+const actionStart = ref("")
+const actionEnd = ref("")
+const protectionReason = ref("Important footage")
+const protectionExpiryDays = ref(0)
+const exportCodecMode = ref<"auto" | "copy" | "h264">("auto")
+const exportGapPolicy = ref<"skip" | "fail">("skip")
+const actionSaving = ref(false)
+const protections = ref<RecordingProtection[]>([])
+const exportJobs = ref<ExportJob[]>([])
+const activeExport = ref<ExportJob | null>(null)
 
 let resolveGeneration = 0
 let timelineGeneration = 0
 let pendingRetryTimer: number | null = null
+let exportPollTimer: number | null = null
 
 const activeCamera = computed(() =>
   cameras.value.find((camera) => camera.id === activeCameraId.value) ?? null
@@ -109,11 +136,34 @@ const ticks = computed(() => {
   })
 })
 
+const cameraProtections = computed(() =>
+  protections.value
+    .filter((item) => item.camera_id === activeCameraId.value)
+    .slice(0, 8)
+)
+
+const cameraExports = computed(() =>
+  exportJobs.value
+    .filter((item) => item.camera_id === activeCameraId.value)
+    .slice(0, 8)
+)
+
 const gapResult = computed<PlaybackGap | null>(() =>
   playbackResult.value?.status === "gap"
     ? playbackResult.value
     : null
 )
+
+function toLocalDateTimeInput(date: Date): string {
+  const offset = date.getTimezoneOffset() * 60_000
+  return new Date(date.getTime() - offset)
+    .toISOString()
+    .slice(0, 16)
+}
+
+function fromLocalDateTimeInput(value: string): Date {
+  return new Date(value)
+}
 
 function formatDateInput(date: Date): string {
   const year = date.getFullYear()
@@ -214,6 +264,46 @@ function eventTitle(item: TimelineEvent): string {
   )}`
 }
 
+function clearExportPoll(): void {
+  if (exportPollTimer === null) return
+  window.clearTimeout(exportPollTimer)
+  exportPollTimer = null
+}
+
+async function loadPlaybackActions(): Promise<void> {
+  const cameraId = activeCameraId.value
+  if (!cameraId) {
+    protections.value = []
+    exportJobs.value = []
+    return
+  }
+
+  const tasks: Promise<void>[] = []
+  if (auth.hasPermission("recording.view")) {
+    tasks.push(
+      listRecordingProtections(cameraId)
+        .then((items) => {
+          protections.value = items
+        })
+        .catch(() => {
+          protections.value = []
+        })
+    )
+  }
+  if (auth.hasPermission("recording.export")) {
+    tasks.push(
+      listExports()
+        .then((page) => {
+          exportJobs.value = page.items
+        })
+        .catch(() => {
+          exportJobs.value = []
+        })
+    )
+  }
+  await Promise.all(tasks)
+}
+
 async function refreshCameras(): Promise<void> {
   if (!auth.hasPermission("camera.view")) return
 
@@ -251,6 +341,7 @@ async function refreshCameras(): Promise<void> {
     } else {
       await refreshTimeline(false)
     }
+    await loadPlaybackActions()
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -362,11 +453,14 @@ async function resolveAt(
 function selectCamera(cameraId: string): void {
   if (cameraId === activeCameraId.value) return
   clearPendingRetry()
+  clearExportPoll()
   resolveGeneration += 1
   activeCameraId.value = cameraId
   playbackUrl.value = null
   playbackResult.value = null
+  actionPanelOpen.value = false
   void refreshTimeline(false)
+  void loadPlaybackActions()
 }
 
 function handleDateChange(): void {
@@ -404,6 +498,153 @@ function jumpTo(value: string | null): void {
   currentAt.value = at
   selectedDate.value = formatDateInput(at)
   void refreshTimeline(false).then(() => resolveAt(at, true))
+}
+
+function openActionPanel(mode: "protect" | "export"): void {
+  actionMode.value = mode
+  const center = currentAt.value.getTime()
+  actionStart.value = toLocalDateTimeInput(
+    new Date(center - 30_000)
+  )
+  actionEnd.value = toLocalDateTimeInput(
+    new Date(center + 30_000)
+  )
+  protectionReason.value = "Important footage"
+  protectionExpiryDays.value = 0
+  exportCodecMode.value = "auto"
+  exportGapPolicy.value = "skip"
+  actionPanelOpen.value = true
+}
+
+function actionRange(): [Date, Date] {
+  const start = fromLocalDateTimeInput(actionStart.value)
+  const end = fromLocalDateTimeInput(actionEnd.value)
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end <= start
+  ) {
+    throw new Error("Clip end must be after clip start.")
+  }
+  return [start, end]
+}
+
+async function saveProtection(): Promise<void> {
+  const cameraId = activeCameraId.value
+  if (!cameraId) return
+  actionSaving.value = true
+  error.value = null
+  try {
+    const [start, end] = actionRange()
+    const expiresAt =
+      protectionExpiryDays.value > 0
+        ? new Date(
+            Date.now() +
+              protectionExpiryDays.value * 24 * 60 * 60 * 1000
+          ).toISOString()
+        : null
+    await createRecordingProtection(cameraId, {
+      started_at: start.toISOString(),
+      ended_at: end.toISOString(),
+      reason: protectionReason.value.trim(),
+      expires_at: expiresAt
+    })
+    await loadPlaybackActions()
+    actionPanelOpen.value = false
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    actionSaving.value = false
+  }
+}
+
+function scheduleExportPoll(exportId: string): void {
+  clearExportPoll()
+  exportPollTimer = window.setTimeout(async () => {
+    exportPollTimer = null
+    try {
+      const job = await getExport(exportId)
+      activeExport.value = job
+      exportJobs.value = [
+        job,
+        ...exportJobs.value.filter((item) => item.id !== job.id)
+      ]
+      if (
+        !["COMPLETED", "FAILED", "CANCELLED", "EXPIRED"].includes(
+          job.state.toUpperCase()
+        )
+      ) {
+        scheduleExportPoll(exportId)
+      }
+    } catch (caught) {
+      error.value = errorMessage(caught)
+    }
+  }, 2000)
+}
+
+async function saveExport(): Promise<void> {
+  const cameraId = activeCameraId.value
+  if (!cameraId) return
+  actionSaving.value = true
+  error.value = null
+  try {
+    const [start, end] = actionRange()
+    const job = await createExport({
+      camera_id: cameraId,
+      start_at: start.toISOString(),
+      end_at: end.toISOString(),
+      format: "mp4",
+      codec_mode: exportCodecMode.value,
+      gap_policy: exportGapPolicy.value
+    })
+    activeExport.value = job
+    exportJobs.value = [
+      job,
+      ...exportJobs.value.filter((item) => item.id !== job.id)
+    ]
+    actionPanelOpen.value = false
+    scheduleExportPoll(job.id)
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    actionSaving.value = false
+  }
+}
+
+async function removeProtection(
+  item: RecordingProtection
+): Promise<void> {
+  try {
+    await deleteRecordingProtection(item.id)
+    protections.value = protections.value.filter(
+      (current) => current.id !== item.id
+    )
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  }
+}
+
+async function removeExport(item: ExportJob): Promise<void> {
+  if (!window.confirm("Delete this export?")) return
+  try {
+    if (activeExport.value?.id === item.id) clearExportPoll()
+    await deleteExport(item.id)
+    exportJobs.value = exportJobs.value.filter(
+      (current) => current.id !== item.id
+    )
+    if (activeExport.value?.id === item.id) {
+      activeExport.value = null
+    }
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  }
+}
+
+function exportStateClass(state: string): string {
+  const normalized = state.toUpperCase()
+  if (normalized === "COMPLETED") return "status-pill--ok"
+  if (normalized === "FAILED") return "status-pill--error"
+  return "status-pill--muted"
 }
 
 function togglePlayback(): void {
@@ -451,6 +692,7 @@ function handleFullscreenChange(): void {
 
 function handleRefreshEvent(): void {
   void refreshTimeline(false)
+  void loadPlaybackActions()
 }
 
 onMounted(() => {
@@ -461,6 +703,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearPendingRetry()
+  clearExportPoll()
   resolveGeneration += 1
   timelineGeneration += 1
   window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
@@ -701,6 +944,27 @@ onBeforeUnmount(() => {
           {{ formatTimestamp(currentAt) }}
         </span>
 
+        <div class="playback-action-buttons">
+          <button
+            v-if="auth.hasPermission('recording.protect')"
+            class="media-button media-button--text"
+            type="button"
+            @click="openActionPanel('protect')"
+          >
+            <UiIcon name="shield" :size="14" />
+            Protect
+          </button>
+          <button
+            v-if="auth.hasPermission('recording.export')"
+            class="media-button media-button--text"
+            type="button"
+            @click="openActionPanel('export')"
+          >
+            <UiIcon name="export" :size="14" />
+            Export
+          </button>
+        </div>
+
         <span
           v-if="playbackResult?.status === 'playable'"
           class="playback-codec"
@@ -781,6 +1045,336 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+
+      <aside
+        v-if="actionPanelOpen"
+        class="playback-action-panel"
+      >
+        <header>
+          <div>
+            <strong>
+              {{
+                actionMode === "protect"
+                  ? "Protect recording"
+                  : "Export clip"
+              }}
+            </strong>
+            <span>{{ activeCamera?.name || "Camera" }}</span>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            title="Close"
+            @click="actionPanelOpen = false"
+          >
+            <UiIcon name="close" :size="15" />
+          </button>
+        </header>
+
+        <form
+          class="playback-action-form"
+          @submit.prevent="
+            actionMode === 'protect'
+              ? saveProtection()
+              : saveExport()
+          "
+        >
+          <label>
+            <span>Start</span>
+            <input
+              v-model="actionStart"
+              type="datetime-local"
+              step="1"
+              required
+            />
+          </label>
+          <label>
+            <span>End</span>
+            <input
+              v-model="actionEnd"
+              type="datetime-local"
+              step="1"
+              required
+            />
+          </label>
+
+          <template v-if="actionMode === 'protect'">
+            <label>
+              <span>Reason</span>
+              <input
+                v-model="protectionReason"
+                required
+                maxlength="1024"
+              />
+            </label>
+            <label>
+              <span>Expire after</span>
+              <select v-model.number="protectionExpiryDays">
+                <option :value="0">Never</option>
+                <option :value="7">7 days</option>
+                <option :value="30">30 days</option>
+                <option :value="90">90 days</option>
+                <option :value="365">1 year</option>
+              </select>
+            </label>
+          </template>
+
+          <template v-else>
+            <label>
+              <span>Codec</span>
+              <select v-model="exportCodecMode">
+                <option value="auto">Auto</option>
+                <option value="copy">Copy when possible</option>
+                <option value="h264">Transcode H.264</option>
+              </select>
+            </label>
+            <label>
+              <span>Gaps</span>
+              <select v-model="exportGapPolicy">
+                <option value="skip">Skip gaps</option>
+                <option value="fail">Fail if range has gaps</option>
+              </select>
+            </label>
+          </template>
+
+          <div class="playback-action-form__actions">
+            <button
+              class="button button--ghost"
+              type="button"
+              @click="actionPanelOpen = false"
+            >
+              Cancel
+            </button>
+            <button
+              class="button button--primary"
+              type="submit"
+              :disabled="actionSaving"
+            >
+              {{
+                actionSaving
+                  ? "Saving…"
+                  : actionMode === "protect"
+                    ? "Protect range"
+                    : "Create export"
+              }}
+            </button>
+          </div>
+        </form>
+
+        <section
+          v-if="actionMode === 'protect' && cameraProtections.length"
+          class="playback-action-history"
+        >
+          <h3>Protected ranges</h3>
+          <article
+            v-for="item in cameraProtections"
+            :key="item.id"
+          >
+            <div>
+              <strong>{{ item.reason }}</strong>
+              <span>
+                {{ formatTimestamp(new Date(item.started_at)) }}
+                →
+                {{ formatTimestamp(new Date(item.ended_at)) }}
+              </span>
+            </div>
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              title="Remove protection"
+              @click="removeProtection(item)"
+            >
+              <UiIcon name="trash" :size="13" />
+            </button>
+          </article>
+        </section>
+
+        <section
+          v-if="actionMode === 'export' && cameraExports.length"
+          class="playback-action-history"
+        >
+          <h3>Recent exports</h3>
+          <article
+            v-for="item in cameraExports"
+            :key="item.id"
+          >
+            <div>
+              <strong>
+                {{ formatTimestamp(new Date(item.start_at)) }}
+              </strong>
+              <span>
+                {{ Math.round(item.requested_duration_ms / 1000) }}s ·
+                {{ item.codec_mode }}
+              </span>
+            </div>
+            <span
+              class="status-pill"
+              :class="exportStateClass(item.state)"
+            >
+              {{ item.state }}
+            </span>
+            <a
+              v-if="item.state === 'COMPLETED'"
+              class="icon-button"
+              :href="exportDownloadUrl(item.id)"
+              title="Download MP4"
+            >
+              <UiIcon name="download" :size="13" />
+            </a>
+            <button
+              class="icon-button icon-button--danger"
+              type="button"
+              title="Delete export"
+              @click="removeExport(item)"
+            >
+              <UiIcon name="trash" :size="13" />
+            </button>
+          </article>
+        </section>
+      </aside>
     </div>
   </section>
 </template>
+
+<style scoped>
+.playback-action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.playback-action-panel {
+  position: fixed;
+  top: var(--topbar-height);
+  right: 0;
+  bottom: 0;
+  z-index: 42;
+  width: min(370px, 94vw);
+  overflow-y: auto;
+  border-left: 1px solid var(--border-subtle);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  box-shadow: -16px 0 42px rgba(0, 0, 0, 0.2);
+}
+
+.playback-action-panel > header {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 10px 0 13px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.playback-action-panel > header strong,
+.playback-action-panel > header span {
+  display: block;
+}
+
+.playback-action-panel > header strong {
+  font-size: 11px;
+}
+
+.playback-action-panel > header span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.playback-action-form {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.playback-action-form label {
+  display: grid;
+  gap: 5px;
+}
+
+.playback-action-form label > span {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.playback-action-form input,
+.playback-action-form select {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  color-scheme: dark;
+  font: inherit;
+  font-size: 9px;
+}
+
+.playback-action-form input:focus,
+.playback-action-form select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.playback-action-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding-top: 3px;
+}
+
+.playback-action-history {
+  padding: 11px 12px;
+}
+
+.playback-action-history h3 {
+  margin: 0 0 7px;
+  color: var(--text-muted);
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.playback-action-history article {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.playback-action-history article:last-child {
+  border-bottom: 0;
+}
+
+.playback-action-history article > div {
+  min-width: 0;
+  flex: 1;
+}
+
+.playback-action-history strong,
+.playback-action-history div > span {
+  display: block;
+}
+
+.playback-action-history strong {
+  overflow: hidden;
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playback-action-history div > span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 7px;
+}
+</style>
