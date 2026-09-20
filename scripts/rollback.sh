@@ -103,6 +103,7 @@ target_short="$(printf '%s' "$target" | cut -c1-12)"
 recovery_image="zero-nvr:rollback-recovery-$current_short"
 stage_image="zero-nvr:rollback-stage-$target_short"
 stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/zero-nvr-rollback.XXXXXX")"
+rmdir "$stage_dir"
 
 cleanup() {
   git -C "$ROOT_DIR" worktree remove --force "$stage_dir" >/dev/null 2>&1 || true
