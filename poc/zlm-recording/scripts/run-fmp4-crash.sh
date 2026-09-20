@@ -45,7 +45,11 @@ docker compose logs --no-color > runtime/mp4-baseline-docker-compose.log 2>&1 ||
 
 echo "Recreating ZLM with fMP4 enabled..."
 docker compose down -v --remove-orphans
-rm -rf runtime/recordings runtime/vod runtime/playback-cache
+
+# Preserve the ordinary-MP4 baseline files/evidence across the A/B switch.
+# ZLM may create recording files as root inside the bind mount, so deleting
+# them from the unprivileged host runner is both unnecessary and brittle.
+# The fMP4 phase uses distinct stream/file names and a fresh ZLM config volume.
 mkdir -p runtime/recordings runtime/vod runtime/playback-cache
 export POC_ZLM_ENABLE_FMP4=1
 docker compose up -d --build
