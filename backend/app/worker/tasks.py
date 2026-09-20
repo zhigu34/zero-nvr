@@ -12,14 +12,19 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Database
+from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import (
+    Camera,
     CameraStreamBinding,
     CameraStreamProfile,
 )
+from app.modules.recordings.models import RecordingPolicy
+from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.recordings.prebuffer import (
     PrebufferFragment,
     PrebufferPromotionService,
 )
+from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.models import RecordingLocation
 from app.modules.storage.recording_resolver import RecordingStorageResolver
@@ -393,5 +398,83 @@ def reconcile_camera_prebuffer(camera_id: str) -> int:
             if _promote(settings, database, fragment) is not None:
                 promoted += 1
         return promoted
+    finally:
+        database.close()
+
+
+
+@huey.task(retries=3, retry_delay=15)
+def reconcile_recording_policy_boundary(
+    policy_id: str,
+    policy_version: str,
+) -> bool:
+    """Apply one persisted weekly schedule boundary and schedule the next."""
+
+    settings = Settings()
+    database = _database(settings)
+    policy_uuid = uuid.UUID(policy_id)
+    now = datetime.now(UTC)
+
+    try:
+        with database.session() as session:
+            policy = session.get(RecordingPolicy, policy_uuid)
+            if (
+                policy is None
+                or policy.updated_at.isoformat() != policy_version
+                or not policy.enabled
+                or policy.baseline_mode != "schedule"
+            ):
+                session.commit()
+                return False
+
+            camera = session.get(Camera, policy.camera_id)
+            if camera is None:
+                session.commit()
+                return False
+
+            media_runtime = CameraMediaRuntimeService(settings)
+            desired_streams = media_runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+            desired_recorder = RecordingRuntimeService.desired(
+                session,
+                settings=settings,
+                camera_id=policy.camera_id,
+                at=now,
+            )
+            if desired_recorder is None:
+                record_streams = []
+            else:
+                record_streams = [
+                    item
+                    for item in desired_streams
+                    if item.profile_id == desired_recorder.profile_id
+                ]
+
+            next_boundary = RecordingPolicyService.next_baseline_transition(
+                policy,
+                after=now,
+            )
+            current_version = policy.updated_at.isoformat()
+            session.commit()
+
+        if (
+            desired_recorder is not None
+            and desired_recorder.mode != "off"
+        ):
+            media_runtime.ensure_streams(record_streams)
+
+        RecordingRuntimeService(settings).reconcile(
+            desired_recorder,
+            force_reconfigure=True,
+        )
+
+        if next_boundary is not None:
+            reconcile_recording_policy_boundary.schedule(
+                args=(policy_id, current_version),
+                eta=next_boundary,
+            )
+        return True
     finally:
         database.close()
