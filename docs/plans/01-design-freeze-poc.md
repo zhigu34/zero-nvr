@@ -452,6 +452,7 @@ Pass baseline only if:
 - no database-lock error storm occurs under representative recording/event/API workload;
 - recording hook/catalog writes remain reliable;
 - Timeline/Event queries remain interactively usable;
+- retention-candidate query p95 remains below the local 500 ms freeze gate on the tested hardware/query plan;
 - WAL/checkpoint behavior remains bounded;
 - backup can complete without corrupting or freezing the workload;
 - no Redis/PostgreSQL dependency is required merely to make the 8-camera target work.
