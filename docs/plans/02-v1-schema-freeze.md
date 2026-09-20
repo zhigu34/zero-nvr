@@ -560,9 +560,11 @@ created_at
 Required indexes:
 
 ~~~text
-(camera_id, started_at)
-(camera_id, ended_at)
+(camera_id, started_at)                         # Timeline/range reads
+(camera_id, ended_at, started_at, id)          # oldest-first retention scan
 ~~~
+
+The retention index is intentionally covering enough segment identity/time columns to let SQLite drive deletion-candidate scans from camera + end time instead of scanning every AVAILABLE location first.
 
 Use actual finalized times. Never infer exact 300-second duration.
 
@@ -607,9 +609,11 @@ Required indexes/constraints:
 
 ~~~text
 UNIQUE(storage_target_id, object_path)
-(recording_segment_id, state)
-(storage_target_id, state)
+(recording_segment_id, storage_target_id, state)
+(storage_target_id, state, recording_segment_id)
 ~~~
+
+The first composite supports point lookup of the physical copy while scanning RecordingSegments in retention order. The second supports target/state inventory and recovery work. Avoid forcing SQLite to choose between two large uncorrelated partial indexes for retention.
 
 States:
 
@@ -1002,7 +1006,7 @@ To keep SQLite first-class:
 - use idempotent UPSERTs for provider Event updates;
 - keep archive/delivery state transitions coarse.
 
-The 8-camera/16-camera POC validates the resulting write pattern.
+The 8-camera/16-camera POC validates the resulting write pattern and retention-query plan. Large bulk imports or engine migrations must refresh SQLite planner statistics (`ANALYZE` / `PRAGMA optimize` as appropriate) before relying on cost-based join ordering.
 
 ## Schema-freeze acceptance
 
