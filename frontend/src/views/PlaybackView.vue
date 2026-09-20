@@ -52,6 +52,7 @@ const fullscreen = ref(false)
 
 let resolveGeneration = 0
 let timelineGeneration = 0
+let pendingRetryTimer: number | null = null
 
 const activeCamera = computed(() =>
   cameras.value.find((camera) => camera.id === activeCameraId.value) ?? null
@@ -262,10 +263,17 @@ async function refreshTimeline(resolveCurrent = false): Promise<void> {
   }
 }
 
+function clearPendingRetry(): void {
+  if (pendingRetryTimer === null) return
+  window.clearTimeout(pendingRetryTimer)
+  pendingRetryTimer = null
+}
+
 async function resolveAt(
   at: Date,
   autoplay = true
 ): Promise<void> {
+  clearPendingRetry()
   const cameraId = activeCameraId.value
   if (!cameraId) return
 
@@ -287,6 +295,20 @@ async function resolveAt(
     const result = await resolveCameraPlayback(cameraId, at)
     if (generation !== resolveGeneration) return
     playbackResult.value = result
+
+    if (result.status === "pending") {
+      const retryAt = new Date(at)
+      pendingRetryTimer = window.setTimeout(() => {
+        pendingRetryTimer = null
+        if (
+          generation === resolveGeneration &&
+          activeCameraId.value === cameraId
+        ) {
+          void resolveAt(retryAt, autoplay)
+        }
+      }, Math.max(500, result.retry_after_ms))
+      return
+    }
 
     if (result.status !== "playable") return
 
@@ -314,6 +336,8 @@ async function resolveAt(
 
 function selectCamera(cameraId: string): void {
   if (cameraId === activeCameraId.value) return
+  clearPendingRetry()
+  resolveGeneration += 1
   activeCameraId.value = cameraId
   playbackUrl.value = null
   playbackResult.value = null
@@ -411,6 +435,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  clearPendingRetry()
   resolveGeneration += 1
   timelineGeneration += 1
   window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
@@ -574,15 +599,18 @@ onBeforeUnmount(() => {
           />
           <strong v-if="resolving">Loading recording…</strong>
           <template v-else-if="playbackResult?.status === 'pending'">
-            <strong>Remote recording</strong>
-            <span>The recording needs to be restored before playback.</span>
+            <strong>Restoring remote recording…</strong>
+            <span>
+              Copying this segment into the bounded local playback cache.
+              Playback will start automatically when it is ready.
+            </span>
             <button
               class="media-button media-button--text"
               type="button"
               @click="resolveAt(currentAt, true)"
             >
               <UiIcon name="refresh" :size="14" />
-              Retry
+              Check now
             </button>
           </template>
           <template v-else-if="gapResult">
