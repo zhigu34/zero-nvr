@@ -1,6 +1,6 @@
 # POC-03 — EVENT_ONLY Pre-roll
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Primary candidate
 
@@ -99,18 +99,158 @@ poc/zlm-recording/runtime/event-recordings/
 
 ## Tested versions
 
-Pending execution.
+~~~text
+GitHub Actions run: 35489849518
+job: POC 03
+MediaMTX image: bluenviron/mediamtx:1.21.0-ffmpeg
+ZLMediaKit image: zlmediakit/zlmediakit:master
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+~~~
+
+The first POC-03 JSON did not serialize ZLM's `/index/api/version` result. The harness has been updated to record it on subsequent runs. The functional PASS below is based on the actual media outputs/assertions from this job; the missing exact commit is retained as an evidence-quality limitation rather than inferred from another matrix job.
 
 ## Test environment
 
-Pending execution.
+GitHub-hosted Ubuntu 24.04.5 / x86_64 Docker runner.
+
+Configured prebuffer:
+
+~~~text
+segment target = 5 s
+pre-roll = 10 s
+post-roll = 10 s
+buffer window = 35 s
+tmpfs hard size = 268,435,456 B
+~~~
 
 ## Evidence
 
-Pending execution.
+Three codec/GOP matrices each executed ten Event trigger times.
+
+~~~text
+H.264 / ~2 s GOP
+  trigger coverage: 10 / 10 PASS
+  actual codec: h264
+  fragment duration: 3.960 .. 5.961 s
+  tmpfs peak: 7,596,732 B
+  promoted fragments: 20
+  GC removed: 16
+  rolling recorder active after Events: true
+
+H.264 / ~5 s GOP
+  trigger coverage: 10 / 10 PASS
+  actual codec: h264
+  fragment duration: 4.959 .. 9.961 s
+  tmpfs peak: 3,610,887 B
+  promoted fragments: 12
+  GC removed: 11
+  rolling recorder active after Events: true
+
+H.265 / ~2 s GOP
+  trigger coverage: 10 / 10 PASS
+  actual codec: hevc
+  fragment duration: 5.932 .. 5.934 s
+  tmpfs peak: 3,329,568 B
+  promoted fragments: 20
+  GC removed: 16
+  rolling recorder active after Events: true
+~~~
+
+All groups kept tmpfs far below the 256 MiB hard bound.
+
+### FastAPI restart / no PrebufferFragment table
+
+A durable RecordingTrigger requested:
+
+~~~text
+required start = 2026-09-20T04:51:19.874717Z
+required end   = 2026-09-20T04:51:39.874717Z
+~~~
+
+FastAPI was stopped for 14 seconds while ZLM continued rolling the tmpfs recorder.
+
+After restart:
+
+~~~text
+recorder active = true
+filesystem finalized fragments scanned = 6
+selected/promoted fragments = 4
+published coverage =
+  2026-09-20T04:51:17Z
+  ..
+  2026-09-20T04:51:41Z
+~~~
+
+The recovery process selected/promoted media from the persisted RecordingTrigger + direct tmpfs/media scan. Hook history was read only afterward for evidence, not for selection.
+
+### Comparison mechanisms
+
+`startRecordTask(back_ms=10000, forward_ms=1000)` was called five times:
+
+~~~text
+durations:
+  9.201
+  9.878
+  10.558
+  9.241
+  9.921 s
+
+distinct first-frame hashes = 5
+~~~
+
+Every call returned a different output file/task. This confirms it is useful as a fixed clip primitive but is not a natural “extend one unknown-duration EVENT_ONLY recorder” API.
+
+Ordinary `startRecord` after priming the frame GOP Ring showed:
+
+~~~text
+live time between start/stop ≈ 5.003 s
+recorded duration ≈ 13.159 s
+historical media recovered ≈ 8.156 s
+raw Hook start vs estimated media start bias ≈ 7.570 s
+~~~
+
+So GOP-ring startRecord can recover history, but its raw Hook absolute timing is unsuitable as the V1 canonical Event-recording timeline without extra timing logic.
+
+Primary artifact:
+
+~~~text
+GitHub Actions artifact:
+  poc-03-evidence
+  run 35489849518
+  artifact id 10598647826
+~~~
+
+## Known limitations
+
+- Frequent Events whose required windows are separated by less than approximately one fragment can cause whole-fragment retention to bridge the gaps, approaching continuous retained coverage. This is expected and safe; it trades extra disk for a simpler hot path.
+- The 256 MiB tmpfs is a POC cap, not a production default. Production sizing must be derived from stream bitrate, buffer duration, and enabled EVENT_ONLY camera count.
+- POC-05 timing findings still apply to canonical RecordingSegment timestamp normalization; the EVENT_ONLY test proves required media coverage/promotion, not that raw Hook `start_time` is always canonical.
+- Container format remains conditional on POC-02.
 
 ## Architecture impact
 
-Pending execution.
+**Accepted V1 EVENT_ONLY baseline:**
 
-Do not freeze Spec 0003 until this result is backed by runtime evidence.
+~~~text
+Camera
+  -> ZLMediaKit
+  -> one continuously-running short-fragment recorder
+  -> bounded tmpfs
+  -> on_record_mp4 / filesystem reconciliation
+  -> Event/RecordingTrigger required window
+  -> promote whole overlapping finalized fragments
+  -> verify + atomic publish
+  -> RecordingSegment + RecordingLocation
+~~~
+
+Events change promotion/retention state, not recorder state.
+
+V1 therefore does **not** need:
+
+- a custom compressed-packet ring;
+- a second camera pull;
+- duplicate event recorders;
+- a persistent PrebufferFragment table;
+- a persistent RecordingSession table;
+- synchronous FFmpeg trim/concat in the recording hot path.
