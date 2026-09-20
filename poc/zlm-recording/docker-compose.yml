@@ -6,6 +6,12 @@ services:
     volumes:
       - ./mediamtx.yml:/mediamtx.yml:ro
 
+  rclone-remote:
+    image: ${RCLONE_IMAGE:-rclone/rclone:latest}
+    command: ["serve", "webdav", "/remote", "--addr", ":8080"]
+    volumes:
+      - ./runtime/remote:/remote
+
   zlm-config-source:
     image: ${ZLM_IMAGE:-zlmediakit/zlmediakit:master}
     entrypoint:
@@ -47,6 +53,7 @@ services:
       - zlm-conf:/opt/media/conf:ro
       - ./runtime/recordings:/recordings
       - ./runtime/vod:/opt/media/bin/www/record
+      - ./runtime/playback-cache:/opt/media/bin/www/record/cache
       - prebuffer:/prebuffer
     ports:
       - "18080:80"
@@ -55,6 +62,8 @@ services:
   poc-api:
     build:
       context: ./app
+      args:
+        RCLONE_IMAGE: ${RCLONE_IMAGE:-rclone/rclone:latest}
     depends_on:
       zlm:
         condition: service_started
@@ -77,10 +86,15 @@ services:
       MEDIAMTX_BASE_URL: http://mediamtx:9998
       ZLM_IMAGE: ${ZLM_IMAGE:-zlmediakit/zlmediakit:master}
       MEDIAMTX_IMAGE: ${MEDIAMTX_IMAGE:-bluenviron/mediamtx:1.21.0-ffmpeg}
+      RCLONE_CONFIG_REMOTE_TYPE: webdav
+      RCLONE_CONFIG_REMOTE_URL: http://rclone-remote:8080
+      RCLONE_CONFIG_REMOTE_VENDOR: rclone
+      POC_RCLONE_BWLIMIT: ${POC_RCLONE_BWLIMIT:-200k}
     volumes:
       - ./runtime:/runtime
       - ./runtime/recordings:/recordings
       - ./runtime/vod:/vod
+      - ./runtime/playback-cache:/playback-cache
       - prebuffer:/prebuffer
 
 volumes:
