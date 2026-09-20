@@ -86,3 +86,63 @@ Examples:
 Host mutation remains outside normal browser APIs.
 
 See [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md) and [ADR 0005](../docs/adr/0005-deploy-sh-upgrade-authority.md).
+
+
+## Worker process
+
+The worker uses the **same zero-nvr image** as the API. It is a Huey
+consumer, not a custom queue daemon or a separate application image.
+
+Conceptual command:
+
+~~~text
+huey_consumer.py app.worker.consumer.huey
+~~~
+
+The default queue backend is Huey's SQLite backend at:
+
+~~~text
+ZERO_NVR_HUEY_DB_PATH=/var/lib/zero-nvr/huey.db
+~~~
+
+The API and worker must share the zero-nvr data volume containing this
+queue database.
+
+Huey owns queueing, delayed execution, retries, and scheduled tasks.
+zero-nvr must not add a parallel custom job/lease/retry table.
+
+## EVENT_ONLY prebuffer mount
+
+EVENT_ONLY recording uses one normal ZLMediaKit MP4 recorder writing
+short finalized fragments into a bounded tmpfs-backed shared mount.
+
+Required invariant:
+
+~~~text
+ZLMediaKit /prebuffer
+        =
+worker /prebuffer
+        =
+API /prebuffer
+~~~
+
+These paths must refer to the **same shared backing filesystem**.
+
+A separate per-container Docker `tmpfs:` mount is not sufficient:
+the worker would not see fragments written by ZLMediaKit. Deployment
+must provide one shareable tmpfs-backed volume/mount and mount it at the
+same path in the relevant containers.
+
+Default bootstrap settings:
+
+~~~text
+ZERO_NVR_PREBUFFER_DIR=/prebuffer
+ZERO_NVR_PREBUFFER_FRAGMENT_SECONDS=5
+ZERO_NVR_PREBUFFER_BUFFER_SECONDS=35
+ZERO_NVR_PREBUFFER_REQUIRE_TMPFS=true
+~~~
+
+The 5 s fragment target and 35 s buffer window come from the accepted
+POC baseline and remain configurable. The mount itself must have an
+explicit hard size limit; zero-nvr does not silently create an unbounded
+ordinary-disk fallback.
