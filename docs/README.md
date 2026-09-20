@@ -51,12 +51,13 @@ V1 Design Freeze Candidate
 - [ADR 0005](adr/0005-deploy-sh-upgrade-authority.md) — deploy.sh is V1 deployment/upgrade authority
 - [ADR 0006](adr/0006-zlm-owns-media-reconnect-runtime.md) — ZLM owns media pull/reconnect runtime
 - [ADR 0007](adr/0007-recording-location-physical-copy-model.md) — RecordingLocation is the physical recording-copy model
+- [ADR 0008](adr/0008-persist-product-facts-derive-runtime-state.md) — persist product facts; derive runtime/projection state
 
 ## Core product specs
 
 ### Recording and playback
 
-- [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md)
+- [Spec 0002 — Event Recording Lifecycle and RecordingTrigger](specs/0002-event-recording-lifecycle.md)
 - [Spec 0003 — Pre-buffer Candidate](specs/0003-rolling-mp4-prebuffer.md) — **POC required; physical implementation not frozen**
 - [Spec 0004 — Recording Storage Layout](specs/0004-recording-storage-layout.md)
 - [Spec 0005 — Retention and Purge](specs/0005-recording-retention-and-purge.md)
@@ -69,9 +70,9 @@ V1 Design Freeze Candidate
 
 - [Spec 0009 — Time and Camera Clock](specs/0009-time-and-camera-clock.md)
 - [Spec 0011 — Authentication, Authorization, Audit](specs/0011-auth-authorization-and-audit.md)
-- [Spec 0012 — Config, Secrets, Key Management](specs/0012-config-secrets-key-management.md)
+- [Spec 0012 — Configuration and Secret Storage](specs/0012-config-secrets-key-management.md)
 - [Spec 0013 — First Production Release Scope](specs/0013-first-production-release-scope.md)
-- [Spec 0014 — Alerting and Notification](specs/0014-alerting-notification-and-escalation.md)
+- [Spec 0014 — Alerts and Notifications](specs/0014-alerting-notification-and-escalation.md)
 - [Spec 0015 — Backup and Disaster Recovery](specs/0015-backup-disaster-recovery-and-pitr.md)
 - [Spec 0016 — SQLite/PostgreSQL Portability](specs/0016-postgresql-and-sqlite-portability.md)
 - [Spec 0017 — Upgrade and Rollback](specs/0017-upgrade-migration-and-rollback.md)
@@ -80,8 +81,8 @@ V1 Design Freeze Candidate
 
 - [Spec 0018 — Camera Onboarding](specs/0018-camera-onboarding-discovery-and-stream-selection.md)
 - [Spec 0019 — Device Runtime Lifecycle](specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
-- [Spec 0020 — Live View / Media Session / Talk](specs/0020-live-view-media-session-and-talk.md)
-- [Spec 0021 — Detection Providers / AI Events](specs/0021-detection-providers-ai-events-and-fusion.md)
+- [Spec 0020 — Live View / Media Session / Compatibility](specs/0020-live-view-media-session-and-talk.md)
+- [Spec 0021 — Detection Providers / AI Events / Frigate](specs/0021-detection-providers-ai-events-and-fusion.md)
 - [Home Assistant integration spec](specs/0002-home-assistant-integration.md)
 
 ## Important interpretation rules
