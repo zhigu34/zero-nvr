@@ -125,3 +125,24 @@ class CameraScopeUpdate(BaseModel):
     mode: Literal["inherit", "all", "selected", "none"]
     camera_ids: list[uuid.UUID] = Field(default_factory=list)
     camera_group_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+
+class PersonalApiTokenCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    permissions: list[str] | None = None
+    expires_at: datetime | None = None
+
+
+class PersonalApiTokenView(BaseModel):
+    id: uuid.UUID
+    name: str
+    permissions: list[str]
+    created_at: datetime
+    expires_at: datetime | None
+    last_used_at: datetime | None
+    revoked_at: datetime | None
+
+
+class PersonalApiTokenCreated(PersonalApiTokenView):
+    token: str

@@ -14,7 +14,14 @@ from app.core.errors import ApiError
 from app.modules.system.models import SystemSetting
 
 from .camera_scope import CameraScopeService
-from .models import Role, RolePermission, User, UserSession
+from .api_tokens import PersonalApiTokenService
+from .models import (
+    PersonalApiToken,
+    Role,
+    RolePermission,
+    User,
+    UserSession,
+)
 from .permissions import BUILTIN_ROLE_PERMISSIONS
 from .security import PasswordService, SessionSigner
 
@@ -25,9 +32,10 @@ BOOTSTRAP_NAMESPACE = "bootstrap.initial_admin"
 @dataclass(frozen=True, slots=True)
 class AuthContext:
     user: User
-    session: UserSession
     roles: tuple[str, ...]
     permissions: frozenset[str]
+    session: UserSession | None = None
+    api_token: PersonalApiToken | None = None
 
 
 class AuthService:
@@ -204,9 +212,42 @@ class AuthService:
         roles, permissions = self.user_roles_and_permissions(user)
         return AuthContext(
             user=user,
-            session=user_session,
             roles=roles,
             permissions=permissions,
+            session=user_session,
+            api_token=None,
+        )
+
+    def resolve_api_token(
+        self,
+        session: Session,
+        token: str,
+    ) -> AuthContext:
+        record = PersonalApiTokenService.resolve(
+            session,
+            plaintext=token,
+        )
+        user = session.get(User, record.user_id)
+        if user is None or not user.enabled:
+            raise self._unauthorized()
+
+        roles, user_permissions = (
+            self.user_roles_and_permissions(user)
+        )
+        token_permissions = (
+            PersonalApiTokenService.permission_names(
+                record
+            )
+        )
+        return AuthContext(
+            user=user,
+            roles=roles,
+            permissions=frozenset(
+                user_permissions
+                & token_permissions
+            ),
+            session=None,
+            api_token=record,
         )
 
     def change_password(

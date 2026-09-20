@@ -48,3 +48,40 @@ export function completePasswordReset(
     }
   )
 }
+
+
+export interface PersonalApiToken {
+  id: string
+  name: string
+  permissions: string[]
+  created_at: string
+  expires_at: string | null
+  last_used_at: string | null
+  revoked_at: string | null
+}
+
+export interface CreatedPersonalApiToken extends PersonalApiToken {
+  token: string
+}
+
+export function listApiTokens(): Promise<PersonalApiToken[]> {
+  return apiRequest<PersonalApiToken[]>("/api-tokens")
+}
+
+export function createApiToken(input: {
+  name: string
+  permissions: string[]
+  expires_at: string | null
+}): Promise<CreatedPersonalApiToken> {
+  return apiRequest<CreatedPersonalApiToken>("/api-tokens", {
+    method: "POST",
+    json: input
+  })
+}
+
+export function revokeApiToken(tokenId: string): Promise<void> {
+  return apiRequest<void>(
+    `/api-tokens/${encodeURIComponent(tokenId)}`,
+    { method: "DELETE" }
+  )
+}

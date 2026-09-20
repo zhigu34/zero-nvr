@@ -329,3 +329,136 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
         )
     assert "auth.password_reset.request" in actions
     assert "auth.password_reset.complete" in actions
+
+
+
+def test_personal_api_token_is_hashed_scoped_and_revocable(
+    tmp_path: Path,
+) -> None:
+    import uuid
+
+    from app.modules.auth.models import PersonalApiToken
+
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "admin@example.com",
+                "password": "correct-horse-battery-staple",
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": "correct-horse-battery-staple",
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/api-tokens",
+            json={
+                "name": "Home Assistant",
+                "permissions": [
+                    "camera.view",
+                    "system.view",
+                ],
+            },
+        )
+        assert created.status_code == 201
+        body = created.json()
+        token = body["token"]
+        token_id = body["id"]
+        assert token.startswith("znr_pat_")
+        assert body["permissions"] == [
+            "camera.view",
+            "system.view",
+        ]
+
+        listed = client.get("/api/v1/api-tokens")
+        assert listed.status_code == 200
+        listed_body = listed.json()
+        assert len(listed_body) == 1
+        assert "token" not in listed_body[0]
+
+        with app.state.database.session() as session:
+            stored = session.get(
+                PersonalApiToken,
+                uuid.UUID(token_id),
+            )
+            assert stored is not None
+            assert stored.token_hash != token
+
+        client.cookies.clear()
+        headers = {
+            "Authorization": f"Bearer {token}"
+        }
+
+        me = client.get(
+            "/api/v1/auth/me",
+            headers=headers,
+        )
+        assert me.status_code == 200
+        assert me.json()["username"] == "admin"
+        assert me.json()["permissions"] == [
+            "camera.view",
+            "system.view",
+        ]
+
+        cameras = client.get(
+            "/api/v1/cameras",
+            headers=headers,
+        )
+        assert cameras.status_code == 200
+
+        denied = client.get(
+            "/api/v1/users",
+            headers=headers,
+        )
+        assert denied.status_code == 403
+        assert (
+            denied.json()["error"]["code"]
+            == "permission_denied"
+        )
+
+        interactive_only = client.get(
+            "/api/v1/sessions",
+            headers=headers,
+        )
+        assert interactive_only.status_code == 403
+        assert (
+            interactive_only.json()["error"]["code"]
+            == "interactive_session_required"
+        )
+
+        with app.state.database.session() as session:
+            used = session.get(
+                PersonalApiToken,
+                uuid.UUID(token_id),
+            )
+            assert used is not None
+            assert used.last_used_at is not None
+
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": "correct-horse-battery-staple",
+            },
+        ).status_code == 200
+
+        revoked = client.delete(
+            f"/api/v1/api-tokens/{token_id}"
+        )
+        assert revoked.status_code == 204
+
+        client.cookies.clear()
+        after_revoke = client.get(
+            "/api/v1/auth/me",
+            headers=headers,
+        )
+        assert after_revoke.status_code == 401

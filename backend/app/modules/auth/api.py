@@ -9,7 +9,11 @@ from app.core.db import get_db_session
 from app.modules.audit.service import append_audit_event
 from app.modules.notifications.models import NotificationDelivery
 
-from .dependencies import get_auth_context
+from .api_tokens import PersonalApiTokenService
+from .dependencies import (
+    get_auth_context,
+    require_interactive_session,
+)
 from .schemas import (
     AuthUser,
     InitialAdministratorCreate,
@@ -19,6 +23,9 @@ from .schemas import (
     PasswordResetCompleteView,
     PasswordResetRequest,
     PasswordResetRequestAccepted,
+    PersonalApiTokenCreate,
+    PersonalApiTokenCreated,
+    PersonalApiTokenView,
     SessionSummary,
     SetupStatus,
 )
@@ -292,7 +299,7 @@ def change_password(
     body: PasswordChangeRequest,
     request: Request,
     response: Response,
-    context: AuthContext = Depends(get_auth_context),
+    context: AuthContext = Depends(require_interactive_session),
     session: Session = Depends(get_db_session),
 ) -> AuthUser:
     service = _service(request)
@@ -320,7 +327,7 @@ def change_password(
 
 @router.get("/sessions", response_model=list[SessionSummary])
 def list_sessions(
-    context: AuthContext = Depends(get_auth_context),
+    context: AuthContext = Depends(require_interactive_session),
     session: Session = Depends(get_db_session),
 ) -> list[SessionSummary]:
     items = AuthService.list_active_sessions(
@@ -345,7 +352,7 @@ def revoke_session(
     session_id: uuid.UUID,
     request: Request,
     response: Response,
-    context: AuthContext = Depends(get_auth_context),
+    context: AuthContext = Depends(require_interactive_session),
     session: Session = Depends(get_db_session),
 ) -> None:
     target = AuthService.revoke_owned_session(
@@ -360,3 +367,132 @@ def revoke_session(
             request=request,
             response=response,
         )
+
+
+
+def _api_token_view(
+    record,
+) -> PersonalApiTokenView:
+    return PersonalApiTokenView(
+        id=record.id,
+        name=record.name,
+        permissions=sorted(
+            PersonalApiTokenService.permission_names(
+                record
+            )
+        ),
+        created_at=record.created_at,
+        expires_at=record.expires_at,
+        last_used_at=record.last_used_at,
+        revoked_at=record.revoked_at,
+    )
+
+
+@router.get(
+    "/api-tokens",
+    response_model=list[PersonalApiTokenView],
+)
+def list_api_tokens(
+    context: AuthContext = Depends(
+        require_interactive_session
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[PersonalApiTokenView]:
+    return [
+        _api_token_view(item)
+        for item in PersonalApiTokenService.list_owned(
+            session,
+            user_id=context.user.id,
+        )
+    ]
+
+
+@router.post(
+    "/api-tokens",
+    response_model=PersonalApiTokenCreated,
+    status_code=201,
+)
+def create_api_token(
+    body: PersonalApiTokenCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_interactive_session
+    ),
+    session: Session = Depends(get_db_session),
+) -> PersonalApiTokenCreated:
+    requested = (
+        frozenset(body.permissions)
+        if body.permissions is not None
+        else context.permissions
+    )
+    try:
+        created = PersonalApiTokenService.create(
+            session,
+            user_id=context.user.id,
+            name=body.name,
+            permissions=requested,
+            allowed_permissions=context.permissions,
+            expires_at=body.expires_at,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="api_token.create",
+            resource_type="personal_api_token",
+            resource_id=created.record.id,
+            metadata={
+                "name": created.record.name,
+                "permissions": sorted(requested),
+                "expires_at": (
+                    created.record.expires_at.isoformat()
+                    if created.record.expires_at
+                    else None
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    view = _api_token_view(created.record)
+    return PersonalApiTokenCreated(
+        **view.model_dump(),
+        token=created.plaintext,
+    )
+
+
+@router.delete(
+    "/api-tokens/{token_id}",
+    status_code=204,
+)
+def revoke_api_token(
+    token_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_interactive_session
+    ),
+    session: Session = Depends(get_db_session),
+) -> None:
+    try:
+        record = PersonalApiTokenService.revoke(
+            session,
+            user_id=context.user.id,
+            token_id=token_id,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="api_token.revoke",
+            resource_type="personal_api_token",
+            resource_id=record.id,
+            metadata={
+                "name": record.name,
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise

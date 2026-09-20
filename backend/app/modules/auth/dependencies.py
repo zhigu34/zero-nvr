@@ -18,8 +18,37 @@ def get_auth_context(
     session: Session = Depends(get_db_session),
 ) -> AuthContext:
     settings = request.app.state.settings
-    token = request.cookies.get(settings.session_cookie_name)
-    context = AuthService(settings).resolve_session(session, token)
+    authorization = (
+        request.headers.get("authorization") or ""
+    ).strip()
+    service = AuthService(settings)
+    if authorization:
+        scheme, separator, credential = (
+            authorization.partition(" ")
+        )
+        if (
+            separator
+            and scheme.lower() == "bearer"
+            and credential.strip()
+        ):
+            context = service.resolve_api_token(
+                session,
+                credential.strip(),
+            )
+        else:
+            raise ApiError(
+                status_code=401,
+                code="authentication_required",
+                message="Authentication is required.",
+            )
+    else:
+        token = request.cookies.get(
+            settings.session_cookie_name
+        )
+        context = service.resolve_session(
+            session,
+            token,
+        )
     # Authentication reads must not leave a DB transaction open while an
     # endpoint later performs ONVIF/ZLM/rclone/FFmpeg/network work.
     session.commit()
@@ -78,3 +107,16 @@ def require_camera_permission(permission: str) -> Callable[..., AuthContext]:
         return context
 
     return dependency
+
+
+
+def require_interactive_session(
+    context: AuthContext = Depends(get_auth_context),
+) -> AuthContext:
+    if context.session is None:
+        raise ApiError(
+            status_code=403,
+            code="interactive_session_required",
+            message="An interactive browser session is required.",
+        )
+    return context

@@ -63,6 +63,7 @@ import {
   type SystemUpdateInfo
 } from "../api/system"
 import SystemAccessControlPanel from "../components/system/SystemAccessControlPanel.vue"
+import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -71,6 +72,7 @@ type SystemTab =
   | "overview"
   | "general"
   | "users"
+  | "tokens"
   | "notifications"
   | "alerts"
   | "ai"
@@ -188,6 +190,12 @@ const navigation = computed(() => {
       label: "Users",
       icon: "users",
       visible: auth.hasPermission("user.manage")
+    },
+    {
+      id: "tokens",
+      label: "API tokens",
+      icon: "shield",
+      visible: true
     },
     {
       id: "notifications",
@@ -1211,6 +1219,10 @@ onBeforeUnmount(() => {
 
       <template v-else-if="tab === 'users'">
         <SystemAccessControlPanel />
+      </template>
+
+      <template v-else-if="tab === 'tokens'">
+        <SystemApiTokensPanel />
       </template>
 
       <template v-else-if="tab === 'notifications'">
