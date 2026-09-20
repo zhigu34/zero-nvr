@@ -851,13 +851,23 @@ class AlertEvaluationService:
                         0,
                     )
                 )
+                protection_start = (
+                    event.started_at
+                    - timedelta(seconds=before)
+                )
                 end = event.ended_at or event.started_at
+                protection_end = (
+                    end + timedelta(seconds=after)
+                )
+                if protection_end <= protection_start:
+                    protection_end = (
+                        protection_start
+                        + timedelta(seconds=1)
+                    )
                 protection = RecordingProtection(
                     camera_id=event.camera_id,
-                    started_at=event.started_at
-                    - timedelta(seconds=before),
-                    ended_at=end
-                    + timedelta(seconds=after),
+                    started_at=protection_start,
+                    ended_at=protection_end,
                     reason=f"alert:{alert.id}",
                     expires_at=(
                         utc_now()
