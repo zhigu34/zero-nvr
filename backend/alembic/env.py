@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, event, pool
 
 from app.core.db.base import Base
 
@@ -60,11 +60,20 @@ def run_migrations_online() -> None:
         poolclass=pool.NullPool,
     )
 
+    is_sqlite_engine = connectable.dialect.name == "sqlite"
+
+    if is_sqlite_engine:
+        @event.listens_for(connectable, "connect")
+        def sqlite_migration_pragmas(dbapi_connection, _connection_record) -> None:
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA foreign_keys = ON")
+                cursor.execute("PRAGMA busy_timeout = 5000")
+            finally:
+                cursor.close()
+
     with connectable.connect() as connection:
         is_sqlite = connection.dialect.name == "sqlite"
-        if is_sqlite:
-            connection.exec_driver_sql("PRAGMA foreign_keys = ON")
-            connection.exec_driver_sql("PRAGMA busy_timeout = 5000")
 
         context.configure(
             connection=connection,
