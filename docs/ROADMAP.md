@@ -11,7 +11,13 @@ Core lifecycle tasks in this roadmap belong to the first production-ready zero-n
 
 Current project state: **V1 Design Freeze Candidate**.
 
-Before core architecture is declared frozen, complete the POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md):
+Before core architecture is declared frozen:
+
+1. complete the POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md);
+2. accept the persistence boundary in [plans/02-v1-schema-freeze.md](plans/02-v1-schema-freeze.md);
+3. complete the API/module freeze plan before broad feature implementation.
+
+POC gates:
 
 1. ZLM continuous recording + hook indexing;
 2. fMP4 abnormal termination recovery;
@@ -60,7 +66,11 @@ Resource targets to benchmark:
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
 - [x] Define live-view MediaSession, multi-grid quality switching, browser/codec fallback, bounded on-demand transcode, optional TURN/audio/talk.
 - [x] Define canonical Event normalization for ONVIF/Frigate/system sources and idempotent provider updates; generic event fusion deferred.
-- [ ] Review and refine remaining architecture decisions before implementation.
+- [x] Complete reuse/ownership audit and remove duplicate media/storage/job/alert/secret implementations.
+- [x] Freeze canonical V1 persistence boundary and explicit non-tables.
+- [ ] Complete API/module-boundary freeze.
+- [ ] Execute and record all design-freeze POCs.
+- [ ] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
 
 ## Phase 1 — Platform foundation
 
