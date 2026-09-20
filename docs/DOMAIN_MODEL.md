@@ -1112,33 +1112,33 @@ It is composed from RecordingSegment, RecordingLocation, Event, RecordingPolicy/
 Conceptual shape:
 
 ```text
-range_start_ms
-range_end_ms
+range_start_at
+range_end_at
 
 tracks[]
   camera_id
 
   segments[]
     recording_segment_id
-    start_ms
-    end_ms
+    start_at
+    end_at
     availability
     playback_ref
 
   gaps[]
-    start_ms
-    end_ms
+    start_at
+    end_at
     reason
 
   events[]
     event_id
     category
     label
-    start_ms
-    end_ms
+    start_at
+    end_at
 ```
 
-Playback API timestamps are UTC Unix milliseconds.
+Playback API timestamps are timezone-aware ISO 8601 strings. Frontend timeline rendering may convert them to epoch milliseconds internally.
 
 Initial segment availability values:
 
