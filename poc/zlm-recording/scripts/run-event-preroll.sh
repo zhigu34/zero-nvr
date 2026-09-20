@@ -52,6 +52,16 @@ docker compose exec -T poc-api python /app/event_preroll.py \
   --label gop5 \
   --gop-seconds 5
 
+# Reset ephemeral buffer once more so H.265 gets an independent footprint.
+docker compose exec -T poc-api sh -c 'sleep 2; find /prebuffer -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
+echo "Running rolling tmpfs EVENT_ONLY test with H.265 / ~2s GOP..."
+docker compose exec -T poc-api python /app/event_preroll.py \
+  --stream event-h265 \
+  --source cam_h265 \
+  --label h265 \
+  --gop-seconds 2
+
 echo "Recording comparison evidence for startRecordTask and GOP-ring startRecord..."
 docker compose exec -T poc-api python /app/record_task_compare.py
 
@@ -61,5 +71,6 @@ echo
 echo "EVENT_ONLY evidence:"
 echo "  $POC_DIR/runtime/event-preroll-gop2.json"
 echo "  $POC_DIR/runtime/event-preroll-gop5.json"
+echo "  $POC_DIR/runtime/event-preroll-h265.json"
 echo "  $POC_DIR/runtime/pre-roll-candidate-comparison.json"
 echo "  $POC_DIR/runtime/event-docker-compose.log"
