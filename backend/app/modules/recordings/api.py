@@ -269,6 +269,17 @@ def put_recording_policy(
                 )
 
         after = _audit_snapshot(policy)
+        next_policy_boundary = (
+            RecordingPolicyService.next_baseline_transition(
+                policy,
+                after=datetime.now(UTC),
+            )
+            if policy.enabled
+            and policy.baseline_mode == "schedule"
+            else None
+        )
+        policy_id = policy.id
+        policy_version = policy.updated_at.isoformat()
         append_audit_event(
             session,
             request=request,
@@ -289,6 +300,24 @@ def put_recording_policy(
         _runtime_signature(before)
         != _runtime_signature(after)
     )
+
+    if next_policy_boundary is not None:
+        try:
+            request.app.state.recording_tasks.schedule_policy(
+                policy_id=policy_id,
+                policy_version=policy_version,
+                eta=next_policy_boundary,
+            )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="recording_task_queue_unavailable",
+                message="Recording policy was saved but its next schedule boundary could not be queued.",
+                details={
+                    "policy_persisted": True,
+                    "policy_id": str(policy_id),
+                },
+            ) from exc
 
     try:
         # No database transaction is held while ZLM performs network/media
