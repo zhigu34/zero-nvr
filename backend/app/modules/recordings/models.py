@@ -36,6 +36,30 @@ class RetentionPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="retention_policy_mode",
         ),
         CheckConstraint(
+            "(scope_type = 'GLOBAL' AND scope_id IS NULL) OR "
+            "(scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL)",
+            name="retention_policy_scope_id_shape",
+        ),
+        Index(
+            "uq_retention_policies_global_scope",
+            "scope_type",
+            unique=True,
+            sqlite_where=text("scope_type = 'GLOBAL'"),
+            postgresql_where=text("scope_type = 'GLOBAL'"),
+        ),
+        Index(
+            "uq_retention_policies_scoped_scope",
+            "scope_type",
+            "scope_id",
+            unique=True,
+            sqlite_where=text(
+                "scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "scope_type IN ('CAMERA','CAMERA_GROUP') AND scope_id IS NOT NULL"
+            ),
+        ),
+        CheckConstraint(
             "ordinary_keep_days >= 0",
             name="retention_policy_ordinary_days_nonnegative",
         ),
