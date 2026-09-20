@@ -18,6 +18,7 @@ def make_app(tmp_path: Path):
         data_dir=tmp_path / "data",
         cache_dir=tmp_path / "cache",
         database_url=f"sqlite:///{tmp_path / 'app.db'}",
+        session_cookie_secure=False,
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
