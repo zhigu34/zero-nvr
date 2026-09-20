@@ -208,12 +208,37 @@ class RecordingRuntimeService:
         )
 
         with self._zlm_factory(self.settings) as zlm:
-            current = zlm.is_mp4_recording(
+            online = zlm.is_media_online(
                 app=desired.app,
                 stream=desired.stream,
             )
             changed = False
             assumed = False
+
+            if desired.mode == "off" and not online:
+                self.mode_tracker.set(
+                    app=desired.app,
+                    stream=desired.stream,
+                    mode="off",
+                )
+                return RecorderReconcileResult(
+                    desired_mode="off",
+                    observed_recording=False,
+                    changed=False,
+                    assumed_existing_mode=False,
+                )
+
+            if not online:
+                raise ApiError(
+                    status_code=503,
+                    code="recording_stream_offline",
+                    message="Camera recording stream is not available in ZLMediaKit.",
+                )
+
+            current = zlm.is_mp4_recording(
+                app=desired.app,
+                stream=desired.stream,
+            )
 
             if desired.mode == "off":
                 if current:
