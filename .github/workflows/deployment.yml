@@ -63,6 +63,11 @@ jobs:
             bash -n "$script"
           done
 
+      - name: Test deployment state helpers
+        shell: bash
+        run: |
+          bash scripts/test-deployment-state.sh
+
       - name: Validate Compose model
         shell: bash
         run: |
