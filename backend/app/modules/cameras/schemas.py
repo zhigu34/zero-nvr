@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, SecretStr
@@ -100,3 +101,22 @@ class CameraProbeStreamView(BaseModel):
 class CameraProbeResult(BaseModel):
     ok: Literal[True] = True
     streams: list[CameraProbeStreamView]
+
+
+class DiscoveryCandidateView(BaseModel):
+    id: uuid.UUID
+    candidate_key: str
+    host: str | None
+    port: int | None
+    device_service_url: str | None
+    display_info: dict[str, object]
+    state: str
+
+
+class DiscoverySessionView(BaseModel):
+    id: uuid.UUID
+    method: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    candidates: list[DiscoveryCandidateView]
