@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from onvif import ONVIFCamera
 from wsdiscovery import QName
@@ -93,6 +93,32 @@ def _text(value: Any) -> str | None:
         return None
     rendered = str(value).strip()
     return rendered or None
+
+
+def _safe_http_url(value: str) -> str | None:
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname
+    if scheme not in {"http", "https"} or not host:
+        return None
+
+    display_host = f"[{host}]" if ":" in host and not host.startswith("[") else host
+    try:
+        port = parsed.port
+    except ValueError:
+        return None
+
+    netloc = display_host
+    if port is not None:
+        netloc = f"{display_host}:{port}"
+
+    # Device-service discovery does not require query or fragment components.
+    # Dropping them also prevents accidental persistence of vendor tokens.
+    return urlunsplit((scheme, netloc, parsed.path or "", "", ""))
 
 
 def _number(value: Any, cast: Callable[[Any], Any]) -> Any:
@@ -316,9 +342,11 @@ class OnvifAdapter:
             xaddrs = tuple(
                 sorted(
                     {
-                        str(value)
+                        safe
                         for value in (service.getXAddrs() or [])
                         if value
+                        for safe in [_safe_http_url(str(value))]
+                        if safe is not None
                     }
                 )
             )
@@ -338,10 +366,7 @@ class OnvifAdapter:
             for xaddr in xaddrs:
                 try:
                     parsed = urlsplit(xaddr)
-                    if (
-                        parsed.scheme.lower() not in {"http", "https"}
-                        or not parsed.hostname
-                    ):
+                    if not parsed.hostname:
                         continue
                     selected_url = xaddr
                     selected_host = parsed.hostname
