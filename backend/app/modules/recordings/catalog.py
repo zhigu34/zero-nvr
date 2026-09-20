@@ -136,6 +136,33 @@ class RecordingCatalogService:
         session.flush()
         return previous
 
+    @staticmethod
+    def finalize_provisional_segment(
+        session: Session,
+        *,
+        segment_id: uuid.UUID,
+        boundary_at: datetime,
+        timing_source: str = "EXPLICIT_STOP",
+    ) -> RecordingSegment | None:
+        segment = session.get(RecordingSegment, segment_id)
+        if segment is None or segment.timing_status != "PROVISIONAL":
+            return None
+        if boundary_at <= segment.started_at:
+            return None
+
+        normalized_started = boundary_at - timedelta(
+            milliseconds=segment.duration_ms
+        )
+        if normalized_started >= boundary_at:
+            return None
+
+        segment.started_at = normalized_started
+        segment.ended_at = boundary_at
+        segment.timing_status = "FINAL"
+        segment.timing_source = timing_source
+        session.flush()
+        return segment
+
     @classmethod
     def ingest_finalized(
         cls,
