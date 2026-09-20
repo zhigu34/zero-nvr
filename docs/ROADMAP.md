@@ -273,7 +273,7 @@ Acceptance:
 - [ ] Frigate review-context enrichment without duplicating each underlying tracked-object DetectionEvent.
 - [ ] optional local lightweight motion using detection stream, resource limits, hysteresis + START/END holds.
 - [ ] pulse-only source normalization/hold timeout.
-- [ ] snapshot evidence import into zero-nvr StorageObject with failure isolation.
+- [ ] event snapshot reference/cache handling with failure isolation; snapshots are not canonical RecordingLocations.
 - [ ] face/LPR/sub-label metadata handling with redaction/scope/export controls.
 - [ ] EventFusionGroup / EventFusionMember conservative cross-provider correlation.
 - [ ] timeline fusion presentation with provider detail drill-down.
@@ -337,17 +337,16 @@ Acceptance:
 ## Phase 7 — Storage and Cloud
 
 - [ ] StorageTarget roles: recording_hot / archive_remote / playback_cache / backup.
-- [ ] StorageTarget / StorageObject.
-- [ ] local retention.
-- [ ] S3 adapter with SecretStore-backed credentials.
-- [ ] upload state machine.
-- [ ] remote verification.
-- [ ] rclone adapter with SecretStore-backed credentials.
-- [ ] OpenList adapter with SecretStore-backed credentials.
-- [ ] safe local purge.
+- [ ] StorageTarget / RecordingLocation persistence.
+- [ ] local retention using RetentionPolicy + RecordingProtection.
+- [ ] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
+- [ ] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
+- [ ] remote RecordingLocation lifecycle: ARCHIVING -> AVAILABLE / FAILED.
+- [ ] remote verification before archive-required local deletion.
+- [ ] safe local RecordingLocation deletion: AVAILABLE -> DELETING -> DELETED.
 - [ ] archive upload policy independent from hot recording placement.
 - [ ] block destructive StorageTarget removal when unique retained media exists.
-- [ ] playback across multiple local targets + remote archive through PlaybackResolver.
+- [ ] PlaybackResolver chooses RecordingLocation; remote-only playback restores to bounded local cache.
 
 ## Phase 8 — Historical Playback
 
