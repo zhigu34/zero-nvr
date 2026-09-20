@@ -120,8 +120,10 @@ class AuthRateLimiter:
 
             if pair_until:
                 self._login_blocked_pair.pop(pair, None)
+                self._login_pair.pop(pair, None)
             if ip_until:
                 self._login_blocked_ip.pop(source, None)
+                self._login_ip.pop(source, None)
             return RateLimitDecision(allowed=True)
 
     def record_login_failure(
@@ -241,6 +243,7 @@ class AuthRateLimiter:
                 )
             if blocked_until:
                 self._reset_blocked_ip.pop(source, None)
+                self._reset_ip.pop(source, None)
 
             bucket = self._reset_ip.setdefault(
                 source,
