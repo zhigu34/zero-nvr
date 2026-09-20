@@ -67,6 +67,7 @@ class ZlmAdapter:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         poll_interval_seconds: float = 0.25,
+        timeout_seconds: float | None = None,
     ) -> None:
         self.settings = settings
         self._sleep = sleep
@@ -74,7 +75,11 @@ class ZlmAdapter:
         self._poll_interval_seconds = poll_interval_seconds
         self._client = httpx.Client(
             base_url=settings.zlm_base_url,
-            timeout=settings.zlm_timeout_seconds,
+            timeout=(
+                timeout_seconds
+                if timeout_seconds is not None
+                else settings.zlm_timeout_seconds
+            ),
             transport=transport,
             follow_redirects=False,
         )
