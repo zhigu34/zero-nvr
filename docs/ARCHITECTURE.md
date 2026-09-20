@@ -1,8 +1,10 @@
 # zero-nvr Architecture Baseline
 
-Status: **V1 Design Freeze Candidate**
+Status: **V1 Architecture Frozen**
 
-This document defines the architecture direction. Detailed component choices may evolve, but the ownership boundaries should remain stable.
+This document defines the frozen V1 architecture direction. Detailed implementation choices and dependency versions may evolve, but changing the ownership/deployment/model boundaries requires an explicit ADR.
+
+Freeze evidence: [ADR 0011 — V1 Architecture Freeze](adr/0011-v1-architecture-freeze.md), backed by design-freeze workflow `35490737812` with all 10 POCs accepted.
 
 ## 1. Product definition
 
