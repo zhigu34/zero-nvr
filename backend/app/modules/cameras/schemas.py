@@ -183,3 +183,16 @@ class OnvifCameraImportInput(OnvifCameraTestInput):
 class OnvifImportResult(BaseModel):
     device_id: uuid.UUID
     cameras: list[CameraDetail]
+
+
+class CameraLiveStreamView(BaseModel):
+    camera_id: uuid.UUID
+    profile_id: uuid.UUID
+    purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
+    transport: Literal["hls"] = "hls"
+    hls_url: str
+    codec: str | None
+    width: int | None
+    height: int | None
+    fps: float | None
+    has_audio: bool

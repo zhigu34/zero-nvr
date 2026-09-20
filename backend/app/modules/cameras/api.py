@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -29,6 +29,7 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.service import AuthContext
 
 from .discovery_service import CameraDiscoveryService
+from .media_runtime import CameraMediaRuntimeService
 from .onvif_onboarding import OnvifOnboardingService
 from .models import (
     Camera,
@@ -41,6 +42,7 @@ from .models import (
 from .schemas import (
     CameraCreate,
     CameraDetail,
+    CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
     CameraProbeTrackView,
@@ -776,4 +778,107 @@ def replace_camera_stream_bindings(
     return sorted(
         (_binding_view(item) for item in bindings),
         key=lambda item: item.purpose,
+    )
+
+
+
+@router.get(
+    "/cameras/{camera_id}/live",
+    response_model=CameraLiveStreamView,
+)
+def get_camera_live_stream(
+    camera_id: uuid.UUID,
+    request: Request,
+    quality: Literal["auto", "high", "low"] = Query(default="auto"),
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraLiveStreamView:
+    camera = CameraService.get_camera(session, camera_id)
+    if not camera.enabled:
+        raise ApiError(
+            status_code=409,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+
+    priorities = {
+        "auto": ("LIVE_LOW", "LIVE_HIGH", "RECORD"),
+        "low": ("LIVE_LOW", "LIVE_HIGH", "RECORD"),
+        "high": ("LIVE_HIGH", "RECORD", "LIVE_LOW"),
+    }
+    bindings = {
+        binding.purpose: binding
+        for binding in camera.stream_bindings
+    }
+    purpose = next(
+        (
+            candidate
+            for candidate in priorities[quality]
+            if candidate in bindings
+        ),
+        None,
+    )
+    if purpose is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_live_stream_unavailable",
+            message="Camera has no stream bound for live viewing.",
+        )
+
+    binding = bindings[purpose]
+    profile = next(
+        (
+            item
+            for item in camera.stream_profiles
+            if item.id == binding.stream_profile_id
+        ),
+        None,
+    )
+    if profile is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_stream_binding_invalid",
+            message="Camera live binding references a missing profile.",
+        )
+
+    runtime = CameraMediaRuntimeService(request.app.state.settings)
+    desired = runtime.desired_streams(session, camera=camera)
+    selected = next(
+        (
+            item
+            for item in desired
+            if item.profile_id == profile.id
+        ),
+        None,
+    )
+    if selected is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_live_stream_unavailable",
+            message="Camera live stream is not available.",
+        )
+
+    try:
+        references = runtime.ensure_streams([selected])
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    reference = references[0]
+    return CameraLiveStreamView(
+        camera_id=camera.id,
+        profile_id=profile.id,
+        purpose=purpose,
+        hls_url=runtime.public_hls_url(reference),
+        codec=profile.codec,
+        width=profile.width,
+        height=profile.height,
+        fps=profile.fps,
+        has_audio=profile.has_audio,
     )

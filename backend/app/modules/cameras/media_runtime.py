@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Callable
+from urllib.parse import quote
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -171,10 +172,17 @@ class CameraMediaRuntimeService:
                         stream=item.stream,
                         source_url=item.source_uri,
                         enable_mp4=False,
+                        enable_hls=True,
                         retry_count=-1,
                     )
                 references.append(item.reference)
         return references
+
+    def public_hls_url(self, reference: ZlmStreamReference) -> str:
+        base = self.settings.zlm_public_base_url.rstrip("/")
+        app = quote(reference.app, safe="")
+        stream = quote(reference.stream, safe="")
+        return f"{base}/{app}/{stream}/hls.m3u8"
 
     def stop_streams(
         self,

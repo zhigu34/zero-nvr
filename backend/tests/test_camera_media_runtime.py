@@ -174,6 +174,7 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         assert add_call["stream"] == to_add.stream
         assert add_call["source_url"] == to_add.source_uri
         assert add_call["enable_mp4"] is False
+        assert add_call["enable_hls"] is True
         assert add_call["retry_count"] == -1
 
         # Once both are online, stop should close both by deterministic ZLM
