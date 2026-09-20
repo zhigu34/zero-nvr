@@ -62,18 +62,16 @@ Current source audit shows each call creates a new MP4Muxer/RingReader and has n
 
 ## Tested versions
 
-Same passing runtime matrix as POC-03:
+Same final fMP4 passing runtime matrix as POC-03:
 
 ~~~text
-GitHub Actions run: 35489849518
+GitHub Actions run: 35490737812
 job: POC 03
+head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
+ZLMediaKit master commit: b794772
+managed recording mode: fMP4
 MediaMTX: 1.21.0-ffmpeg
-ZLMediaKit image: zlmediakit/zlmediakit:master
-Docker Engine: 28.0.4
-Docker Compose: v2.38.2
 ~~~
-
-Exact ZLM commit was not serialized by the first POC-03 JSON; subsequent harness runs now record it.
 
 ## Test environment
 
@@ -138,8 +136,8 @@ Primary artifact:
 ~~~text
 GitHub Actions artifact:
   poc-03-evidence
-  run 35489849518
-  artifact id 10598647826
+  run 35490737812
+  artifact id 10599227297
 ~~~
 
 ## Known limitations
