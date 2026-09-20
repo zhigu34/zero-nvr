@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from typing import Literal
 from datetime import datetime
 
 from pydantic import BaseModel, Field, SecretStr
@@ -66,10 +67,12 @@ class BackupPolicyView(BaseModel):
 
 class BackupRunRequest(BaseModel):
     policy_id: uuid.UUID
-    reason: str = Field(
-        default="manual",
-        max_length=64,
-    )
+    reason: Literal[
+        "manual",
+        "pre_upgrade",
+        "pre_restore",
+        "pre_database_migration",
+    ] = "manual"
 
 
 class BackupSetView(BaseModel):
