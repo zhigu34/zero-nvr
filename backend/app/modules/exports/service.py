@@ -19,6 +19,58 @@ class ExportService:
     max_range = timedelta(days=7)
 
     @staticmethod
+    def _same_request(
+        job: ExportJob,
+        *,
+        camera_id: uuid.UUID,
+        requested_by: uuid.UUID,
+        start_at: datetime,
+        end_at: datetime,
+        format: str,
+        codec_mode: str,
+        gap_policy: str,
+    ) -> bool:
+        return (
+            job.camera_id == camera_id
+            and job.requested_by == requested_by
+            and job.requested_start_at == start_at
+            and job.requested_end_at == end_at
+            and job.format == format
+            and job.codec_mode == codec_mode
+            and job.gap_policy == gap_policy
+        )
+
+    @classmethod
+    def _existing_idempotent(
+        cls,
+        job: ExportJob,
+        *,
+        camera_id: uuid.UUID,
+        requested_by: uuid.UUID,
+        start_at: datetime,
+        end_at: datetime,
+        format: str,
+        codec_mode: str,
+        gap_policy: str,
+    ) -> tuple[ExportJob, bool]:
+        if not cls._same_request(
+            job,
+            camera_id=camera_id,
+            requested_by=requested_by,
+            start_at=start_at,
+            end_at=end_at,
+            format=format,
+            codec_mode=codec_mode,
+            gap_policy=gap_policy,
+        ):
+            raise ApiError(
+                status_code=409,
+                code="idempotency_key_conflict",
+                message="Idempotency-Key was already used for a different export request.",
+            )
+        return job, False
+
+    @staticmethod
     def get(
         session: Session,
         export_id: uuid.UUID,
@@ -80,7 +132,16 @@ class ExportService:
                 )
             )
             if existing is not None:
-                return existing, False
+                return cls._existing_idempotent(
+                    existing,
+                    camera_id=camera_id,
+                    requested_by=requested_by,
+                    start_at=start_at,
+                    end_at=end_at,
+                    format=format,
+                    codec_mode=codec_mode,
+                    gap_policy=gap_policy,
+                )
 
         now = datetime.now(UTC)
         duration_ms = int(
@@ -118,7 +179,16 @@ class ExportService:
             )
             if existing is None:
                 raise
-            return existing, False
+            return cls._existing_idempotent(
+                existing,
+                camera_id=camera_id,
+                requested_by=requested_by,
+                start_at=start_at,
+                end_at=end_at,
+                format=format,
+                codec_mode=codec_mode,
+                gap_policy=gap_policy,
+            )
         return job, True
 
     @staticmethod
