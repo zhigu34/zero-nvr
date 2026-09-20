@@ -13,6 +13,7 @@ from fastapi import (
     Response,
 )
 from fastapi.responses import FileResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -25,13 +26,22 @@ from app.modules.auth.dependencies import (
 from app.modules.auth.service import AuthContext
 from app.modules.cameras.service import CameraService
 
-from .models import ExportJob
+from .models import ExportJob, ExportShareToken
 from .query import ExportQueryService
-from .schemas import ExportCreate, ExportPage, ExportView
+from .schemas import (
+    ExportCreate,
+    ExportPage,
+    ExportShareCreate,
+    ExportShareCreated,
+    ExportShareView,
+    ExportView,
+)
 from .service import ExportService
+from .shares import ExportShareService
 
 
 router = APIRouter()
+share_basic = HTTPBasic(auto_error=False)
 
 
 def _utc(value: datetime, *, field: str) -> datetime:
@@ -65,6 +75,24 @@ def _view(job: ExportJob) -> ExportView:
         started_at=job.started_at,
         completed_at=job.completed_at,
         created_at=job.created_at,
+    )
+
+
+def _share_view(
+    share: ExportShareToken,
+) -> ExportShareView:
+    return ExportShareView(
+        id=share.id,
+        export_id=share.export_id,
+        expires_at=share.expires_at,
+        revoked_at=share.revoked_at,
+        max_downloads=share.max_downloads,
+        download_count=share.download_count,
+        last_download_at=share.last_download_at,
+        password_protected=(
+            share.password_hash is not None
+        ),
+        created_at=share.created_at,
     )
 
 
@@ -340,6 +368,203 @@ def download_export(
             status_code=409,
             code="export_output_missing",
             message="Export output is unavailable.",
+        )
+
+    return FileResponse(
+        path,
+        media_type="video/mp4",
+        filename=f"zero-nvr-export-{job.id}.mp4",
+    )
+
+
+
+@router.post(
+    "/exports/{export_id}/shares",
+    response_model=ExportShareCreated,
+    status_code=201,
+)
+def create_export_share(
+    export_id: uuid.UUID,
+    body: ExportShareCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.export")
+    ),
+    session: Session = Depends(get_db_session),
+) -> ExportShareCreated:
+    job = _scoped_export(
+        session,
+        context=context,
+        export_id=export_id,
+    )
+
+    try:
+        created = ExportShareService.create(
+            session,
+            export=job,
+            created_by=context.user.id,
+            password=(
+                body.password.get_secret_value()
+                if body.password is not None
+                else None
+            ),
+            expires_in_hours=body.expires_in_hours,
+            max_downloads=body.max_downloads,
+        )
+        share = created.share
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="export_share.create",
+            resource_type="export_share",
+            resource_id=share.id,
+            camera_id=job.camera_id,
+            after={
+                "export_id": str(job.id),
+                "expires_at": share.expires_at.isoformat(),
+                "max_downloads": share.max_downloads,
+                "password_protected": (
+                    share.password_hash is not None
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    base = _share_view(share)
+    return ExportShareCreated(
+        **base.model_dump(),
+        token=created.token,
+        download_path=(
+            f"/api/v1/shared/exports/"
+            f"{created.token}/download"
+        ),
+    )
+
+
+@router.get(
+    "/exports/{export_id}/shares",
+    response_model=list[ExportShareView],
+)
+def list_export_shares(
+    export_id: uuid.UUID,
+    context: AuthContext = Depends(
+        require_permission("recording.export")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[ExportShareView]:
+    _scoped_export(
+        session,
+        context=context,
+        export_id=export_id,
+    )
+    return [
+        _share_view(item)
+        for item in ExportShareService.list_for_export(
+            session,
+            export_id=export_id,
+        )
+    ]
+
+
+@router.delete(
+    "/exports/{export_id}/shares/{share_id}",
+    status_code=204,
+)
+def revoke_export_share(
+    export_id: uuid.UUID,
+    share_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.export")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    job = _scoped_export(
+        session,
+        context=context,
+        export_id=export_id,
+    )
+    share = ExportShareService.get(
+        session,
+        share_id,
+    )
+    if share.export_id != job.id:
+        raise ApiError(
+            status_code=404,
+            code="export_share_not_found",
+            message="Export share was not found.",
+        )
+
+    try:
+        before_revoked = share.revoked_at
+        ExportShareService.revoke(
+            session,
+            share=share,
+        )
+        if before_revoked is None:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action="export_share.revoke",
+                resource_type="export_share",
+                resource_id=share.id,
+                camera_id=job.camera_id,
+                before={"revoked_at": None},
+                after={
+                    "revoked_at": (
+                        share.revoked_at.isoformat()
+                        if share.revoked_at is not None
+                        else None
+                    )
+                },
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return Response(status_code=204)
+
+
+@router.get(
+    "/shared/exports/{token}/download",
+)
+def download_shared_export(
+    token: str,
+    request: Request,
+    credentials: HTTPBasicCredentials | None = Depends(
+        share_basic
+    ),
+    session: Session = Depends(get_db_session),
+):
+    try:
+        job = ExportShareService.authorize_download(
+            session,
+            token=token,
+            password=(
+                credentials.password
+                if credentials is not None
+                else None
+            ),
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    path = _safe_output_path(
+        request,
+        job.output_path,
+    )
+    if path is None or not path.is_file():
+        raise ApiError(
+            status_code=409,
+            code="export_output_missing",
+            message="Shared export output is unavailable.",
         )
 
     return FileResponse(
