@@ -64,17 +64,15 @@ def create_initial_administrator(
         session.rollback()
         raise
 
-    context = AuthContext(
-        user=user,
-        session=None,  # type: ignore[arg-type]
-        roles=("Administrator",),
-        permissions=frozenset(
-            permission.permission
-            for role in user.roles
-            for permission in role.permissions
-        ),
+    roles, permissions = service.user_roles_and_permissions(user)
+    return AuthUser(
+        id=user.id,
+        username=user.username,
+        display_name=user.display_name,
+        email=user.email,
+        roles=list(roles),
+        permissions=sorted(permissions),
     )
-    return _auth_user(context)
 
 
 @router.post("/auth/login", response_model=AuthUser)
@@ -93,7 +91,7 @@ def login(
             username=body.username,
             password=body.password,
         )
-        user_session, token = service.create_session(session, user)
+        _user_session, token = service.create_session(session, user)
         session.commit()
     except Exception:
         session.rollback()
