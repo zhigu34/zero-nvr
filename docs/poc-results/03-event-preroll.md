@@ -21,7 +21,7 @@ Events change the **promotion window**, not recorder state.
 poc/zlm-recording/scripts/run-event-preroll.sh
 ~~~
 
-The harness is committed but has not been executed by this conversation environment.
+The harness has been executed successfully on the final fMP4 design-freeze baseline.
 
 ## Test matrix
 
@@ -99,16 +99,19 @@ poc/zlm-recording/runtime/event-recordings/
 
 ## Tested versions
 
-~~~text
-GitHub Actions run: 35489849518
-job: POC 03
-MediaMTX image: bluenviron/mediamtx:1.21.0-ffmpeg
-ZLMediaKit image: zlmediakit/zlmediakit:master
-Docker Engine: 28.0.4
-Docker Compose: v2.38.2
-~~~
+Final fMP4 regression baseline:
 
-The first POC-03 JSON did not serialize ZLM's `/index/api/version` result. The harness has been updated to record it on subsequent runs. The functional PASS below is based on the actual media outputs/assertions from this job; the missing exact commit is retained as an evidence-quality limitation rather than inferred from another matrix job.
+~~~text
+GitHub Actions run: 35490737812
+job: POC 03
+head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
+ZLMediaKit:
+  branch: master
+  commit: b794772
+  buildTime: 2026-09-20T02:21:00
+managed recording mode: fMP4
+MediaMTX image: bluenviron/mediamtx:1.21.0-ffmpeg
+~~~
 
 ## Test environment
 
@@ -150,8 +153,8 @@ H.264 / ~5 s GOP
 H.265 / ~2 s GOP
   trigger coverage: 10 / 10 PASS
   actual codec: hevc
-  fragment duration: 5.932 .. 5.934 s
-  tmpfs peak: 3,329,568 B
+  fragment duration: 3.932 .. 5.935 s
+  tmpfs peak: 3,264,939 B
   promoted fragments: 20
   GC removed: 16
   rolling recorder active after Events: true
@@ -217,16 +220,17 @@ Primary artifact:
 ~~~text
 GitHub Actions artifact:
   poc-03-evidence
-  run 35489849518
-  artifact id 10598647826
+  run 35490737812
+  artifact id 10599227297
+  digest sha256:1e1d29e4ad1ad1df1624ef777e6cbeab7fa13cb12ce03e5f6af576fb9c6ee671
 ~~~
 
 ## Known limitations
 
 - Frequent Events whose required windows are separated by less than approximately one fragment can cause whole-fragment retention to bridge the gaps, approaching continuous retained coverage. This is expected and safe; it trades extra disk for a simpler hot path.
 - The 256 MiB tmpfs is a POC cap, not a production default. Production sizing must be derived from stream bitrate, buffer duration, and enabled EVENT_ONLY camera count.
-- POC-05 timing findings still apply to canonical RecordingSegment timestamp normalization; the EVENT_ONLY test proves required media coverage/promotion, not that raw Hook `start_time` is always canonical.
-- Container format remains conditional on POC-02.
+- POC-05 timing findings apply to canonical RecordingSegment timestamp normalization; the EVENT_ONLY test proves required media coverage/promotion, while the accepted continuity-session resolver establishes canonical timestamps.
+- The final regression matrix ran with the accepted fMP4 default from ADR 0009.
 
 ## Architecture impact
 
