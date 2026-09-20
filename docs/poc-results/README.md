@@ -23,6 +23,16 @@ A committed harness is **not** a passing result. A POC moves to PASS only from r
 | 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | RERUN REQUIRED — first-run mount-path harness bug fixed; no performance conclusion until clean rerun |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | PASS |
 
+## Gate meaning
+
+The numbered POCs have different meanings:
+
+- **Core freeze gates:** 01, 03, 04, 05, 06, 07, 08-Core, 09, 10.
+- **Format-selection gate:** 02. A failure means ordinary MP4 stays the default; it does not change ZLM recording ownership by itself.
+- **Optional-feature gates:** real Managed Frigate/OpenList/coturn/etc. smoke tests are required only when those features are enabled/declared production-ready, not for a non-AI/non-OpenList Core deployment.
+
+See [V1 Design-Freeze POC Plan](../plans/01-design-freeze-poc.md) for the exact rules.
+
 ## Aggregate runner
 
 Run all current design-freeze harnesses from the repository root:
@@ -73,11 +83,12 @@ V1 Architecture Frozen
 
 only after:
 
-1. critical media/storage/database POCs have real recorded results;
+1. all Core architecture freeze gates have real PASS or accepted PASS WITH CONSTRAINTS results;
 2. failed/conditional results have their constraints reflected in product/deployment docs;
-3. any result that changes component ownership, recording authority, Core container boundaries, storage lifecycle, or database-default policy is resolved through an ADR;
-4. [V1 Schema Freeze](../plans/02-v1-schema-freeze.md) remains consistent with the measured architecture;
-5. [V1 API / Module Freeze](../plans/03-v1-api-module-freeze.md) remains consistent with the measured architecture.
+3. POC-02 has a documented container-format decision even if the result is to keep ordinary MP4;
+4. any result that changes component ownership, recording authority, Core container boundaries, storage lifecycle, or database-default policy is resolved through an ADR;
+5. [V1 Schema Freeze](../plans/02-v1-schema-freeze.md) remains consistent with the measured architecture;
+6. [V1 API / Module Freeze](../plans/03-v1-api-module-freeze.md) remains consistent with the measured architecture.
 
 ## Current architecture assumptions under test
 
