@@ -363,6 +363,166 @@ class BackupPolicyService:
         secret.encrypted_payload = encrypted.ciphertext
         secret.version = encrypted.version
 
+    def update(
+        self,
+        session: Session,
+        *,
+        policy: BackupPolicy,
+        changes: dict[str, object],
+    ) -> BackupPolicy:
+        if "name" in changes:
+            raw_name = changes["name"]
+            if not isinstance(raw_name, str) or not raw_name.strip():
+                raise ApiError(
+                    status_code=400,
+                    code="backup_policy_name_invalid",
+                    message="Backup policy name is invalid.",
+                )
+            name = raw_name.strip()
+            self._ensure_name(
+                session,
+                name=name,
+                exclude_id=policy.id,
+            )
+            policy.name = name
+
+        if "enabled" in changes:
+            policy.enabled = bool(changes["enabled"])
+        if "schedule" in changes:
+            raw = changes["schedule"]
+            if not isinstance(raw, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_schedule_invalid",
+                    message="Backup schedule is invalid.",
+                )
+            policy.schedule_json = self.normalize_schedule(raw)
+        if "retention" in changes:
+            raw = changes["retention"]
+            if not isinstance(raw, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_retention_invalid",
+                    message="Backup retention is invalid.",
+                )
+            policy.retention_policy_json = self.normalize_retention(raw)
+        if "verify_after_backup" in changes:
+            policy.verify_after_backup = bool(
+                changes["verify_after_backup"]
+            )
+        if "repository_check_schedule" in changes:
+            raw = changes["repository_check_schedule"]
+            if not isinstance(raw, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_schedule_invalid",
+                    message="Repository check schedule is invalid.",
+                )
+            policy.repository_check_schedule_json = (
+                self.normalize_schedule(raw)
+            )
+        if "include_deployment_config" in changes:
+            policy.include_deployment_config = bool(
+                changes["include_deployment_config"]
+            )
+
+        if (
+            "repository" in changes
+            or "initialize_if_missing" in changes
+        ):
+            current = self._decrypt(
+                session,
+                policy=policy,
+                secret_id=policy.repository_config_ref,
+                kind="backup_repository",
+            )
+            repository = changes.get(
+                "repository",
+                current.get("repository"),
+            )
+            initialize = changes.get(
+                "initialize_if_missing",
+                current.get("initialize_if_missing", False),
+            )
+            if not isinstance(repository, str):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_repository_invalid",
+                    message="Backup repository is invalid.",
+                )
+            self._replace_secret(
+                session,
+                policy=policy,
+                secret_id=policy.repository_config_ref,
+                kind="backup_repository",
+                value={
+                    "repository": self.normalize_repository(
+                        repository
+                    ),
+                    "initialize_if_missing": bool(
+                        initialize
+                    ),
+                },
+            )
+
+        if "credentials" in changes:
+            raw = changes["credentials"]
+            if not isinstance(raw, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_credentials_invalid",
+                    message="Backup credentials are invalid.",
+                )
+            password = raw.get("password")
+            environment = raw.get("environment", {})
+            if (
+                not isinstance(password, str)
+                or not password
+                or not isinstance(environment, dict)
+                or not all(
+                    isinstance(key, str)
+                    and isinstance(value, str)
+                    for key, value in environment.items()
+                )
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="backup_credentials_invalid",
+                    message="Backup credentials are invalid.",
+                )
+            if policy.credential_secret_ref is None:
+                secret_id = uuid.uuid4()
+                secret = self._secret(
+                    secret_id=secret_id,
+                    owner_id=policy.id,
+                    kind="backup_credentials",
+                    value={
+                        "password": password,
+                        "environment": self.normalize_environment(
+                            dict(environment)
+                        ),
+                    },
+                )
+                session.add(secret)
+                session.flush()
+                policy.credential_secret_ref = secret.id
+            else:
+                self._replace_secret(
+                    session,
+                    policy=policy,
+                    secret_id=policy.credential_secret_ref,
+                    kind="backup_credentials",
+                    value={
+                        "password": password,
+                        "environment": self.normalize_environment(
+                            dict(environment)
+                        ),
+                    },
+                )
+
+        session.flush()
+        return policy
+
     def _decrypt(
         self,
         session: Session,
