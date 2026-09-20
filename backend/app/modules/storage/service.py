@@ -184,6 +184,48 @@ class StorageTargetService:
         )
 
     @staticmethod
+    def default_archive_target(
+        session: Session,
+    ) -> StorageTarget:
+        candidates = list(
+            session.scalars(
+                select(StorageTarget).where(
+                    StorageTarget.type == "rclone",
+                    StorageTarget.role == "archive",
+                    StorageTarget.enabled.is_(True),
+                )
+            )
+        )
+        defaults = [
+            item
+            for item in candidates
+            if bool(
+                (item.config_json or {}).get("default_archive")
+            )
+        ]
+        if len(defaults) == 1:
+            return defaults[0]
+        if len(defaults) > 1:
+            raise ApiError(
+                status_code=409,
+                code="archive_target_ambiguous",
+                message="More than one default archive target is configured.",
+            )
+        if len(candidates) == 1:
+            return candidates[0]
+        if not candidates:
+            raise ApiError(
+                status_code=409,
+                code="archive_target_unconfigured",
+                message="No enabled rclone archive target is configured.",
+            )
+        raise ApiError(
+            status_code=409,
+            code="archive_target_ambiguous",
+            message="Multiple archive targets exist and none is selected as default.",
+        )
+
+    @staticmethod
     def get(
         session: Session,
         target_id: uuid.UUID,
