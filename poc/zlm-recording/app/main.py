@@ -286,15 +286,8 @@ def infer_stream(path: Path) -> str:
     return "cam-main"
 
 
-def recover_file(conn: sqlite3.Connection, path: Path) -> bool:
-    object_path = str(path)
-    existing = conn.execute(
-        "SELECT 1 FROM recording_locations WHERE object_path = ?",
-        (object_path,),
-    ).fetchone()
-    if existing:
-        return False
-
+def inspect_recovery_file(path: Path) -> dict[str, Any]:
+    """Run expensive media inspection before acquiring a SQLite write lock."""
     probe = ffprobe(path)
     format_info = probe.get("format", {})
     duration_s = float(format_info.get("duration") or 0)
@@ -308,51 +301,74 @@ def recover_file(conn: sqlite3.Connection, path: Path) -> bool:
             start_dt = datetime.fromisoformat(creation_time.replace("Z", "+00:00"))
 
     if start_dt is None:
+        # Last-resort POC fallback. Production reconciliation should prefer
+        # ZLM metadata/path identity before filesystem mtime.
         start_dt = datetime.fromtimestamp(path.stat().st_mtime, tz=UTC) - timedelta(
             seconds=duration_s
         )
 
     stream = infer_stream(path)
-    end_dt = start_dt + timedelta(seconds=duration_s)
-    size_bytes = path.stat().st_size
-    now = utc_now()
-    segment_id = str(uuid.uuid4())
+    return {
+        "object_path": str(path),
+        "camera_id": stream_to_camera(stream),
+        "stream": stream,
+        "start_at": iso_utc(start_dt),
+        "end_at": iso_utc(start_dt + timedelta(seconds=duration_s)),
+        "duration_ms": round(duration_s * 1000),
+        "size_bytes": path.stat().st_size,
+    }
 
-    conn.execute(
-        """
-        INSERT INTO recording_segments(
-            id, camera_id, vhost, app, stream, start_at, end_at,
-            duration_ms, size_bytes, source, created_at
-        ) VALUES (?, ?, '__defaultVhost__', ?, ?, ?, ?, ?, ?, 'reconcile', ?)
-        """,
-        (
-            segment_id,
-            stream_to_camera(stream),
-            POC_APP,
-            stream,
-            iso_utc(start_dt),
-            iso_utc(end_dt),
-            round(duration_s * 1000),
-            size_bytes,
-            now,
-        ),
-    )
-    conn.execute(
-        """
-        INSERT INTO recording_locations(
-            id, segment_id, object_path, state, size_bytes, verified_at, created_at
-        ) VALUES (?, ?, ?, 'AVAILABLE', ?, ?, ?)
-        """,
-        (
-            str(uuid.uuid4()),
-            segment_id,
-            object_path,
-            size_bytes,
-            now,
-            now,
-        ),
-    )
-    return True
+
+def persist_recovered_file(facts: dict[str, Any]) -> bool:
+    """Short, idempotent DB transaction after all external inspection is done."""
+    with connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        existing = conn.execute(
+            "SELECT 1 FROM recording_locations WHERE object_path = ?",
+            (facts["object_path"],),
+        ).fetchone()
+        if existing:
+            conn.rollback()
+            return False
+
+        segment_id = str(uuid.uuid4())
+        now = utc_now()
+        conn.execute(
+            """
+            INSERT INTO recording_segments(
+                id, camera_id, vhost, app, stream, start_at, end_at,
+                duration_ms, size_bytes, source, created_at
+            ) VALUES (?, ?, '__defaultVhost__', ?, ?, ?, ?, ?, ?, 'reconcile', ?)
+            """,
+            (
+                segment_id,
+                facts["camera_id"],
+                POC_APP,
+                facts["stream"],
+                facts["start_at"],
+                facts["end_at"],
+                facts["duration_ms"],
+                facts["size_bytes"],
+                now,
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO recording_locations(
+                id, segment_id, object_path, state, size_bytes, verified_at, created_at
+            ) VALUES (?, ?, ?, 'AVAILABLE', ?, ?, ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                segment_id,
+                facts["object_path"],
+                facts["size_bytes"],
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return True
 
 
 @app.post("/debug/reconcile")
@@ -365,23 +381,21 @@ def reconcile() -> dict[str, Any]:
         p for p in RECORDING_ROOT.rglob("*.mp4") if not p.name.startswith(".")
     )
 
-    with connect() as conn:
-        for path in paths:
+    for path in paths:
+        with connect() as conn:
             existing = conn.execute(
                 "SELECT 1 FROM recording_locations WHERE object_path = ?",
                 (str(path),),
             ).fetchone()
-            if existing:
-                continue
+        if existing:
+            continue
 
-            try:
-                conn.execute("BEGIN IMMEDIATE")
-                if recover_file(conn, path):
-                    recovered.append(str(path))
-                conn.commit()
-            except Exception as exc:
-                conn.rollback()
-                errors.append({"path": str(path), "error": str(exc)})
+        try:
+            facts = inspect_recovery_file(path)
+            if persist_recovered_file(facts):
+                recovered.append(str(path))
+        except Exception as exc:
+            errors.append({"path": str(path), "error": str(exc)})
 
     return {
         "scanned_files": len(paths),
