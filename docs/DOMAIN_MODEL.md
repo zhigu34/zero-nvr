@@ -1487,64 +1487,13 @@ FAILED
 
 Local-purge eligibility is a policy decision after verified remote readiness.
 
-## UpgradePlan
+## Upgrade/runtime migration state
 
-```text
-id
-source_version
-target_version
-source_schema_revision
-target_schema_revision
-database_engine
-status
-rollback_class
-requires_maintenance
-requires_database_backup
-requires_recovery_kit_current
-estimated_steps
-preflight_result
-created_by
-created_at
-started_at
-completed_at
-```
+V1 does not require canonical `UpgradePlan`, `UpgradeHistory`, or generic `DataMigrationJob` business tables.
 
-## UpgradeHistory
+Host mutation is driven by `deploy.sh`, while Alembic owns schema revision history. When the application database is available, important update/migration outcomes are recorded through AuditEvent/SystemEvent.
 
-```text
-id
-upgrade_plan_id
-source_version
-target_version
-source_schema_revision
-target_schema_revision
-database_engine
-safety_backup_set_id
-result
-rollback_result
-started_at
-committed_at
-completed_at
-error_code
-sanitized_error
-```
-
-## DataMigrationJob
-
-Durable progress for large/restartable data transforms.
-
-```text
-id
-upgrade_plan_id
-migration_id
-state
-cursor
-processed_count
-error_count
-started_at
-updated_at
-completed_at
-```
+A dedicated resumable progress table should be introduced only for a specific proven large migration that cannot be completed safely in one controlled migration step.
 
 ## DatabaseMigrationPlan
 
