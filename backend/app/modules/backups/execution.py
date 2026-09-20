@@ -397,13 +397,18 @@ class BackupExecutionService:
                     plan.initialize_if_missing
                 )
             )
-            result = restic.backup(
-                paths=payload_paths,
-                tags=[
-                    "zero-nvr",
-                    f"backup-set:{plan.backup_set_id}",
-                ],
+            backup_tag = f"backup-set:{plan.backup_set_id}"
+            result = restic.latest_snapshot_for_tag(
+                backup_tag
             )
+            if result is None:
+                result = restic.backup(
+                    paths=payload_paths,
+                    tags=[
+                        "zero-nvr",
+                        backup_tag,
+                    ],
+                )
             snapshot_id = result.snapshot_id
 
             verification_state = "SKIPPED"
