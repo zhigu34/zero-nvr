@@ -48,7 +48,7 @@ V1 Design Freeze Candidate
 
 ## Design-freeze POC results
 
-All result documents remain **NOT RUN** until real runtime evidence is produced.
+POC status is evidence-driven. Several design-freeze POCs already have reviewed runtime PASS results; see the status matrix below rather than assuming every result is NOT RUN.
 
 - [POC-01 — ZLM recording/indexing](poc-results/01-zlm-recording.md)
 - [POC-02 — fMP4 abnormal termination](poc-results/02-fmp4-crash.md)
@@ -78,13 +78,15 @@ poc/sqlite-load/
 - [ADR 0006](adr/0006-zlm-owns-media-reconnect-runtime.md) — ZLM owns media pull/reconnect runtime
 - [ADR 0007](adr/0007-recording-location-physical-copy-model.md) — RecordingLocation is the physical recording-copy model
 - [ADR 0008](adr/0008-persist-product-facts-derive-runtime-state.md) — persist product facts; derive runtime/projection state
+- [ADR 0009](adr/0009-fmp4-default-recording-container.md) — fMP4 is the default managed ZLM recording container
+- [ADR 0010](adr/0010-event-only-rolling-tmpfs-promotion.md) — EVENT_ONLY uses one rolling ZLM recorder + bounded tmpfs promotion
 
 ## Core product specs
 
 ### Recording and playback
 
 - [Spec 0002 — Event Recording Lifecycle and RecordingTrigger](specs/0002-event-recording-lifecycle.md)
-- [Spec 0003 — Pre-buffer Candidate](specs/0003-rolling-mp4-prebuffer.md) — **POC required; physical implementation not frozen**
+- [Spec 0003 — EVENT_ONLY Pre-roll](specs/0003-rolling-mp4-prebuffer.md) — **accepted; validated by POC-03/04**
 - [Spec 0004 — Recording Storage Layout](specs/0004-recording-storage-layout.md)
 - [Spec 0005 — Retention and Purge](specs/0005-recording-retention-and-purge.md)
 - [Spec 0006 — Historical Playback Timeline](specs/0006-historical-playback-timeline.md)
