@@ -359,7 +359,7 @@ log_dest stdout
 EOF
       chmod 644 "$config_dir/mosquitto.conf"
       docker pull "$image"
-      docker run --rm         --user 0:0         --entrypoint sh         -e MQTT_USERNAME="$username"         -e MQTT_PASSWORD="$password"         -v "$config_dir:/work"         "$image"         -ec 'mosquitto_passwd -b -c /work/password "$MQTT_USERNAME" "$MQTT_PASSWORD"; chmod 600 /work/password'
+      docker run --rm         --user 0:0         --entrypoint sh         -e MQTT_USERNAME="$username"         -e MQTT_PASSWORD="$password"         -v "$config_dir:/work"         "$image"         -ec 'mosquitto_passwd -b -c /work/password "$MQTT_USERNAME" "$MQTT_PASSWORD"; chmod 644 /work/password'
       ;;
     openlist)
       :

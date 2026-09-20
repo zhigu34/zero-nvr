@@ -73,7 +73,9 @@ jobs:
         shell: bash
         run: |
           docker compose --env-file .env -f docker-compose.yml config --quiet
-          docker compose --env-file .env -f docker-compose.yml config --format json > /tmp/zero-nvr-compose.json
+          COMPOSE_PROFILES=frigate,mqtt,openlist,postgres \
+            docker compose --env-file .env -f docker-compose.yml \
+            config --format json > /tmp/zero-nvr-compose.json
           python3 - <<'PY'
           import json
           from pathlib import Path
