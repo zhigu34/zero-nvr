@@ -25,9 +25,9 @@ POC-08 stream-sharing assertions run in the same harness.
 ## Tested versions
 
 ~~~text
-GitHub Actions run: 35490737812
+GitHub Actions run: 35490899825
 job: POC 01
-head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
+head SHA: cbf0f710e3d3816354f5228ab86b842b9542d2ad
 ZLMediaKit:
   branch: master
   commit: b794772
@@ -102,9 +102,10 @@ even while two additional consumers read the ZLM main stream.
 ## Primary artifact
 
 ~~~text
-GitHub Actions run: 35490737812
+GitHub Actions run: 35490899825
 artifact: poc-01-evidence
-artifact id: 10598827593
+artifact id: 10598049983
+artifact SHA256: eaea47b3a2a26cb3ddebec1a6712c01d8df5c39f344feabb726035fff1e3f95a
 runtime/evidence.json
 runtime/api-restart-evidence.json
 runtime/poc.db
