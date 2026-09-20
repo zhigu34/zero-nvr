@@ -14,14 +14,44 @@ Suggested modular-monolith structure:
 backend/
   app/
     api/
+      v1/
+      internal/
     core/
-    db/
-    models/
-    schemas/
-    services/
-    adapters/
+      config/
+      db/
+      security/
+      errors/
+      time/
+    modules/
+      auth/
+      cameras/
+      media/
+      recording/
+      playback/
+      events/
+      alerts/
+      notifications/
+      storage/
+      exports/
+      backup/
+      system/
+      audit/
+    integrations/
+      zlm/
+      onvif/
+      frigate/
+      rclone/
+      apprise/
+      restic/
+      oidc/
+      mqtt/
     jobs/
-    security/
+      archive/
+      export/
+      notification/
+      backup/
+      retention/
+      reconciliation/
     main.py
   alembic/
   tests/
