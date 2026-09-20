@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from sqlalchemy.orm import Session
 
-from app.integrations.frigate import FrigateEventNormalizer
+from app.integrations.frigate.normalizer import FrigateEventNormalizer
 from app.modules.events.models import Event
 from app.modules.events.service import EventService
 from app.modules.recordings.models import RecordingTrigger
