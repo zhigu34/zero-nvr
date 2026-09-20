@@ -207,7 +207,7 @@ async def zlm_record_mp4(request: Request, token: str) -> dict[str, Any]:
             ),
         )
 
-        if not drop:
+        if not drop and not object_path.startswith("/prebuffer/"):
             create_segment_from_hook(conn, payload)
 
         conn.commit()
