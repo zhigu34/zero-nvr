@@ -974,4 +974,4 @@ API/module design is ready when:
 - public timestamps are consistently ISO 8601;
 - internal hooks are idempotent/reconcilable.
 
-After acceptance and POC completion, the architecture may move from `V1 Design Freeze Candidate` to `V1 Architecture Frozen`.
+Acceptance and POC completion are satisfied. The project is `V1 Architecture Frozen`; implementation must preserve these public/internal ownership contracts.
