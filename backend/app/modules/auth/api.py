@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.errors import ApiError
 from app.modules.audit.service import append_audit_event
 from app.modules.notifications.models import NotificationDelivery
 
@@ -43,6 +44,28 @@ def _service(request: Request) -> AuthService:
 def _cookie_token(request: Request) -> str | None:
     settings = request.app.state.settings
     return request.cookies.get(settings.session_cookie_name)
+
+
+def _source_ip(request: Request) -> str | None:
+    if request.client and request.client.host:
+        return request.client.host[:64]
+    return None
+
+
+def _rate_limit_error(
+    retry_after_seconds: int,
+) -> ApiError:
+    return ApiError(
+        status_code=429,
+        code="too_many_attempts",
+        message="Too many authentication attempts. Try again later.",
+        details={
+            "retry_after_seconds": max(
+                1,
+                retry_after_seconds,
+            )
+        },
+    )
 
 
 def _client_info(request: Request) -> dict[str, object]:
@@ -145,6 +168,16 @@ def login(
     session: Session = Depends(get_db_session),
 ) -> AuthUser:
     service = _service(request)
+    limiter = request.app.state.auth_rate_limiter
+    source_ip = _source_ip(request)
+    decision = limiter.check_login(
+        source_ip=source_ip,
+        identifier=body.username,
+    )
+    if not decision.allowed:
+        raise _rate_limit_error(
+            decision.retry_after_seconds
+        )
 
     try:
         user = service.authenticate(
@@ -158,9 +191,41 @@ def login(
             client_info=_client_info(request),
         )
         session.commit()
+    except ApiError as exc:
+        session.rollback()
+        if exc.code == "invalid_credentials":
+            decision = limiter.record_login_failure(
+                source_ip=source_ip,
+                identifier=body.username,
+            )
+            if decision.newly_blocked:
+                append_audit_event(
+                    session,
+                    request=request,
+                    actor_id=None,
+                    action="auth.login.rate_limited",
+                    resource_type="authentication",
+                    result="denied",
+                    reason="too_many_attempts",
+                    metadata={
+                        "window_seconds": 300,
+                        "lockout_seconds": 300,
+                    },
+                )
+                session.commit()
+            if not decision.allowed:
+                raise _rate_limit_error(
+                    decision.retry_after_seconds
+                ) from exc
+        raise
     except Exception:
         session.rollback()
         raise
+
+    limiter.record_login_success(
+        source_ip=source_ip,
+        identifier=body.username,
+    )
 
     _set_session_cookie(
         request=request,
@@ -207,6 +272,29 @@ def request_password_reset(
     request: Request,
     session: Session = Depends(get_db_session),
 ) -> PasswordResetRequestAccepted:
+    limiter = request.app.state.auth_rate_limiter
+    source_ip = _source_ip(request)
+    reset_decision = limiter.consume_password_reset(
+        source_ip=source_ip
+    )
+    if not reset_decision.allowed:
+        if reset_decision.newly_blocked:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=None,
+                action="auth.password_reset.rate_limited",
+                resource_type="authentication",
+                result="denied",
+                reason="too_many_attempts",
+                metadata={
+                    "window_seconds": 60,
+                    "lockout_seconds": 60,
+                },
+            )
+            session.commit()
+        return PasswordResetRequestAccepted()
+
     service = PasswordResetService(
         request.app.state.settings
     )
