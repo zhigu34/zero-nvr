@@ -1,136 +1,135 @@
-# ZLMediaKit Recording / Stream-Sharing POC
+# ZLMediaKit / Storage Design-Freeze POC Harness
 
-This is a **disposable design-freeze harness**, not production zero-nvr code.
+This directory is a **disposable validation harness**, not production zero-nvr code.
 
-It covers:
+It exercises POC-01 through POC-08 plus POC-10. POC-09 lives in `poc/sqlite-load/`.
 
-- **POC-01** — ZLM continuous recording, `on_record_mp4` indexing, deliberately lost hook, idempotent reconciliation;
-- **POC-08** — ZLM as the only source-facing reader while multiple downstream viewers consume the ZLM stream.
+## Test topology
 
-## Topology
-
-```text
-MediaMTX synthetic camera
-  cam_main + cam_sub
-         ↓
+~~~text
+MediaMTX synthetic camera(s)
+        ↓
     ZLMediaKit
-      ├─ MP4 recording (cam-main)
-      └─ RTSP downstream viewers
-         ↓
-tiny POC FastAPI + SQLite evidence service
-```
+        ↓
+POC FastAPI + SQLite evidence service
+        ↓
+optional rclone/WebDAV remote for restore tests
+~~~
 
-MediaMTX is only a deterministic fake camera source. It is not a production zero-nvr dependency.
-
-The main source is 1280x720 H.264 at 25 fps with an approximately 2-second GOP. The sub source is 640x360 H.264 at 15 fps with an approximately 2-second GOP.
-
-## Ownership checks
-
-This harness deliberately does **not** contain:
-
-- an FFmpeg permanent recorder;
-- a custom RTSP reconnect loop;
-- RecordingIntent / RecordingSession tables;
-- StoragePool;
-- Redis / Celery;
-- a custom upload queue.
-
-ZLM performs source pulling, reconnect behavior, and actual recording.
-
-FFmpeg exists in the POC API image only for:
-
-1. ffprobe recovery fallback on an intentionally unindexed finalized file;
-2. two temporary RTSP readers used to prove stream sharing.
+MediaMTX and the WebDAV server exist only to make tests deterministic. They are not production zero-nvr dependencies.
 
 ## Prerequisites
 
 - Docker Engine / compatible Docker Desktop;
 - Docker Compose v2;
-- network access to pull test images.
+- network access to pull the selected test images.
 
-## Run
+## Configure
 
-```bash
+~~~bash
 cd poc/zlm-recording
 cp .env.example .env
+~~~
+
+Important defaults:
+
+~~~text
+ZLM_IMAGE=zlmediakit/zlmediakit:master
+MEDIAMTX_IMAGE=bluenviron/mediamtx:1.21.0-ffmpeg
+RCLONE_IMAGE=rclone/rclone:latest
+~~~
+
+The actual ZLM/rclone runtime versions are recorded in evidence where relevant.
+
+## Run matrix
+
+### POC-01 + POC-08
+
+~~~bash
 sh ./scripts/run.sh
-```
+~~~
 
-The script:
+Validates:
 
-1. copies ZLM's own default `config.ini` from the selected image and patches only POC settings;
-2. starts synthetic main/sub RTSP sources;
-3. adds both sources to ZLM with `addStreamProxy`;
-4. enables ZLM MP4 recording only for `cam-main`;
-5. waits for at least three finalized `on_record_mp4` hooks;
-6. requires zero ffprobe calls on the normal hook path;
-7. intentionally acknowledges but does not index the next recording hook;
-8. scans finalized files and uses ffprobe only for the missing catalog entry;
-9. runs reconciliation a second time and requires zero new rows;
-10. starts two extra RTSP readers against **ZLM**, not MediaMTX;
-11. requires the source-facing MediaMTX reader count to stay exactly one for main and one for sub;
-12. writes evidence under `runtime/`.
+- continuous ZLM MP4 recording;
+- on_record_mp4 indexing;
+- deliberate lost-hook reconciliation;
+- no ffprobe in the normal hook path;
+- ZLM as the only camera-facing reader while downstream viewers attach to ZLM.
 
-By default the containers are stopped after the run. Set:
+### POC-02
 
-```text
-KEEP_RUNNING=1
-```
+~~~bash
+sh ./scripts/run-fmp4-crash.sh
+~~~
 
-in `.env` to inspect them.
+Validates fMP4 normal finalize and SIGKILL recovery with ffprobe, FFmpeg remux, HTTP MP4 and ZLM RTSP VOD.
 
-## Evidence
+### POC-03 + POC-04
 
-Generated locally and gitignored:
+~~~bash
+sh ./scripts/run-event-preroll.sh
+~~~
 
-```text
-runtime/evidence.json
-runtime/docker-compose.log
-runtime/docker-compose-ps.txt
-runtime/zlm-container-inspect.json
-runtime/mediamtx-container-inspect.json
-runtime/poc.db
-runtime/recordings/
-```
+Validates the primary EVENT_ONLY candidate:
 
-`evidence.json` records ZLM's `/index/api/version` result. This is important because the official `zlmediakit/zlmediakit:master` image follows upstream master rather than representing a fixed product release.
+~~~text
+one normal ZLM recorder
+-> bounded tmpfs short fragments
+-> Event/Trigger promotion window
+-> verify + atomic persistent publish
+~~~
 
-After an actual run, copy the relevant evidence into:
+It tests ~2s and ~5s GOP sources, ten Event times, overlapping Events, deduplicated promotion, tmpfs GC, and comparison evidence for startRecordTask / GOP-ring startRecord.
 
-- `docs/poc-results/01-zlm-recording.md`
-- `docs/poc-results/08-stream-sharing.md`
+### POC-05 + POC-06
 
-Do not commit generated recordings.
+~~~bash
+sh ./scripts/run-timeline-playback.sh
+~~~
 
-## Accelerated segment duration
+Kills MediaMTX to create a real source outage, then validates actual segment ranges/Gap projection, DST/time normalization, Event offset mapping, and beginning/middle/end ZLM VOD seek behavior.
 
-The harness defaults to 10-second MP4 segments so the test can complete quickly.
+### POC-07
 
-That is a **POC acceleration only**. The product design still targets roughly 300-second normal recording segments.
+~~~bash
+sh ./scripts/run-remote-restore.sh
+~~~
 
-The invariant being tested is that zero-nvr indexes the real `start_time` and `time_len` reported by finalized media instead of assuming either 10 or 300 seconds.
+Uses rclone WebDAV as a deterministic remote and validates interrupted restore, retry, `.partial` safety, atomic cache publication, ZLM VOD, next-segment prefetch, cache eviction, and remote outage isolation from local recording.
 
-## Ordinary MP4 / fMP4
+### POC-10
 
-POC-01 uses:
+~~~bash
+sh ./scripts/run-reconciliation.sh
+~~~
 
-```text
-POC_ZLM_ENABLE_FMP4=0
-```
+Injects lost hook, API downtime, SQLite write-lock downtime, stale catalog metadata, recoverable orphan media, ambiguous orphan media, and a simulated reconciliation-process crash.
 
-POC-02 will use the same basic environment with fMP4 enabled and deliberately interrupt ZLM while a segment is open, then verify the incomplete file with ffprobe, ZLM VOD, and FFmpeg remux/export.
+## Evidence policy
 
-## Official references
+Generated runtime data is written under `runtime/` and is gitignored.
 
-- ZLMediaKit HTTP API: <https://github.com/ZLMediaKit/ZLMediaKit/wiki/MediaServer支持的HTTP-API>
-- ZLMediaKit HTTP hook API: <https://github.com/ZLMediaKit/ZLMediaKit/wiki/MediaServer支持的HTTP-HOOK-API>
-- ZLMediaKit repository / Docker guidance: <https://github.com/ZLMediaKit/ZLMediaKit>
-- MediaMTX hooks: <https://mediamtx.org/docs/features/hooks>
-- MediaMTX metrics: <https://mediamtx.org/docs/features/metrics>
-- MediaMTX FFmpeg publishing: <https://mediamtx.org/docs/publish/ffmpeg>
+Result documents live under:
 
-## Result rule
+~~~text
+docs/poc-results/
+~~~
 
-A successful code review is **not** a PASS.
+Do not mark a result PASS because the harness builds or because source review looks correct.
 
-The POC can only be marked PASS after `scripts/run.sh` executes in a Docker environment and the generated evidence satisfies `docs/plans/01-design-freeze-poc.md`.
+A PASS requires real runtime evidence that satisfies `docs/plans/01-design-freeze-poc.md`.
+
+## Ownership guardrails
+
+The harness deliberately does not introduce:
+
+- a permanent FFmpeg recorder;
+- a custom RTSP reconnect engine;
+- RecordingIntent / RecordingSession persistence;
+- StoragePool;
+- Redis / Celery;
+- a custom cloud-drive protocol;
+- a custom compressed-video packet ring.
+
+ZLM remains the media/normal-recording owner. rclone owns remote transfer. FFmpeg/ffprobe are only test/derived-media tools.
