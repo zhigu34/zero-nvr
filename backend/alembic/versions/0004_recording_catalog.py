@@ -82,7 +82,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "ordinary_keep_days >= 0",
-            name="ck_retention_policies_retention_policy_ordinary_days_nonnegative",
+            name="ck_retention_ordinary_days_nonnegative",
         ),
         sa.CheckConstraint(
             "event_keep_days >= 0",

@@ -259,7 +259,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["stream_profile_id"],
             ["camera_stream_profiles.id"],
-            name="fk_camera_stream_bindings_stream_profile_id_camera_stream_profiles",
+            name="fk_camera_stream_bindings_stream_profile",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint("id", name="pk_camera_stream_bindings"),
@@ -342,12 +342,12 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "(camera_id IS NOT NULL AND camera_group_id IS NULL) OR "
             "(camera_id IS NULL AND camera_group_id IS NOT NULL)",
-            name="ck_principal_camera_scope_entries_principal_camera_scope_entry_one_target",
+            name="ck_camera_scope_entry_one_target",
         ),
         sa.ForeignKeyConstraint(
             ["scope_id"],
             ["principal_camera_scopes.id"],
-            name="fk_principal_camera_scope_entries_scope_id_principal_camera_scopes",
+            name="fk_camera_scope_entries_scope",
             ondelete="CASCADE",
         ),
         sa.ForeignKeyConstraint(

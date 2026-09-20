@@ -45,7 +45,7 @@ def _create_v2(name: str) -> None:
         ),
         sa.CheckConstraint(
             "attempt_count >= 0",
-            name="ck_notification_deliveries_notification_delivery_attempt_count_nonnegative",
+            name="ck_notification_attempt_count_nonnegative",
         ),
         sa.ForeignKeyConstraint(
             ["alert_id"],
@@ -56,7 +56,7 @@ def _create_v2(name: str) -> None:
         sa.ForeignKeyConstraint(
             ["notification_target_id"],
             ["notification_targets.id"],
-            name="fk_notification_deliveries_notification_target_id_notification_targets",
+            name="fk_notification_deliveries_target",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint(
@@ -167,7 +167,7 @@ def downgrade() -> None:
         ),
         sa.CheckConstraint(
             "attempts >= 0",
-            name="ck_notification_deliveries_notification_delivery_attempts_nonnegative",
+            name="ck_notification_attempts_nonnegative",
         ),
         sa.ForeignKeyConstraint(
             ["alert_id"],
@@ -178,7 +178,7 @@ def downgrade() -> None:
         sa.ForeignKeyConstraint(
             ["notification_target_id"],
             ["notification_targets.id"],
-            name="fk_notification_deliveries_notification_target_id_notification_targets",
+            name="fk_notification_deliveries_target",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint(

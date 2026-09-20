@@ -142,7 +142,7 @@ def upgrade() -> None:
         ),
         sa.CheckConstraint(
             "attempts >= 0",
-            name="ck_notification_deliveries_notification_delivery_attempts_nonnegative",
+            name="ck_notification_attempts_nonnegative",
         ),
         sa.ForeignKeyConstraint(
             ["alert_id"],
@@ -153,7 +153,7 @@ def upgrade() -> None:
         sa.ForeignKeyConstraint(
             ["notification_target_id"],
             ["notification_targets.id"],
-            name="fk_notification_deliveries_notification_target_id_notification_targets",
+            name="fk_notification_deliveries_target",
             ondelete="RESTRICT",
         ),
         sa.PrimaryKeyConstraint(
