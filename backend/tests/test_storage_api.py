@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 import json
 from pathlib import Path
 
@@ -149,7 +150,7 @@ def test_storage_target_secret_is_encrypted_and_never_returned(
         with app.state.database.session() as session:
             target = session.get(
                 StorageTarget,
-                remote_body["id"],
+                uuid.UUID(remote_body["id"]),
             )
             assert target is not None
             assert target.credential_secret_ref is not None
@@ -224,7 +225,7 @@ def test_storage_target_delete_is_blocked_while_policy_references_it(
                 RecordingPolicy(
                     camera_id=camera.id,
                     baseline_mode="continuous",
-                    storage_target_id=created.json()["id"],
+                    storage_target_id=uuid.UUID(created.json()["id"]),
                     enabled=True,
                 )
             )
