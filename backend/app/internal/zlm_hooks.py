@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.integrations.zlm import ZlmMediaAccess
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.recordings.catalog import (
     FinalizedRecordingEvidence,
@@ -39,6 +40,12 @@ class ZlmStreamChangedHook(ZlmHookBase):
     app: str = Field(min_length=1, max_length=128)
     stream: str = Field(min_length=1, max_length=256)
     regist: bool
+
+
+class ZlmPlayHook(ZlmHookBase):
+    app: str = Field(min_length=1, max_length=128)
+    stream: str = Field(min_length=1, max_length=256)
+    params: str = Field(default="", max_length=4096)
 
 
 class ZlmRecordMp4Hook(ZlmHookBase):
@@ -77,6 +84,28 @@ def _authenticate_hook(
 
 def _ack() -> dict[str, object]:
     return {"code": 0, "msg": "success"}
+
+
+@router.post("/play")
+def zlm_play(
+    body: ZlmPlayHook,
+    request: Request,
+) -> dict[str, object]:
+    _authenticate_hook(request, body.media_server_id)
+
+    if body.app not in {"zero-nvr", "zero-nvr-vod"}:
+        return {"code": -1, "msg": "unauthorized"}
+
+    if not ZlmMediaAccess(
+        request.app.state.settings
+    ).verify(
+        app=body.app,
+        stream=body.stream,
+        params=body.params,
+    ):
+        return {"code": -1, "msg": "unauthorized"}
+
+    return _ack()
 
 
 @router.post("/stream-changed")

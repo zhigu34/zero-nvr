@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 import app.internal.zlm_hooks as zlm_hooks
 from app.core.config import Settings
 from app.core.db import Base
+from app.integrations.zlm import ZlmMediaAccess
 from app.main import create_app
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
@@ -462,3 +463,54 @@ def test_prebuffer_hook_enqueues_without_canonical_segment(
         assert session.scalar(
             select(func.count()).select_from(RecordingSegment)
         ) == 0
+
+
+
+def test_play_hook_requires_valid_short_lived_media_grant(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    signer = ZlmMediaAccess(app.state.settings)
+    signed_url, _expires_at = signer.sign_url(
+        "http://media.local/zero-nvr/profile-test/hls.m3u8",
+        app="zero-nvr",
+        stream="profile-test",
+        ttl_seconds=300,
+    )
+    from urllib.parse import urlsplit
+
+    params = "?" + urlsplit(signed_url).query
+    payload = {
+        "mediaServerId": HOOK_SECRET,
+        "app": "zero-nvr",
+        "stream": "profile-test",
+        "params": params,
+    }
+
+    with TestClient(app) as client:
+        allowed = client.post(
+            "/internal/hooks/zlm/play",
+            json=payload,
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["code"] == 0
+
+        denied = client.post(
+            "/internal/hooks/zlm/play",
+            json={
+                **payload,
+                "params": params.replace("zn_sig=", "zn_sig=bad"),
+            },
+        )
+        assert denied.status_code == 200
+        assert denied.json()["code"] != 0
+
+        wrong_stream = client.post(
+            "/internal/hooks/zlm/play",
+            json={
+                **payload,
+                "stream": "another-stream",
+            },
+        )
+        assert wrong_stream.status_code == 200
+        assert wrong_stream.json()["code"] != 0

@@ -871,11 +871,20 @@ def get_camera_live_stream(
         ) from exc
 
     reference = references[0]
+    hls_url, expires_at = ZlmMediaAccess(
+        request.app.state.settings
+    ).sign_url(
+        runtime.public_hls_url(reference),
+        app=reference.app,
+        stream=reference.stream,
+        ttl_seconds=ZlmMediaAccess.live_ttl_seconds,
+    )
     return CameraLiveStreamView(
         camera_id=camera.id,
         profile_id=profile.id,
         purpose=purpose,
-        hls_url=runtime.public_hls_url(reference),
+        hls_url=hls_url,
+        expires_at=expires_at,
         codec=profile.codec,
         width=profile.width,
         height=profile.height,

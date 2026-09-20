@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
 from app.core.errors import ApiError
-from app.integrations.zlm import ZlmAdapter
+from app.integrations.zlm import ZlmAdapter, ZlmMediaAccess
 from app.modules.storage.models import RecordingLocation
 
 from .models import RecordingSegment
@@ -261,8 +261,10 @@ class PlaybackResolverService:
                 )
 
         base = settings.zlm_public_base_url.rstrip("/")
-        url = f"{base}/{cls.vod_app}/{stream}.live.mp4"
-        expires_at = datetime.now(UTC) + timedelta(
-            seconds=cls.descriptor_ttl_seconds
+        unsigned_url = f"{base}/{cls.vod_app}/{stream}.live.mp4"
+        return ZlmMediaAccess(settings).sign_url(
+            unsigned_url,
+            app=cls.vod_app,
+            stream=stream,
+            ttl_seconds=cls.descriptor_ttl_seconds,
         )
-        return url, expires_at

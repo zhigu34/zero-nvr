@@ -83,6 +83,9 @@ jobs:
           grep -Fxq "apiDebug=0" deploy/zlm/config.ini
           grep -Fxq "enableFmp4=1" deploy/zlm/config.ini
           grep -Fxq \
+            "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" \
+            deploy/zlm/config.ini
+          grep -Fxq \
             "on_record_mp4=http://zero-nvr:8000/internal/hooks/zlm/record-mp4" \
             deploy/zlm/config.ini
           grep -Fxq \

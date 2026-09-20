@@ -191,6 +191,7 @@ class CameraLiveStreamView(BaseModel):
     purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
     transport: Literal["hls"] = "hls"
     hls_url: str
+    expires_at: datetime
     codec: str | None
     width: int | None
     height: int | None
