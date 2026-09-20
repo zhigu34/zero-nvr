@@ -10,7 +10,11 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
 from app.modules.storage.models import StorageTarget
-from app.modules.system.health import write_worker_heartbeat
+from app.modules.system.health import (
+    HealthComponent,
+    SystemHealthService,
+    write_worker_heartbeat,
+)
 
 
 PASSWORD = "correct-horse-battery-staple"
@@ -105,7 +109,15 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
         )
         assert response.status_code == 200
         body = response.json()
-        assert body["status"] == "OK"
+        assert body["status"] == "DEGRADED"
+        assert (
+            body["components"]["recording_reconciliation"]["status"]
+            == "DEGRADED"
+        )
+        assert (
+            body["components"]["recording_reconciliation"]["message"]
+            == "recording_reconciliation_pending"
+        )
         assert body["components"]["database"]["status"] == "OK"
         assert body["components"]["worker"]["status"] == "OK"
         assert body["components"]["zlmediakit"]["status"] == "OK"
@@ -131,11 +143,9 @@ def test_health_surfaces_recording_reconciliation_state(
 
     from app.modules.system.models import SystemSetting
 
-    settings = make_settings(tmp_path)
-    database = Database(settings)
-    Base.metadata.create_all(
-        database.engine
-    )
+    app = make_app(tmp_path)
+    settings = app.state.settings
+    database = app.state.database
     try:
         monkeypatch.setattr(
             SystemHealthService,
