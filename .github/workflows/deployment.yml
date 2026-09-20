@@ -1,0 +1,83 @@
+name: Deployment
+
+on:
+  push:
+    paths:
+      - "deploy.sh"
+      - ".env.example"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "backend/Dockerfile"
+      - "backend/pyproject.toml"
+      - "scripts/**"
+      - "deploy/**"
+      - ".github/workflows/deployment.yml"
+  pull_request:
+    paths:
+      - "deploy.sh"
+      - ".env.example"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "backend/Dockerfile"
+      - "backend/pyproject.toml"
+      - "scripts/**"
+      - "deploy/**"
+      - ".github/workflows/deployment.yml"
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare deployment environment
+        shell: bash
+        run: |
+          cp .env.example .env
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path(".env")
+          text = path.read_text()
+          values = {
+              "ZERO_NVR_SECRET_KEY": "a" * 64,
+              "ZERO_NVR_ZLM_API_SECRET": "b" * 64,
+              "ZERO_NVR_ZLM_HOOK_SECRET": "c" * 64,
+          }
+          lines = []
+          for line in text.splitlines():
+              key = line.split("=", 1)[0] if "=" in line else None
+              if key in values:
+                  line = f"{key}={values[key]}"
+              lines.append(line)
+          path.write_text("\n".join(lines) + "\n")
+          PY
+
+      - name: Validate shell syntax
+        shell: bash
+        run: |
+          bash -n deploy.sh
+          for script in scripts/*.sh; do
+            bash -n "$script"
+          done
+
+      - name: Validate Compose model
+        shell: bash
+        run: |
+          docker compose --env-file .env -f docker-compose.yml config --quiet
+
+      - name: Build zero-nvr backend image
+        shell: bash
+        run: |
+          docker build             --file backend/Dockerfile             --tag zero-nvr:ci             .
+
+      - name: Render ZLMediaKit config from upstream image
+        shell: bash
+        run: |
+          ZERO_NVR_ENV_FILE="$PWD/.env" ./scripts/render-zlm-config.sh
+          grep -Fxq "apiDebug=0" deploy/zlm/config.ini
+          grep -Fxq "enableFmp4=1" deploy/zlm/config.ini
+          grep -Fxq             "on_record_mp4=http://zero-nvr:8000/internal/hooks/zlm/record-mp4"             deploy/zlm/config.ini
+          grep -Fxq             "on_stream_changed=http://zero-nvr:8000/internal/hooks/zlm/stream-changed"             deploy/zlm/config.ini
