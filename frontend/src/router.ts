@@ -12,6 +12,7 @@ import LoginView from "./views/LoginView.vue"
 import LiveView from "./views/LiveView.vue"
 import PlaybackView from "./views/PlaybackView.vue"
 import SetupView from "./views/SetupView.vue"
+import StorageView from "./views/StorageView.vue"
 import WorkspaceView from "./views/WorkspaceView.vue"
 import { useAuthStore } from "./stores/auth"
 
@@ -72,11 +73,9 @@ const routes: RouteRecordRaw[] = [
       {
         path: "storage",
         name: "storage",
-        component: WorkspaceView,
+        component: StorageView,
         meta: {
-          title: "Storage",
-          description:
-            "Local recording targets, retention and remote archive status will be managed from this workspace."
+          title: "Storage"
         }
       },
       {

@@ -85,7 +85,17 @@ const icons: Record<string, string> = {
   close:
     '<path d="m6 6 12 12M18 6 6 18"/>',
   zone:
-    '<path d="M12 21s6-4.7 6-11a6 6 0 1 0-12 0c0 6.3 6 11 6 11Z"/><circle cx="12" cy="10" r="2"/>'
+    '<path d="M12 21s6-4.7 6-11a6 6 0 1 0-12 0c0 6.3 6 11 6 11Z"/><circle cx="12" cy="10" r="2"/>',
+  plus:
+    '<path d="M12 5v14M5 12h14"/>',
+  trash:
+    '<path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/>',
+  drive:
+    '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M6 15h.01M10 15h.01"/><path d="M3 12h18"/>',
+  cloud:
+    '<path d="M7 18h10a4 4 0 0 0 .7-7.9A6 6 0 0 0 6.4 8.4 4.5 4.5 0 0 0 7 18Z"/>',
+  shield:
+    '<path d="M12 3 5 6v5c0 4.8 2.9 8 7 10 4.1-2 7-5.2 7-10V6Z"/><path d="m9 12 2 2 4-4"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)
