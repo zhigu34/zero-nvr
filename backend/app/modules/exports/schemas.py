@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, SecretStr
 
 
 class ExportCreate(BaseModel):
@@ -41,3 +41,35 @@ class ExportView(BaseModel):
 class ExportPage(BaseModel):
     items: list[ExportView]
     next_cursor: str | None
+
+
+
+class ExportShareCreate(BaseModel):
+    password: SecretStr | None = None
+    expires_in_hours: int = Field(
+        default=24,
+        ge=1,
+        le=720,
+    )
+    max_downloads: int | None = Field(
+        default=None,
+        ge=1,
+        le=100000,
+    )
+
+
+class ExportShareView(BaseModel):
+    id: uuid.UUID
+    export_id: uuid.UUID
+    expires_at: datetime
+    revoked_at: datetime | None
+    max_downloads: int | None
+    download_count: int
+    last_download_at: datetime | None
+    password_protected: bool
+    created_at: datetime
+
+
+class ExportShareCreated(ExportShareView):
+    token: str
+    download_path: str
