@@ -59,7 +59,7 @@ The first frontend slice includes:
 - protected-route bootstrap;
 - responsive application shell;
 - Dashboard capability health and camera inventory;
-- Camera inventory;
+- Camera inventory plus guided ONVIF discovery/test/import and manual RTSP test/create;
 - authenticated SSE refresh hints;
 - route placeholders for Live, Playback, Events, Storage and System.
 

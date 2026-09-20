@@ -1,26 +1,22 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from "vue"
 
-import { apiRequest, errorMessage } from "../api/client"
+import { listCameras, type CameraSummary } from "../api/cameras"
+import { errorMessage } from "../api/client"
+import CameraOnboardingPanel from "../components/cameras/CameraOnboardingPanel.vue"
+import { useAuthStore } from "../stores/auth"
 
-interface CameraSummary {
-  id: string
-  name: string
-  enabled: boolean
-  location: string | null
-  storage_label: string | null
-  adapter_type: string | null
-}
-
+const auth = useAuthStore()
 const cameras = ref<CameraSummary[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const showOnboarding = ref(false)
 
 async function refresh(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    cameras.value = await apiRequest<CameraSummary[]>("/cameras")
+    cameras.value = await listCameras()
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -29,6 +25,10 @@ async function refresh(): Promise<void> {
 }
 
 function handleRefresh(): void {
+  void refresh()
+}
+
+function handleCreated(): void {
   void refresh()
 }
 
@@ -48,26 +48,55 @@ onBeforeUnmount(() => {
         <p class="eyebrow">Device center</p>
         <h1>Cameras</h1>
         <p class="page-subtitle">
-          Canonical Camera inventory. Source credentials stay server-side.
+          Discover and validate devices before they become canonical Cameras.
+          Source credentials stay server-side.
         </p>
       </div>
-      <button
-        class="button button--secondary"
-        :disabled="loading"
-        @click="refresh"
-      >
-        {{ loading ? "Refreshing…" : "Refresh" }}
-      </button>
+
+      <div class="page-actions">
+        <button
+          class="button button--secondary"
+          :disabled="loading"
+          @click="refresh"
+        >
+          {{ loading ? "Refreshing…" : "Refresh" }}
+        </button>
+        <button
+          v-if="auth.hasPermission('camera.configure')"
+          class="button button--primary"
+          type="button"
+          @click="showOnboarding = !showOnboarding"
+        >
+          {{ showOnboarding ? "Hide onboarding" : "Add camera" }}
+        </button>
+      </div>
     </div>
 
     <p v-if="error" class="notice notice--error">{{ error }}</p>
 
+    <CameraOnboardingPanel
+      v-if="showOnboarding"
+      @created="handleCreated"
+      @close="showOnboarding = false"
+    />
+
     <section class="panel">
+      <div class="panel__header">
+        <div>
+          <p class="eyebrow">Inventory</p>
+          <h2>Configured cameras</h2>
+        </div>
+        <span class="badge badge--muted">{{ cameras.length }}</span>
+      </div>
+
       <div v-if="!cameras.length" class="empty-state empty-state--large">
         <strong>No cameras configured</strong>
-        <p>
-          The backend already supports manual RTSP and ONVIF onboarding.
-          The guided add-camera workflow is the next frontend slice.
+        <p v-if="auth.hasPermission('camera.configure')">
+          Use Add camera for ONVIF discovery/import or a manually supplied RTSP
+          source.
+        </p>
+        <p v-else>
+          No Cameras are visible within your current scope.
         </p>
       </div>
 
