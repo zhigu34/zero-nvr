@@ -1,6 +1,6 @@
 # POC-04 — Multi-event Extension
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
@@ -62,35 +62,92 @@ Current source audit shows each call creates a new MP4Muxer/RingReader and has n
 
 ## Tested versions
 
-Pending execution.
+Same passing runtime matrix as POC-03:
+
+~~~text
+GitHub Actions run: 35489849518
+job: POC 03
+MediaMTX: 1.21.0-ffmpeg
+ZLMediaKit image: zlmediakit/zlmediakit:master
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+~~~
+
+Exact ZLM commit was not serialized by the first POC-03 JSON; subsequent harness runs now record it.
 
 ## Test environment
 
-Pending execution.
+GitHub-hosted Ubuntu 24.04.5 / x86_64 runner.
+
+Each codec/GOP group created ten independent Event timestamps arranged into overlapping clusters.
 
 ## Evidence
 
-Pending execution.
+PASS assertions included:
 
-Expected primary evidence:
+- all ten Events remained separate Event-like trigger facts in evidence;
+- merged required windows extended to the latest required post-roll;
+- ZLM recorder stayed active throughout;
+- no Event caused start/stop/restart of the rolling recorder;
+- at least one promoted fragment overlapped multiple Events;
+- a source fragment had one persistent promotion path even when it served multiple Events;
+- GC did not remove still-required fragments;
+- after final required coverage, the rolling recorder remained active.
+
+Representative overlap evidence included fragments serving:
 
 ~~~text
-poc/zlm-recording/runtime/event-preroll-gop2.json
-poc/zlm-recording/runtime/event-preroll-gop5.json
+E6 + E7 + E8
+E9 + E10
 ~~~
 
-Fields of interest include:
+in the same promoted physical file.
+
+H.264/2s-GOP:
 
 ~~~text
-events
-merged_required_windows
-coverage_checks
-promoted
-multi_event_fragments
-recorder_active_after_events
-max_tmpfs_bytes
+10 / 10 Event coverage checks PASS
+multi-Event promoted fragments = 16
+promoted fragments = 20
+recorder active after final Event = true
 ~~~
+
+H.264/5s-GOP:
+
+~~~text
+10 / 10 Event coverage checks PASS
+multi-Event promoted fragments = 12
+promoted fragments = 12
+recorder active after final Event = true
+~~~
+
+H.265:
+
+~~~text
+10 / 10 Event coverage checks PASS
+actual codec = hevc
+multi-Event promoted fragments = 16
+promoted fragments = 20
+recorder active after final Event = true
+~~~
+
+The `startRecordTask` comparison created five independent files with different first-frame hashes rather than exposing one extendable task, supporting the decision not to use repeated task creation as Event-extension semantics.
+
+Primary artifact:
+
+~~~text
+GitHub Actions artifact:
+  poc-03-evidence
+  run 35489849518
+  artifact id 10598647826
+~~~
+
+## Known limitations
+
+Whole-fragment retention intentionally permits physical coverage beyond exact Event pre/post-roll. Exact user exports can trim later through FFmpeg.
 
 ## Architecture impact
 
-Pending execution.
+**Accepted:** overlapping Events extend one derived promotion/protection window. They never create duplicate normal recorders.
+
+`RecordingTrigger` remains the durable reason/evidence model; an effective promotion window is derived runtime state, not a new RecordingIntent/RecordingSession table.
