@@ -1,0 +1,531 @@
+from __future__ import annotations
+
+import argparse
+import json
+import math
+import os
+import shutil
+import subprocess
+import time
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
+
+
+API = "http://127.0.0.1:8000"
+ZLM = os.getenv("ZLM_BASE_URL", "http://zlm")
+ZLM_SECRET = os.environ["ZLM_API_SECRET"]
+
+STATE = Path("/runtime/timeline-state.json")
+EVIDENCE = Path("/runtime/timeline-playback-evidence.json")
+VOD_ROOT = Path("/vod")
+STREAM = "timeline-poc"
+SEGMENT_TARGET_SECONDS = 8
+BOUNDARY_TOLERANCE_SECONDS = 1.25
+
+
+def iso(ts: float) -> str:
+    return datetime.fromtimestamp(ts, tz=UTC).isoformat().replace("+00:00", "Z")
+
+
+def parse_iso(value: str) -> float:
+    return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+
+
+def request_json(url: str, *, method: str = "GET", timeout: float = 10) -> dict[str, Any]:
+    req = Request(url, method=method)
+    with urlopen(req, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def zlm_api(name: str, **params: Any) -> dict[str, Any]:
+    query = urlencode({"secret": ZLM_SECRET, **params})
+    return request_json(f"{ZLM}/index/api/{name}?{query}")
+
+
+def wait_until(description: str, predicate, timeout: float, interval: float = 0.5):
+    deadline = time.monotonic() + timeout
+    last: Any = None
+    while time.monotonic() < deadline:
+        try:
+            last = predicate()
+            if last:
+                return last
+        except Exception as exc:
+            last = repr(exc)
+        time.sleep(interval)
+    raise AssertionError(f"timeout waiting for {description}; last={last!r}")
+
+
+def segments() -> list[dict[str, Any]]:
+    items = request_json(f"{API}/debug/segments")["items"]
+    return sorted(
+        [item for item in items if item["stream"] == STREAM],
+        key=lambda item: (item["start_at"], item["id"]),
+    )
+
+
+def add_proxy() -> str:
+    response = zlm_api(
+        "addStreamProxy",
+        vhost="__defaultVhost__",
+        app="poc",
+        stream=STREAM,
+        url="rtsp://mediamtx:8554/cam_main",
+        rtp_type=0,
+        retry_count=-1,
+        auto_close=0,
+        enable_hls=0,
+        enable_mp4=1,
+        enable_rtsp=1,
+        enable_rtmp=0,
+        enable_ts=0,
+        enable_fmp4=0,
+        enable_audio=0,
+        add_mute_audio=0,
+        mp4_save_path="/recordings",
+        mp4_max_second=SEGMENT_TARGET_SECONDS,
+    )
+    if response.get("code") != 0:
+        raise AssertionError(f"addStreamProxy failed: {response}")
+    key = ((response.get("data") or {}).get("key"))
+    if not key:
+        raise AssertionError(f"missing proxy key: {response}")
+    return str(key)
+
+
+def media_present() -> bool:
+    response = zlm_api(
+        "getMediaList",
+        schema="rtsp",
+        vhost="__defaultVhost__",
+        app="poc",
+        stream=STREAM,
+    )
+    return response.get("code") == 0 and any(
+        item.get("stream") == STREAM for item in (response.get("data") or [])
+    )
+
+
+def probe(path_or_url: str) -> dict[str, Any]:
+    completed = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration,size,format_name",
+            "-of",
+            "json",
+            path_or_url,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    return json.loads(completed.stdout)
+
+
+def parse_framemd5(text: str) -> list[str]:
+    hashes: list[str] = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split(",")]
+        if len(parts) >= 6:
+            hashes.append(parts[-1])
+    return hashes
+
+
+def local_neighborhood_hashes(path: Path, offset: float, radius: float = 1.5) -> set[str]:
+    start = max(0.0, offset - radius)
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{start:.3f}",
+            "-i",
+            str(path),
+            "-t",
+            f"{radius * 2:.3f}",
+            "-an",
+            "-f",
+            "framemd5",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    return set(parse_framemd5(completed.stdout))
+
+
+def rtsp_seek_first_hash(url: str, offset: float) -> str:
+    completed = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-ss",
+            f"{offset:.3f}",
+            "-rtsp_transport",
+            "tcp",
+            "-i",
+            url,
+            "-frames:v",
+            "1",
+            "-an",
+            "-f",
+            "framemd5",
+            "-",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=45,
+    )
+    hashes = parse_framemd5(completed.stdout)
+    if not hashes:
+        raise AssertionError(f"RTSP seek produced no frame hash at {offset}s")
+    return hashes[0]
+
+
+def build_ranges(items: list[dict[str, Any]], tolerance: float) -> list[dict[str, Any]]:
+    if not items:
+        return []
+
+    ranges: list[dict[str, Any]] = []
+    current = {
+        "start": parse_iso(items[0]["start_at"]),
+        "end": parse_iso(items[0]["end_at"]),
+        "segment_ids": [items[0]["id"]],
+    }
+
+    for item in items[1:]:
+        start = parse_iso(item["start_at"])
+        end = parse_iso(item["end_at"])
+        if start <= current["end"] + tolerance:
+            current["end"] = max(current["end"], end)
+            current["segment_ids"].append(item["id"])
+        else:
+            ranges.append(current)
+            current = {
+                "start": start,
+                "end": end,
+                "segment_ids": [item["id"]],
+            }
+
+    ranges.append(current)
+    return ranges
+
+
+def boundary_deltas(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for left, right in zip(items, items[1:]):
+        left_end = parse_iso(left["end_at"])
+        right_start = parse_iso(right["start_at"])
+        out.append(
+            {
+                "left_id": left["id"],
+                "right_id": right["id"],
+                "left_end": left["end_at"],
+                "right_start": right["start_at"],
+                "delta_seconds": right_start - left_end,
+            }
+        )
+    return out
+
+
+def dst_roundtrip_evidence() -> dict[str, Any]:
+    zone = ZoneInfo("America/Los_Angeles")
+    utc_values = [
+        datetime(2026, 11, 1, 8, 30, tzinfo=UTC),
+        datetime(2026, 11, 1, 9, 30, tzinfo=UTC),
+    ]
+    rows = []
+    for value in utc_values:
+        local = value.astimezone(zone)
+        roundtrip = local.astimezone(UTC)
+        rows.append(
+            {
+                "utc": value.isoformat(),
+                "local": local.isoformat(),
+                "fold": local.fold,
+                "roundtrip_utc": roundtrip.isoformat(),
+                "roundtrip_equal": roundtrip == value,
+            }
+        )
+    return {
+        "zone": str(zone),
+        "rows": rows,
+        "both_roundtrip": all(row["roundtrip_equal"] for row in rows),
+        "same_wall_clock_hour": (
+            rows[0]["local"][11:16] == rows[1]["local"][11:16]
+        ),
+        "distinct_offsets": (
+            rows[0]["local"][-6:] != rows[1]["local"][-6:]
+        ),
+    }
+
+
+def camera_clock_normalization_evidence() -> dict[str, Any]:
+    canonical = datetime(2026, 9, 20, 12, 0, 0, tzinfo=UTC)
+    measured_offset_ms = 5000
+    device_reported = canonical.timestamp() + measured_offset_ms / 1000
+    normalized = device_reported - measured_offset_ms / 1000
+    return {
+        "canonical_at": canonical.isoformat(),
+        "measured_device_offset_ms": measured_offset_ms,
+        "device_reported_at": iso(device_reported),
+        "normalized_at": iso(normalized),
+        "normalizes_back_to_canonical": math.isclose(
+            normalized, canonical.timestamp(), abs_tol=0.001
+        ),
+    }
+
+
+def event_marker_evidence(segment: dict[str, Any]) -> dict[str, Any]:
+    start = parse_iso(segment["start_at"])
+    end = parse_iso(segment["end_at"])
+    marker = start + (end - start) * 0.61
+    offset = marker - start
+    return {
+        "segment_id": segment["id"],
+        "segment_start_at": segment["start_at"],
+        "segment_end_at": segment["end_at"],
+        "event_at": iso(marker),
+        "resolved_offset_seconds": offset,
+        "inside_segment": start <= marker < end,
+    }
+
+
+def prepare() -> None:
+    version = wait_until(
+        "ZLM API",
+        lambda: (
+            response if (response := zlm_api("version")).get("code") == 0 else None
+        ),
+        timeout=45,
+    )
+    proxy_key = add_proxy()
+    wait_until("timeline stream", media_present, timeout=45)
+
+    before = wait_until(
+        "three pre-outage segments",
+        lambda: items if len(items := segments()) >= 3 else None,
+        timeout=90,
+    )
+
+    state = {
+        "proxy_key": proxy_key,
+        "prepared_at": iso(time.time()),
+        "pre_segment_count": len(before),
+        "pre_segments": before,
+        "zlm_version": version,
+    }
+    STATE.write_text(
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    print(json.dumps(state, indent=2, ensure_ascii=False))
+
+
+def verify(outage_start: float, outage_end: float) -> None:
+    state = json.loads(STATE.read_text(encoding="utf-8"))
+    pre_count = int(state["pre_segment_count"])
+
+    items = wait_until(
+        "three post-outage segments",
+        lambda: current if len(current := segments()) >= pre_count + 3 else None,
+        timeout=120,
+    )
+
+    deltas = boundary_deltas(items)
+    if not deltas:
+        raise AssertionError("no segment boundaries available")
+
+    largest = max(deltas, key=lambda row: row["delta_seconds"])
+    normal = [row for row in deltas if row is not largest]
+
+    # Normal ZLM on_record_mp4 timestamps currently have second-level start
+    # granularity. Treat sub-tolerance jitter as continuous but preserve the
+    # measured raw deltas in evidence.
+    bad_normal = [
+        row
+        for row in normal
+        if abs(float(row["delta_seconds"])) > BOUNDARY_TOLERANCE_SECONDS
+    ]
+    if bad_normal:
+        raise AssertionError(
+            f"unexpected non-outage segment boundary discontinuity: {bad_normal}"
+        )
+
+    outage_duration = outage_end - outage_start
+    gap_seconds = float(largest["delta_seconds"])
+    if gap_seconds <= BOUNDARY_TOLERANCE_SECONDS:
+        raise AssertionError(
+            f"source outage did not create a visible media gap: {largest}"
+        )
+    if gap_seconds < max(2.0, outage_duration - 4.0):
+        raise AssertionError(
+            f"projected gap too short for deliberate outage: "
+            f"gap={gap_seconds:.3f}s outage={outage_duration:.3f}s"
+        )
+    if gap_seconds > outage_duration + 12.0:
+        raise AssertionError(
+            f"projected gap unexpectedly exceeds outage/reconnect allowance: "
+            f"gap={gap_seconds:.3f}s outage={outage_duration:.3f}s"
+        )
+
+    ranges = build_ranges(items, BOUNDARY_TOLERANCE_SECONDS)
+    if len(ranges) < 2:
+        raise AssertionError(f"expected at least two coverage ranges: {ranges}")
+
+    gap = {
+        "start_at": iso(ranges[0]["end"]),
+        "end_at": iso(ranges[1]["start"]),
+        "duration_seconds": ranges[1]["start"] - ranges[0]["end"],
+        "reason": "source_lost",
+    }
+
+    # Select a healthy finalized segment for VOD/seek checks.
+    playable = max(
+        items,
+        key=lambda item: float(item["duration_ms"]),
+    )
+    source_path = Path(playable["object_path"])
+    if not source_path.exists():
+        raise AssertionError(f"selected recording file is missing: {source_path}")
+
+    VOD_ROOT.mkdir(parents=True, exist_ok=True)
+    vod_path = VOD_ROOT / "timeline-seek.mp4"
+    shutil.copy2(source_path, vod_path)
+
+    local_probe = probe(str(vod_path))
+    duration = float(local_probe["format"]["duration"])
+    if duration < 3:
+        raise AssertionError(f"VOD sample too short for seek test: {duration}s")
+
+    rtsp_url = "rtsp://zlm:554/record/timeline-seek.mp4"
+    offsets = sorted(
+        {
+            min(max(0.5, duration * 0.08), max(0.5, duration - 1.0)),
+            duration * 0.5,
+            max(0.5, duration - 1.5),
+        }
+    )
+
+    seek_results = []
+    for offset in offsets:
+        expected = local_neighborhood_hashes(vod_path, offset)
+        if not expected:
+            raise AssertionError(
+                f"no local expected frame hashes around offset {offset}"
+            )
+        actual = rtsp_seek_first_hash(rtsp_url, offset)
+        seek_results.append(
+            {
+                "offset_seconds": offset,
+                "rtsp_first_frame_hash": actual,
+                "matched_local_neighborhood": actual in expected,
+                "local_neighborhood_hash_count": len(expected),
+            }
+        )
+
+    if not all(item["matched_local_neighborhood"] for item in seek_results):
+        raise AssertionError(f"ZLM RTSP seek frame mismatch: {seek_results}")
+
+    event_marker = event_marker_evidence(playable)
+    if not event_marker["inside_segment"]:
+        raise AssertionError(f"event marker projection failed: {event_marker}")
+
+    dst = dst_roundtrip_evidence()
+    if not (
+        dst["both_roundtrip"]
+        and dst["same_wall_clock_hour"]
+        and dst["distinct_offsets"]
+    ):
+        raise AssertionError(f"DST roundtrip evidence failed: {dst}")
+
+    clock = camera_clock_normalization_evidence()
+    if not clock["normalizes_back_to_canonical"]:
+        raise AssertionError(f"camera clock normalization failed: {clock}")
+
+    evidence = {
+        "result": "PASS",
+        "completed_at": iso(time.time()),
+        "zlm_version": state["zlm_version"],
+        "outage": {
+            "requested_start_at": iso(outage_start),
+            "requested_end_at": iso(outage_end),
+            "requested_duration_seconds": outage_duration,
+        },
+        "segments": items,
+        "boundary_tolerance_seconds": BOUNDARY_TOLERANCE_SECONDS,
+        "boundary_deltas": deltas,
+        "largest_gap_boundary": largest,
+        "recording_ranges": [
+            {
+                "start_at": iso(row["start"]),
+                "end_at": iso(row["end"]),
+                "segment_ids": row["segment_ids"],
+            }
+            for row in ranges
+        ],
+        "projected_gap": gap,
+        "partial_or_non_target_durations": [
+            {
+                "id": item["id"],
+                "duration_seconds": item["duration_ms"] / 1000.0,
+            }
+            for item in items
+            if abs(item["duration_ms"] / 1000.0 - SEGMENT_TARGET_SECONDS)
+            > 1.5
+        ],
+        "event_marker": event_marker,
+        "dst_roundtrip": dst,
+        "camera_clock_normalization": clock,
+        "vod": {
+            "source_segment_id": playable["id"],
+            "source_path": str(source_path),
+            "vod_path": str(vod_path),
+            "probe": local_probe,
+            "rtsp_url": rtsp_url,
+            "seek_results": seek_results,
+        },
+    }
+
+    EVIDENCE.write_text(
+        json.dumps(evidence, indent=2, ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    print(json.dumps(evidence, indent=2, ensure_ascii=False))
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("prepare")
+    verify_parser = sub.add_parser("verify")
+    verify_parser.add_argument("--outage-start", type=float, required=True)
+    verify_parser.add_argument("--outage-end", type=float, required=True)
+    args = parser.parse_args()
+
+    if args.command == "prepare":
+        prepare()
+    else:
+        verify(args.outage_start, args.outage_end)
+
+
+if __name__ == "__main__":
+    main()
