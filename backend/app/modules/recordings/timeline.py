@@ -18,7 +18,7 @@ from .schemas import (
     PlaybackTimelineView,
     TimelineGapView,
     TimelineRangeView,
-    TimelineSegmentView,
+    TimelineRecordingRangeView,
 )
 
 
@@ -158,7 +158,6 @@ class PlaybackTimelineService:
         )
 
         projected: list[_ProjectedSegment] = []
-        response_segments: list[TimelineSegmentView] = []
 
         for segment in segments:
             availability = cls._availability(segment)
@@ -174,15 +173,6 @@ class PlaybackTimelineService:
                 clipped_end=clipped_end,
             )
             projected.append(item)
-            response_segments.append(
-                TimelineSegmentView(
-                    id=segment.id,
-                    start_at=segment.started_at,
-                    end_at=segment.ended_at,
-                    availability=availability,
-                    playback_ref=segment.id,
-                )
-            )
 
         boundaries = {start_at, end_at}
         for item in projected:
@@ -190,7 +180,14 @@ class PlaybackTimelineService:
             boundaries.add(item.clipped_end)
         ordered = sorted(boundaries)
 
+        recording_ranges: list[TimelineRecordingRangeView] = []
         gaps: list[TimelineGapView] = []
+        availability_priority = {
+            "local": 3,
+            "cached_remote": 2,
+            "remote": 1,
+        }
+
         for left, right in zip(ordered, ordered[1:]):
             if right <= left:
                 continue
@@ -201,10 +198,36 @@ class PlaybackTimelineService:
                 if item.clipped_start < right
                 and item.clipped_end > left
             ]
-            if any(
-                item.availability in _PLAYABLE
+            playable = [
+                item.availability
                 for item in overlapping
-            ):
+                if item.availability in _PLAYABLE
+            ]
+
+            if playable:
+                availability = max(
+                    playable,
+                    key=lambda value: availability_priority[value],
+                )
+                if (
+                    recording_ranges
+                    and recording_ranges[-1].availability == availability
+                    and recording_ranges[-1].end_at == left
+                ):
+                    previous = recording_ranges[-1]
+                    recording_ranges[-1] = TimelineRecordingRangeView(
+                        start_at=previous.start_at,
+                        end_at=right,
+                        availability=availability,
+                    )
+                else:
+                    recording_ranges.append(
+                        TimelineRecordingRangeView(
+                            start_at=left,
+                            end_at=right,
+                            availability=availability,
+                        )
+                    )
                 continue
 
             if overlapping:
@@ -243,7 +266,7 @@ class PlaybackTimelineService:
                 start_at=start_at,
                 end_at=end_at,
             ),
-            segments=response_segments,
+            recording_ranges=recording_ranges,
             gaps=gaps,
             # Event normalization/search is a separate module; the response
             # shape is frozen now so Event overlay can be added without an API
