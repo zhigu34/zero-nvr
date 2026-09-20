@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.integrations.zlm import ZlmIntegrationError
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_camera_permission
 from app.modules.auth.service import AuthContext
@@ -242,7 +243,8 @@ def put_recording_policy(
     try:
         # No database transaction is held while ZLM performs network/media
         # operations.
-        media_runtime.ensure_streams(record_streams)
+        if desired_recorder is not None and desired_recorder.mode != "off":
+            media_runtime.ensure_streams(record_streams)
         runtime_service = RecordingRuntimeService(
             settings,
             mode_tracker=request.app.state.recorder_modes,
@@ -260,6 +262,13 @@ def put_recording_policy(
                 **exc.details,
                 "policy_persisted": True,
             },
+        ) from exc
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={"policy_persisted": True},
         ) from exc
 
     policy = RecordingPolicyService.get(
