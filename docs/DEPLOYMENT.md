@@ -81,6 +81,15 @@ Examples:
 - Managed Frigate requires the deployment feature to be enabled first.
 - SMTP, OIDC, external MQTT, external OpenList, retention, alerts, and camera policies do not require new containers.
 
+For managed ZLMediaKit, zero-nvr generates the small owned configuration overlay from product/deployment settings rather than asking users to hand-edit the container. The V1 generated baseline explicitly includes:
+
+~~~ini
+[record]
+enableFmp4=1
+~~~
+
+together with the zero-nvr API/hook secret and required hook URLs. The image's remaining upstream defaults are preserved unless zero-nvr owns a documented setting.
+
 ## Docker security boundary
 
 The web/API container does not require unrestricted access to `/var/run/docker.sock`.
