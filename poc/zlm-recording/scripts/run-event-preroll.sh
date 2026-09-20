@@ -62,6 +62,31 @@ docker compose exec -T poc-api python /app/event_preroll.py \
   --label h265 \
   --gop-seconds 2
 
+# Reset ephemeral buffer before the restart/reconstruction check.
+docker compose exec -T poc-api sh -c 'sleep 2; find /prebuffer -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
+echo "Preparing EVENT_ONLY trigger before FastAPI restart..."
+docker compose exec -T poc-api python /app/prebuffer_recovery.py prepare
+
+echo "Stopping FastAPI while ZLM continues rolling tmpfs recording..."
+docker compose stop poc-api
+sleep 14
+docker compose start poc-api
+
+echo "Waiting for FastAPI health after EVENT_ONLY restart..."
+i=0
+until docker compose exec -T poc-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()" >/dev/null 2>&1; do
+  i=$((i+1))
+  if [ "$i" -ge 30 ]; then
+    echo "POC API did not recover during EVENT_ONLY reconstruction test" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+echo "Recovering trigger coverage from persisted trigger + tmpfs scan only..."
+docker compose exec -T poc-api python /app/prebuffer_recovery.py recover
+
 echo "Recording comparison evidence for startRecordTask and GOP-ring startRecord..."
 docker compose exec -T poc-api python /app/record_task_compare.py
 
@@ -72,5 +97,6 @@ echo "EVENT_ONLY evidence:"
 echo "  $POC_DIR/runtime/event-preroll-gop2.json"
 echo "  $POC_DIR/runtime/event-preroll-gop5.json"
 echo "  $POC_DIR/runtime/event-preroll-h265.json"
+echo "  $POC_DIR/runtime/event-preroll-recovery.json"
 echo "  $POC_DIR/runtime/pre-roll-candidate-comparison.json"
 echo "  $POC_DIR/runtime/event-docker-compose.log"
