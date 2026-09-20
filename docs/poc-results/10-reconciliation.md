@@ -1,6 +1,6 @@
 # POC-10 — Recovery Reconciliation
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
@@ -62,16 +62,121 @@ poc/zlm-recording/runtime/reconcile-docker-compose.log
 
 ## Tested versions
 
-Pending execution.
+~~~text
+GitHub Actions run: 35489849518
+job: POC 10
+ZLMediaKit:
+  branch: master
+  commit: b794772
+  buildTime: 2026-09-20T02:21:00
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+runner: Ubuntu 24.04.5 / linux amd64
+~~~
 
 ## Test environment
 
-Pending execution.
+GitHub-hosted Ubuntu 24.04.5 runner:
+
+~~~text
+kernel: 6.17.0-1022-azure
+architecture: x86_64
+host-visible RAM: ~15 GiB
+~~~
+
+The test used the same deterministic MediaMTX -> ZLMediaKit recording path as the other media POCs.
 
 ## Evidence
 
-Pending execution.
+Runtime result:
+
+~~~text
+result = PASS
+
+baseline:
+  finalized hook segments = 3
+  deliberately dropped hook count = 1
+  ffprobe calls before reconciliation = 0
+
+faults exercised:
+  FastAPI/control-plane restart
+  SQLite BEGIN IMMEDIATE write lock = 22 s
+  missed hook(s) while DB/control path unavailable
+  stale catalog row whose file was removed
+  provable orphan media under canonical ZLM recording hierarchy
+  ambiguous orphan at /recordings/orphans/mystery.mp4
+  reconciliation process death after one committed mutation
+
+first converging reconciliation:
+  recovered = 4 files
+  errors = []
+  ambiguous = mystery.mp4
+  changes = 4
+
+second reconciliation:
+  changes = 0
+  recovered = []
+  errors = []
+  ambiguous file remains diagnosable/preserved
+
+catalog/fidelity:
+  stale location state = MISSING
+  proven orphan state = AVAILABLE
+  ambiguous orphan cataloged = false
+  ambiguous orphan preserved = true
+  valid guard file preserved = true
+  valid guard SHA-256 unchanged = true
+
+final catalog:
+  segment_count = 11
+  hook_segment_count = 7
+  reconciled_segment_count = 4
+  location_count = 11
+  recorder_active = true
+
+recovered media:
+  ZLM RTSP VOD decode = PASS
+~~~
+
+Primary artifact:
+
+~~~text
+GitHub Actions artifact:
+  poc-10-evidence
+  run 35489849518
+
+runtime/reconciliation-evidence.json
+runtime/reconciliation-runs.json
+runtime/reconcile-docker-compose.log
+~~~
+
+## Known limitations
+
+- This POC validates the reconciliation policy on deterministic local ZLM media. Remote RecordingLocation reconciliation has separate storage-adapter semantics.
+- The POC intentionally preserves an ambiguous orphan instead of guessing its Camera/segment identity. A production UI/doctor flow still needs to expose such ambiguous objects clearly.
+- Timing normalization of raw ZLM Hook timestamps is governed separately by POC-05/Spec 0004; this POC validates convergence/identity safety, not final Timeline precision.
 
 ## Architecture impact
 
-Pending execution.
+**The ADR 0008 reconciliation model is accepted.**
+
+V1 may keep the database outside the live media write path and rely on idempotent reconciliation after control-plane/worker/database interruptions.
+
+Accepted behavior:
+
+~~~text
+valid extra media + provable identity
+  -> recover catalog/RecordingLocation
+
+catalog says AVAILABLE but file absent
+  -> mark MISSING / explain
+
+ambiguous media
+  -> preserve and report
+  -> never guess/delete
+
+rerun
+  -> zero additional mutations once converged
+~~~
+
+A custom persistent UploadJob/RecordingSession/runtime-history model is not required to achieve convergence.
