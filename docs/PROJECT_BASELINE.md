@@ -199,7 +199,7 @@ Accepted behavior:
 
 zero-nvr still must not implement a custom H.264/H.265 packet ring buffer or a second permanent event recorder.
 
-The recorder container format (ordinary MP4 vs fMP4) remains a separate POC-02 decision.
+The accepted EVENT_ONLY rolling recorder therefore uses the same V1 default fMP4 mode as normal recording.
 
 ## Recording format
 
