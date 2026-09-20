@@ -1,6 +1,6 @@
 # POC-05 — Timeline Precision
 
-Result: **NOT RUN**
+Result: **NOT RUN — first runtime attempt exposed ZLM Hook timing semantics; rerun required**
 
 ## Purpose
 
@@ -76,4 +76,22 @@ Pending execution.
 
 ## Architecture impact
 
-Pending execution.
+**Architecture refined, not frozen yet.**
+
+The first runtime attempt invalidated the earlier assumption that `hook.start_time + time_len` is always canonical wall-clock media coverage.
+
+Current candidate rule:
+
+~~~text
+same continuous session:
+  segment end   = next proven segment boundary
+  segment start = segment end - actual muxed duration
+
+source unregister/reconnect:
+  split timing session
+  never normalize across the outage
+~~~
+
+This keeps ffprobe out of normal per-segment indexing while preventing a GOP-sized false Timeline gap after recorder/source startup.
+
+Rerun evidence is required before accepting the rule.
