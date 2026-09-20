@@ -222,4 +222,4 @@ sh ./run.sh
 
 That covers POC-09.
 
-A committed harness is not a passing result. Every document under `docs/poc-results/` remains `NOT RUN` until the corresponding command produces real evidence on a Docker host.
+A committed harness is not a passing result. Runtime results, tested versions, artifacts, and architecture impact are tracked in [docs/poc-results/README.md](docs/poc-results/README.md) and the numbered result documents. Do not infer PASS merely from harness existence.
