@@ -281,6 +281,9 @@ Acceptance:
 - Frigate new/update/end updates one Event;
 - ONVIF events use the same Event API;
 - Frigate/AI failure never interrupts healthy live/recording;
+- Managed Frigate consumes the ZLM internal AI_DETECT stream and does not add a direct source-camera RTSP pull;
+- source-facing camera reader/session count is unchanged when Managed Frigate is enabled;
+- users with AI disabled do not need to pull or run Frigate;
 - no generic EventFusion/DetectionObservation storage is required for V1.
 
 ## Phase 6 — Alerting and Notifications
