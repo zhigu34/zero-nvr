@@ -4,6 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1 import router as api_v1_router
 from app.core.config import Settings, get_settings
@@ -74,6 +75,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         title=resolved_settings.app_name,
         version=resolved_settings.app_version,
         lifespan=lifespan,
+    )
+    app.add_middleware(
+        SessionMiddleware,
+        secret_key=(
+            resolved_settings.secret_key.get_secret_value()
+        ),
+        session_cookie="zero_nvr_oidc_state",
+        max_age=600,
+        same_site="lax",
+        https_only=(
+            resolved_settings.session_cookie_secure
+        ),
     )
 
     app.state.settings = resolved_settings
