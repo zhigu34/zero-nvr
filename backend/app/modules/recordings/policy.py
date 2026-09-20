@@ -196,6 +196,62 @@ class RecordingPolicyService:
         return False
 
     @staticmethod
+    def validate_event_filter(
+        value: dict[str, object],
+    ) -> dict[str, object]:
+        allowed = {"labels", "zones", "min_confidence"}
+        unknown = set(value) - allowed
+        if unknown:
+            raise ApiError(
+                status_code=400,
+                code="recording_event_filter_invalid",
+                message="Recording event filter contains unsupported fields.",
+                details={"fields": sorted(unknown)},
+            )
+
+        normalized: dict[str, object] = {}
+        for key in ("labels", "zones"):
+            raw = value.get(key)
+            if raw is None:
+                continue
+            if (
+                not isinstance(raw, list)
+                or len(raw) > 64
+                or not all(
+                    isinstance(item, str)
+                    and 0 < len(item.strip()) <= 128
+                    for item in raw
+                )
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="recording_event_filter_invalid",
+                    message=f"Recording event filter {key} is invalid.",
+                )
+            normalized[key] = sorted(
+                {
+                    item.strip()
+                    for item in raw
+                }
+            )
+
+        if "min_confidence" in value:
+            raw = value["min_confidence"]
+            if (
+                isinstance(raw, bool)
+                or not isinstance(raw, (int, float))
+                or not 0 <= float(raw) <= 1
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="recording_event_filter_invalid",
+                    message="Recording event minimum confidence is invalid.",
+                )
+            normalized["min_confidence"] = float(raw)
+
+        return normalized
+
+    @staticmethod
     def validate_storage_target(
         session: Session,
         storage_target_id: uuid.UUID | None,
@@ -305,7 +361,11 @@ class RecordingPolicyService:
         policy.schedule_timezone = schedule_timezone
         policy.event_recording_enabled = bool(values["event_recording_enabled"])
         event_filter = values.get("event_filter_json")
-        policy.event_filter_json = event_filter if isinstance(event_filter, dict) else {}
+        policy.event_filter_json = cls.validate_event_filter(
+            event_filter
+            if isinstance(event_filter, dict)
+            else {}
+        )
         policy.segment_target_seconds = segment_target_seconds
         policy.pre_roll_seconds = pre_roll_seconds
         policy.post_roll_seconds = post_roll_seconds
