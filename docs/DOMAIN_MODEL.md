@@ -1147,7 +1147,7 @@ metadata
 
 A non-authoritative read model returned by playback APIs for an absolute time range.
 
-It is composed from RecordingSegment, RecordingLocation, DetectionEvent, recording policy/runtime history, and retention state rather than persisted as the primary source of truth.
+It is composed from RecordingSegment, RecordingLocation, Event, RecordingPolicy/RecordingTrigger state, and retention/protection facts rather than persisted as the primary source of truth.
 
 Conceptual shape:
 
@@ -1171,9 +1171,9 @@ tracks[]
     reason
 
   events[]
-    detection_event_id
-    event_type
-    lifecycle_kind
+    event_id
+    category
+    label
     start_ms
     end_ms
 ```
@@ -1208,101 +1208,43 @@ Playback URLs are resolved lazily from `playback_ref`; the timeline read model m
 
 See [Spec 0006 — Historical Playback Timeline and Multi-Camera Sync](specs/0006-historical-playback-timeline.md).
 
-## HealthSample
+## Runtime health and system events
 
-```text
-camera_id
-kind
-status
-latency
-details
-sampled_at
-```
+Current health is adapter/runtime state, not a high-frequency business table.
 
-Kinds may include:
+Examples:
 
-- connectivity;
-- media stream;
-- recorder;
-- storage;
-- upload;
-- device protocol.
+~~~text
+camera media: ONLINE / DEGRADED / OFFLINE
+recording: OK / DEGRADED / ERROR
+storage: OK / PRESSURE / CRITICAL / OFFLINE
+archive: OK / DEGRADED / ERROR
+AI: OK / DEGRADED / DISABLED
+worker/database/ZLM: OK / DEGRADED / ERROR
+~~~
 
+Current status may live in memory and be recomputed from adapters/services.
 
-## SourceConnectivityIncident
+Meaningful transitions become canonical `Event` rows with `source=system`, for example:
 
-Represents a historical infrastructure/media-source interruption independently from DetectionEvent.
+~~~text
+camera_offline
+camera_recovered
+recording_failed
+recording_recovered
+storage_pressure
+storage_critical
+archive_failed
+archive_recovered
+zlm_offline
+zlm_recovered
+backup_failed
+backup_recovered
+~~~
 
-```text
-id
-camera_id
-started_at
-ended_at
-state
-reason
-last_media_at
-recovered_at
-retry_count
-details
-created_at
-updated_at
-```
+This provides product history and alert input without persisting 5-second health samples.
 
-Typical states/reasons include:
-
-```text
-degraded
-reconnecting
-offline
-recovered
-
-source_lost
-runtime_restart
-media_discontinuity
-storage_failure
-```
-
-SourceConnectivityIncident can explain playback gaps and health history. It must not be modeled as a DetectionEvent.
-
-A connectivity incident may split physical RecordingSegments while the same RecordingSession continues if one or more RecordingIntents remain active.
-
-See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](specs/0008-stream-reconnect-and-recording-recovery.md).
-
-## EventLog
-
-Persists structured business/runtime events needed to explain recording behavior.
-
-```text
-id
-timestamp
-level
-category
-event_type
-camera_id
-detection_event_id
-recording_session_id
-correlation_id
-action
-reason
-details
-```
-
-Important actions include:
-
-```text
-event_started
-event_ended
-recording_started
-post_roll_started
-post_roll_cancelled
-recording_extended
-marker_created
-recording_completed
-event_ignored
-event_rejected
-```
-
-EventLog complements normal application logs. It should make recording decisions queryable from the product UI/API.
+Gap reasons are normally projected from recording coverage plus known system Events/policy state. zero-nvr does not require a separate SourceConnectivityIncident or EventLog table in V1.
 
 ## AuditEvent
 
@@ -1332,7 +1274,7 @@ created_at
 
 Sensitive fields are redacted from before/after/metadata.
 
-AuditEvent answers **who did what**. EventLog explains runtime/business behavior. They are separate concerns.
+AuditEvent answers **who did what**. Canonical Event rows explain product/runtime occurrences. They are separate concerns.
 
 Normal product APIs do not edit/delete historical AuditEvents.
 
