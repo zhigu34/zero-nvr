@@ -64,6 +64,14 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
 
         admin_token = login(client, "admin", ADMIN_PASSWORD)
 
+        permissions = client.get("/api/v1/permissions")
+        assert permissions.status_code == 200
+        assert {
+            "camera.view",
+            "recording.view",
+            "user.manage",
+        } <= set(permissions.json())
+
         roles = client.get("/api/v1/roles")
         assert roles.status_code == 200
         role_by_name = {item["name"]: item for item in roles.json()}

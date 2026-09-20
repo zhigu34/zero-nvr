@@ -13,6 +13,7 @@ from .admin_service import AuthAdminService
 from .camera_scope import CameraScopeService, CameraScopeValue
 from .dependencies import require_permission
 from .models import Role, User
+from .permissions import ALL_PERMISSIONS
 from .schemas import (
     CameraScopeUpdate,
     CameraScopeView,
@@ -284,6 +285,13 @@ def enable_user(
         raise
 
     return _user_view(user)
+
+
+@router.get("/permissions", response_model=list[str])
+def list_permissions(
+    _context: AuthContext = Depends(require_permission("user.manage")),
+) -> list[str]:
+    return sorted(ALL_PERMISSIONS)
 
 
 @router.get("/roles", response_model=list[RoleView])

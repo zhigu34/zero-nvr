@@ -55,6 +55,12 @@ export interface AdminUser {
   roles: RoleSummary[]
 }
 
+export interface CameraScope {
+  mode: "inherit" | "all" | "selected" | "none"
+  camera_ids: string[]
+  camera_group_ids: string[]
+}
+
 export interface NotificationTarget {
   id: string
   name: string
@@ -210,8 +216,40 @@ export function listUsers(): Promise<AdminUser[]> {
   return apiRequest<AdminUser[]>("/users")
 }
 
+export function listPermissions(): Promise<string[]> {
+  return apiRequest<string[]>("/permissions")
+}
+
 export function listRoles(): Promise<Role[]> {
   return apiRequest<Role[]>("/roles")
+}
+
+export function createRole(body: {
+  name: string
+  description: string | null
+  permissions: string[]
+}): Promise<Role> {
+  return apiRequest<Role>("/roles", {
+    method: "POST",
+    json: body
+  })
+}
+
+export function updateRole(
+  roleId: string,
+  changes: {
+    name?: string
+    description?: string | null
+    permissions?: string[]
+  }
+): Promise<Role> {
+  return apiRequest<Role>(
+    `/roles/${encodeURIComponent(roleId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
 }
 
 export function createUser(body: {
@@ -225,6 +263,67 @@ export function createUser(body: {
     method: "POST",
     json: body
   })
+}
+
+export function updateUser(
+  userId: string,
+  changes: {
+    display_name?: string
+    email?: string | null
+    role_ids?: string[]
+  }
+): Promise<AdminUser> {
+  return apiRequest<AdminUser>(
+    `/users/${encodeURIComponent(userId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function getUserCameraScope(
+  userId: string
+): Promise<CameraScope> {
+  return apiRequest<CameraScope>(
+    `/users/${encodeURIComponent(userId)}/camera-scope`
+  )
+}
+
+export function setUserCameraScope(
+  userId: string,
+  scope: CameraScope
+): Promise<CameraScope> {
+  return apiRequest<CameraScope>(
+    `/users/${encodeURIComponent(userId)}/camera-scope`,
+    {
+      method: "PUT",
+      json: scope
+    }
+  )
+}
+
+export function getRoleCameraScope(
+  roleId: string
+): Promise<CameraScope> {
+  return apiRequest<CameraScope>(
+    `/roles/${encodeURIComponent(roleId)}/camera-scope`
+  )
+}
+
+export function setRoleCameraScope(
+  roleId: string,
+  scope: Omit<CameraScope, "mode"> & {
+    mode: "all" | "selected" | "none"
+  }
+): Promise<CameraScope> {
+  return apiRequest<CameraScope>(
+    `/roles/${encodeURIComponent(roleId)}/camera-scope`,
+    {
+      method: "PUT",
+      json: scope
+    }
+  )
 }
 
 export function resetUserPassword(
