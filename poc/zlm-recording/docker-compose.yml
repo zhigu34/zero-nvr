@@ -31,6 +31,7 @@ services:
       - zlm-conf:/opt/media/conf:ro
       - ./runtime/recordings:/recordings
       - ./runtime/vod:/opt/media/bin/www/record
+      - prebuffer:/prebuffer
     ports:
       - "18080:80"
       - "18554:554"
@@ -49,6 +50,10 @@ services:
       RECORDING_ROOT: /recordings
       POC_APP: poc
       POC_SEGMENT_SECONDS: ${POC_SEGMENT_SECONDS:-10}
+      POC_PREBUFFER_SEGMENT_SECONDS: ${POC_PREBUFFER_SEGMENT_SECONDS:-5}
+      POC_PRE_ROLL_SECONDS: ${POC_PRE_ROLL_SECONDS:-10}
+      POC_POST_ROLL_SECONDS: ${POC_POST_ROLL_SECONDS:-10}
+      POC_BUFFER_SECONDS: ${POC_BUFFER_SECONDS:-35}
       ZLM_BASE_URL: http://zlm
       ZLM_API_SECRET: ${ZLM_API_SECRET}
       ZLM_HOOK_TOKEN: ${ZLM_HOOK_TOKEN}
@@ -59,6 +64,13 @@ services:
       - ./runtime:/runtime
       - ./runtime/recordings:/recordings
       - ./runtime/vod:/vod
+      - prebuffer:/prebuffer
 
 volumes:
   zlm-conf:
+  prebuffer:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=${POC_PREBUFFER_TMPFS_BYTES:-268435456},mode=1777"
