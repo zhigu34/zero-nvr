@@ -34,6 +34,7 @@ from app.modules.cameras.service import CameraService
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 CAMERA_USERNAME = "cam user"
 CAMERA_PASSWORD = "p@ss word"
+CAMERA_PASSWORD_NEW = "new p@ss word"
 
 URI_MAIN_A = (
     "rtsp://192.168.70.20:554/channel/a/main"
@@ -49,6 +50,23 @@ URI_MAIN_B = (
 )
 
 
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.runtime_reconciles: list[
+            tuple[uuid.UUID, bool]
+        ] = []
+
+    def reconcile_runtime(
+        self,
+        camera_id: uuid.UUID,
+        *,
+        restart_streams: bool = False,
+    ) -> None:
+        self.runtime_reconciles.append(
+            (camera_id, restart_streams)
+        )
+
+
 def make_app(tmp_path: Path):
     settings = Settings(
         secret_key="onvif-import-test-secret-key-32-bytes-minimum",
@@ -60,6 +78,7 @@ def make_app(tmp_path: Path):
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
+    app.state.recording_tasks = FakeRecordingTasks()
     return app
 
 
@@ -258,7 +277,7 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             }
         ]
 
-        duplicate = client.post(
+        repeated = client.post(
             "/api/v1/cameras/onvif/import",
             json={
                 "host": "192.168.70.20",
@@ -268,10 +287,9 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
                 "name": "Warehouse Duplicate",
             },
         )
-        assert duplicate.status_code == 409
-        assert duplicate.json()["error"]["code"] == (
-            "onvif_device_already_exists"
-        )
+        assert repeated.status_code == 201
+        assert repeated.json()["reconfigured"] is True
+        assert repeated.json()["device_id"] == body["device_id"]
 
     with app.state.database.session() as session:
         assert session.scalar(
@@ -417,3 +435,234 @@ def test_onvif_import_rejects_unknown_profile_without_partial_persistence(
         assert session.scalar(
             select(func.count()).select_from(SecretRecord)
         ) == 0
+
+
+
+def _inspection_at(host: str) -> OnvifInspection:
+    source = inspection()
+    profiles = []
+    for item in source.profiles:
+        assert item.stream_uri is not None
+        profiles.append(
+            OnvifProfileProbe(
+                token=item.token,
+                name=item.name,
+                video_source_token=item.video_source_token,
+                codec=item.codec,
+                width=item.width,
+                height=item.height,
+                fps=item.fps,
+                bitrate_kbps=item.bitrate_kbps,
+                gop_seconds=item.gop_seconds,
+                audio_codec=item.audio_codec,
+                has_audio=item.has_audio,
+                stream_uri_available=True,
+                stream_uri=item.stream_uri.replace(
+                    "192.168.70.20",
+                    host,
+                ),
+            )
+        )
+    return OnvifInspection(
+        device=source.device,
+        capabilities=source.capabilities,
+        profiles=tuple(profiles),
+    )
+
+
+def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **kwargs):
+            return _inspection_at(
+                str(kwargs["host"])
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        first = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+                "name": "Warehouse",
+            },
+        )
+        assert first.status_code == 201
+        first_body = first.json()
+        assert first_body["reconfigured"] is False
+        device_id = first_body["device_id"]
+        camera_ids = [
+            item["id"]
+            for item in first_body["cameras"]
+        ]
+        profile_ids = {
+            stream["adapter_profile_key"]: stream["id"]
+            for camera in first_body["cameras"]
+            for stream in camera["streams"]
+        }
+
+        refreshed = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.99",
+                "port": 8080,
+                "username": "new user",
+                "password": CAMERA_PASSWORD_NEW,
+                "name": "Ignored Rename",
+            },
+        )
+        assert refreshed.status_code == 201
+        body = refreshed.json()
+        assert body["reconfigured"] is True
+        assert body["device_id"] == device_id
+        assert [
+            item["id"]
+            for item in body["cameras"]
+        ] == camera_ids
+        assert {
+            stream["adapter_profile_key"]: stream["id"]
+            for camera in body["cameras"]
+            for stream in camera["streams"]
+        } == profile_ids
+
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count()).select_from(Device)
+        ) == 1
+        assert session.scalar(
+            select(func.count()).select_from(Camera)
+        ) == 2
+        assert session.scalar(
+            select(func.count()).select_from(CameraStreamProfile)
+        ) == 3
+        assert session.scalar(
+            select(func.count()).select_from(SecretRecord)
+        ) == 4
+
+        endpoint = session.scalar(
+            select(DeviceEndpoint)
+        )
+        assert endpoint is not None
+        assert endpoint.host == "192.168.70.99"
+        assert endpoint.port == 8080
+
+        main_profile = session.scalar(
+            select(CameraStreamProfile).where(
+                CameraStreamProfile.adapter_profile_key
+                == "main-a"
+            )
+        )
+        assert main_profile is not None
+        resolved = CameraService(
+            app.state.settings
+        ).resolve_stream_uri(
+            session,
+            main_profile,
+        )
+        assert "192.168.70.99" in resolved
+        assert "new%20user" in resolved
+        assert "new%20p%40ss%20word" in resolved
+        assert "192.168.70.20" not in resolved
+
+        audits = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action
+                    == "camera.onvif.reconfigure"
+                )
+            )
+        )
+        assert len(audits) == 1
+        assert audits[0].metadata_json["reconfigured"] is True
+
+    assert set(
+        app.state.recording_tasks.runtime_reconciles
+    ) == {
+        (uuid.UUID(camera_id), True)
+        for camera_id in camera_ids
+    }
+
+
+def test_onvif_reconfigure_rejects_topology_change_before_mutation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    changed = False
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **kwargs):
+            value = _inspection_at(
+                str(kwargs["host"])
+            )
+            if not changed:
+                return value
+            return OnvifInspection(
+                device=value.device,
+                capabilities=value.capabilities,
+                profiles=tuple(
+                    item
+                    for item in value.profiles
+                    if item.token != "sub-a"
+                ),
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+
+        changed = True
+        rejected = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.77",
+                "port": 80,
+                "username": "new",
+                "password": CAMERA_PASSWORD_NEW,
+            },
+        )
+        assert rejected.status_code == 409
+        assert rejected.json()["error"]["code"] == (
+            "onvif_device_topology_changed"
+        )
+
+    with app.state.database.session() as session:
+        endpoint = session.scalar(
+            select(DeviceEndpoint)
+        )
+        assert endpoint is not None
+        assert endpoint.host == "192.168.70.20"
