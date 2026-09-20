@@ -36,3 +36,16 @@ paths:
       -f rtsp -rtsp_transport tcp
       rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH
     runOnInitRestart: yes
+
+  cam_gop5:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel warning
+      -re -f lavfi -i testsrc2=size=640x360:rate=25
+      -an
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -profile:v main
+      -g 125 -keyint_min 125 -sc_threshold 0
+      -b:v 650k -maxrate 650k -bufsize 1300k
+      -f rtsp -rtsp_transport tcp
+      rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
