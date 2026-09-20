@@ -50,6 +50,10 @@ def _script_directory() -> ScriptDirectory:
     config = Config(
         str(root / "alembic.ini")
     )
+    config.set_main_option(
+        "script_location",
+        str(root / "alembic"),
+    )
     return ScriptDirectory.from_config(
         config
     )
