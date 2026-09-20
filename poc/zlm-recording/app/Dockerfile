@@ -9,6 +9,6 @@ WORKDIR /app
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
-COPY main.py verify.py /app/
+COPY main.py verify.py fmp4_prepare.py fmp4_after_crash.py /app/
 
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
