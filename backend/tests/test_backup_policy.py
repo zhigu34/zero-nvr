@@ -133,9 +133,11 @@ def test_backup_policy_schedule_and_credential_update(
                         "cron": "*/15 * * * *",
                         "timezone": "UTC",
                     },
-                    "password": "new-restic-password-value",
-                    "environment": {
-                        "B2_ACCOUNT_ID": "account-id",
+                    "credentials": {
+                        "password": "new-restic-password-value",
+                        "environment": {
+                            "B2_ACCOUNT_ID": "account-id",
+                        },
                     },
                 },
             )
