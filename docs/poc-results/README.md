@@ -12,14 +12,14 @@ A committed harness is **not** a passing result. A POC moves to PASS only from r
 
 | POC | Purpose | Runner | Current result |
 |---|---|---|---|
-| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | RERUN REQUIRED — control-plane continuity assertion relaxed to accept valid Hook retry or reconciliation; clean rerun required |
+| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | PASS — fMP4 baseline; API downtime converged; dropped Hook recovered idempotently |
 | 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | PASS — fMP4 materially outperformed interrupted ordinary MP4 |
 | 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | PASS |
 | 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | PASS |
-| 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | RERUN REQUIRED — first run exposed raw ZLM Hook start-time GOP bias; timing normalization added |
-| 06 | ZLM VOD seek | same as POC-05 | RERUN REQUIRED — first run stopped at POC-05 timing gate before seek checks |
+| 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | PASS — continuity-session normalization accepted; real source-loss Gap preserved |
+| 06 | ZLM VOD seek | same as POC-05 | PASS — 0.8/5.0/8.5s seeks matched expected local media neighborhoods |
 | 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | PASS |
-| 08 | ZLM stream sharing / source connection count | same as POC-01 | RERUN REQUIRED — MediaMTX metrics-auth harness issue fixed; reader-count assertion still needs clean rerun |
+| 08 | ZLM stream sharing / source connection count | same as POC-01 | PASS — source readers remain main=1/sub=1 with extra downstream ZLM consumers |
 | 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | PASS — 8/16-camera mixed load passed; optimized retention p95 ≈ 12.11/11.31ms |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | PASS |
 
