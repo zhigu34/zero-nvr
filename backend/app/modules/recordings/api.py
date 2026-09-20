@@ -25,12 +25,16 @@ from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 from .models import RecordingPolicy, RecordingTrigger
 from .policy import RecordingPolicyService
+from .query import RecordingCatalogQueryService
 from .runtime import RecordingRuntimeService
 from .schemas import (
     PlaybackTimelineView,
     RecordingPolicyPut,
+    RecordingLocationView,
     RecordingPolicyView,
     RecordingRuntimeView,
+    RecordingSegmentPage,
+    RecordingSegmentView,
     RecordingTriggerCreate,
     RecordingTriggerView,
 )
@@ -102,6 +106,62 @@ def _audit_snapshot(
     }
 
 
+
+
+
+
+def _segment_view(segment) -> RecordingSegmentView:
+    return RecordingSegmentView(
+        id=segment.id,
+        camera_id=segment.camera_id,
+        stream_profile_id=segment.stream_profile_id,
+        start_at=segment.started_at,
+        end_at=segment.ended_at,
+        duration_ms=segment.duration_ms,
+        timing_status=segment.timing_status,
+        timing_source=segment.timing_source,
+        recording_reasons=segment.recording_reasons_json or [],
+        size_bytes=segment.size_bytes,
+        codec=segment.codec,
+        container=segment.container,
+        integrity_status=segment.integrity_status,
+        completion_reason=segment.completion_reason,
+        created_at=segment.created_at,
+    )
+
+
+def _location_view(location) -> RecordingLocationView:
+    target = location.storage_target
+    return RecordingLocationView(
+        id=location.id,
+        recording_segment_id=location.recording_segment_id,
+        storage_target_id=location.storage_target_id,
+        storage_target_name=target.name,
+        storage_type=target.type,
+        storage_role=target.role,
+        object_path=location.object_path,
+        state=location.state,
+        size_bytes=location.size_bytes,
+        checksum=location.checksum,
+        verified_at=location.verified_at,
+        created_at=location.created_at,
+        deleted_at=location.deleted_at,
+    )
+
+
+def _require_segment_scope(
+    *,
+    context: AuthContext,
+    session: Session,
+    camera_id: uuid.UUID,
+) -> None:
+    scope = get_effective_camera_scope(context, session)
+    if not scope.allows(camera_id):
+        raise ApiError(
+            status_code=404,
+            code="recording_not_found",
+            message="Recording segment was not found.",
+        )
 
 
 def _trigger_view(
@@ -518,6 +578,106 @@ def stop_recording_trigger(
         ) from exc
 
     return _trigger_view(trigger)
+
+
+
+
+@router.get(
+    "/cameras/{camera_id}/recordings",
+    response_model=RecordingSegmentPage,
+)
+def list_camera_recordings(
+    camera_id: uuid.UUID,
+    from_at: datetime | None = Query(
+        default=None,
+        alias="from",
+    ),
+    to_at: datetime | None = Query(
+        default=None,
+        alias="to",
+    ),
+    cursor: str | None = None,
+    limit: int = 100,
+    _context: AuthContext = Depends(
+        require_camera_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> RecordingSegmentPage:
+    CameraService.get_camera(session, camera_id)
+    start_at = (
+        _normalized_utc(from_at, field_name="from")
+        if from_at is not None
+        else None
+    )
+    end_at = (
+        _normalized_utc(to_at, field_name="to")
+        if to_at is not None
+        else None
+    )
+    page = RecordingCatalogQueryService.list_camera(
+        session,
+        camera_id=camera_id,
+        start_at=start_at,
+        end_at=end_at,
+        cursor=cursor,
+        limit=limit,
+    )
+    return RecordingSegmentPage(
+        items=[_segment_view(item) for item in page.items],
+        next_cursor=page.next_cursor,
+    )
+
+
+@router.get(
+    "/recordings/{segment_id}",
+    response_model=RecordingSegmentView,
+)
+def get_recording_segment(
+    segment_id: uuid.UUID,
+    context: AuthContext = Depends(
+        require_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> RecordingSegmentView:
+    segment = RecordingCatalogQueryService.get_segment(
+        session,
+        segment_id,
+    )
+    _require_segment_scope(
+        context=context,
+        session=session,
+        camera_id=segment.camera_id,
+    )
+    return _segment_view(segment)
+
+
+@router.get(
+    "/recordings/{segment_id}/locations",
+    response_model=list[RecordingLocationView],
+)
+def get_recording_locations(
+    segment_id: uuid.UUID,
+    context: AuthContext = Depends(
+        require_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[RecordingLocationView]:
+    segment = RecordingCatalogQueryService.get_segment(
+        session,
+        segment_id,
+    )
+    _require_segment_scope(
+        context=context,
+        session=session,
+        camera_id=segment.camera_id,
+    )
+    return [
+        _location_view(item)
+        for item in RecordingCatalogQueryService.locations(
+            session,
+            segment_id=segment_id,
+        )
+    ]
 
 
 @router.get(
