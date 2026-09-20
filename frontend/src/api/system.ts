@@ -165,6 +165,24 @@ export interface FrigateProviderPut {
   replace_credentials: boolean
 }
 
+export interface ConfigurationCredentialRequirement {
+  section: string
+  resource_type: string
+  resource_id: string | null
+  name: string | null
+  credential: string
+}
+
+export interface ConfigurationImportValidation {
+  valid: true
+  format: "zero-nvr.configuration"
+  format_version: 1
+  source_application_version: string | null
+  section_counts: Record<string, number>
+  credentials_required: ConfigurationCredentialRequirement[]
+  warnings: string[]
+}
+
 export interface BackupPolicy {
   id: string
   name: string
@@ -560,6 +578,18 @@ export function backfillFrigate(
     {
       method: "POST",
       json: { lookback_seconds: lookbackSeconds }
+    }
+  )
+}
+
+export function validateConfigurationImport(
+  bundle: Record<string, unknown>
+): Promise<ConfigurationImportValidation> {
+  return apiRequest<ConfigurationImportValidation>(
+    "/system/configuration/import/validate",
+    {
+      method: "POST",
+      json: { bundle }
     }
   )
 }

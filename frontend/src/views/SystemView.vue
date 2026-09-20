@@ -40,12 +40,14 @@ import {
   testNotificationTarget,
   updateBackupPolicy,
   updateNotificationTarget,
+  validateConfigurationImport,
   verifyBackup,
   type AuditEvent,
   type BackupPolicy,
   type CameraClockHealth,
   type CameraNtpApplyResult,
   type BackupSet,
+  type ConfigurationImportValidation,
   type FrigateCameraMapping,
   type HealthComponent,
   type NotificationDelivery,
@@ -126,6 +128,10 @@ const editingBackupPolicy = ref<BackupPolicy | null>(null)
 const backupSaving = ref(false)
 const runningBackupId = ref<string | null>(null)
 const verifyingBackupId = ref<string | null>(null)
+const configImportInput = ref<HTMLInputElement | null>(null)
+const configImportValidation = ref<ConfigurationImportValidation | null>(null)
+const configImportValidating = ref(false)
+const configImportFileName = ref<string | null>(null)
 const backupForm = reactive({
   name: "System backup",
   repository: "",
@@ -232,6 +238,56 @@ function exportConfiguration(): void {
   window.location.assign(
     "/api/v1/system/configuration/export"
   )
+}
+
+function openConfigurationValidation(): void {
+  configImportInput.value?.click()
+}
+
+async function handleConfigurationFile(
+  event: Event
+): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ""
+  if (!file) return
+
+  error.value = null
+  notice.value = null
+  configImportValidation.value = null
+  configImportFileName.value = file.name
+
+  if (file.size > 5 * 1024 * 1024) {
+    error.value =
+      "Configuration file is too large. The validation limit is 5 MB."
+    return
+  }
+
+  configImportValidating.value = true
+  try {
+    const parsed: unknown = JSON.parse(
+      await file.text()
+    )
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      throw new Error(
+        "Configuration file must contain a JSON object."
+      )
+    }
+    configImportValidation.value =
+      await validateConfigurationImport(
+        parsed as Record<string, unknown>
+      )
+    notice.value =
+      "Configuration bundle is valid. Validation did not apply any changes."
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    configImportValidating.value = false
+  }
 }
 
 function statusClass(value: string): string {
@@ -1477,6 +1533,26 @@ onBeforeUnmount(() => {
             v-if="auth.hasPermission('system.manage')"
             class="system-page-actions"
           >
+            <input
+              ref="configImportInput"
+              type="file"
+              accept=".json,application/json"
+              hidden
+              @change="handleConfigurationFile"
+            />
+            <button
+              class="button button--ghost"
+              type="button"
+              :disabled="configImportValidating"
+              @click="openConfigurationValidation"
+            >
+              <UiIcon name="check" :size="14" />
+              {{
+                configImportValidating
+                  ? "Validating…"
+                  : "Validate import"
+              }}
+            </button>
             <button
               class="button button--ghost"
               type="button"
@@ -1495,6 +1571,124 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </header>
+
+        <section
+          v-if="configImportValidation"
+          class="backup-policy-card"
+        >
+          <div class="backup-policy-card__top">
+            <div>
+              <strong>Configuration import preflight</strong>
+              <span>
+                {{
+                  configImportFileName
+                    ? `${configImportFileName} · validation only`
+                    : "Validation only"
+                }}
+              </span>
+            </div>
+            <span class="status-pill status-pill--ok">
+              Valid
+            </span>
+          </div>
+
+          <div class="system-summary-grid">
+            <div>
+              <span>Format</span>
+              <strong>
+                {{ configImportValidation.format }} v{{
+                  configImportValidation.format_version
+                }}
+              </strong>
+            </div>
+            <div>
+              <span>Source version</span>
+              <strong>
+                {{
+                  configImportValidation.source_application_version ||
+                  "Unknown"
+                }}
+              </strong>
+            </div>
+            <div>
+              <span>Credentials required</span>
+              <strong>
+                {{
+                  configImportValidation.credentials_required.length
+                }}
+              </strong>
+            </div>
+          </div>
+
+          <div class="system-table-wrap">
+            <table class="system-table">
+              <thead>
+                <tr>
+                  <th>Section</th>
+                  <th>Resources</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(count, sectionName) in configImportValidation.section_counts"
+                  :key="sectionName"
+                >
+                  <td>{{ pretty(String(sectionName)) }}</td>
+                  <td>{{ count }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            v-if="configImportValidation.credentials_required.length"
+            class="system-table-wrap"
+          >
+            <table class="system-table">
+              <thead>
+                <tr>
+                  <th>Credential to re-enter</th>
+                  <th>Resource</th>
+                  <th>Section</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr
+                  v-for="(item, index) in configImportValidation.credentials_required"
+                  :key="`${item.section}-${item.resource_id || index}-${item.credential}`"
+                >
+                  <td>{{ pretty(item.credential) }}</td>
+                  <td>
+                    <strong>
+                      {{ item.name || pretty(item.resource_type) }}
+                    </strong>
+                    <small v-if="item.resource_id">
+                      {{ item.resource_id }}
+                    </small>
+                  </td>
+                  <td>{{ pretty(item.section) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div
+            v-for="warning in configImportValidation.warnings"
+            :key="warning"
+            class="storage-notice"
+          >
+            <UiIcon name="warning" :size="14" />
+            <span>{{ warning }}</span>
+          </div>
+
+          <div class="storage-notice">
+            <UiIcon name="check" :size="14" />
+            <span>
+              No configuration was changed. Applying an import is a
+              separate operation.
+            </span>
+          </div>
+        </section>
 
         <div class="backup-policy-grid">
           <article
