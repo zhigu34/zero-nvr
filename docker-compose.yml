@@ -1,0 +1,102 @@
+name: zero-nvr
+
+x-zero-nvr-common: &zero-nvr-common
+  image: ${ZERO_NVR_IMAGE:-zero-nvr:local}
+  build:
+    context: .
+    dockerfile: backend/Dockerfile
+  env_file:
+    - .env
+  environment:
+    ZERO_NVR_DATA_DIR: /var/lib/zero-nvr
+    ZERO_NVR_CACHE_DIR: /var/cache/zero-nvr
+    ZERO_NVR_RECORDINGS_DIR: /recordings
+    ZERO_NVR_PREBUFFER_DIR: /prebuffer
+    ZERO_NVR_HUEY_DB_PATH: /var/lib/zero-nvr/huey.db
+    ZERO_NVR_DEPLOYMENT_CONFIG_DIR: /config/deployment
+    ZERO_NVR_ZLM_BASE_URL: http://zlmediakit
+    ZERO_NVR_ZLM_RTSP_BASE_URL: rtsp://zlmediakit:554
+  volumes:
+    - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}:/var/lib/zero-nvr
+    - ${ZERO_NVR_CACHE_PATH:-./data/cache}:/var/cache/zero-nvr
+    - ${ZERO_NVR_RECORDINGS_PATH:-./data/recordings}:/recordings
+    - zero-nvr-prebuffer:/prebuffer
+    - ./deploy:/config/deployment:ro
+  restart: unless-stopped
+  networks:
+    - zero-nvr
+
+services:
+  zero-nvr:
+    <<: *zero-nvr-common
+    command:
+      - sh
+      - -ec
+      - |
+        alembic upgrade head
+        exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "${ZERO_NVR_API_PORT:-8000}:8000"
+    depends_on:
+      zlmediakit:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - curl
+        - -fsS
+        - http://127.0.0.1:8000/health
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  zero-nvr-worker:
+    <<: *zero-nvr-common
+    command:
+      - sh
+      - -ec
+      - |
+        exec huey_consumer.py app.worker.consumer.huey --workers "${ZERO_NVR_HUEY_WORKERS:-2}"
+    depends_on:
+      zero-nvr:
+        condition: service_healthy
+
+  zlmediakit:
+    image: ${ZERO_NVR_ZLM_IMAGE:-zlmediakit/zlmediakit:master}
+    env_file:
+      - .env
+    volumes:
+      - ./deploy/zlm/config.ini:/opt/media/conf/config.ini:ro
+      - ${ZERO_NVR_RECORDINGS_PATH:-./data/recordings}:/recordings
+      - zero-nvr-prebuffer:/prebuffer
+    ports:
+      - "${ZERO_NVR_ZLM_HTTP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_HTTP_PORT:-8080}:80"
+      - "${ZERO_NVR_ZLM_RTSP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_RTSP_PORT:-8554}:554"
+      - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}:8000/udp"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          curl -fsS -X POST
+          --data-urlencode "secret=$$ZERO_NVR_ZLM_API_SECRET"
+          http://127.0.0.1/index/api/version >/dev/null
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - zero-nvr
+
+volumes:
+  zero-nvr-prebuffer:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=${ZERO_NVR_PREBUFFER_SIZE:-512m},mode=1770"
+
+networks:
+  zero-nvr:
+    driver: bridge
