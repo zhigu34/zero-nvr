@@ -4,17 +4,17 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.recordings.models import (
-    RecordingLocation,
     RecordingPolicy,
     RecordingSegment,
     RecordingTrigger,
 )
+from app.modules.storage.models import RecordingLocation
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 
@@ -38,6 +38,12 @@ class CatalogIngestResult:
 
 
 class RecordingCatalogService:
+    """Canonical finalized-recording ingestion.
+
+    Continuity proof is deliberately supplied as an in-memory previous segment
+    id. No continuity/session runtime identity is persisted in the catalog.
+    """
+
     expected_app = "zero-nvr"
     stream_prefix = "profile-"
 
@@ -77,7 +83,7 @@ class RecordingCatalogService:
         if (
             policy is not None
             and policy.enabled
-            and policy.mode == "CONTINUOUS"
+            and policy.baseline_mode == "continuous"
         ):
             reasons.add("continuous")
 
@@ -87,7 +93,10 @@ class RecordingCatalogService:
                 RecordingTrigger.camera_id == camera_id,
                 RecordingTrigger.state.notin_(["CANCELLED", "FAILED"]),
                 RecordingTrigger.planned_start_at < ended_at,
-                RecordingTrigger.planned_end_at > started_at,
+                or_(
+                    RecordingTrigger.planned_end_at.is_(None),
+                    RecordingTrigger.planned_end_at > started_at,
+                ),
             )
             .limit(1)
         )
@@ -101,33 +110,23 @@ class RecordingCatalogService:
         session: Session,
         *,
         profile_id: uuid.UUID,
-        continuity_id: uuid.UUID,
+        previous_segment_id: uuid.UUID,
         boundary_at: datetime,
     ) -> RecordingSegment | None:
-        previous = session.scalar(
-            select(RecordingSegment)
-            .where(
-                RecordingSegment.stream_profile_id == profile_id,
-                RecordingSegment.continuity_id == continuity_id,
-                RecordingSegment.timing_status == "PROVISIONAL",
-            )
-            .order_by(
-                RecordingSegment.created_at.desc(),
-                RecordingSegment.id.desc(),
-            )
-            .limit(1)
-        )
+        previous = session.get(RecordingSegment, previous_segment_id)
         if previous is None:
+            return None
+        if previous.stream_profile_id != profile_id:
+            return None
+        if previous.timing_status != "PROVISIONAL":
+            return None
+        if boundary_at <= previous.started_at:
             return None
 
         normalized_started = boundary_at - timedelta(
             milliseconds=previous.duration_ms
         )
         if normalized_started >= boundary_at:
-            return None
-
-        # A backwards boundary is not proof of continuity timing.
-        if boundary_at <= previous.started_at:
             return None
 
         previous.started_at = normalized_started
@@ -137,49 +136,13 @@ class RecordingCatalogService:
         session.flush()
         return previous
 
-    @staticmethod
-    def finalize_continuity_tail(
-        session: Session,
-        *,
-        continuity_id: uuid.UUID,
-        boundary_at: datetime,
-        timing_source: str = "SOURCE_UNREGISTER",
-    ) -> RecordingSegment | None:
-        segment = session.scalar(
-            select(RecordingSegment)
-            .where(
-                RecordingSegment.continuity_id == continuity_id,
-                RecordingSegment.timing_status == "PROVISIONAL",
-            )
-            .order_by(
-                RecordingSegment.created_at.desc(),
-                RecordingSegment.id.desc(),
-            )
-            .limit(1)
-        )
-        if segment is None or boundary_at <= segment.started_at:
-            return None
-
-        started_at = boundary_at - timedelta(
-            milliseconds=segment.duration_ms
-        )
-        if started_at >= boundary_at:
-            return None
-
-        segment.started_at = started_at
-        segment.ended_at = boundary_at
-        segment.timing_status = "FINAL"
-        segment.timing_source = timing_source
-        session.flush()
-        return segment
-
     @classmethod
     def ingest_finalized(
         cls,
         session: Session,
         *,
         evidence: FinalizedRecordingEvidence,
-        continuity_id: uuid.UUID | None,
+        previous_segment_id: uuid.UUID | None = None,
     ) -> CatalogIngestResult:
         if evidence.app != cls.expected_app:
             return CatalogIngestResult(
@@ -233,7 +196,8 @@ class RecordingCatalogService:
                 exc.code == "recording_file_outside_target"
                 and policy is not None
                 and policy.enabled
-                and policy.mode == "EVENT_ONLY"
+                and policy.baseline_mode == "disabled"
+                and policy.event_recording_enabled
             ):
                 return CatalogIngestResult(
                     segment=None,
@@ -284,11 +248,11 @@ class RecordingCatalogService:
         )
         raw_ended = raw_started + timedelta(milliseconds=duration_ms)
 
-        if continuity_id is not None:
+        if previous_segment_id is not None:
             cls._finalize_previous_from_boundary(
                 session,
                 profile_id=profile.id,
-                continuity_id=continuity_id,
+                previous_segment_id=previous_segment_id,
                 boundary_at=raw_started,
             )
 
@@ -305,7 +269,9 @@ class RecordingCatalogService:
             started_at=raw_started,
             ended_at=raw_ended,
             duration_ms=duration_ms,
-            recording_reasons=reasons,
+            timing_status="PROVISIONAL",
+            timing_source="HOOK_RAW",
+            recording_reasons_json=reasons,
             size_bytes=evidence.file_size,
             codec=profile.codec,
             container="fmp4",
@@ -314,9 +280,6 @@ class RecordingCatalogService:
             source_stream=evidence.stream,
             integrity_status="UNKNOWN",
             completion_reason="NORMAL",
-            timing_status="PROVISIONAL",
-            timing_source="HOOK_RAW",
-            continuity_id=continuity_id,
         )
         session.add(segment)
         session.flush()
