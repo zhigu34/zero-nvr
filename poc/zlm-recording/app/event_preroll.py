@@ -27,6 +27,9 @@ SEGMENT_SECONDS = int(os.getenv("POC_PREBUFFER_SEGMENT_SECONDS", "5"))
 PRE_ROLL_SECONDS = int(os.getenv("POC_PRE_ROLL_SECONDS", "10"))
 POST_ROLL_SECONDS = int(os.getenv("POC_POST_ROLL_SECONDS", "10"))
 BUFFER_SECONDS = int(os.getenv("POC_BUFFER_SECONDS", "35"))
+PREBUFFER_LIMIT_BYTES = int(
+    os.getenv("POC_PREBUFFER_TMPFS_BYTES", "268435456")
+)
 
 # Trigger clusters exercise both overlap/extension and idle-buffer recovery.
 # The full run is intentionally long enough to cross many fragment boundaries.
@@ -228,7 +231,7 @@ def promote(
         raise AssertionError(f"promoted media has invalid duration: {src}")
 
     # Publish only after the copy is fully written and inspected.
-    with partial.open("rb") as handle:
+    with partial.open("rb+") as handle:
         os.fsync(handle.fileno())
     os.replace(partial, final)
 
@@ -404,7 +407,14 @@ def main() -> None:
             timeout=max(75, SEGMENT_SECONDS * 12),
         )
         evidence["warmup_fragments"] = warm
-        evidence["tmpfs_capacity"] = tmpfs_capacity()
+        capacity = tmpfs_capacity()
+        evidence["tmpfs_capacity"] = capacity
+        evidence["configured_tmpfs_limit_bytes"] = PREBUFFER_LIMIT_BYTES
+        if capacity["total_bytes"] > int(PREBUFFER_LIMIT_BYTES * 1.05):
+            raise AssertionError(
+                "prebuffer filesystem is not bounded to the configured tmpfs size: "
+                f"{capacity['total_bytes']} > {PREBUFFER_LIMIT_BYTES}"
+            )
 
         test_epoch = time.time()
         next_trigger = 0
@@ -492,6 +502,30 @@ def main() -> None:
         if len(promoted) != len({item["persistent_path"] for item in promoted.values()}):
             raise AssertionError("duplicate persistent promotion path detected")
 
+        multi_event_fragments = []
+        for item in promoted.values():
+            overlap_ids = [
+                event["id"]
+                for event in events
+                if item["start"] < event["required_end"]
+                and item["end"] > event["required_start"]
+            ]
+            if len(overlap_ids) > 1:
+                multi_event_fragments.append(
+                    {"path": item["path"], "event_ids": overlap_ids}
+                )
+        if not multi_event_fragments:
+            raise AssertionError(
+                "no promoted fragment overlapped multiple Events; "
+                "POC-04 deduplication was not exercised"
+            )
+
+        if max_tmpfs_bytes > PREBUFFER_LIMIT_BYTES:
+            raise AssertionError(
+                f"tmpfs usage exceeded configured bound: "
+                f"{max_tmpfs_bytes} > {PREBUFFER_LIMIT_BYTES}"
+            )
+
         # Ephemeral fragments must not have become canonical recording rows in
         # the normal POC catalog merely because they existed in tmpfs.
         canonical = request_json(f"{API}/debug/segments")["items"]
@@ -527,6 +561,7 @@ def main() -> None:
                 "coverage_checks": coverage_checks,
                 "promoted_count": len(promoted),
                 "promoted": list(promoted.values()),
+                "multi_event_fragments": multi_event_fragments,
                 "gc_removed_count": len(set(gc_removed)),
                 "max_tmpfs_bytes": max_tmpfs_bytes,
                 "fragment_duration_seconds": fragment_durations,
