@@ -39,16 +39,30 @@ docker compose exec -T poc-api python /app/timeline_playback.py prepare
 OUTAGE_START=$(docker compose exec -T poc-api python -c 'import time; print(time.time())')
 echo "Killing MediaMTX to create a real source outage..."
 docker compose kill -s KILL mediamtx
+
+echo "Waiting for ZLM on_stream_changed regist=false..."
+SOURCE_LOST_AT=$(docker compose exec -T poc-api python /app/timeline_playback.py wait-transition \
+  --regist 0 \
+  --after "$OUTAGE_START")
+
+echo "Holding the ZLM-observed source-lost state for 8 seconds..."
 sleep 8
 
+OUTAGE_END=$(docker compose exec -T poc-api python -c 'import time; print(time.time())')
 echo "Restarting MediaMTX synthetic camera source..."
 docker compose up -d mediamtx
-OUTAGE_END=$(docker compose exec -T poc-api python -c 'import time; print(time.time())')
+
+echo "Waiting for ZLM on_stream_changed regist=true..."
+SOURCE_RECOVERED_AT=$(docker compose exec -T poc-api python /app/timeline_playback.py wait-transition \
+  --regist 1 \
+  --after "$SOURCE_LOST_AT")
 
 echo "Verifying post-outage timeline and ZLM VOD seek..."
 docker compose exec -T poc-api python /app/timeline_playback.py verify \
   --outage-start "$OUTAGE_START" \
-  --outage-end "$OUTAGE_END"
+  --outage-end "$OUTAGE_END" \
+  --source-lost-at "$SOURCE_LOST_AT" \
+  --source-recovered-at "$SOURCE_RECOVERED_AT"
 
 collect_evidence
 
