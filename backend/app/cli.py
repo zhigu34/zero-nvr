@@ -13,6 +13,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 from sqlalchemy import select
@@ -23,6 +24,7 @@ from app.core.db import (
     assert_database_schema_current,
     database_schema_status,
 )
+from app.core.db.transfer import DatabaseTransferService
 from app.core.db.types import utc_now
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
@@ -117,6 +119,140 @@ def check_schema_command(
         return 0
     finally:
         database.close()
+
+
+def _alembic_upgrade_database_url(
+    database_url: str,
+) -> None:
+    root = (
+        Path(__file__)
+        .resolve()
+        .parents[1]
+    )
+    config = Config(
+        str(root / "alembic.ini")
+    )
+    config.set_main_option(
+        "script_location",
+        str(root / "alembic"),
+    )
+
+    previous = os.environ.get(
+        "ZERO_NVR_DATABASE_URL"
+    )
+    os.environ[
+        "ZERO_NVR_DATABASE_URL"
+    ] = database_url
+    try:
+        command.upgrade(
+            config,
+            "head",
+        )
+    finally:
+        if previous is None:
+            os.environ.pop(
+                "ZERO_NVR_DATABASE_URL",
+                None,
+            )
+        else:
+            os.environ[
+                "ZERO_NVR_DATABASE_URL"
+            ] = previous
+
+
+def database_transfer_command(
+    args: argparse.Namespace,
+) -> int:
+    target_env = (
+        args.target_url_env.strip()
+    )
+    if not target_env:
+        raise RuntimeError(
+            "target database URL environment variable name is required"
+        )
+
+    target_url = (
+        os.environ.get(target_env) or ""
+    ).strip()
+    if not target_url:
+        raise RuntimeError(
+            f"target database URL environment variable is empty: {target_env}"
+        )
+
+    settings, source = _settings_database()
+    target_settings = settings.model_copy(
+        update={
+            "database_url": target_url,
+        }
+    )
+    target = Database(target_settings)
+
+    try:
+        source_backend = (
+            source.url.get_backend_name()
+        )
+        target_backend = (
+            target.url.get_backend_name()
+        )
+        source_backend = (
+            "postgresql"
+            if source_backend
+            in {"postgres", "postgresql"}
+            else source_backend
+        )
+        target_backend = (
+            "postgresql"
+            if target_backend
+            in {"postgres", "postgresql"}
+            else target_backend
+        )
+
+        if (
+            source_backend
+            == target_backend
+            and not args.allow_same_backend
+        ):
+            raise RuntimeError(
+                "database transfer target backend must differ from the active backend"
+            )
+
+        source.ping()
+        _alembic_upgrade_database_url(
+            target_url
+        )
+        target.initialize_runtime()
+        target.ping()
+
+        result = DatabaseTransferService(
+            batch_size=args.batch_size
+        ).transfer(
+            source=source,
+            target=target,
+        )
+        print(
+            json.dumps(
+                {
+                    "transferred": True,
+                    "source_backend": (
+                        result.source_backend
+                    ),
+                    "target_backend": (
+                        result.target_backend
+                    ),
+                    "total_rows": (
+                        result.total_rows
+                    ),
+                    "table_counts": (
+                        result.table_counts
+                    ),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        target.close()
+        source.close()
 
 
 def recovery_env_command(
@@ -976,6 +1112,28 @@ def build_parser() -> argparse.ArgumentParser:
     )
     schema.set_defaults(
         handler=check_schema_command
+    )
+
+    transfer = sub.add_parser(
+        "database-transfer"
+    )
+    transfer.add_argument(
+        "--target-url-env",
+        default=(
+            "ZERO_NVR_DATABASE_MIGRATION_TARGET_URL"
+        ),
+    )
+    transfer.add_argument(
+        "--batch-size",
+        type=int,
+        default=500,
+    )
+    transfer.add_argument(
+        "--allow-same-backend",
+        action="store_true",
+    )
+    transfer.set_defaults(
+        handler=database_transfer_command
     )
 
     recovery = sub.add_parser(
