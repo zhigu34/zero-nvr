@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import select
@@ -320,3 +320,81 @@ class RecordingPolicyService:
         policy.enabled = bool(values["enabled"])
         session.flush()
         return policy
+
+
+
+    @classmethod
+    def next_baseline_transition(
+        cls,
+        policy: RecordingPolicy,
+        *,
+        after: datetime,
+    ) -> datetime | None:
+        """Return the next UTC wall-clock schedule boundary.
+
+        Only the next boundary is scheduled. The Huey task schedules its
+        successor after it runs, so no custom scheduler/session table exists.
+        """
+
+        if (
+            not policy.enabled
+            or policy.baseline_mode != "schedule"
+            or not policy.schedule_timezone
+        ):
+            return None
+
+        windows = cls.validate_schedule(
+            baseline_mode=policy.baseline_mode,
+            schedule_json=policy.schedule_json or {},
+            schedule_timezone=policy.schedule_timezone,
+        )
+        zone = ZoneInfo(policy.schedule_timezone)
+        local_after = after.astimezone(zone)
+        start_date = local_after.date()
+
+        def wall_clock(
+            day: date,
+            value: time,
+        ) -> datetime:
+            candidate = datetime.combine(
+                day,
+                value,
+                tzinfo=zone,
+            )
+            # Normalize imaginary local times (spring DST gap) to the first
+            # representable local instant selected by zoneinfo round-trip.
+            roundtrip = candidate.astimezone(UTC).astimezone(zone)
+            if (
+                roundtrip.date() != day
+                or roundtrip.replace(tzinfo=None).time() != value
+            ):
+                candidate = roundtrip
+            return candidate
+
+        candidates: list[datetime] = []
+        for offset in range(0, 9):
+            day = start_date + timedelta(days=offset)
+            weekday = day.weekday()
+
+            for window in windows:
+                if weekday not in window.days:
+                    continue
+
+                start_local = wall_clock(day, window.start)
+                candidates.append(start_local.astimezone(UTC))
+
+                end_day = (
+                    day
+                    if window.start < window.end
+                    else day + timedelta(days=1)
+                )
+                end_local = wall_clock(end_day, window.end)
+                candidates.append(end_local.astimezone(UTC))
+
+        after_utc = after.astimezone(UTC)
+        future = sorted(
+            candidate
+            for candidate in candidates
+            if candidate > after_utc
+        )
+        return future[0] if future else None
