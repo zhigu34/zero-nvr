@@ -198,6 +198,8 @@ remote RecordingLocation
 
 The V1 baseline does not require FUSE/rclone mount. Mount/VFS/serve-http streaming may be added later as an optimization after compatibility validation.
 
+This baseline path is validated by [POC-07 — Remote Restore Playback](poc-results/07-remote-restore.md): interrupted restore/retry, bounded byte-size cache eviction, ZLM VOD playback, next-segment prefetch, and isolation of remote failure from local recording all passed.
+
 ## Time model
 
 - persisted canonical timestamps: UTC;
