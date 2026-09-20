@@ -1,3 +1,12 @@
+FROM node:22-bookworm-slim AS frontend-builder
+
+WORKDIR /frontend
+COPY frontend/package.json /frontend/package.json
+RUN npm install --no-audit --no-fund
+COPY frontend /frontend
+RUN npm run build
+
+
 FROM python:3.13-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -23,6 +32,7 @@ COPY backend/pyproject.toml /app/pyproject.toml
 COPY backend/app /app/app
 COPY backend/alembic /app/alembic
 COPY backend/alembic.ini /app/alembic.ini
+COPY --from=frontend-builder /frontend/dist /app/frontend
 
 RUN python -m pip install --upgrade pip \
     && python -m pip install .

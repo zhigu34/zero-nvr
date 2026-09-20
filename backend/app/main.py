@@ -11,6 +11,7 @@ from app.core.db import Database
 from app.core.errors import install_error_handlers
 from app.core.events import RuntimeEventBus
 from app.core.logging import configure_logging
+from app.frontend import mount_frontend
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
 from app.modules.backups.dispatcher import BackupTaskDispatcher
@@ -97,8 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response = await call_next(request)
         response.headers["x-request-id"] = request_id
         if (
-            request.method
-            in {"POST", "PUT", "PATCH", "DELETE"}
+            request.method in {"POST", "PUT", "PATCH", "DELETE"}
             and request.url.path.startswith("/api/v1/")
             and response.status_code < 400
         ):
@@ -119,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(api_v1_router)
     app.include_router(internal_router)
     install_error_handlers(app)
+    mount_frontend(app)
     return app
 
 

@@ -1,61 +1,66 @@
 # Frontend
 
-The frontend is the Vue 3 zero-nvr management and playback UI.
+The frontend is the Vue 3 + TypeScript zero-nvr management and playback UI.
 
-## Top-level information architecture
+## Toolchain
 
-~~~text
-Dashboard
-Live
-Playback
-Events
-Cameras
-Storage
-System
+- Vue 3
+- TypeScript
+- Vite
+- Vue Router
+- Pinia
+
+The browser talks only to the same-origin zero-nvr `/api/v1` surface. It never receives source-camera credentials and never directly administers ZLMediaKit, Frigate, rclone, OpenList, or the database.
+
+## Development
+
+Run the backend on port 8000, then:
+
+~~~bash
+cd frontend
+npm install
+npm run dev
 ~~~
 
-Alerts are available through the global bell/drawer and contextual views rather than needing another permanent top-level section.
+The Vite dev server proxies `/api`, `/health`, and `/internal` to the local FastAPI process.
 
-Users/RBAC, notifications, AI, integrations, backup, health and audit live under System.
+Validation:
 
-## Trust boundary
-
-The browser calls only:
-
-~~~text
-/api/v1
+~~~bash
+npm run typecheck
+npm run build
 ~~~
 
-It never receives camera credentials and never directly administers:
+## Production packaging
 
-- ZLMediaKit;
-- Frigate;
-- rclone;
-- OpenList;
-- PostgreSQL/SQLite.
+`backend/Dockerfile` builds this app in a Node build stage and copies only `frontend/dist` into the final zero-nvr Python image.
 
-Live and historical playback use short-lived descriptors returned after zero-nvr authorization.
+FastAPI mounts that static bundle only when it exists, so local backend development and backend tests do not require Node.
 
-## State management
+This preserves the frozen Core deployment boundary:
 
-Pinia should hold small client/UI state such as:
+~~~text
+Image: zero-nvr
+  ├─ zero-nvr API + web assets
+  └─ zero-nvr worker
 
-- authenticated-user/session summary;
-- work-context tabs;
-- live layout;
-- UI preferences;
-- small cached settings.
+Image: ZLMediaKit
+  └─ zlmediakit
+~~~
 
-Do not clone the entire backend database into one global store.
+No dedicated frontend container is introduced.
 
-## Player boundary
+## Current UI slice
 
-Player adapters may include:
+The first frontend slice includes:
 
-- WebRTC/ZLM;
-- native browser MP4/fMP4/HLS;
-- Jessibuca or another mature compatibility player.
+- first-run administrator creation;
+- local session login/logout;
+- protected-route bootstrap;
+- responsive application shell;
+- Dashboard capability health and camera inventory;
+- Camera inventory;
+- authenticated SSE refresh hints;
+- route placeholders for Live, Playback, Events, Storage and System.
 
-The backend PlaybackResolver / live resolver determines the descriptor and storage/media path.
-
-See [V1 API / Module Freeze](../docs/plans/03-v1-api-module-freeze.md).
+The remaining workspaces should be implemented against existing `/api/v1` contracts rather than bypassing the control plane.
