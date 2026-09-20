@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     recordings_dir: Path = Path("/recordings")
     prebuffer_dir: Path = Path("/prebuffer")
     prebuffer_fragment_seconds: int = 5
+    prebuffer_buffer_seconds: int = 35
+    prebuffer_require_tmpfs: bool = True
+    huey_db_path: Path = Path("/var/lib/zero-nvr/huey.db")
 
     database_url: str | None = None
     sqlite_busy_timeout_ms: int = 5000
@@ -94,6 +97,15 @@ class Settings(BaseSettings):
         if value < 2 or value > 30:
             raise ValueError(
                 "ZERO_NVR_PREBUFFER_FRAGMENT_SECONDS must be between 2 and 30"
+            )
+        return value
+
+    @field_validator("prebuffer_buffer_seconds")
+    @classmethod
+    def validate_prebuffer_buffer_seconds(cls, value: int) -> int:
+        if value < 10 or value > 600:
+            raise ValueError(
+                "ZERO_NVR_PREBUFFER_BUFFER_SECONDS must be between 10 and 600"
             )
         return value
 
