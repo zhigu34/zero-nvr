@@ -170,3 +170,16 @@ class OnvifInspectionView(BaseModel):
     device: OnvifDeviceInfoView
     capabilities: list[str]
     profiles: list[OnvifProfileView]
+
+
+class OnvifCameraImportInput(OnvifCameraTestInput):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    location: str | None = Field(default=None, max_length=256)
+    storage_label: str | None = Field(default=None, max_length=128)
+    profile_tokens: list[str] | None = None
+    discovery_candidate_id: uuid.UUID | None = None
+
+
+class OnvifImportResult(BaseModel):
+    device_id: uuid.UUID
+    cameras: list[CameraDetail]
