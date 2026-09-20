@@ -37,6 +37,9 @@ from app.modules.backups.service import BackupPolicyService
 from app.modules.backups.database_snapshot import (
     DatabaseSnapshotService,
 )
+from app.modules.system.benchmark import (
+    ReleaseBenchmarkService,
+)
 
 
 def _settings_database() -> tuple[Settings, Database]:
@@ -547,6 +550,70 @@ def safety_snapshot_command(
             )
         )
         return 0
+    finally:
+        database.close()
+
+
+
+
+
+def benchmark_status_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        status = ReleaseBenchmarkService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=args.expected_cameras,
+        )
+        print(
+            json.dumps(
+                {
+                    "expected_cameras": (
+                        status.expected_cameras
+                    ),
+                    "enabled_cameras": (
+                        status.enabled_cameras
+                    ),
+                    "recording_expected_cameras": (
+                        status.recording_expected_cameras
+                    ),
+                    "record_streams_online": (
+                        status.record_streams_online
+                    ),
+                    "recorders_active": (
+                        status.recorders_active
+                    ),
+                    "passed": status.passed,
+                    "failures": list(
+                        status.failures
+                    ),
+                    "cameras": [
+                        {
+                            "camera_id": str(
+                                item.camera_id
+                            ),
+                            "name": item.name,
+                            "desired_mode": (
+                                item.desired_mode
+                            ),
+                            "stream_online": (
+                                item.stream_online
+                            ),
+                            "recording_active": (
+                                item.recording_active
+                            ),
+                            "error": item.error,
+                        }
+                        for item in status.cameras
+                    ],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if status.passed else 1
     finally:
         database.close()
 
@@ -1204,6 +1271,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.set_defaults(
         handler=safety_snapshot_command
+    )
+
+    benchmark = sub.add_parser(
+        "benchmark-status"
+    )
+    benchmark.add_argument(
+        "--expected-cameras",
+        type=int,
+        required=True,
+    )
+    benchmark.set_defaults(
+        handler=benchmark_status_command
     )
 
     reset = sub.add_parser(
