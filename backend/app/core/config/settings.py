@@ -46,6 +46,7 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 24 * 30
 
     zlm_base_url: str = "http://zlmediakit"
+    zlm_rtsp_base_url: str = "rtsp://zlmediakit:554"
     zlm_public_base_url: str = "/zlm"
     zlm_api_secret: SecretStr | None = None
     zlm_hook_secret: SecretStr | None = None
@@ -161,6 +162,20 @@ class Settings(BaseSettings):
         normalized = value.rstrip("/")
         if not normalized.startswith(("http://", "https://")):
             raise ValueError("ZERO_NVR_ZLM_BASE_URL must use http:// or https://")
+        return normalized
+
+    @field_validator("zlm_rtsp_base_url")
+    @classmethod
+    def validate_zlm_rtsp_base_url(cls, value: str) -> str:
+        normalized = value.rstrip("/")
+        if not normalized.startswith("rtsp://"):
+            raise ValueError(
+                "ZERO_NVR_ZLM_RTSP_BASE_URL must use rtsp://"
+            )
+        if "@" in normalized:
+            raise ValueError(
+                "ZERO_NVR_ZLM_RTSP_BASE_URL must not contain credentials"
+            )
         return normalized
 
     @field_validator("sqlite_synchronous")
