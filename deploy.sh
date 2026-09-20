@@ -127,6 +127,7 @@ install_stack() {
 update_stack() {
   local target_revision previous_revision
   local previous_rollback_revision previous_rollback_snapshot
+  local pending_target
   local rollback_revision="" rollback_snapshot=""
 
   preflight
@@ -137,6 +138,13 @@ update_stack() {
   previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
   previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
   previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+  pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
+
+  if valid_revision "$pending_target"; then
+    echo "error: a previous update is still marked pending: $pending_target" >&2
+    echo "run ./deploy.sh rollback before retrying update" >&2
+    return 1
+  fi
 
   SAFETY_SNAPSHOT_REL=""
   if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
@@ -144,6 +152,19 @@ update_stack() {
     create_local_safety_snapshot
   else
     echo "WARN zero-nvr image is not installed; no pre-upgrade safety snapshot created" >&2
+  fi
+
+  if valid_revision "$target_revision" \
+    && valid_revision "$previous_revision" \
+    && [[ "$previous_revision" != "$target_revision" ]] \
+    && [[ -n "$SAFETY_SNAPSHOT_REL" ]]; then
+    write_deployment_state \
+      "$previous_revision" \
+      "$previous_rollback_revision" \
+      "$previous_rollback_snapshot" \
+      "$target_revision" \
+      "$previous_revision" \
+      "$SAFETY_SNAPSHOT_REL"
   fi
 
   prepare_zlm
