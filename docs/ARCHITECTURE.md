@@ -32,9 +32,9 @@ External components are replaceable adapters. They are not authoritative busines
 
 The first production release is a complete long-term usable NVR product, not an MVP.
 
-Engineering phases only define implementation order. Known product-grade capabilities such as SMTP/password recovery, MFA, OIDC, cloud storage, ONVIF/PTZ/events, HIK, GB28181, TURN, Home Assistant/MQTT, AI integration, audit, backup/restore, metrics, and upgrade/rollback are part of the first production release.
+Engineering phases only define implementation order. V1 completeness is measured by an end-to-end usable NVR lifecycle: install, initialize, onboard cameras, live view, record, timeline/playback, events, retention/archive, notifications, user recovery, backup/restore, health, and safe upgrade.
 
-"Optional" means optional to enable or deploy. It does not mean postponed to a later product release.
+Optional integrations such as Frigate, Home Assistant/MQTT, vendor-private adapters, GB28181/WVP, Prometheus/Grafana, advanced PITR, and multi-node features do not block V1 unless an explicit product decision promotes them. "Optional" may mean deployable/enableable in V1 or a documented extension point; the release-scope spec is authoritative.
 
 See [Spec 0013 — First Production Release Scope and Completeness Policy](specs/0013-first-production-release-scope.md).
 
@@ -46,7 +46,7 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
 │ Device / Live / Timeline / Event / Storage  │
 └─────────────────────┬───────────────────────┘
                       │
-                HTTP / WebSocket
+                  HTTP / SSE
                       │
 ┌─────────────────────▼───────────────────────┐
 │            FastAPI Control Plane            │
@@ -59,8 +59,8 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
  Device Plane  Media Plane Event Plane Job Plane
        │          │          │          │
  ONVIF lib      ZLM        Native      Worker
- HIK bridge     FFmpeg     AI          Upload
- WVP optional   coturn     External    Export
+ Vendor opt.    FFmpeg     Frigate     Upload
+ GB/WVP future  coturn     External    Export
        │          │          │          Notify
        └──────────┴──────────┴──────────┘
                          │
@@ -82,9 +82,8 @@ zero-nvr supports two production database modes behind one persistence/domain co
                 DatabaseCapabilities
                 /                  \
         SQLite (default)       PostgreSQL
-        lightweight            enhanced concurrency
+        lightweight            optional scale-up
         WAL                    client/server
-        Litestream             pgBackRest
 ```
 
 SQLite is the default for single-host lightweight deployment. PostgreSQL is available for sustained higher write concurrency and larger installations. User-visible business features stay the same.
@@ -627,71 +626,49 @@ User-locked and currently writing/finalizing media is never automatically purged
 See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
 
 
-### Backup, PITR, and disaster recovery
+### Backup and disaster recovery
 
 Recording archive and system backup are separate protection layers.
 
 ```text
 Recording media
-   ↓
-archive_remote StorageTarget
-   ↓
-verified remote media
+   -> rclone archive
+   -> verified remote RecordingLocation
 
 SQLite
-   ├─ Online Backup snapshots
-   └─ Litestream continuous replica / point-in-time restore
+   -> Online Backup API
+   -> restic
 
 PostgreSQL
-   └─ pgBackRest full/diff/incr + WAL/PITR
+   -> pg_dump
+   -> restic
 
-System/SecretStore recovery
-   ↓
-BackupManifest + encrypted RecoveryKit
-   ↓
-clean-host restore
+Secret/bootstrap recovery
+   -> RecoveryKit
+   -> clean-host restore
 ```
 
-A StorageTarget may carry both `archive_remote` and `backup` roles, but recording objects and backup objects use separate prefixes, retention, and permissions.
+System backup protects metadata, configuration, encrypted credentials, and the bootstrap material required to recover them. Recording media is governed by recording/archive policy rather than copied into every system backup.
 
-SQLite scheduled snapshots use the Online Backup API and may be uploaded through generic StorageBackends. Litestream provides continuous SQLite replication/point-in-time restore on compatible targets. PostgreSQL PITR is delegated to pgBackRest. The UI exposes point-in-time recovery only when the active database backend and selected target actually support it.
+Litestream, pgBackRest, WAL/PITR, and platform snapshots are optional advanced integrations rather than V1 dependencies.
 
-System backups contain recording metadata, not a second copy of all video. After local-disk loss, restoring database + SecretStore keyring can reconnect remote StorageObjects and make cloud-only historical playback available without bulk media download.
-
-Disaster-recovery bootstrap uses an encrypted RecoveryKit so backup-target credentials and SecretStore keyring material are recoverable on a clean host without depending on the lost database.
-
-See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
+See [Spec 0015 — Backup, Disaster Recovery, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
 
 ### Upgrade, schema migration, and rollback
 
-Software upgrade and database-engine migration are separate controlled operations.
+V1 host mutation is driven by the deployment interface:
 
 ```text
-Upgrade
-  current version
-      ↓ preflight
-  verified safety backup
-      ↓
-  maintenance level
-      ↓
-  schema/data migrations
-      ↓
-  target services
-      ↓
-  health + reconciliation
-      ↓
-  commit
+./deploy.sh update
 ```
 
-Migrations are classified as additive/backward-compatible, transformed-but-compatible, or destructive/incompatible. The first two may allow binary rollback without database restore; destructive/incompatible changes require a verified pre-upgrade recovery point.
+The update path performs preflight, creates a verified database/restic safety point when required, pulls pinned images, runs Alembic migrations, starts services, checks health, and reconciles media/catalog state.
 
-SQLite upgrades use safe Online Backup snapshots plus integrity-checked migration/table-rebuild behavior where required. PostgreSQL upgrades use pgBackRest safety points and bounded/restartable migration patterns.
+SQLite uses Online Backup before incompatible migration work. PostgreSQL uses pg_dump + restic for the V1 safety point. Cross-database SQLite <-> PostgreSQL migration is a separate operation and is never silently bundled into a normal update.
 
-An application process checks application version, selected database engine, schema revision, and migration state before normal startup. Unsupported combinations enter maintenance/recovery mode or refuse normal startup with diagnostics.
+The web UI may report versions and compatibility, but it does not need Docker-socket access or a second self-update orchestrator.
 
-Cross-database SQLite ↔ PostgreSQL migration is never silently combined with a normal software update. It uses a separate DatabaseMigrationPlan, verified backup, maintenance freeze, copy/validate, explicit cutover, and rollback grace period.
-
-Database rollback never auto-deletes recording media that became newer than the restored metadata point; those objects enter the same reconciliation path as disaster recovery.
+Database rollback never auto-deletes media newer than the restored metadata point.
 
 See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](specs/0017-upgrade-migration-and-rollback.md).
 
@@ -766,29 +743,21 @@ Schedules retain local wall-clock intent through an explicit schedule timezone. 
 See [Spec 0009 — Canonical Time, Camera Clock Offset, and Timezone Handling](specs/0009-time-and-camera-clock.md).
 
 
-### Recording storage pools and failover
+### Recording storage targets
 
-Direct formal recording writes only to `recording_hot` targets grouped into a StoragePool. Remote S3/rclone/OpenList targets are asynchronous archive targets, not automatic live-recording fallbacks.
+Direct formal recording writes to an explicit local/host-mounted `StorageTarget`. zero-nvr does not create a RAID/JBOD layer, aggregate disks, or run a custom multi-disk placement scheduler.
 
 ```text
-RecordingManager
-      ↓
-StoragePlacementManager
-      ↓
-StoragePool
-  ├─ Disk A
-  └─ Disk B
-      ↓
-one sticky active target per RecordingSession
+Camera / RecordingPolicy
+        -> selected LOCAL_RECORDING StorageTarget
+        -> ZLMediaKit recorder
 ```
 
-The default `sticky_balanced` policy selects a healthy target with usable free space, then keeps that target while it remains healthy. Soft pressure may trigger a planned target change at a safe segment boundary. Hard storage failure can move recording to another target immediately, producing an explicit `storage_failure` interruption/gap while preserving RecordingIntent and RecordingSession.
+If several disks should behave as one volume, use mature host/storage tooling such as ZFS, Btrfs, LVM, mergerfs, hardware/software RAID, or a NAS filesystem and expose the resulting mounted path to zero-nvr.
 
-Recovered targets pass a stability period and do not immediately preempt a healthy current writer. Targets can also enter `draining` state for maintenance without making existing recordings unreadable.
+Multiple local StorageTargets may exist for explicit routing or migration, but V1 does not automatically balance or fail over between them. A local target failure is surfaced as recording/storage health degradation; remote S3/rclone/OpenList storage remains asynchronous archive and never becomes implicit hot-recording failover.
 
-Archive upload starts only after a local RecordingSegment is finalized. Remote archive outage never stops healthy local recording.
-
-See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](specs/0010-recording-storage-pool-and-failover.md).
+See [Spec 0010 — Recording Storage Targets and Host-Managed Storage](specs/0010-recording-storage-pool-and-failover.md).
 
 ### Recording storage layout
 
