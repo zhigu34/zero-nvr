@@ -13,6 +13,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: zero_nvr_test
+          POSTGRES_USER: zero_nvr
+          POSTGRES_PASSWORD: zero_nvr_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U zero_nvr -d zero_nvr_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
     timeout-minutes: 15
     defaults:
       run:
@@ -21,6 +35,7 @@ jobs:
     env:
       ZERO_NVR_SECRET_KEY: zero-nvr-ci-secret-key-32-bytes-minimum
       ZERO_NVR_ENVIRONMENT: test
+      ZERO_NVR_TEST_POSTGRES_URL: postgresql://zero_nvr:zero_nvr_test_password@127.0.0.1:5432/zero_nvr_test
 
     steps:
       - uses: actions/checkout@v4

@@ -32,6 +32,16 @@ if config.config_file_name is not None:
 def effective_database_url() -> str:
     explicit = os.getenv("ZERO_NVR_DATABASE_URL")
     if explicit:
+        if explicit.startswith("postgresql://"):
+            return (
+                "postgresql+psycopg://"
+                + explicit.removeprefix("postgresql://")
+            )
+        if explicit.startswith("postgres://"):
+            return (
+                "postgresql+psycopg://"
+                + explicit.removeprefix("postgres://")
+            )
         return explicit
 
     data_dir = Path(os.getenv("ZERO_NVR_DATA_DIR", "/var/lib/zero-nvr"))
