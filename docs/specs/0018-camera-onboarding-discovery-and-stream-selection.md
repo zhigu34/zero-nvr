@@ -152,8 +152,8 @@ First production release supports:
 
 ```text
 ONVIF WS-Discovery on selected local interfaces
-bounded explicit IP/CIDR probe when administrator requests it
-manual hostname/IP onboarding
+manual ONVIF hostname/IP onboarding
+manual RTSP onboarding
 manual RTSP URI onboarding
 HIK/vendor discovery/probe through adapter where supported
 GB28181 device/channel inventory through WVP integration
@@ -501,7 +501,7 @@ timestamp continuity
 short sample stability
 ```
 
-Use FFprobe/ZLMediaKit/media adapter functionality as appropriate; FastAPI does not decode frames as a media server.
+Use ONVIF profile metadata first and ZLMediaKit actual-stream state for runtime verification. FFprobe is a fallback/recovery inspection tool; FastAPI does not decode frames as a media server.
 
 ## Credential update flow
 
@@ -814,7 +814,7 @@ Secrets and credential-bearing URIs are redacted.
 
 Onboarding commits durable Device/Camera/SourceMediaProfile configuration. Long-term enable/disable/reconnect, configuration revision fencing, endpoint/credential/profile hot reconfiguration, event-subscription recovery, capability drift, and multi-channel disappearance/return behavior are defined in [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](0019-device-runtime-lifecycle-and-reconfiguration.md).
 
-Discovery/onboarding state must not be reused as the permanent runtime state machine.
+Discovery/onboarding state must not be reused as a permanent media runtime state machine. zero-nvr does not implement a generic LAN port scanner or default-password guessing workflow.
 
 
 ## Live playback role reference
