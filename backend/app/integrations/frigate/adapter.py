@@ -79,12 +79,12 @@ class FrigateHttpAdapter:
     def __exit__(self, *_exc: object) -> None:
         self.close()
 
-    def _get(
+    def _response(
         self,
         path: str,
         *,
         params: dict[str, object] | None = None,
-    ) -> Any:
+    ) -> httpx.Response:
         try:
             response = self._client.get(
                 path,
@@ -121,6 +121,18 @@ class FrigateHttpAdapter:
                 status_code=503,
             ) from exc
 
+        return response
+
+    def _get(
+        self,
+        path: str,
+        *,
+        params: dict[str, object] | None = None,
+    ) -> Any:
+        response = self._response(
+            path,
+            params=params,
+        )
         try:
             return response.json()
         except ValueError as exc:
@@ -130,24 +142,10 @@ class FrigateHttpAdapter:
             ) from exc
 
     def version(self) -> FrigateVersion:
-        payload = self._get("/api/version")
-        if isinstance(payload, str):
-            value = payload.strip()
-            return FrigateVersion(
-                version=value or None,
-            )
-        if isinstance(payload, dict):
-            raw = payload.get("version")
-            return FrigateVersion(
-                version=(
-                    str(raw).strip()
-                    if raw is not None
-                    else None
-                )
-            )
-        raise FrigateIntegrationError(
-            "frigate_invalid_response",
-            "Frigate returned an invalid version response.",
+        response = self._response("/api/version")
+        value = response.text.strip()
+        return FrigateVersion(
+            version=value or None,
         )
 
     def events(
