@@ -45,7 +45,8 @@ class RecordingStorageResolver:
             candidates = list(
                 session.scalars(
                     select(StorageTarget).where(
-                        StorageTarget.kind == "LOCAL_RECORDING",
+                        StorageTarget.type == "local",
+                        StorageTarget.role == "recording",
                         StorageTarget.enabled.is_(True),
                     )
                 )
@@ -72,7 +73,11 @@ class RecordingStorageResolver:
                 code="recording_storage_target_unconfigured",
                 message="No local recording storage target is configured.",
             )
-        if target.kind != "LOCAL_RECORDING" or not target.enabled:
+        if (
+            target.type != "local"
+            or target.role != "recording"
+            or not target.enabled
+        ):
             raise ApiError(
                 status_code=409,
                 code="recording_storage_target_invalid",
