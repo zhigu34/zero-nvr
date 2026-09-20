@@ -14,12 +14,14 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Database
+from app.integrations.frigate import FrigateHttpAdapter
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import (
     Camera,
     CameraStreamBinding,
     CameraStreamProfile,
 )
+from app.modules.events.frigate import FrigateEventIngestService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.recordings.prebuffer import (
@@ -29,6 +31,7 @@ from app.modules.recordings.prebuffer import (
 from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.archive import ArchiveLifecycleService
+from app.modules.system.frigate import FrigateProviderSettingsService
 from app.modules.storage.retention import (
     LocalRetentionDeletionService,
     RetentionPlanner,
@@ -590,4 +593,101 @@ def reconcile_retention(
 def periodic_retention_reconciliation() -> dict[str, int]:
     return _run_retention_reconciliation(
         pressure=False,
+    )
+
+
+
+def _frigate_backfill(
+    *,
+    lookback_seconds: int,
+) -> dict[str, int]:
+    if lookback_seconds < 60 or lookback_seconds > 86400:
+        raise ValueError(
+            "Frigate lookback must be between 60 and 86400 seconds"
+        )
+
+    settings = Settings()
+    database = _database(settings)
+    provider = FrigateProviderSettingsService(settings)
+
+    try:
+        with database.session() as session:
+            config = provider.get(session)
+            session.commit()
+
+        if config is None or not config.enabled:
+            return {
+                "created": 0,
+                "updated": 0,
+                "ignored": 0,
+            }
+
+        now = datetime.now(UTC).timestamp()
+        after = now - lookback_seconds
+        created = 0
+        updated = 0
+        ignored = 0
+        offset = 0
+        batch_size = 200
+        max_events = 5000
+
+        with FrigateHttpAdapter(
+            base_url=config.base_url,
+            bearer_token=config.credentials.http_bearer_token,
+            username=config.credentials.http_username,
+            password=config.credentials.http_password,
+            timeout_seconds=15.0,
+        ) as adapter:
+            while offset < max_events:
+                items = adapter.events(
+                    after=after,
+                    before=now,
+                    cameras=sorted(config.camera_map),
+                    limit=batch_size,
+                    offset=offset,
+                )
+                if not items:
+                    break
+
+                with database.session() as session:
+                    for payload in items:
+                        result = FrigateEventIngestService.http(
+                            session,
+                            config=config,
+                            payload=payload,
+                        )
+                        if result.ignored:
+                            ignored += 1
+                        elif result.created:
+                            created += 1
+                        else:
+                            updated += 1
+                    session.commit()
+
+                if len(items) < batch_size:
+                    break
+                offset += len(items)
+
+        return {
+            "created": created,
+            "updated": updated,
+            "ignored": ignored,
+        }
+    finally:
+        database.close()
+
+
+@huey.task(retries=3, retry_delay=30)
+def backfill_frigate_events(
+    lookback_seconds: int = 600,
+) -> dict[str, int]:
+    return _frigate_backfill(
+        lookback_seconds=lookback_seconds,
+    )
+
+
+@huey.periodic_task(crontab(minute="*/5"))
+def periodic_frigate_event_backfill() -> dict[str, int]:
+    return _frigate_backfill(
+        lookback_seconds=600,
     )
