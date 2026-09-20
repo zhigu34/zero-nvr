@@ -13,7 +13,7 @@ services:
       - -ec
       - |
         test -s /opt/media/conf/config.ini
-        cp /opt/media/conf/config.ini /out/config.ini
+        cp -a /opt/media/conf/. /out/
     volumes:
       - zlm-conf:/out
     restart: "no"
