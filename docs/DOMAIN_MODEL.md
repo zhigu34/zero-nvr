@@ -625,7 +625,7 @@ formal_record_segment_seconds
 pre_roll_seconds
 post_roll_seconds
 retention_policy_id
-recording_storage_pool_id
+storage_target_id
 enabled
 ```
 
@@ -1389,41 +1389,13 @@ DetectionEvent/system health remains authoritative. Grouping, cooldown, silence,
 
 See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
 
-## StoragePool
+## Recording storage routing
 
-Groups one or more recording-hot StorageTargets used for direct formal recording.
+V1 has no zero-nvr-managed StoragePool entity.
 
-```text
-id
-name
-enabled
-selection_policy
-failover_enabled
-min_stable_seconds
-created_at
-updated_at
-```
+A RecordingPolicy or Camera may reference an explicit local `storage_target_id`; otherwise the system default local recording target is used. Host-level ZFS/Btrfs/LVM/mergerfs/RAID/NAS aggregation remains outside the domain model.
 
-Initial selection policy:
-
-```text
-sticky_balanced
-```
-
-Pool membership:
-
-```text
-StoragePoolTarget
-  storage_pool_id
-  storage_target_id
-  priority
-  weight
-  enabled
-```
-
-A RecordingPolicy may reference `recording_storage_pool_id`; otherwise the system default pool is used.
-
-See [Spec 0010 — Recording Storage Pool, Target Selection, and Failover](specs/0010-recording-storage-pool-and-failover.md).
+See [Spec 0010 — Recording Storage Targets and Host-Managed Storage](specs/0010-recording-storage-pool-and-failover.md).
 
 ## StorageTarget
 
@@ -1601,32 +1573,24 @@ See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](
 
 ## BackupPolicy
 
-Defines database/system backup scheduling, retention, verification, and recovery behavior.
+Defines lightweight system-backup scheduling and retention.
 
 ```text
 id
 name
 enabled
 backup_target_id
-database_backup_enabled
 database_backend          auto | sqlite | postgresql
-database_mode             continuous_plus_snapshot | pitr | snapshot_only
-full_schedule
-differential_schedule
-snapshot_schedule
-point_in_time_enabled
-continuous_replication_enabled
-retention_daily
-retention_weekly
-retention_monthly
-minimum_recovery_days
+schedule
+retention_policy
 verify_after_backup
-periodic_restore_test_enabled
-periodic_restore_test_schedule
-portable_snapshot_enabled
+repository_check_schedule
+include_deployment_config
 created_at
 updated_at
 ```
+
+V1 database backup is SQLite Online Backup or pg_dump followed by restic. Continuous replication/PITR engines are optional advanced integrations rather than required BackupPolicy modes.
 
 ## BackupSet
 
@@ -1636,20 +1600,15 @@ User-visible backup/recovery point.
 id
 backup_policy_id
 backup_target_id
-type                      database | system_snapshot | portable
-state                     preparing | uploading | verifying | ready | failed | expired
+state                     preparing | backing_up | verifying | ready | failed | expired
+reason                    scheduled | manual | pre_upgrade | pre_restore | pre_database_migration
 started_at
 completed_at
-base_time
-recoverable_until
 app_version
 schema_revision
 database_engine
-database_engine_version
-instance_id
-manifest_object_key
+restic_snapshot_id
 size_bytes
-checksum
 verification_state
 last_verified_at
 error_code
@@ -1680,7 +1639,7 @@ recovery metadata/checksums
 
 RecoveryKit is encrypted outside the active production database using an operator-controlled recovery passphrase/key.
 
-See [Spec 0015 — Backup, Disaster Recovery, PITR, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
+See [Spec 0015 — Backup, Disaster Recovery, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
 
 ## PlaybackSession
 
@@ -1952,11 +1911,11 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 56. SystemTimeSettings owns the default managed-camera NTP source and recording timezone.
 57. A camera may inherit the system managed-camera NTP source or use an explicit camera-specific override.
 58. Host OS time synchronization is monitored separately from managed-camera NTP configuration in initial V2.
-59. Direct formal recording writes only to eligible recording-hot StorageTargets; archive-remote targets are asynchronous.
-60. A RecordingSession has at most one active hot write target at a time, selected through its StoragePool.
-61. Healthy active placement is sticky; soft rebalance happens only at safe boundaries and real storage failure may trigger immediate failover.
-62. Mid-segment storage failure may split physical RecordingSegments while the same RecordingSession/RecordingIntent continues.
-63. Recovered StorageTargets pass a stability period and do not immediately preempt healthy active writers.
+59. Direct formal recording writes to an explicit local/host-mounted StorageTarget; archive-remote targets are asynchronous.
+60. V1 does not contain a zero-nvr-managed StoragePool or automatic multi-disk balancing/failover scheduler.
+61. Multiple local StorageTargets may be configured for explicit routing or migration, but host/storage software owns disk aggregation and redundancy.
+62. A local storage failure is surfaced explicitly and never causes implicit live recording to an archive remote.
+63. Disk-pressure cleanup must respect protection and archive-before-delete requirements.
 64. StorageTarget removal never silently discards unique retained media.
 65. Backend authorization is authoritative; frontend visibility alone never grants access.
 66. Camera-scoped actions require both the action permission and effective camera scope.
@@ -1979,12 +1938,12 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 83. Notification targets are independently healthy and use SecretStore for recoverable credentials.
 84. Per-attempt notification diagnostics are append-style AlertDeliveryAttempt records; exactly-once external delivery is not assumed.
 85. StorageTarget may carry a backup role independently or together with archive_remote.
-86. Backup target capability determines whether snapshot-only or PITR recovery is supported.
+86. V1 system backup uses database-native consistent backup plus restic; PITR engines are optional advanced capabilities.
 87. Database/system backup never implies local-only recording media is disaster-protected.
 88. SecretStore recovery requires matching keyring/RecoveryKit; encrypted database rows alone are insufficient.
 89. A complete disaster-recovery target must be bootstrap-accessible without first restoring the lost SecretStore.
-90. PITR restore is followed by non-destructive StorageObject/media reconciliation before normal cleanup.
-91. Backup upload, verification, and restore testing are distinct protection states.
+90. Any restore is followed by non-destructive StorageObject/media reconciliation before normal cleanup.
+91. Backup creation, verification, repository checking, and restore testing are distinct protection states.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
 75. Verifier-only credentials use one-way hashing rather than reversible encryption.
