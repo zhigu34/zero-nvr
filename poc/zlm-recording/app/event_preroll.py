@@ -384,8 +384,10 @@ def main() -> None:
     max_tmpfs_bytes = 0
     recorder_false_samples = 0
 
+    zlm_version = zlm_api("version")
     evidence: dict[str, Any] = {
         "result": "RUNNING",
+        "zlm_version": zlm_version,
         "stream": args.stream,
         "source": args.source,
         "label": args.label,
