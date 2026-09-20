@@ -20,6 +20,18 @@ EXPECTED_FOUNDATION_TABLES = {
     "secret_records",
     "system_settings",
     "audit_events",
+    "devices",
+    "device_endpoints",
+    "device_credentials",
+    "discovery_sessions",
+    "discovery_candidates",
+    "cameras",
+    "camera_stream_profiles",
+    "camera_stream_bindings",
+    "camera_groups",
+    "camera_group_members",
+    "principal_camera_scopes",
+    "principal_camera_scope_entries",
 }
 
 
@@ -66,3 +78,6 @@ def test_alembic_downgrade_base_sqlite(tmp_path, monkeypatch) -> None:
     assert "secret_records" not in tables
     assert "system_settings" not in tables
     assert "audit_events" not in tables
+    assert "devices" not in tables
+    assert "cameras" not in tables
+    assert "principal_camera_scopes" not in tables
