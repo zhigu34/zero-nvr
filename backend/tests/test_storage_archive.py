@@ -378,25 +378,19 @@ def test_missing_source_marks_local_missing_and_remote_failed(
         database.close()
 
 
-def test_storage_dispatcher_queues_only_stable_ids(
-    monkeypatch,
-) -> None:
+def test_storage_dispatcher_queues_only_stable_ids() -> None:
     calls: list[tuple[str, str]] = []
 
     def fake_task(segment_id: str, target_id: str) -> None:
         calls.append((segment_id, target_id))
 
-    import app.worker.tasks as tasks
-
-    monkeypatch.setattr(
-        tasks,
-        "archive_recording_segment",
-        fake_task,
+    dispatcher = StorageTaskDispatcher(
+        archive_enqueue=fake_task,
     )
 
     segment_id = uuid.uuid4()
     target_id = uuid.uuid4()
-    StorageTaskDispatcher.archive_segment(
+    dispatcher.archive_segment(
         segment_id=segment_id,
         target_id=target_id,
     )
