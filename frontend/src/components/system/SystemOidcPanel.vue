@@ -5,7 +5,7 @@ import { errorMessage } from "../../api/client"
 import {
   createOidcProvider,
   deleteOidcProvider,
-  listOidcProviderConfigs,
+  listOidcProviders,
   listRoles,
   updateOidcProvider,
   type OidcProvider,
@@ -50,7 +50,7 @@ async function load(): Promise<void> {
   error.value = null
   try {
     ;[providers.value, roles.value] = await Promise.all([
-      listOidcProviderConfigs(),
+      listOidcProviders(),
       listRoles()
     ])
   } catch (caught) {
