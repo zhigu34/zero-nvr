@@ -25,7 +25,7 @@ The first stable release must be usable end-to-end rather than a demo/MVP. Compl
    - mature ONVIF/WS-Discovery libraries: camera protocol access.
 3. **zero-nvr owns the product control plane and canonical business model**, not commodity protocol implementations.
 4. **Modular monolith.** FastAPI + Vue + worker; do not split zero-nvr itself into microservices without a proven need.
-5. **SQLite is the default production database.** PostgreSQL is optional for larger deployments; user-facing features remain equivalent.
+5. **SQLite is the default production database.** PostgreSQL is optional for larger deployments; user-facing features remain equivalent. POC-09 validated SQLite WAL under the representative 8-camera baseline and 16-camera extended mixed workload on the tested 4-CPU runner with zero final lock failures.
 6. **Frontend talks only to zero-nvr /api/v1.** Browsers do not directly administer ZLM, Frigate, rclone, OpenList, or databases.
 
 ## Runtime and container boundary
@@ -201,15 +201,21 @@ zero-nvr still must not implement a custom H.264/H.265 packet ring buffer or a s
 
 The recorder container format (ordinary MP4 vs fMP4) remains a separate POC-02 decision.
 
-## Recording format validation
+## Recording format
 
-ZLMediaKit fMP4 recording (`record.enableFmp4=1`) is a preferred candidate because of crash/power-loss resilience, but it becomes the default only after validation of:
+The V1 default ZLMediaKit recording mode is **fMP4** (`record.enableFmp4=1`), validated by [POC-02 — fMP4 Abnormal Termination Recovery](poc-results/02-fmp4-crash.md).
 
-- abnormal termination recovery;
-- ZLM VOD/seek;
-- browser playback path;
-- FFmpeg export/remux;
-- archive/restore.
+Under the same SIGKILL scenario:
+
+- ordinary in-progress MP4 failed ffprobe/decode/remux because its `moov` metadata was not finalized;
+- the interrupted fMP4 remained inspectable and decodable;
+- FFmpeg stream-copy/remux succeeded;
+- unchanged surviving fMP4 was playable through ZLM HTTP/RTSP VOD after restart;
+- normally finalized fMP4 also passed the intended ZLM playback path.
+
+No repair daemon is required.
+
+Playback/browser compatibility remains resolved through ZLM/player descriptors rather than assuming every browser consumes the raw recording file directly.
 
 ## Storage lifecycle
 
