@@ -199,7 +199,7 @@ list/reconcile_recordings()
 Normal media path:
 
 ```text
-Camera -> ZLMediaKit -> ZLM MP4 Recorder -> local hot storage
+Camera -> ZLMediaKit -> ZLM Recorder (fMP4 default) -> local hot storage
                                       -> on_record_mp4 -> RecordingCatalog
 ```
 
