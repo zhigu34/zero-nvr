@@ -64,7 +64,7 @@ Also require:
 - tmpfs capacity is actually bounded and peak bytes are recorded;
 - old unneeded ephemeral files are GC'd;
 - while an Event/RecordingTrigger window is active, FastAPI can be stopped and restarted without stopping the ZLM rolling recorder;
-- after restart, a fresh process can reconstruct required coverage from the persisted Trigger window + finalized tmpfs filesystem scan **without** depending on a PrebufferFragment table or successful hook history;
+- after restart, a fresh process can reconstruct required coverage from the persisted SQLite RecordingTrigger fact + finalized tmpfs filesystem scan **without** depending on a PrebufferFragment table or successful hook history;
 - selected recovery fragments are copied through *.partial -> verify -> atomic publish;
 - the recovery evidence separately reports which promoted fragments had no successful hook row, but hook rows are not used for selection;
 - actual fragment duration distribution is recorded for both GOP intervals.
@@ -90,7 +90,7 @@ Current source audit already shows reasons these are not the primary candidate, 
 poc/zlm-recording/runtime/event-preroll-gop2.json
 poc/zlm-recording/runtime/event-preroll-gop5.json
 poc/zlm-recording/runtime/event-preroll-h265.json
-poc/zlm-recording/runtime/event-preroll-recovery-state.json
+poc/zlm-recording/runtime/event-preroll-recovery-state.json   # diagnostic snapshot only; SQLite trigger is authoritative for recovery
 poc/zlm-recording/runtime/event-preroll-recovery.json
 poc/zlm-recording/runtime/event-docker-compose.log
 poc/zlm-recording/runtime/pre-roll-candidate-comparison.json
