@@ -37,6 +37,9 @@ write_deployment_state() {
   local deployed="$1"
   local rollback="${2:-}"
   local snapshot="${3:-}"
+  local pending_target="${4:-}"
+  local pending_previous="${5:-}"
+  local pending_snapshot="${6:-}"
   local state_dir state tmp
 
   state_dir="$(deployment_data_dir)/deployment"
@@ -47,6 +50,9 @@ write_deployment_state() {
     printf 'DEPLOYED_REVISION=%s\n' "$deployed"
     printf 'ROLLBACK_REVISION=%s\n' "$rollback"
     printf 'ROLLBACK_SNAPSHOT_REL=%s\n' "$snapshot"
+    printf 'PENDING_TARGET_REVISION=%s\n' "$pending_target"
+    printf 'PENDING_PREVIOUS_REVISION=%s\n' "$pending_previous"
+    printf 'PENDING_SNAPSHOT_REL=%s\n' "$pending_snapshot"
     printf 'UPDATED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "$tmp"
   chmod 600 "$tmp"
