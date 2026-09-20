@@ -1,9 +1,11 @@
 # V1 Design-Freeze POC Plan
 
-Status: **required before architecture freeze**
+Status: **completed — architecture-freeze gate passed**
 
 These POCs validate the few remaining media/storage assumptions that must not be guessed in production design.
 
+
+Final aggregate regression: GitHub Actions run `35490737812`, conclusion `success`, head SHA `20ae4741b480269bb61b69a8b4b123a46163af02`. All 10 numbered POCs have accepted PASS results under `docs/poc-results/`.
 ## Gate classification
 
 Not every experiment has the same release meaning.
