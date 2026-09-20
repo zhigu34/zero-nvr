@@ -41,6 +41,24 @@ RCLONE_IMAGE=rclone/rclone:latest
 
 The actual ZLM/rclone runtime versions are recorded in evidence where relevant.
 
+## Run everything with evidence archiving
+
+From the repository root:
+
+~~~bash
+sh ./poc/run-all.sh
+~~~
+
+The aggregate runner executes every current design-freeze group sequentially, continues after independent failures, and copies compact JSON/log/DB evidence into:
+
+~~~text
+poc/runtime-results/<UTC timestamp>/
+~~~
+
+Large MP4/cache payloads are not duplicated into the aggregate archive; a media-size manifest is stored instead.
+
+Runner success is still **not** equivalent to changing the POC result documents to PASS. Evidence must be reviewed against the quantitative acceptance criteria.
+
 ## Run matrix
 
 ### POC-01 + POC-08
