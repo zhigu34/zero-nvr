@@ -21,6 +21,7 @@ from app.integrations.zlm import (
     ZlmIntegrationError,
 )
 from app.modules.storage.models import StorageTarget
+from app.modules.system.models import SystemSetting
 
 from .frigate import FrigateProviderSettingsService
 
@@ -42,6 +43,7 @@ class ProductHealth:
 
 class SystemHealthService:
     worker_stale_seconds = 150
+    reconciliation_stale_seconds = 20 * 60
 
     def __init__(
         self,
@@ -203,6 +205,183 @@ class SystemHealthService:
             details=details,
         )
 
+    def _recording_reconciliation(
+        self,
+    ) -> HealthComponent:
+        try:
+            with self.database.session() as session:
+                state = session.get(
+                    SystemSetting,
+                    "recording.reconciliation",
+                )
+                if state is None:
+                    session.commit()
+                    return HealthComponent(
+                        status="DEGRADED",
+                        message=(
+                            "recording_reconciliation_pending"
+                        ),
+                    )
+                payload = dict(
+                    state.value_json
+                    or {}
+                )
+                session.commit()
+        except Exception:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_reconciliation_unavailable"
+                ),
+            )
+
+        raw_completed = payload.get(
+            "last_completed_at"
+        )
+        if not isinstance(
+            raw_completed,
+            str,
+        ):
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_reconciliation_pending"
+                ),
+            )
+        try:
+            completed = datetime.fromisoformat(
+                raw_completed.replace(
+                    "Z",
+                    "+00:00",
+                )
+            )
+            if completed.tzinfo is None:
+                raise ValueError
+            age = (
+                datetime.now(
+                    completed.tzinfo
+                )
+                - completed
+            ).total_seconds()
+        except ValueError:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_reconciliation_state_invalid"
+                ),
+            )
+
+        result = payload.get(
+            "last_result"
+        )
+        details: dict[str, object] = {
+            "age_seconds": max(
+                0,
+                int(age),
+            ),
+            "last_completed_at": (
+                raw_completed
+            ),
+            "last_full_at": payload.get(
+                "last_full_at"
+            ),
+        }
+        if isinstance(result, dict):
+            for key in (
+                "full",
+                "scanned_files",
+                "recovered",
+                "relinked",
+                "missing",
+                "ambiguous",
+                "errors",
+                "skipped_unsettled",
+            ):
+                if key in result:
+                    details[key] = (
+                        result[key]
+                    )
+
+        if (
+            age
+            > self.reconciliation_stale_seconds
+        ):
+            return HealthComponent(
+                status="ERROR",
+                message=(
+                    "recording_reconciliation_stale"
+                ),
+                details=details,
+            )
+
+        errors = (
+            int(
+                result.get(
+                    "errors",
+                    0,
+                )
+            )
+            if isinstance(
+                result,
+                dict,
+            )
+            else 0
+        )
+        missing = (
+            int(
+                result.get(
+                    "missing",
+                    0,
+                )
+            )
+            if isinstance(
+                result,
+                dict,
+            )
+            else 0
+        )
+        ambiguous = (
+            int(
+                result.get(
+                    "ambiguous",
+                    0,
+                )
+            )
+            if isinstance(
+                result,
+                dict,
+            )
+            else 0
+        )
+        if errors:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_reconciliation_errors"
+                ),
+                details=details,
+            )
+        if missing:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_media_missing"
+                ),
+                details=details,
+            )
+        if ambiguous:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_media_ambiguous"
+                ),
+                details=details,
+            )
+        return HealthComponent(
+            status="OK",
+            details=details,
+        )
+
     def _frigate(
         self,
         config,
@@ -304,6 +483,9 @@ class SystemHealthService:
             "zlmediakit": self._zlm(),
             "storage": self._local_storage(
                 targets
+            ),
+            "recording_reconciliation": (
+                self._recording_reconciliation()
             ),
             "frigate": self._frigate(
                 frigate_config

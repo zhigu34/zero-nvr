@@ -120,3 +120,115 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
         assert denied.status_code == 401
 
         assert client.get("/health").status_code == 200
+
+
+
+def test_health_surfaces_recording_reconciliation_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from datetime import UTC, datetime
+
+    from app.modules.system.models import SystemSetting
+
+    settings = make_settings(tmp_path)
+    database = Database(settings)
+    Base.metadata.create_all(
+        database.engine
+    )
+    try:
+        monkeypatch.setattr(
+            SystemHealthService,
+            "_zlm",
+            lambda self: HealthComponent(
+                status="OK"
+            ),
+        )
+        monkeypatch.setattr(
+            SystemHealthService,
+            "_worker",
+            lambda self: HealthComponent(
+                status="OK"
+            ),
+        )
+        monkeypatch.setattr(
+            SystemHealthService,
+            "_local_storage",
+            staticmethod(
+                lambda targets: HealthComponent(
+                    status="OK"
+                )
+            ),
+        )
+
+        with database.session() as session:
+            session.add(
+                SystemSetting(
+                    namespace=(
+                        "recording.reconciliation"
+                    ),
+                    value_json={
+                        "last_completed_at": (
+                            datetime.now(UTC)
+                            .isoformat()
+                        ),
+                        "last_full_at": None,
+                        "last_result": {
+                            "full": False,
+                            "scanned_files": 2,
+                            "recovered": 1,
+                            "relinked": 0,
+                            "missing": 0,
+                            "ambiguous": 0,
+                            "errors": 0,
+                            "skipped_unsettled": 0,
+                        },
+                    },
+                )
+            )
+            session.commit()
+
+        health = SystemHealthService(
+            settings,
+            database,
+        ).collect()
+        component = health.components[
+            "recording_reconciliation"
+        ]
+        assert component.status == "OK"
+        assert (
+            component.details["recovered"]
+            == 1
+        )
+
+        with database.session() as session:
+            state = session.get(
+                SystemSetting,
+                "recording.reconciliation",
+            )
+            assert state is not None
+            state.value_json = {
+                **state.value_json,
+                "last_result": {
+                    **state.value_json[
+                        "last_result"
+                    ],
+                    "ambiguous": 1,
+                },
+            }
+            session.commit()
+
+        degraded = SystemHealthService(
+            settings,
+            database,
+        ).collect()
+        component = degraded.components[
+            "recording_reconciliation"
+        ]
+        assert component.status == "DEGRADED"
+        assert (
+            component.message
+            == "recording_media_ambiguous"
+        )
+    finally:
+        database.close()

@@ -60,6 +60,19 @@ class RecordingTaskDispatcher:
         reconcile_camera_runtime(str(camera_id))
 
     @staticmethod
+    def reconcile_catalog(
+        *,
+        full: bool = False,
+    ) -> None:
+        from app.worker.tasks import (
+            reconcile_recording_catalog,
+        )
+
+        reconcile_recording_catalog(
+            full
+        )
+
+    @staticmethod
     def schedule_policy(
         *,
         policy_id: uuid.UUID,

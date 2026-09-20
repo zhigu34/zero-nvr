@@ -27,3 +27,26 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
     RecordingTaskDispatcher.reconcile_runtime(camera_id)
 
     assert calls == [str(camera_id)]
+
+
+
+def test_recording_dispatcher_exposes_catalog_reconcile(
+    monkeypatch,
+) -> None:
+    calls: list[bool] = []
+
+    monkeypatch.setattr(
+        "app.worker.tasks.reconcile_recording_catalog",
+        lambda full=False: calls.append(
+            full
+        ),
+    )
+
+    from app.modules.recordings.dispatcher import (
+        RecordingTaskDispatcher,
+    )
+
+    RecordingTaskDispatcher.reconcile_catalog(
+        full=True
+    )
+    assert calls == [True]

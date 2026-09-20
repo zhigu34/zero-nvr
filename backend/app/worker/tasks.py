@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 import subprocess
@@ -34,6 +35,9 @@ from app.modules.exports.execution import (
 )
 from app.modules.notifications.delivery import NotificationDeliveryService
 from app.modules.recordings.models import RecordingPolicy
+from app.modules.recordings.reconciliation import (
+    RecordingCatalogReconciliationService,
+)
 from app.modules.recordings.playback_cache import PlaybackCacheService
 from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.recordings.prebuffer import (
@@ -570,6 +574,109 @@ def reconcile_recording_policy_boundary(
     finally:
         database.close()
 
+
+
+
+
+
+def _run_recording_catalog_reconciliation(
+    *,
+    full: bool,
+) -> dict[str, object]:
+    settings = Settings()
+    lock_path = (
+        settings.cache_dir
+        / "runtime"
+        / "recording-reconciliation.lock"
+    )
+    lock_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    with lock_path.open(
+        "a+",
+        encoding="utf-8",
+    ) as lock_handle:
+        try:
+            fcntl.flock(
+                lock_handle.fileno(),
+                fcntl.LOCK_EX
+                | fcntl.LOCK_NB,
+            )
+        except BlockingIOError:
+            return {
+                "skipped_busy": True,
+                "full": full,
+            }
+
+        database = _database(settings)
+        try:
+            result = (
+                RecordingCatalogReconciliationService(
+                    settings
+                ).reconcile(
+                    database,
+                    full=full,
+                )
+            )
+            return {
+                "skipped_busy": False,
+                "full": result.full,
+                "scanned_files": (
+                    result.scanned_files
+                ),
+                "changes": result.changes,
+                "recovered": result.recovered,
+                "relinked": result.relinked,
+                "missing": result.missing,
+                "ambiguous": (
+                    result.ambiguous
+                ),
+                "errors": result.errors,
+                "skipped_unsettled": (
+                    result.skipped_unsettled
+                ),
+                "completed_at": (
+                    result.completed_at
+                    .isoformat()
+                ),
+            }
+        finally:
+            database.close()
+            fcntl.flock(
+                lock_handle.fileno(),
+                fcntl.LOCK_UN,
+            )
+
+
+@huey.task(retries=2, retry_delay=60)
+def reconcile_recording_catalog(
+    full: bool = False,
+) -> dict[str, object]:
+    return _run_recording_catalog_reconciliation(
+        full=full,
+    )
+
+
+@huey.periodic_task(
+    crontab(minute="*/5")
+)
+def periodic_recording_catalog_reconciliation(
+) -> dict[str, object]:
+    return _run_recording_catalog_reconciliation(
+        full=False,
+    )
+
+
+@huey.periodic_task(
+    crontab(hour="3", minute="37")
+)
+def periodic_full_recording_catalog_reconciliation(
+) -> dict[str, object]:
+    return _run_recording_catalog_reconciliation(
+        full=True,
+    )
 
 
 @huey.task(retries=3, retry_delay=30)
