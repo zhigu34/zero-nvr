@@ -174,9 +174,25 @@ case "$command" in
     ;;
   restore)
     preflight
-    ensure_env
+    if [[ ! -f "$ENV_FILE" ]]; then
+      echo "error: restore requires the original RecoveryKit .env; refusing to generate a new master key" >&2
+      exit 1
+    fi
+    if [[ ${#$(env_get ZERO_NVR_SECRET_KEY)} -lt 32 ]]; then
+      echo "error: original ZERO_NVR_SECRET_KEY is missing from .env" >&2
+      exit 1
+    fi
     ensure_host_dirs
     build_backend
+    if [[ "${1:-}" != "list" ]]; then
+      for key in ZERO_NVR_ZLM_API_SECRET ZERO_NVR_ZLM_HOOK_SECRET; do
+        if [[ ${#$(env_get "$key")} -lt 32 ]]; then
+          echo "error: RecoveryKit .env is missing $key" >&2
+          exit 1
+        fi
+      done
+      prepare_zlm
+    fi
     "$SCRIPT_DIR/restore.sh" "$@"
     ;;
   admin)
