@@ -1,0 +1,230 @@
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+
+from app.core.config import Settings
+from app.modules.recordings.runtime import (
+    DesiredRecorder,
+    RecorderModeTracker,
+    RecordingRuntimeService,
+)
+
+
+class FakeZlm:
+    online = True
+    recording = False
+    calls: list[tuple] = []
+
+    def __init__(self, _settings) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        return None
+
+    def is_media_online(self, *, app: str, stream: str) -> bool:
+        self.calls.append(("online", app, stream))
+        return self.online
+
+    def is_mp4_recording(self, *, app: str, stream: str) -> bool:
+        self.calls.append(("is", app, stream))
+        return self.recording
+
+    def start_mp4_recording(
+        self,
+        *,
+        app: str,
+        stream: str,
+        customized_path: str,
+        max_second: int,
+    ) -> bool:
+        self.calls.append(
+            ("start", app, stream, customized_path, max_second)
+        )
+        self.__class__.recording = True
+        return True
+
+    def stop_mp4_recording(self, *, app: str, stream: str) -> bool:
+        self.calls.append(("stop", app, stream))
+        self.__class__.recording = False
+        return True
+
+
+def settings(tmp_path: Path) -> Settings:
+    return Settings(
+        secret_key="runtime-test-secret-key-32-bytes-minimum",
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        prebuffer_dir=tmp_path / "prebuffer",
+        prebuffer_fragment_seconds=5,
+    )
+
+
+def desired(
+    *,
+    mode: str,
+    root: str | None,
+    max_second: int,
+) -> DesiredRecorder:
+    return DesiredRecorder(
+        camera_id=uuid.uuid4(),
+        profile_id=uuid.uuid4(),
+        app="zero-nvr",
+        stream="profile-test",
+        mode=mode,  # type: ignore[arg-type]
+        target_root=root,
+        max_second=max_second,
+    )
+
+
+def reset(*, online: bool = True, recording: bool = False) -> None:
+    FakeZlm.online = online
+    FakeZlm.recording = recording
+    FakeZlm.calls = []
+
+
+def test_persistent_starts_native_recorder(tmp_path: Path) -> None:
+    reset()
+    tracker = RecorderModeTracker()
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=FakeZlm,
+        mode_tracker=tracker,
+    )
+    item = desired(
+        mode="persistent",
+        root="/recordings",
+        max_second=300,
+    )
+
+    result = service.reconcile(item)
+
+    assert result.desired_mode == "persistent"
+    assert result.recording is True
+    assert result.changed is True
+    assert (
+        "start",
+        "zero-nvr",
+        "profile-test",
+        "/recordings",
+        300,
+    ) in FakeZlm.calls
+    assert tracker.get(
+        app="zero-nvr",
+        stream="profile-test",
+    ) == "persistent"
+
+
+def test_mode_switch_stops_then_starts_same_zlm_recorder(tmp_path: Path) -> None:
+    reset(recording=True)
+    tracker = RecorderModeTracker()
+    tracker.set(
+        app="zero-nvr",
+        stream="profile-test",
+        mode="persistent",
+    )
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=FakeZlm,
+        mode_tracker=tracker,
+    )
+
+    result = service.reconcile(
+        desired(
+            mode="prebuffer",
+            root="/prebuffer",
+            max_second=5,
+        )
+    )
+
+    assert result.desired_mode == "prebuffer"
+    assert result.changed is True
+    stop_index = FakeZlm.calls.index(
+        ("stop", "zero-nvr", "profile-test")
+    )
+    start_index = FakeZlm.calls.index(
+        ("start", "zero-nvr", "profile-test", "/prebuffer", 5)
+    )
+    assert stop_index < start_index
+    assert tracker.get(
+        app="zero-nvr",
+        stream="profile-test",
+    ) == "prebuffer"
+
+
+def test_unknown_running_mode_after_api_restart_is_not_interrupted(
+    tmp_path: Path,
+) -> None:
+    reset(recording=True)
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=FakeZlm,
+        mode_tracker=RecorderModeTracker(),
+    )
+
+    result = service.reconcile(
+        desired(
+            mode="persistent",
+            root="/recordings",
+            max_second=300,
+        ),
+        force_reconfigure=False,
+    )
+
+    assert result.changed is False
+    assert result.assumed_existing_mode is True
+    assert not any(call[0] == "stop" for call in FakeZlm.calls)
+    assert not any(call[0] == "start" for call in FakeZlm.calls)
+
+
+def test_explicit_policy_reconfigure_restarts_unknown_running_mode(
+    tmp_path: Path,
+) -> None:
+    reset(recording=True)
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=FakeZlm,
+        mode_tracker=RecorderModeTracker(),
+    )
+
+    result = service.reconcile(
+        desired(
+            mode="prebuffer",
+            root="/prebuffer",
+            max_second=5,
+        ),
+        force_reconfigure=True,
+    )
+
+    assert result.changed is True
+    assert ("stop", "zero-nvr", "profile-test") in FakeZlm.calls
+    assert (
+        "start",
+        "zero-nvr",
+        "profile-test",
+        "/prebuffer",
+        5,
+    ) in FakeZlm.calls
+
+
+def test_offline_stream_is_already_off_without_camera_pull(
+    tmp_path: Path,
+) -> None:
+    reset(online=False, recording=False)
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=FakeZlm,
+    )
+
+    result = service.reconcile(
+        desired(mode="off", root=None, max_second=0)
+    )
+
+    assert result.desired_mode == "off"
+    assert result.recording is False
+    assert FakeZlm.calls == [
+        ("online", "zero-nvr", "profile-test")
+    ]
