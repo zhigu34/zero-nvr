@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -17,6 +17,7 @@ from .models import (
     CameraStreamBinding,
     CameraStreamProfile,
     Device,
+    DeviceCredential,
     DeviceEndpoint,
 )
 
@@ -225,7 +226,113 @@ class CameraService:
                 code="stream_uri_unavailable",
                 message="Stream URI is not configured.",
             )
-        return uri
+
+        try:
+            parsed = urlsplit(uri)
+            existing_username = parsed.username
+        except ValueError as exc:
+            raise ApiError(
+                status_code=409,
+                code="stream_uri_invalid",
+                message="Stream URI is invalid.",
+            ) from exc
+
+        # Manual RTSP URLs may already contain their own authentication.
+        if existing_username is not None:
+            return uri
+
+        camera = session.get(Camera, profile.camera_id)
+        if camera is None or camera.device_id is None:
+            return uri
+
+        device = session.get(Device, camera.device_id)
+        if device is None or device.adapter_type != "onvif":
+            return uri
+
+        credential = session.scalar(
+            select(DeviceCredential).where(
+                DeviceCredential.device_id == device.id,
+                DeviceCredential.kind == "onvif",
+            )
+        )
+        if credential is None:
+            raise ApiError(
+                status_code=409,
+                code="device_credential_unavailable",
+                message="ONVIF device credentials are unavailable.",
+            )
+
+        credential_secret = session.get(SecretRecord, credential.secret_ref)
+        if credential_secret is None:
+            raise ApiError(
+                status_code=409,
+                code="device_credential_unavailable",
+                message="ONVIF device credentials are unavailable.",
+            )
+
+        try:
+            credential_value = self.secret_store.decrypt_json(
+                key_id=credential_secret.key_id,
+                ciphertext=credential_secret.encrypted_payload,
+                version=credential_secret.version,
+            )
+        except Exception as exc:
+            raise ApiError(
+                status_code=409,
+                code="device_credential_unavailable",
+                message="ONVIF device credentials are unavailable.",
+            ) from exc
+
+        username = credential_value.get("username")
+        password = credential_value.get("password")
+        if not isinstance(username, str) or not isinstance(password, str):
+            raise ApiError(
+                status_code=409,
+                code="device_credential_unavailable",
+                message="ONVIF device credentials are unavailable.",
+            )
+
+        if not username and not password:
+            return uri
+
+        host = parsed.hostname
+        if not host:
+            raise ApiError(
+                status_code=409,
+                code="stream_uri_invalid",
+                message="Stream URI is invalid.",
+            )
+
+        display_host = (
+            f"[{host}]"
+            if ":" in host and not host.startswith("[")
+            else host
+        )
+        try:
+            port = parsed.port
+        except ValueError as exc:
+            raise ApiError(
+                status_code=409,
+                code="stream_uri_invalid",
+                message="Stream URI is invalid.",
+            ) from exc
+
+        host_port = display_host
+        if port is not None:
+            host_port = f"{display_host}:{port}"
+
+        auth = (
+            f"{quote(username, safe='')}:{quote(password, safe='')}@"
+        )
+        return urlunsplit(
+            (
+                parsed.scheme,
+                f"{auth}{host_port}",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
+        )
 
     @staticmethod
     def update_camera(
