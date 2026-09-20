@@ -692,7 +692,10 @@ created_at
 
 Important rules:
 
-- timestamps are actual finalized-media times in UTC;
+- timestamps are normalized actual finalized-media coverage in UTC;
+- current ZLM raw Hook start_time is adapter evidence, not automatically canonical start_at;
+- same-session rollover timing may anchor a segment end at the next proven ZLM segment boundary and derive start_at from actual muxed duration;
+- source unregister/reconnect splits timing continuity and may never be bridged by boundary normalization;
 - nominal 300-second segmentation is never assumed to be exact;
 - RecordingSegment contains no authoritative filesystem/cloud path;
 - one segment may have multiple physical RecordingLocations;
@@ -1256,7 +1259,7 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 7. V1 does not require persisted RecordingIntent or RecordingSession tables; current recording requirement is derived from policy, time, active triggers, and observed ZLM state.
 8. RecordingTrigger is durable evidence/request state for event/manual/external recording behavior.
 9. Multiple overlapping triggers remain independent records and never create duplicate recorders.
-10. RecordingSegment is a finalized media fact using actual UTC start/end/duration; nominal segment duration is not timeline truth.
+10. RecordingSegment is a finalized media fact using normalized UTC coverage and actual muxed duration; nominal segment duration and raw ZLM Hook wall-clock start are not automatically timeline truth.
 11. RecordingSegment has no authoritative path; physical copies belong to RecordingLocation.
 12. EVENT_ONLY pre-roll semantics are product policy, while the physical pre-buffer mechanism remains POC-gated until validated.
 13. zero-nvr does not implement a custom compressed-video packet ring buffer.
