@@ -16,6 +16,7 @@ from app.integrations.onvif import (
 from app.integrations.zlm import (
     ZlmAdapter,
     ZlmIntegrationError,
+    ZlmMediaAccess,
     ZlmMediaProbe,
     ZlmTrackProbe,
 )
