@@ -1,0 +1,90 @@
+# Design-Freeze POC Status
+
+Project status remains:
+
+~~~text
+V1 Design Freeze Candidate
+~~~
+
+A committed harness is **not** a passing result. Every POC stays `NOT RUN` until actual runtime evidence is recorded.
+
+## Status matrix
+
+| POC | Purpose | Runner | Current result |
+|---|---|---|---|
+| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | NOT RUN |
+| 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | NOT RUN |
+| 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | NOT RUN |
+| 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | NOT RUN |
+| 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | NOT RUN |
+| 06 | ZLM VOD seek | same as POC-05 | NOT RUN |
+| 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | NOT RUN |
+| 08 | ZLM stream sharing / source connection count | same as POC-01 | NOT RUN |
+| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | NOT RUN |
+| 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | NOT RUN |
+
+## Evidence rule
+
+Each result document must contain:
+
+~~~text
+Result: PASS | FAIL | PASS WITH CONSTRAINTS
+Tested versions:
+Test environment:
+Evidence:
+Known limitations:
+Architecture impact:
+~~~
+
+Do not replace `NOT RUN` with PASS based on:
+
+- source review;
+- a successful container build;
+- one manually viewed video;
+- assumptions about ZLMediaKit/rclone/SQLite behavior.
+
+The quantitative pass criteria are defined in:
+
+- [V1 Design-Freeze POC Plan](../plans/01-design-freeze-poc.md)
+
+## Architecture freeze rule
+
+The project may move to:
+
+~~~text
+V1 Architecture Frozen
+~~~
+
+only after:
+
+1. critical media/storage/database POCs have real recorded results;
+2. failed/conditional results have their constraints reflected in product/deployment docs;
+3. any result that changes component ownership, recording authority, Core container boundaries, storage lifecycle, or database-default policy is resolved through an ADR;
+4. [V1 Schema Freeze](../plans/02-v1-schema-freeze.md) remains consistent with the measured architecture;
+5. [V1 API / Module Freeze](../plans/03-v1-api-module-freeze.md) remains consistent with the measured architecture.
+
+## Current architecture assumptions under test
+
+The harnesses intentionally validate these assumptions rather than silently treating them as facts:
+
+- ZLM normal MP4/fMP4 recording and hook metadata are sufficient for canonical RecordingSegment indexing;
+- FastAPI/worker restart does not need to be in the recording hot path;
+- EVENT_ONLY can be implemented without a custom packet ring or second recorder;
+- ZLM VOD is adequate for historical segment playback/seek;
+- rclone restore-to-cache is sufficient without FUSE;
+- ZLM remains the only camera-facing media pull in Managed mode;
+- SQLite remains first-class for the intended default deployment scale;
+- reconciliation can recover from stale/missing metadata without deleting valid media.
+
+## Result documents
+
+- [POC-01](01-zlm-recording.md)
+- [POC-02](02-fmp4-crash.md)
+- [POC-03](03-event-preroll.md)
+- [POC-04](04-multi-event-extension.md)
+- [POC-05](05-timeline-precision.md)
+- [POC-06](06-zlm-vod-seek.md)
+- [POC-07](07-remote-restore.md)
+- [POC-08](08-stream-sharing.md)
+- [POC-09](09-sqlite-load.md)
+- [POC-10](10-reconciliation.md)
