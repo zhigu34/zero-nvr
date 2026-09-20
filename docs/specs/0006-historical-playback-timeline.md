@@ -256,7 +256,7 @@ Zoom should stay centered around the cursor/playhead where practical.
 
 ## Event markers
 
-DetectionEvent remains the source of truth.
+Event remains the source of truth.
 
 Instant event:
 
@@ -294,7 +294,7 @@ close zoom:
   individual events/ranges
 ```
 
-Aggregation is only a query/render optimization. Canonical DetectionEvents remain independent.
+Aggregation is only a query/render optimization. Canonical Events remain independent.
 
 ## PlaybackResolver
 
@@ -309,14 +309,11 @@ Resolution:
 ```text
 PlaybackResolver(segment_id)
     ↓
-choose valid StorageObject
-    ├─ local
-    ├─ cached remote
-    └─ remote
+choose AVAILABLE RecordingLocation
+    ├─ local/host-mounted -> ZLM VOD
+    └─ remote archive -> rclone restore to bounded playback cache -> ZLM VOD
     ↓
-authorization / cache / proxy / signed source
-    ↓
-playable media response
+short-lived authorized playback descriptor
 ```
 
 Timeline responses do not permanently embed storage-specific URLs. Playback URLs/tokens may expire independently.
@@ -537,16 +534,20 @@ When enabled:
 Remote media stays on the same timeline:
 
 ```text
-REMOTE_READY
+remote RecordingLocation AVAILABLE
    ↓
 PlaybackResolver
    ↓
-cache or authorized stream/proxy
+rclone restore/copyto
+   ↓
+bounded local playback cache
+   ↓
+ZLM VOD
    ↓
 player
 ```
 
-UI states include remote available, loading remote media, cached, and remote error.
+UI states include remote available, restoring, cached/ready, playing, and remote error. The V1 baseline does not require FUSE/rclone mount.
 
 Remote loading never changes global timeline time by itself.
 
@@ -706,7 +707,7 @@ The implementation must preserve contracts that allow later upgrade to MSE/fMP4/
 3. Playback references are stable and storage URLs are resolved lazily.
 4. A 5-minute file boundary does not create a new logical playback session.
 5. Known no-media reasons are explicit gaps rather than all being labeled disconnected.
-6. DetectionEvent is the Marker source of truth.
+6. Event is the Marker source of truth.
 7. Wide timeline views aggregate events; close views expose individual markers.
 8. Multi-camera playback uses one Master Clock.
 9. Default tolerant sync lets healthy cameras continue when another buffers.
