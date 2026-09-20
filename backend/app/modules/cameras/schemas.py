@@ -206,6 +206,7 @@ class OnvifCameraImportInput(OnvifCameraTestInput):
 
 class OnvifImportResult(BaseModel):
     device_id: uuid.UUID
+    reconfigured: bool = False
     cameras: list[CameraDetail]
 
 

@@ -359,7 +359,10 @@ def _probe_duration(path: Path) -> float:
 
 
 @huey.task(retries=3, retry_delay=15)
-def reconcile_camera_runtime(camera_id: str) -> str:
+def reconcile_camera_runtime(
+    camera_id: str,
+    restart_streams: bool = False,
+) -> str:
     """Reconcile one Camera's ZLM recorder and stream runtime.
 
     Camera/RecordingPolicy rows are canonical. Disabling a Camera drives the
@@ -411,12 +414,21 @@ def reconcile_camera_runtime(camera_id: str) -> str:
                     )
             session.commit()
 
-        if record_streams:
-            media_runtime.ensure_streams(record_streams)
+        if restart_streams and enabled:
+            media_runtime.replace_streams(
+                desired_streams
+            )
+        elif record_streams:
+            media_runtime.ensure_streams(
+                record_streams
+            )
 
         runtime_result = RecordingRuntimeService(
             settings
-        ).reconcile(desired_recorder)
+        ).reconcile(
+            desired_recorder,
+            force_reconfigure=restart_streams,
+        )
 
         if not enabled:
             media_runtime.stop_streams(references)

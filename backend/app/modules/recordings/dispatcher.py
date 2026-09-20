@@ -54,10 +54,17 @@ class RecordingTaskDispatcher:
         reconcile_camera_prebuffer(str(camera_id))
 
     @staticmethod
-    def reconcile_runtime(camera_id: uuid.UUID) -> None:
+    def reconcile_runtime(
+        camera_id: uuid.UUID,
+        *,
+        restart_streams: bool = False,
+    ) -> None:
         from app.worker.tasks import reconcile_camera_runtime
 
-        reconcile_camera_runtime(str(camera_id))
+        reconcile_camera_runtime(
+            str(camera_id),
+            restart_streams,
+        )
 
     @staticmethod
     def reconcile_catalog(

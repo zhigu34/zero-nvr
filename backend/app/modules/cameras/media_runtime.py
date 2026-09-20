@@ -23,6 +23,13 @@ class ZlmStreamReference:
     app: str
     stream: str
 
+    @property
+    def proxy_key(self) -> str:
+        return (
+            f"__defaultVhost__/{self.app}/"
+            f"{self.stream}"
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class DesiredZlmStream:
@@ -175,6 +182,31 @@ class CameraMediaRuntimeService:
                         enable_hls=True,
                         retry_count=-1,
                     )
+                references.append(item.reference)
+        return references
+
+    def replace_streams(
+        self,
+        desired: list[DesiredZlmStream],
+    ) -> list[ZlmStreamReference]:
+        if not desired:
+            return []
+
+        references: list[ZlmStreamReference] = []
+        with self._zlm_factory(self.settings) as zlm:
+            for item in desired:
+                zlm.delete_stream_proxy(
+                    item.reference.proxy_key
+                )
+            for item in desired:
+                zlm.add_stream_proxy(
+                    app=item.app,
+                    stream=item.stream,
+                    source_url=item.source_uri,
+                    enable_mp4=False,
+                    enable_hls=True,
+                    retry_count=-1,
+                )
                 references.append(item.reference)
         return references
 

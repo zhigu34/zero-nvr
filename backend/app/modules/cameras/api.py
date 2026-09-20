@@ -618,7 +618,7 @@ async def import_onvif_camera(
 
     service = OnvifOnboardingService(request.app.state.settings)
     try:
-        device, cameras = service.import_device(
+        device, cameras, reconfigured = service.import_device(
             session,
             inspection=inspection,
             host=body.host,
@@ -635,7 +635,11 @@ async def import_onvif_camera(
             session,
             request=request,
             actor_id=context.user.id,
-            action="camera.onvif.import",
+            action=(
+                "camera.onvif.reconfigure"
+                if reconfigured
+                else "camera.onvif.import"
+            ),
             resource_type="device",
             resource_id=device.id,
             metadata={
@@ -645,6 +649,7 @@ async def import_onvif_camera(
                     len(camera.stream_profiles)
                     for camera in cameras
                 ),
+                "reconfigured": reconfigured,
             },
         )
         session.commit()
@@ -652,8 +657,30 @@ async def import_onvif_camera(
         session.rollback()
         raise
 
+    if reconfigured:
+        try:
+            for camera in cameras:
+                request.app.state.recording_tasks.reconcile_runtime(
+                    camera.id,
+                    restart_streams=True,
+                )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="camera_runtime_queue_unavailable",
+                message=(
+                    "ONVIF device configuration was saved but "
+                    "runtime reconciliation could not be queued."
+                ),
+                details={
+                    "device_id": str(device.id),
+                    "configuration_persisted": True,
+                },
+            ) from exc
+
     return OnvifImportResult(
         device_id=device.id,
+        reconfigured=reconfigured,
         cameras=[
             _camera_detail(session, camera)
             for camera in cameras
