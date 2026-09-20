@@ -214,6 +214,16 @@ case "$command" in
   status)
     ensure_env
     compose ps
+    if [[ -f "$(deployment_state_file)" ]]; then
+      echo
+      echo "Deployment state:"
+      echo "  deployed: $(deployment_state_get DEPLOYED_REVISION)"
+      echo "  rollback: $(deployment_state_get ROLLBACK_REVISION)"
+      pending="$(deployment_state_get PENDING_TARGET_REVISION)"
+      if [[ -n "$pending" ]]; then
+        echo "  pending:  $pending"
+      fi
+    fi
     ;;
   doctor|check)
     ensure_env
