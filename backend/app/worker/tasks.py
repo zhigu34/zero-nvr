@@ -22,6 +22,7 @@ from app.modules.cameras.models import (
     CameraStreamProfile,
 )
 from app.modules.events.frigate import FrigateEventIngestService
+from app.modules.notifications.delivery import NotificationDeliveryService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.recordings.prebuffer import (
@@ -704,3 +705,22 @@ def periodic_frigate_event_backfill() -> dict[str, int]:
     return _frigate_backfill(
         lookback_seconds=600,
     )
+
+
+
+@huey.task(retries=3, retry_delay=30)
+def deliver_notification(
+    delivery_id: str,
+) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        result = NotificationDeliveryService(
+            settings
+        ).execute(
+            database,
+            delivery_id=uuid.UUID(delivery_id),
+        )
+        return result.state
+    finally:
+        database.close()
