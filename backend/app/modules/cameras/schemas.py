@@ -76,3 +76,27 @@ class CameraStreamBindingInput(BaseModel):
 
 class CameraStreamBindingsUpdate(BaseModel):
     bindings: list[CameraStreamBindingInput]
+
+
+class CameraProbeTrackView(BaseModel):
+    kind: Literal["video", "audio"]
+    codec: str | None
+    ready: bool
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    gop_seconds: float | None = None
+    sample_rate: int | None = None
+    channels: int | None = None
+
+
+class CameraProbeStreamView(BaseModel):
+    role: Literal["primary", "secondary"]
+    name: str
+    video: CameraProbeTrackView | None
+    audio: CameraProbeTrackView | None
+
+
+class CameraProbeResult(BaseModel):
+    ok: Literal[True] = True
+    streams: list[CameraProbeStreamView]
