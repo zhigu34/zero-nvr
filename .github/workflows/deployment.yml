@@ -72,6 +72,24 @@ jobs:
         shell: bash
         run: |
           docker compose --env-file .env -f docker-compose.yml config --quiet
+          docker compose --env-file .env -f docker-compose.yml config --format json > /tmp/zero-nvr-compose.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          model = json.loads(
+              Path("/tmp/zero-nvr-compose.json").read_text()
+          )
+          api_command = " ".join(
+              model["services"]["zero-nvr"]["command"]
+          )
+          worker_command = " ".join(
+              model["services"]["zero-nvr-worker"]["command"]
+          )
+          assert "alembic upgrade head" not in api_command
+          assert "uvicorn app.main:app" in api_command
+          assert "python -m app.cli check-schema" in worker_command
+          PY
 
       - name: Build zero-nvr image
         shell: bash

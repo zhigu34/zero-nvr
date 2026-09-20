@@ -8,7 +8,10 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1 import router as api_v1_router
 from app.core.config import Settings, get_settings
-from app.core.db import Database
+from app.core.db import (
+    Database,
+    assert_database_schema_current,
+)
 from app.core.errors import install_error_handlers
 from app.core.events import RuntimeEventBus
 from app.core.logging import configure_logging
@@ -55,6 +58,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings.ensure_runtime_directories()
         database.initialize_runtime()
         database.ping()
+        if (
+            resolved_settings.environment.lower()
+            != "test"
+        ):
+            assert_database_schema_current(
+                database
+            )
         frigate_mqtt.start()
 
         logger.info(

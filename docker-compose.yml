@@ -38,7 +38,6 @@ services:
       - sh
       - -ec
       - |
-        alembic upgrade head
         exec uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports:
       - "${ZERO_NVR_API_PORT:-8000}:8000"
@@ -62,6 +61,7 @@ services:
       - sh
       - -ec
       - |
+        python -m app.cli check-schema
         exec huey_consumer.py app.worker.consumer.huey --workers "${ZERO_NVR_HUEY_WORKERS:-2}"
     depends_on:
       zero-nvr:

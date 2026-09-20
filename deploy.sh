@@ -119,6 +119,7 @@ install_stack() {
   ensure_host_dirs
   prepare_zlm
   build_backend
+  "$SCRIPT_DIR/migrate.sh"
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
   record_installed_revision
@@ -184,6 +185,16 @@ update_stack() {
 
   prepare_zlm
   compose build --pull zero-nvr
+
+  echo "Stopping zero-nvr control plane for explicit schema migration; ZLMediaKit remains running..."
+  compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
+
+  if ! "$SCRIPT_DIR/migrate.sh"; then
+    echo "error: database migration failed; deployment remains pending" >&2
+    echo "run ./deploy.sh rollback to restore the recorded pre-upgrade safety point" >&2
+    return 1
+  fi
+
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
 

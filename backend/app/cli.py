@@ -18,7 +18,11 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import select
 
 from app.core.config import Settings
-from app.core.db import Database
+from app.core.db import (
+    Database,
+    assert_database_schema_current,
+    database_schema_status,
+)
 from app.core.db.types import utc_now
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
@@ -83,6 +87,36 @@ def _policy(
                 "multiple enabled backup policies exist; pass --policy"
             )
         return policies[0]
+
+
+def check_schema_command(
+    _args: argparse.Namespace,
+) -> int:
+    _settings, database = _settings_database()
+    try:
+        status = database_schema_status(
+            database
+        )
+        assert_database_schema_current(
+            database
+        )
+        print(
+            json.dumps(
+                {
+                    "compatible": True,
+                    "current": sorted(
+                        status.current
+                    ),
+                    "expected": sorted(
+                        status.expected
+                    ),
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
 
 
 def recovery_env_command(
@@ -935,6 +969,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
+    )
+
+    schema = sub.add_parser(
+        "check-schema"
+    )
+    schema.set_defaults(
+        handler=check_schema_command
     )
 
     recovery = sub.add_parser(
