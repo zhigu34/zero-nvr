@@ -105,13 +105,14 @@ The selected SQLite or PostgreSQL production database is the authoritative metad
 - devices, cameras, endpoints and connections;
 - stream mappings;
 - recording policies;
-- recording segments;
-- detection events;
-- alert rules and deliveries;
-- storage targets and objects;
-- upload jobs;
-- meaningful health state transitions/events (not high-frequency telemetry);
-- audit records.
+- recording segments and RecordingLocations;
+- canonical Events, including meaningful system-health transitions;
+- AlertPolicy / Alert / NotificationDelivery;
+- StorageTargets and retention/protection policy;
+- users, permissions and audit records;
+- backup/configuration product state.
+
+High-frequency health samples, cache state, ZLM runtime details, and queue internals are not authoritative business tables.
 
 ### ZLMediaKit
 
@@ -219,7 +220,7 @@ Possible implementations:
 - local lightweight detection;
 - Frigate integration.
 
-All provider outputs normalize into DetectionEvent.
+All provider outputs normalize into canonical Event.
 
 ### StorageBackend
 
@@ -469,14 +470,13 @@ Timeline Query
 PlaybackTimeline
      ├── playable RecordingSegments
      ├── explicit Gaps / reasons
-     └── DetectionEvent markers
+     └── Event markers
      ↓
 Master Playback Clock
      ↓
 Playback Resolver
-     ├── Local
-     ├── Cached Remote
-     └── Remote signed/proxied
+     ├── local AVAILABLE RecordingLocation -> ZLM VOD
+     └── remote AVAILABLE RecordingLocation -> rclone restore cache -> ZLM VOD
      ↓
 Single / Multi-camera Browser Players
 ```
@@ -503,7 +503,7 @@ zero-nvr uses server/NVR UTC as canonical business/media time. Camera clocks are
 
 ```text
 canonical UTC
-   ├─ RecordingSegment / RecordingSession / DetectionEvent
+   ├─ RecordingSegment / Event / RecordingTrigger
    ├─ historical playback / multi-camera Master Clock
    └─ storage/index metadata
 
@@ -741,13 +741,13 @@ MQTT remains optional. A user who does not enable this integration should not ne
 
 External automation must express event state or recording intent rather than media-process commands.
 
-Stateful sensor input should normalize into canonical DetectionEvent START/END transitions. RecordingManager then decides whether to start, keep, extend, or leave an existing recording unchanged.
+Stateful sensor input should normalize into canonical Event new/update/end state. Recording policy evaluation creates/updates RecordingTrigger when media retention/recording is required.
 
 Repeated sensor activity belonging to the same logical active event must not repeatedly start/stop recorder processes or create duplicate timeline markers.
 
 Recording policy owns pre-roll/post-roll. Detector/provider-specific thresholds and hold timers belong to detection/event normalization and must not be reused as recording duration.
 
-See [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md).
+See [Spec 0002 — Event Recording Lifecycle and RecordingTrigger](specs/0002-event-recording-lifecycle.md).
 
 
 ## Deployment runtime boundary
