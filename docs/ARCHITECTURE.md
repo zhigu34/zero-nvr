@@ -92,6 +92,8 @@ PostgreSQL (optional)
 
 SQLite is the default for single-host lightweight deployment. PostgreSQL is available when measured write concurrency or deployment requirements justify it. User-visible business features stay the same. Backend-specific behavior stays in small persistence helpers rather than a heavyweight DatabaseCapabilities framework.
 
+[POC-09 — SQLite Load](poc-results/09-sqlite-load.md) validated the 8-camera baseline and 16-camera extended mixed workload with WAL and SQLite Online Backup on the tested 4-CPU runner. Recording/Event/Timeline concurrency produced zero final lock failures. Retention scanning remains background/batched work and must not hold a write transaction across storage/rclone operations.
+
 A separate versioned SQLite portable index remains available for offline inspection/export/import independent from whichever production database is active.
 
 See [Spec 0016 — SQLite and PostgreSQL Production Database Modes](specs/0016-postgresql-and-sqlite-portability.md).
@@ -381,7 +383,7 @@ Camera
   ↓
 ZLMediaKit
   ↓
-ZLM MP4 Recorder
+ZLM fMP4 Recorder
   ↓
 local RecordingLocation
   ↓
@@ -389,6 +391,8 @@ on_record_mp4 hook
   ↓
 RecordingSegment catalog
 ```
+
+The V1 default recorder container mode is fMP4, validated by [POC-02](poc-results/02-fmp4-crash.md) for materially better interrupted-file recovery than ordinary MP4 under the tested SIGKILL scenario.
 
 The database is not in the media hot path. If a hook is lost during a control-plane/database outage, reconciliation discovers the file and repairs the catalog later.
 
