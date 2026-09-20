@@ -10,12 +10,14 @@ from app.core.config import Settings, get_settings
 from app.core.db import Database
 from app.core.errors import install_error_handlers
 from app.core.logging import configure_logging
+from app.integrations.zlm import ZlmContinuityTracker
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved_settings = settings or get_settings()
     logger = configure_logging(resolved_settings.log_level)
     database = Database(resolved_settings)
+    zlm_continuity = ZlmContinuityTracker()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -45,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.settings = resolved_settings
     app.state.database = database
     app.state.logger = logger
+    app.state.zlm_continuity = zlm_continuity
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
