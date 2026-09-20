@@ -63,6 +63,12 @@ class Settings(BaseSettings):
     ffprobe_binary: str = "ffprobe"
     ffmpeg_timeout_seconds: float = 3600.0
 
+    restic_binary: str = "restic"
+    restic_timeout_seconds: float = 3600.0
+    pg_dump_binary: str = "pg_dump"
+    database_backup_timeout_seconds: float = 1800.0
+    deployment_config_dir: Path | None = None
+
     log_level: str = "INFO"
 
     @field_validator("secret_key")
@@ -150,6 +156,18 @@ class Settings(BaseSettings):
         raise ValueError(
             "ZERO_NVR_ZLM_PUBLIC_BASE_URL must be same-origin /path or http(s) URL"
         )
+
+    @field_validator(
+        "restic_timeout_seconds",
+        "database_backup_timeout_seconds",
+    )
+    @classmethod
+    def validate_backup_timeouts(cls, value: float) -> float:
+        if value <= 0 or value > 21600:
+            raise ValueError(
+                "backup timeouts must be greater than 0 and at most 21600"
+            )
+        return value
 
     @field_validator("ffmpeg_timeout_seconds")
     @classmethod
