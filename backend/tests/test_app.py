@@ -80,6 +80,7 @@ def test_health_info_and_request_id(tmp_path: Path) -> None:
             "name": "zero-nvr",
             "version": "test-version",
             "environment": "test",
+            "database_backend": "sqlite",
         }
 
         live = client.get("/health")
