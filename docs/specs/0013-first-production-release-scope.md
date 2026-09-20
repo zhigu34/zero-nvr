@@ -110,7 +110,7 @@ Advanced two-way talk/vendor backchannel support should not delay the entire rel
 - RecordingTrigger with type/source/state/reason/correlation_id/pre/post-roll/planned window;
 - overlapping triggers extend one logical recording interval rather than starting duplicate recorders.
 
-EVENT_ONLY ~10 second pre-roll is a design-freeze POC gate and must use mature ZLM capabilities rather than a custom H.264/H.265 packet ring buffer.
+EVENT_ONLY ~10 second pre-roll is accepted for V1 using one continuously-running ZLM short-fragment recorder in bounded tmpfs plus whole-fragment promotion from RecordingTrigger windows. POC-03/04 validated H.264/H.265 coverage, overlapping triggers, bounded tmpfs, and restart reconstruction without a custom H.264/H.265 packet ring buffer.
 
 ### Historical playback
 
