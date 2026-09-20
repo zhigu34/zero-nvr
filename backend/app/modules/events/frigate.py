@@ -7,6 +7,7 @@ from typing import Any, Mapping
 from sqlalchemy.orm import Session
 
 from app.integrations.frigate.normalizer import FrigateEventNormalizer
+from app.modules.alerts.service import AlertEvaluationService
 from app.modules.events.models import Event
 from app.modules.events.service import EventService
 from app.modules.recordings.models import RecordingTrigger
@@ -23,6 +24,7 @@ class FrigateIngestResult:
     trigger: RecordingTrigger | None = None
     trigger_changed: bool = False
     trigger_camera_id: uuid.UUID | None = None
+    notification_delivery_ids: tuple[uuid.UUID, ...] = ()
 
 
 class FrigateEventIngestService:
@@ -82,6 +84,11 @@ class FrigateEventIngestService:
                 )
             )
 
+        alert_result = AlertEvaluationService.evaluate_event(
+            session,
+            event=event,
+        )
+
         return FrigateIngestResult(
             event=event,
             created=event_result.created,
@@ -91,6 +98,9 @@ class FrigateEventIngestService:
                 trigger.camera_id
                 if trigger is not None
                 else None
+            ),
+            notification_delivery_ids=(
+                alert_result.delivery_ids
             ),
         )
 
