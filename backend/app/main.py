@@ -15,6 +15,7 @@ from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 from app.modules.recordings.prebuffer import PrebufferFragmentTracker
 from app.modules.recordings.runtime import RecorderModeTracker
 from app.modules.storage.dispatcher import StorageTaskDispatcher
+from app.modules.system.frigate_dispatcher import FrigateTaskDispatcher
 from app.internal import router as internal_router
 
 
@@ -27,6 +28,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     prebuffer_fragments = PrebufferFragmentTracker()
     recording_tasks = RecordingTaskDispatcher(resolved_settings)
     storage_tasks = StorageTaskDispatcher()
+    frigate_tasks = FrigateTaskDispatcher()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -61,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.prebuffer_fragments = prebuffer_fragments
     app.state.recording_tasks = recording_tasks
     app.state.storage_tasks = storage_tasks
+    app.state.frigate_tasks = frigate_tasks
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
