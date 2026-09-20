@@ -37,9 +37,17 @@ echo "Preparing reconciliation stream and deliberate lost hook..."
 docker compose exec -T poc-api python /app/reconciliation_faults.py prepare
 
 echo "Stopping API while ZLM continues recording..."
+API_DOWN_START=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 docker compose stop poc-api
 sleep 18
 docker compose start poc-api
+API_DOWN_END=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+cat > runtime/api-downtime.json <<EOF
+{
+  "started_at": "$API_DOWN_START",
+  "finished_at": "$API_DOWN_END"
+}
+EOF
 
 echo "Waiting for API health after restart..."
 i=0
