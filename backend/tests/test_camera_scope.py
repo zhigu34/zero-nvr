@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -44,7 +45,7 @@ def test_camera_scope_inheritance_override_and_group_descendants(
             },
         )
         assert created.status_code == 201
-        admin_id = created.json()["id"]
+        admin_id = uuid.UUID(created.json()["id"])
 
         login = client.post(
             "/api/v1/auth/login",
