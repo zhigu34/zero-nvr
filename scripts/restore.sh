@@ -97,6 +97,6 @@ compose run --rm --no-deps zero-nvr \
   sh -ec 'rm -rf /var/cache/zero-nvr/restore-staging'
 
 echo "Starting restored control plane..."
-compose up -d zero-nvr zero-nvr-worker
+compose up -d --wait --wait-timeout 180 zero-nvr zero-nvr-worker
 
 echo "Restore completed. Recording media was not modified."
