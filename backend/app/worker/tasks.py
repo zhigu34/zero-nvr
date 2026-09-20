@@ -43,6 +43,7 @@ from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.archive import ArchiveLifecycleService
 from app.modules.system.frigate import FrigateProviderSettingsService
+from app.modules.system.health import write_worker_heartbeat
 from app.modules.storage.retention import (
     LocalRetentionDeletionService,
     RetentionPlanner,
@@ -898,3 +899,12 @@ def schedule_backups() -> dict[str, int]:
         }
     finally:
         database.close()
+
+
+
+@huey.periodic_task(crontab(minute="*"))
+def worker_heartbeat() -> str:
+    settings = Settings()
+    return str(
+        write_worker_heartbeat(settings)
+    )
