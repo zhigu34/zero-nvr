@@ -30,6 +30,9 @@ class Settings(BaseSettings):
 
     data_dir: Path = Path("/var/lib/zero-nvr")
     cache_dir: Path = Path("/var/cache/zero-nvr")
+    playback_cache_max_bytes: int = 4 * 1024 * 1024 * 1024
+    playback_cache_ttl_seconds: int = 6 * 60 * 60
+    playback_restore_lock_ttl_seconds: int = 15 * 60
     recordings_dir: Path = Path("/recordings")
     prebuffer_dir: Path = Path("/prebuffer")
     prebuffer_fragment_seconds: int = 5
@@ -121,6 +124,30 @@ class Settings(BaseSettings):
         if value < 10 or value > 600:
             raise ValueError(
                 "ZERO_NVR_PREBUFFER_BUFFER_SECONDS must be between 10 and 600"
+            )
+        return value
+
+    @field_validator("playback_cache_max_bytes")
+    @classmethod
+    def validate_playback_cache_max_bytes(cls, value: int) -> int:
+        minimum = 64 * 1024 * 1024
+        maximum = 1024 * 1024 * 1024 * 1024
+        if value < minimum or value > maximum:
+            raise ValueError(
+                "ZERO_NVR_PLAYBACK_CACHE_MAX_BYTES must be between "
+                "67108864 and 1099511627776"
+            )
+        return value
+
+    @field_validator(
+        "playback_cache_ttl_seconds",
+        "playback_restore_lock_ttl_seconds",
+    )
+    @classmethod
+    def validate_playback_cache_timeouts(cls, value: int) -> int:
+        if value < 60 or value > 7 * 24 * 60 * 60:
+            raise ValueError(
+                "playback cache timeouts must be between 60 and 604800 seconds"
             )
         return value
 

@@ -877,6 +877,7 @@ def resolve_camera_playback(
         session,
         camera_id=camera_id,
         at=at,
+        settings=request.app.state.settings,
     )
     # No SQLite transaction remains open while filesystem/ZLM work runs.
     session.commit()
@@ -889,6 +890,9 @@ def resolve_camera_playback(
         )
 
     if isinstance(plan, PendingPlan):
+        request.app.state.storage_tasks.restore_playback_segment(
+            segment_id=plan.segment_id,
+        )
         return PlaybackPendingView(
             reason=plan.reason,
             segment_id=plan.segment_id,

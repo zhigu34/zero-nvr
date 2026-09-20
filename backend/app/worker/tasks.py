@@ -34,6 +34,7 @@ from app.modules.exports.execution import (
 )
 from app.modules.notifications.delivery import NotificationDeliveryService
 from app.modules.recordings.models import RecordingPolicy
+from app.modules.recordings.playback_cache import PlaybackCacheService
 from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.recordings.prebuffer import (
     PrebufferFragment,
@@ -501,6 +502,20 @@ def reconcile_recording_policy_boundary(
     finally:
         database.close()
 
+
+
+@huey.task(retries=3, retry_delay=30)
+def restore_playback_segment(segment_id: str) -> str:
+    settings = Settings()
+    database = _database(settings)
+    try:
+        result = PlaybackCacheService(settings).execute(
+            database,
+            segment_id=uuid.UUID(segment_id),
+        )
+        return str(result.path)
+    finally:
+        database.close()
 
 
 @huey.task(retries=3, retry_delay=60)

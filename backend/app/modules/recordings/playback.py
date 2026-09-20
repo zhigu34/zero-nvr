@@ -15,6 +15,7 @@ from app.integrations.zlm import ZlmAdapter
 from app.modules.storage.models import RecordingLocation
 
 from .models import RecordingSegment
+from .playback_cache import PlaybackCacheService
 from .timeline import PlaybackTimelineService
 
 
@@ -79,6 +80,18 @@ class PlaybackResolverService:
         return candidate
 
     @staticmethod
+    def _offset_ms(*, at: datetime, segment: RecordingSegment) -> int:
+        return max(
+            0,
+            int(
+                round(
+                    (at - segment.started_at).total_seconds()
+                    * 1000
+                )
+            ),
+        )
+
+    @staticmethod
     def _neighbors(
         session: Session,
         *,
@@ -112,6 +125,7 @@ class PlaybackResolverService:
         *,
         camera_id: uuid.UUID,
         at: datetime,
+        settings: Settings | None = None,
     ) -> PlaybackPlan:
         segments = list(
             session.scalars(
@@ -134,6 +148,23 @@ class PlaybackResolverService:
         )
 
         for segment in segments:
+            if settings is not None:
+                cached = PlaybackCacheService(settings).cached_file(
+                    segment_id=segment.id,
+                    expected_size=segment.size_bytes,
+                )
+                if cached is not None:
+                    return PlayablePlan(
+                        segment_id=segment.id,
+                        segment_start_at=segment.started_at,
+                        offset_ms=cls._offset_ms(
+                            at=at,
+                            segment=segment,
+                        ),
+                        file_path=cached,
+                        codec=segment.codec,
+                    )
+
             available = [
                 item
                 for item in segment.locations
@@ -152,16 +183,9 @@ class PlaybackResolverService:
             for location in available:
                 path = cls.filesystem_path(location)
                 if path is not None:
-                    offset_ms = max(
-                        0,
-                        int(
-                            round(
-                                (
-                                    at - segment.started_at
-                                ).total_seconds()
-                                * 1000
-                            )
-                        ),
+                    offset_ms = cls._offset_ms(
+                        at=at,
+                        segment=segment,
                     )
                     return PlayablePlan(
                         segment_id=segment.id,

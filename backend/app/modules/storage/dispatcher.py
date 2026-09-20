@@ -11,8 +11,10 @@ class StorageTaskDispatcher:
         self,
         *,
         archive_enqueue: Callable[[str, str], object] | None = None,
+        playback_restore_enqueue: Callable[[str], object] | None = None,
     ) -> None:
         self._archive_enqueue = archive_enqueue
+        self._playback_restore_enqueue = playback_restore_enqueue
 
     def archive_segment(
         self,
@@ -31,6 +33,18 @@ class StorageTaskDispatcher:
             str(target_id),
         )
 
+    def restore_playback_segment(
+        self,
+        *,
+        segment_id: uuid.UUID,
+    ) -> None:
+        enqueue = self._playback_restore_enqueue
+        if enqueue is None:
+            from app.worker.tasks import restore_playback_segment
+
+            enqueue = restore_playback_segment
+
+        enqueue(str(segment_id))
 
     @staticmethod
     def reconcile_retention(
