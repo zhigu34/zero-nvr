@@ -42,6 +42,8 @@ const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const targetPanelOpen = ref(false)
 const policyPanelOpen = ref(false)
+const editingTarget = ref<StorageTarget | null>(null)
+const editingPolicy = ref<RetentionPolicy | null>(null)
 const targetSaving = ref(false)
 const policySaving = ref(false)
 const testingTargetId = ref<string | null>(null)
@@ -165,7 +167,44 @@ function resetTargetForm(type: TargetFormType = "local"): void {
 }
 
 function openTargetPanel(type: TargetFormType = "local"): void {
+  editingTarget.value = null
   resetTargetForm(type)
+  targetPanelOpen.value = true
+  policyPanelOpen.value = false
+  notice.value = null
+}
+
+function openEditTarget(target: StorageTarget): void {
+  editingTarget.value = target
+  targetForm.type = target.type
+  targetForm.name = target.name
+  targetForm.rcloneConfig = ""
+
+  if (target.type === "local") {
+    targetForm.path =
+      typeof target.config.path === "string"
+        ? target.config.path
+        : "/recordings"
+    targetForm.defaultRecording =
+      target.config.default_recording === true
+    targetForm.remote = ""
+    targetForm.basePath = "zero-nvr"
+    targetForm.defaultArchive = false
+  } else {
+    targetForm.path = "/recordings"
+    targetForm.defaultRecording = false
+    targetForm.remote =
+      typeof target.config.remote === "string"
+        ? target.config.remote
+        : ""
+    targetForm.basePath =
+      typeof target.config.base_path === "string"
+        ? target.config.base_path
+        : "zero-nvr"
+    targetForm.defaultArchive =
+      target.config.default_archive === true
+  }
+
   targetPanelOpen.value = true
   policyPanelOpen.value = false
   notice.value = null
@@ -176,22 +215,52 @@ async function saveTarget(): Promise<void> {
   error.value = null
 
   try {
-    if (targetForm.type === "local") {
+    const name = targetForm.name.trim()
+
+    if (editingTarget.value) {
+      if (targetForm.type === "local") {
+        await updateStorageTarget(editingTarget.value.id, {
+          name,
+          config: {
+            path: targetForm.path.trim(),
+            default_recording: targetForm.defaultRecording
+          }
+        })
+      } else {
+        const changes: Record<string, unknown> = {
+          name,
+          config: {
+            remote: targetForm.remote.trim(),
+            base_path: targetForm.basePath.trim(),
+            default_archive: targetForm.defaultArchive
+          }
+        }
+        if (targetForm.rcloneConfig.trim()) {
+          changes.rclone_config = targetForm.rcloneConfig
+        }
+        await updateStorageTarget(
+          editingTarget.value.id,
+          changes
+        )
+      }
+      notice.value = "Storage target updated."
+    } else if (targetForm.type === "local") {
       await createStorageTarget({
         type: "local",
         role: "recording",
-        name: targetForm.name.trim(),
+        name,
         enabled: true,
         config: {
           path: targetForm.path.trim(),
           default_recording: targetForm.defaultRecording
         }
       })
+      notice.value = "Storage target created."
     } else {
       await createStorageTarget({
         type: "rclone",
         role: "archive",
-        name: targetForm.name.trim(),
+        name,
         enabled: true,
         config: {
           remote: targetForm.remote.trim(),
@@ -200,10 +269,11 @@ async function saveTarget(): Promise<void> {
         },
         rclone_config: targetForm.rcloneConfig
       })
+      notice.value = "Storage target created."
     }
 
+    editingTarget.value = null
     targetPanelOpen.value = false
-    notice.value = "Storage target created."
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -272,7 +342,31 @@ function resetPolicyForm(): void {
 }
 
 function openPolicyPanel(): void {
+  editingPolicy.value = null
   resetPolicyForm()
+  policyPanelOpen.value = true
+  targetPanelOpen.value = false
+  notice.value = null
+}
+
+function openEditPolicy(policy: RetentionPolicy): void {
+  editingPolicy.value = policy
+  policyForm.name = policy.name
+  policyForm.scopeType =
+    policy.scope_type === "CAMERA"
+      ? "CAMERA"
+      : "GLOBAL"
+  policyForm.scopeId =
+    policy.scope_type === "CAMERA" && policy.scope_id
+      ? policy.scope_id
+      : ""
+  policyForm.ordinaryDays = policy.ordinary_keep_days
+  policyForm.eventDays = policy.event_keep_days
+  policyForm.manualDays = policy.manual_keep_days
+  policyForm.mode = policy.mode
+  policyForm.requireArchive =
+    policy.require_archive_before_delete
+  policyForm.enabled = policy.enabled
   policyPanelOpen.value = true
   targetPanelOpen.value = false
   notice.value = null
@@ -297,9 +391,18 @@ async function savePolicy(): Promise<void> {
   }
 
   try {
-    await createRetentionPolicy(body)
+    if (editingPolicy.value) {
+      await updateRetentionPolicy(
+        editingPolicy.value.id,
+        body
+      )
+      notice.value = "Retention policy updated."
+    } else {
+      await createRetentionPolicy(body)
+      notice.value = "Retention policy created."
+    }
+    editingPolicy.value = null
     policyPanelOpen.value = false
-    notice.value = "Retention policy created."
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -530,6 +633,14 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button"
                   type="button"
+                  title="Edit target"
+                  @click="openEditTarget(target)"
+                >
+                  <UiIcon name="settings" :size="15" />
+                </button>
+                <button
+                  class="icon-button"
+                  type="button"
                   :title="target.enabled ? 'Disable' : 'Enable'"
                   @click="toggleTarget(target)"
                 >
@@ -624,6 +735,14 @@ onBeforeUnmount(() => {
                     <button
                       class="icon-button"
                       type="button"
+                      title="Edit policy"
+                      @click="openEditPolicy(policy)"
+                    >
+                      <UiIcon name="settings" :size="14" />
+                    </button>
+                    <button
+                      class="icon-button"
+                      type="button"
                       :title="policy.enabled ? 'Disable' : 'Enable'"
                       @click="togglePolicy(policy)"
                     >
@@ -656,9 +775,13 @@ onBeforeUnmount(() => {
           <div>
             <strong>
               {{
-                targetForm.type === "local"
-                  ? "Add local storage"
-                  : "Add archive storage"
+                editingTarget
+                  ? targetForm.type === "local"
+                    ? "Edit local storage"
+                    : "Edit archive storage"
+                  : targetForm.type === "local"
+                    ? "Add local storage"
+                    : "Add archive storage"
               }}
             </strong>
             <span>
@@ -673,7 +796,7 @@ onBeforeUnmount(() => {
             class="icon-button"
             type="button"
             title="Close"
-            @click="targetPanelOpen = false"
+            @click="targetPanelOpen = false; editingTarget = null"
           >
             <UiIcon name="close" :size="16" />
           </button>
@@ -728,13 +851,17 @@ onBeforeUnmount(() => {
               <span>rclone config</span>
               <textarea
                 v-model="targetForm.rcloneConfig"
-                required
+                :required="!editingTarget"
                 rows="9"
                 spellcheck="false"
                 placeholder="[archive]&#10;type = s3&#10;..."
               />
               <small>
-                Stored encrypted; never returned to the browser.
+                {{
+                  editingTarget
+                    ? "Leave blank to keep the existing encrypted credentials; enter a new config only to replace them."
+                    : "Stored encrypted; never returned to the browser."
+                }}
               </small>
             </label>
             <label class="storage-check">
@@ -750,7 +877,7 @@ onBeforeUnmount(() => {
             <button
               class="button button--ghost"
               type="button"
-              @click="targetPanelOpen = false"
+              @click="targetPanelOpen = false; editingTarget = null"
             >
               Cancel
             </button>
@@ -759,7 +886,13 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="targetSaving"
             >
-              {{ targetSaving ? "Saving…" : "Create target" }}
+              {{
+                targetSaving
+                  ? "Saving…"
+                  : editingTarget
+                    ? "Save target"
+                    : "Create target"
+              }}
             </button>
           </div>
         </form>
@@ -771,14 +904,20 @@ onBeforeUnmount(() => {
       >
         <header class="storage-editor__header">
           <div>
-            <strong>Add retention policy</strong>
+            <strong>
+              {{
+                editingPolicy
+                  ? "Edit retention policy"
+                  : "Add retention policy"
+              }}
+            </strong>
             <span>Recording lifecycle rules</span>
           </div>
           <button
             class="icon-button"
             type="button"
             title="Close"
-            @click="policyPanelOpen = false"
+            @click="policyPanelOpen = false; editingPolicy = null"
           >
             <UiIcon name="close" :size="16" />
           </button>
@@ -866,7 +1005,7 @@ onBeforeUnmount(() => {
             <button
               class="button button--ghost"
               type="button"
-              @click="policyPanelOpen = false"
+              @click="policyPanelOpen = false; editingPolicy = null"
             >
               Cancel
             </button>
@@ -875,7 +1014,13 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="policySaving"
             >
-              {{ policySaving ? "Saving…" : "Create policy" }}
+              {{
+                policySaving
+                  ? "Saving…"
+                  : editingPolicy
+                    ? "Save policy"
+                    : "Create policy"
+              }}
             </button>
           </div>
         </form>
