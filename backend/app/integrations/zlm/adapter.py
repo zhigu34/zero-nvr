@@ -271,6 +271,40 @@ class ZlmAdapter:
         except (TypeError, ValueError):
             return False
 
+    def load_mp4_file(
+        self,
+        *,
+        app: str,
+        stream: str,
+        file_path: str,
+        seek_ms: int = 0,
+        speed: float = 1.0,
+    ) -> bool:
+        payload = self._call(
+            "loadMP4File",
+            params={
+                "vhost": "__defaultVhost__",
+                "app": app,
+                "stream": stream,
+                "file_path": file_path,
+                "file_repeat": 0,
+                "seek_ms": max(0, seek_ms),
+                "speed": speed,
+                "enable_hls": 0,
+                "enable_hls_fmp4": 0,
+                "enable_mp4": 0,
+                "enable_rtsp": 1,
+                "enable_rtmp": 0,
+                "enable_ts": 0,
+                "enable_fmp4": 1,
+                "enable_audio": 1,
+                "add_mute_audio": 0,
+                "modify_stamp": 2,
+                "auto_close": 1,
+            },
+        )
+        return bool(payload.get("result", True))
+
     def start_mp4_recording(
         self,
         *,
