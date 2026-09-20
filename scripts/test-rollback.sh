@@ -18,6 +18,7 @@ setup_repo() {
   cp "$ROOT_DIR/scripts/lib.sh" "$repo_dir/scripts/lib.sh"
   cp "$ROOT_DIR/scripts/deployment-state.sh" "$repo_dir/scripts/deployment-state.sh"
   cp "$ROOT_DIR/scripts/rollback.sh" "$repo_dir/scripts/rollback.sh"
+  chmod +x "$repo_dir/scripts/rollback.sh"
 
   cat > "$repo_dir/scripts/check.sh" <<'EOF'
 #!/usr/bin/env bash
