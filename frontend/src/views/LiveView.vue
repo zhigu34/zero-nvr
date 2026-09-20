@@ -16,10 +16,10 @@ import LiveCameraTile from "../components/live/LiveCameraTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
-type LayoutSlots = 1 | 4 | 9
+type LayoutSlots = 1 | 4 | 9 | 16
 
 const auth = useAuthStore()
-const layoutOptions: LayoutSlots[] = [1, 4, 9]
+const layoutOptions: LayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const selectedIds = ref<string[]>([])
@@ -74,7 +74,9 @@ const emptySlots = computed(() =>
 
 const gridColumns = computed(() => {
   if (focusedCameraId.value || layoutSlots.value === 1) return 1
-  return layoutSlots.value === 4 ? 2 : 3
+  if (layoutSlots.value === 4) return 2
+  if (layoutSlots.value === 9) return 3
+  return 4
 })
 
 const streamQuality = computed<LiveQuality>(() =>
@@ -128,7 +130,7 @@ function toggleCamera(camera: CameraSummary): void {
     return
   }
 
-  selectedIds.value = [camera.id, ...selectedIds.value].slice(0, 9)
+  selectedIds.value = [camera.id, ...selectedIds.value].slice(0, 16)
 }
 
 function focusCamera(cameraId: string): void {
@@ -138,7 +140,7 @@ function focusCamera(cameraId: string): void {
   }
 
   if (!selectedIds.value.includes(cameraId)) {
-    selectedIds.value = [cameraId, ...selectedIds.value].slice(0, 9)
+    selectedIds.value = [cameraId, ...selectedIds.value].slice(0, 16)
   }
   focusedCameraId.value = cameraId
 }
