@@ -1,6 +1,6 @@
 # POC-09 — SQLite Load
 
-Result: **RERUN REQUIRED — first mixed-load run passed; retention query is now a hard performance gate**
+Result: **PASS**
 
 ## Purpose
 
@@ -112,21 +112,22 @@ Evidence records:
 ## Tested versions
 
 ~~~text
-GitHub Actions run: 35490249085
+GitHub Actions run: 35490737812
 job: POC 09
+head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
 Python: 3.13.15
 SQLite: 3.46.1
 journal_mode: WAL
 synchronous: NORMAL
 busy_timeout: 5000 ms
-runner: Ubuntu 24.04.5 / linux amd64
+runner: Ubuntu / linux amd64
 ~~~
 
 ## Test environment
 
 ~~~text
 CPU: 4 logical CPUs
-host-visible RAM: 16,373,452 KiB (~15.6 GiB)
+host-visible RAM: 16,372,440 KiB (~15.6 GiB)
 cgroup memory hard limit: none
 load duration: 30 s per scenario
 preload history: 30 days
@@ -142,22 +143,22 @@ This hardware description is evidence for the measured result, not a universal m
 result = PASS
 preloaded RecordingSegments = 69,120
 preloaded Events = 24,000
-final segments / locations = 69,495 / 69,495
+final segments / locations = 69,817 / 69,817
 final lock failures = 0
 lock retries = 0
 errors = []
 
-Event query p95 ≈ 9.67 ms
-Timeline query p95 ≈ 7.65 ms
-RecordingSegment+RecordingLocation write p95 ≈ 197.03 ms
+Event query p95 ≈ 5.54 ms
+Timeline query p95 ≈ 4.80 ms
+RecordingSegment+RecordingLocation write p95 ≈ 7.46 ms
+Event UPSERT p95 ≈ 5.70 ms
+Retention candidate query p95 ≈ 12.11 ms
 
-online backups completed = 5
+online backups completed = 2
 backup integrity_check = ok
 main DB integrity_check = ok
-
-DB after checkpoint ≈ 52.4 MB
 WAL after TRUNCATE checkpoint = 0
-checkpoint ≈ 0.055 s
+checkpoint ≈ 0.005 s
 ~~~
 
 ### 16-camera extended target
@@ -166,70 +167,105 @@ checkpoint ≈ 0.055 s
 result = PASS
 preloaded RecordingSegments = 138,240
 preloaded Events = 48,000
-final segments / locations = 138,518 / 138,518
+final segments / locations = 138,949 / 138,949
 final lock failures = 0
 lock retries = 0
 errors = []
 
-Event query p95 ≈ 22.91 ms
-Timeline query p95 ≈ 15.56 ms
-RecordingSegment+RecordingLocation write p95 ≈ 354.26 ms
+Event query p95 ≈ 5.14 ms
+Timeline query p95 ≈ 4.47 ms
+RecordingSegment+RecordingLocation write p95 ≈ 7.72 ms
+Event UPSERT p95 ≈ 4.81 ms
+Retention candidate query p95 ≈ 11.31 ms
 
-online backups completed = 4
+online backups completed = 1
 backup integrity_check = ok
 main DB integrity_check = ok
-
-DB after checkpoint ≈ 104.2 MB
 WAL after TRUNCATE checkpoint = 0
-checkpoint ≈ 0.018 s
+checkpoint ≈ 0.012 s
 ~~~
+
+### Retention-query optimization
+
+The first run had exposed an unacceptable planner choice:
+
+~~~text
+8 cameras retention p95  ≈ 5.84 s
+16 cameras retention p95 ≈ 10.21 s
+~~~
+
+The frozen query/index shape was then changed to drive the scan from RecordingSegment camera/end-time order and point-lookup the physical location:
+
+~~~text
+RecordingSegment(camera_id, ended_at, started_at, id)
+RecordingLocation(recording_segment_id, storage_target_id, state)
+~~~
+
+SQLite planner statistics are refreshed after the bulk historical import.
+
+The rerun recorded:
+
+~~~text
+8 cameras retention p95  ≈ 12.11 ms
+16 cameras retention p95 ≈ 11.31 ms
+~~~
+
+Representative EXPLAIN QUERY PLAN:
+
+~~~text
+SEARCH s USING COVERING INDEX idx_segments_camera_end_cover
+  (camera_id=? AND ended_at<?)
+CORRELATED SCALAR SUBQUERY
+SEARCH p USING COVERING INDEX idx_protection_camera_range
+SEARCH l USING INDEX idx_locations_segment_target_state
+  (recording_segment_id=? AND storage_target_id=? AND state=?)
+~~~
+
+This closes the seconds-scale retention-query issue and satisfies the new local `retention_query p95 < 500 ms` gate by a wide margin.
+
+### Backup observation
+
+SQLite Online Backup remained correct while writes/queries continued. On this shared CI runner it was intentionally not treated as an interactive-latency path:
+
+~~~text
+8-camera backup wall time: ~7.4 s and ~13.0 s
+16-camera backup wall time: ~26.2 s
+integrity_check: ok
+~~~
+
+Backup stays background work and must never hold recording/network/storage work inside a database write transaction.
 
 Primary artifact:
 
 ~~~text
-GitHub Actions run: 35490249085
+GitHub Actions run: 35490737812
 artifact: poc-09-evidence
-artifact id: 10598403979
+artifact id: 10597754860
 runtime/sqlite-load-evidence.json
 ~~~
 
-### Retention optimization gate
-
-The first run exposed one unacceptable query-plan result even though the rest of the workload passed:
-
-~~~text
-8 cameras retention query p95  ≈ 5.84 s
-16 cameras retention query p95 ≈ 10.21 s
-~~~
-
-That result does **not** overturn the SQLite-default decision: recording/Event/Timeline concurrency, WAL/checkpoint behavior, integrity, and online backup all passed with zero final lock failures.
-
-It does mean the first run is **not sufficient for final architecture freeze**.
-
-The harness has now been tightened to require:
-
-~~~text
-retention query p95 < 500 ms
-~~~
-
-and the schema/query was changed to:
-
-- drive candidate scanning from a covering `(camera_id, ended_at, started_at, id)` RecordingSegment index;
-- point-lookup physical copies using `(recording_segment_id, storage_target_id, state)`;
-- maintain SQLite planner statistics with `ANALYZE` / `PRAGMA optimize` after large bulk history import;
-- record `EXPLAIN QUERY PLAN` in the evidence;
-- keep retention as bounded Huey/background work;
-- never hold a write transaction across file/rclone delete/copy operations.
-
-A clean optimized POC-09 rerun is required before the design-freeze gate is closed.
-
 ## Architecture impact
 
-**SQLite + WAL remains the accepted default production database direction.**
+**Accepted: SQLite + WAL is the V1 default production database.**
 
-The first runtime run proved that the representative 8-camera and 16-camera recording/Event/Timeline/backup workload does not require Redis or PostgreSQL on the tested 4-CPU runner.
+The representative 8-camera baseline and 16-camera extended target both passed:
 
-Final freeze still requires the optimized retention-query rerun to satisfy the new retention p95 gate.
+- short concurrent recording/Event/Audit writes;
+- Timeline/Event reads;
+- the tightened retention p95 gate;
+- online backup integrity;
+- WAL checkpoint/truncation;
+- zero final lock failures;
+- without Redis or PostgreSQL.
+
+Required implementation details are now frozen:
+
+- short transactions;
+- WAL + busy timeout;
+- retention-oriented composite indexes from the Schema Freeze;
+- planner-statistics refresh after large imports/migrations;
+- bounded background retention scans;
+- SQLite Online Backup for system backup snapshots.
 
 PostgreSQL remains an optional scale-up/deployment choice, not a prerequisite for a normal production installation.
 
