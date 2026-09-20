@@ -4,15 +4,22 @@ Result: **PASS**
 
 ## Purpose
 
-Validate the normal managed recording path and prove that the control plane is not in the media hot path:
+Validate the normal recording path:
 
 ~~~text
-source -> ZLMediaKit -> fMP4 finalized media
-                    -> on_record_mp4
-                    -> RecordingSegment + RecordingLocation
+source
+-> ZLMediaKit
+-> finalized MP4/fMP4
+-> on_record_mp4
+-> RecordingSegment + RecordingLocation
 ~~~
 
-Also validate restart convergence and the deliberately lost-hook fallback.
+and prove:
+
+- FastAPI/control-plane restart does not deliberately stop an already-running ZLM recorder;
+- normal segment indexing uses ZLM finalize metadata rather than ffprobe;
+- lost hooks are recoverable idempotently;
+- ZLM remains the source-facing media bus.
 
 ## Harness
 
@@ -20,106 +27,191 @@ Also validate restart convergence and the deliberately lost-hook fallback.
 poc/zlm-recording/scripts/run.sh
 ~~~
 
-POC-08 stream-sharing assertions run in the same harness.
-
-## Tested versions
+Passing runtime execution:
 
 ~~~text
 GitHub Actions run: 35490899825
 job: POC 01
-head SHA: cbf0f710e3d3816354f5228ab86b842b9542d2ad
+~~~
+
+## Tested versions
+
+~~~text
 ZLMediaKit:
   branch: master
   commit: b794772
   buildTime: 2026-09-20T02:21:00
-managed recording mode: fMP4
+
 MediaMTX: 1.21.0-ffmpeg
+Docker Engine: 28.0.4
+Docker Compose: v2.38.2
+runner: Ubuntu 24.04.5 / linux amd64
 ~~~
+
+POC segmentation was accelerated to 10 seconds. Product production segmentation remains separately configurable and must never be assumed from the POC duration.
 
 ## Evidence
 
-### FastAPI restart while ZLM records
+### Control-plane restart
 
-FastAPI was stopped while the dedicated ZLM recorder remained running.
+A dedicated ZLM stream/recorder was started before FastAPI was stopped.
 
-After FastAPI restarted:
-
-- finalized media overlapped the control-plane downtime;
-- one downtime file not yet catalogued was recovered by reconciliation in the final baseline run;
-- another segment completed during the unavailable interval and arrived through ZLM's delayed/retried Hook path;
-- the recorder remained active;
-- a second reconciliation created zero additional rows.
-
-Recorded convergence mechanism:
+FastAPI downtime:
 
 ~~~text
-catalog_convergence_mechanism = reconciliation
-second_reconcile.recovered_count = 0
+start:    2026-09-20T05:09:12Z
+end:      2026-09-20T05:09:32Z
+duration: 20.0 s
 ~~~
 
-This proves zero-nvr can converge whether ZLM later retries the Hook or reconciliation discovers the finalized file first.
-
-### Normal Hook path
-
-Three consecutive `cam-main` finalized segments were indexed through normal Hook handling:
+After FastAPI returned:
 
 ~~~text
-duration_ms:
-  9959
-  11960
-  11960
+ZLM recorder active = true
 ~~~
 
-The accelerated POC target was 10 seconds, but the actual durations varied with real keyframe/segment boundaries. No fixed 10s/300s duration was assumed.
-
-The normal Hook phase did not increase the ffprobe fallback counter.
-
-### Deliberately dropped Hook
-
-The harness acknowledged one Hook but intentionally skipped catalog insertion.
+Media overlapping the control-plane downtime existed and converged into the catalog by two valid paths:
 
 ~~~text
-dropped_hook_count = 1
-first_reconcile.recovered_count = 1
-ffprobe fallback counter increased by 1
-second_reconcile.recovered_count = 0
+2026-09-20T05:09:12Z .. 05:09:19.960Z
+  source = delayed/retried hook
+
+2026-09-20T05:09:20Z .. 05:09:28Z
+  source = reconciliation
+~~~
+
+The first reconciliation recovered exactly one finalized file:
+
+~~~text
+/recordings/record/poc/api-restart-poc/2026-09-20/2026-09-20-05-09-20-3.mp4
+recovered_count = 1
 errors = []
 ~~~
 
-So ffprobe is a recovery fallback, not the normal per-segment indexing path.
+The second reconciliation was idempotent:
+
+~~~text
+recovered_count = 0
+errors = []
+~~~
+
+This demonstrates that the zero-nvr API process is not required for ZLM to continue recording.
+
+### Normal hook path
+
+The normal `cam-main` phase produced finalized segments through `on_record_mp4`.
+
+Representative actual durations:
+
+~~~text
+9.959 s
+11.960 s
+11.959 s
+~~~
+
+The harness intentionally does not assume the configured target duration is the actual finalized duration.
+
+The ffprobe fallback counter did not increase during normal Hook indexing.
+
+### Deliberately lost hook
+
+The harness then acknowledged but intentionally skipped one recording Hook.
+
+Before the deliberate loss/recovery phase:
+
+~~~text
+dropped_hook_count = 0
+ffprobe_calls = 1   # earlier API-restart reconciliation
+~~~
+
+After the deliberate loss/reconciliation phase:
+
+~~~text
+dropped_hook_count = 1
+ffprobe_calls = 2
+~~~
+
+The missing file was recovered through reconciliation, and the second reconciliation created no duplicate row.
+
+Therefore ffprobe remains a recovery fallback, not the normal per-segment indexing path.
+
+### Physical-copy uniqueness
+
+The POC catalog enforced one unique physical object path per RecordingLocation.
+
+No duplicate object path was created by Hook retry/reconciliation.
 
 ### Stream sharing
 
-See POC-08. The source-facing reader count remained:
+POC-08 shares this run and independently records the reader-count result.
+
+Before additional downstream readers:
 
 ~~~text
-cam_main = 1
-cam_sub  = 1
+cam_main source readers = 1
+cam_sub  source readers = 1
 ~~~
 
-even while two additional consumers read the ZLM main stream.
+With two additional readers attached to ZLM:
 
-## Primary artifact
+~~~text
+cam_main source readers = 1
+cam_sub  source readers = 1
+~~~
+
+## Artifact
 
 ~~~text
 GitHub Actions run: 35490899825
 artifact: poc-01-evidence
 artifact id: 10598049983
-artifact SHA256: eaea47b3a2a26cb3ddebec1a6712c01d8df5c39f344feabb726035fff1e3f95a
+SHA256: eaea47b3a2a26cb3ddebec1a6712c01d8df5c39f344feabb726035fff1e3f95a
+~~~
+
+Primary files:
+
+~~~text
 runtime/evidence.json
 runtime/api-restart-evidence.json
 runtime/poc.db
+runtime/docker-compose.log
 runtime/recordings/
 ~~~
 
 ## Known limitations
 
-- Segments are accelerated to about 10 seconds for CI. Production normal target remains roughly 300 seconds, while actual finalized media times remain authoritative.
-- MediaMTX is a deterministic synthetic camera source only.
-- Canonical absolute start/end normalization is validated separately by POC-05 because raw current-ZLM Hook start time has GOP-related bias in some session positions.
+- The deterministic source is synthetic; real-camera compatibility remains normal camera-integration testing.
+- The test uses accelerated segment duration.
+- Hook delivery after API restart can converge either through ZLM retry/delayed delivery or reconciliation. Production correctness must support both and remain idempotent.
+- POC-05 defines the stronger canonical wall-clock normalization rule; raw Hook `start_time` is not blindly used as final Timeline truth.
+- POC-02 separately selects fMP4 as the default recording container mode.
 
 ## Architecture impact
 
-**Accepted:** ZLMediaKit owns normal recording and continues independently of FastAPI/SQLite availability.
+**Accepted.**
 
-Normal indexing uses `on_record_mp4`; missed/failed metadata delivery converges through Hook retry and/or reconciliation. ffprobe stays outside the successful normal Hook path.
+V1 recording authority is frozen as:
+
+~~~text
+Camera
+  -> ZLMediaKit
+  -> normal ZLM recorder
+  -> finalized file
+  -> on_record_mp4 fast path
+  -> RecordingSegment + RecordingLocation
+
+lost/missed Hook
+  -> reconciliation
+  -> ffprobe only when required for recovery
+~~~
+
+The FastAPI/worker control plane is not the media hot path.
+
+Do not introduce:
+
+- a permanent FFmpeg recorder;
+- a second RTSP reconnect engine;
+- polling ffprobe for every segment;
+- a mandatory RecordingSession/RecordingIntent runtime table.
+
+ZLMediaKit remains responsible for source pull/reconnect and normal recording.
