@@ -50,6 +50,7 @@ V1 Design Freeze Candidate
 - [ADR 0004](adr/0004-host-managed-storage-no-product-storagepool.md) — host manages disk aggregation; no zero-nvr StoragePool
 - [ADR 0005](adr/0005-deploy-sh-upgrade-authority.md) — deploy.sh is V1 deployment/upgrade authority
 - [ADR 0006](adr/0006-zlm-owns-media-reconnect-runtime.md) — ZLM owns media pull/reconnect runtime
+- [ADR 0007](adr/0007-recording-location-physical-copy-model.md) — RecordingLocation is the physical recording-copy model
 
 ## Core product specs
 
