@@ -1,6 +1,6 @@
 # POC-09 — SQLite Load
 
-Result: **NOT RUN**
+Result: **PASS**
 
 ## Purpose
 
@@ -111,18 +111,112 @@ Evidence records:
 
 ## Tested versions
 
-Pending execution.
+~~~text
+GitHub Actions run: 35490249085
+job: POC 09
+Python: 3.13.15
+SQLite: 3.46.1
+journal_mode: WAL
+synchronous: NORMAL
+busy_timeout: 5000 ms
+runner: Ubuntu 24.04.5 / linux amd64
+~~~
 
 ## Test environment
 
-Pending execution.
+~~~text
+CPU: 4 logical CPUs
+host-visible RAM: 16,373,452 KiB (~15.6 GiB)
+cgroup memory hard limit: none
+load duration: 30 s per scenario
+preload history: 30 days
+~~~
+
+This hardware description is evidence for the measured result, not a universal minimum requirement.
 
 ## Evidence
 
-Pending execution.
+### 8-camera baseline
+
+~~~text
+result = PASS
+preloaded RecordingSegments = 69,120
+preloaded Events = 24,000
+final segments / locations = 69,495 / 69,495
+final lock failures = 0
+lock retries = 0
+errors = []
+
+Event query p95 ≈ 9.67 ms
+Timeline query p95 ≈ 7.65 ms
+RecordingSegment+RecordingLocation write p95 ≈ 197.03 ms
+
+online backups completed = 5
+backup integrity_check = ok
+main DB integrity_check = ok
+
+DB after checkpoint ≈ 52.4 MB
+WAL after TRUNCATE checkpoint = 0
+checkpoint ≈ 0.055 s
+~~~
+
+### 16-camera extended target
+
+~~~text
+result = PASS
+preloaded RecordingSegments = 138,240
+preloaded Events = 48,000
+final segments / locations = 138,518 / 138,518
+final lock failures = 0
+lock retries = 0
+errors = []
+
+Event query p95 ≈ 22.91 ms
+Timeline query p95 ≈ 15.56 ms
+RecordingSegment+RecordingLocation write p95 ≈ 354.26 ms
+
+online backups completed = 4
+backup integrity_check = ok
+main DB integrity_check = ok
+
+DB after checkpoint ≈ 104.2 MB
+WAL after TRUNCATE checkpoint = 0
+checkpoint ≈ 0.018 s
+~~~
+
+Primary artifact:
+
+~~~text
+GitHub Actions run: 35490249085
+artifact: poc-09-evidence
+artifact id: 10598403979
+runtime/sqlite-load-evidence.json
+~~~
+
+### Performance observation
+
+The current synthetic retention-candidate query is deliberately broad and was much slower than interactive reads:
+
+~~~text
+8 cameras retention query p95  ≈ 5.84 s
+16 cameras retention query p95 ≈ 10.21 s
+~~~
+
+This does **not** invalidate SQLite because retention is a background lifecycle job and the concurrent recording/Event/Timeline workload remained healthy with zero lock failures.
+
+It does create an implementation requirement:
+
+- retention runs through Huey/background work, never a synchronous user-request hot path;
+- scan/delete decisions are bounded/paginated in batches;
+- query/index shape is optimized against the real frozen schema before release;
+- long retention scans do not hold write transactions across file/rclone operations.
 
 ## Architecture impact
 
-Pending execution.
+**SQLite + WAL remains the accepted default production database.**
 
-Do not replace SQLite as the default based on assumption. Change database-default policy only from measured evidence plus an ADR.
+The 8-camera baseline passed comfortably, and the 16-camera extended target also passed the local write/query thresholds on the tested 4-CPU runner without Redis or PostgreSQL.
+
+PostgreSQL remains an optional scale-up/deployment choice, not a prerequisite for a normal production installation.
+
+The result does not define minimum hardware memory for zero-nvr as a whole; full-application resource validation remains separate.
