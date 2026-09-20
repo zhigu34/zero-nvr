@@ -31,31 +31,22 @@ Core rule:
 
 ## Canonical time units
 
-PostgreSQL stores authoritative timestamps as UTC datetimes.
+SQLite and PostgreSQL persist the same canonical UTC instants through the shared persistence model.
 
 Playback API contracts use timezone-aware ISO 8601 timestamps:
 
 ```text
-start_ms
-end_ms
-time_ms
-global_time_ms
+start_at
+end_at
+at
+global_at
 ```
 
-All frontend timeline/playback calculations use milliseconds.
+The frontend converts those instants into epoch milliseconds internally for Canvas layout, binary search, Master Clock math, and browser synchronization.
 
-HTML video currentTime remains seconds because that is the browser API, so conversion is explicit:
+HTML video `currentTime` remains seconds because that is the browser API. Conversion is explicit inside the player/timeline layer rather than leaking millisecond integers into the public API.
 
-```text
-absolute_time_ms =
-    segment.start_ms
-    + video.currentTime * 1000
-
-video.currentTime =
-    (global_time_ms - segment.start_ms) / 1000
-```
-
-Do not mix Unix seconds, ISO 8601 timestamps, and video-relative seconds inside one API/model.
+Do not mix Unix seconds, naive datetimes, and video-relative seconds inside one public API/model.
 
 ## PlaybackTimeline response
 
@@ -67,22 +58,22 @@ Conceptual response:
 {
   "camera_id": "cam_01",
   "range": {
-    "start_ms": 1790000000000,
-    "end_ms": 1790086400000
+    "start_at": 1790000000000,
+    "end_at": 1790086400000
   },
   "segments": [
     {
       "id": "seg_01",
-      "start_ms": 1790000000000,
-      "end_ms": 1790000300000,
+      "start_at": 1790000000000,
+      "end_at": 1790000300000,
       "availability": "local",
       "playback_ref": "seg_01"
     }
   ],
   "gaps": [
     {
-      "start_ms": 1790000300000,
-      "end_ms": 1790000600000,
+      "start_at": 1790000300000,
+      "end_at": 1790000600000,
       "reason": "source_lost"
     }
   ],
@@ -91,8 +82,8 @@ Conceptual response:
       "id": "evt_01",
       "type": "motion",
       "lifecycle_kind": "stateful",
-      "start_ms": 1790000100000,
-      "end_ms": 1790000125000
+      "start_at": 1790000100000,
+      "end_at": 1790000125000
     }
   ]
 }
@@ -103,7 +94,7 @@ The frontend does not need local paths, S3/rclone/OpenList object keys, storage 
 
 ### Segment ordering and lookup
 
-Detailed timeline responses return playable segments ordered by `start_ms` ascending.
+Detailed timeline responses return playable segments ordered by `start_at` ascending.
 
 The frontend/player maintains this ordered list and uses binary search (or an equivalent indexed lookup) for absolute-time seek:
 
@@ -112,7 +103,7 @@ target T
    ↓
 binary search ordered segments
    ↓
-find start_ms <= T < end_ms
+find start_at <= T < end_at
    ↓
 resolve playback_ref
    ↓
@@ -224,8 +215,8 @@ Any fixed tolerance such as 500ms is an implementation tuning ceiling, not a rul
 For a viewport:
 
 ```text
-view_start_ms
-view_end_ms
+view_start_at
+view_end_at
 canvas_width_px
 ```
 
@@ -233,10 +224,10 @@ calculate:
 
 ```text
 ms_per_px =
-    (view_end_ms - view_start_ms) / canvas_width_px
+    (view_end_at - view_start_at) / canvas_width_px
 
 x =
-    (time_ms - view_start_ms) / ms_per_px
+    (time_ms - view_start_at) / ms_per_px
 ```
 
 All tracks share this mapping.
@@ -269,8 +260,8 @@ Render as a point/icon/vertical marker.
 Stateful event:
 
 ```text
-start_ms
-end_ms
+start_at
+end_at
 ```
 
 Render as a duration band/range.
@@ -322,14 +313,14 @@ Timeline responses do not permanently embed storage-specific URLs. Playback URLs
 
 When the user selects absolute time T:
 
-1. find a playable segment satisfying start_ms <= T < end_ms;
+1. find a playable segment satisfying start_at <= T < end_at;
 2. resolve that segment;
 3. calculate offset;
 4. seek/play;
 5. if no playable segment exists, show its gap/unavailable state.
 
 ```text
-offset_seconds = (T - segment.start_ms) / 1000
+offset_seconds = (T - segment_start_at) / 1000
 ```
 
 Clicking a known gap keeps the playhead at T; it must not silently snap elsewhere.
@@ -404,7 +395,7 @@ For each camera:
 
 ```text
 channel_time_ms =
-    current_segment.start_ms
+    current_segment_start_at
     + video.currentTime * 1000
 
 drift_ms =
@@ -557,8 +548,8 @@ Timeline queries are range-based:
 
 ```text
 camera_ids
-start_ms
-end_ms
+from=<ISO8601>
+to=<ISO8601>
 zoom/detail
 ```
 
@@ -572,7 +563,7 @@ The API may return multiple tracks aligned to one requested range:
 
 ```json
 {
-  "range": { "start_ms": 1, "end_ms": 2 },
+  "range": { "start_at": 1, "end_at": 2 },
   "tracks": [
     {
       "camera_id": "cam_01",
@@ -631,8 +622,8 @@ Useful runtime diagnostics:
 camera_id
 global_time_ms
 segment_id
-segment_start_ms
-segment_end_ms
+segment_start_at
+segment_end_at
 availability
 resolved_backend
 buffering_state
@@ -685,10 +676,10 @@ Implementation validation must include at least:
    - move a RecordingSegment from local to verified remote-only;
    - verify PlaybackTimeline identity/time remains unchanged because playback_ref is stable.
 
-## Initial V2 implementation choices
+## Initial V1 implementation choices
 
 - Canvas timeline;
-- UTC millisecond Playback API;
+- timezone-aware ISO 8601 Playback API; frontend converts to milliseconds internally;
 - PlaybackResolver by RecordingSegment ID;
 - dual HTML video ping-pong initially;
 - Master Clock from monotonic browser time;
