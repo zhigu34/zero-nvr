@@ -23,6 +23,11 @@ x-zero-nvr-common: &zero-nvr-common
     - zero-nvr-prebuffer:/prebuffer
     - ./deploy:/config/deployment:ro
   restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
   networks:
     - zero-nvr
 
@@ -86,6 +91,11 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
     networks:
       - zero-nvr
 
