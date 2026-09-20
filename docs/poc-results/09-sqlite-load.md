@@ -82,6 +82,8 @@ POSTGRESQL RECOMMENDED ABOVE THIS LOAD
 
 A 16-camera limitation does not automatically demote SQLite from the default 8-camera/small-deployment path.
 
+The runner exits non-zero when the 8-camera baseline is not PASS. A 16-camera result may still be PASS WITH DOCUMENTED HARDWARE/CONFIG REQUIREMENT or POSTGRESQL RECOMMENDED ABOVE THIS LOAD without invalidating the measured 8-camera default target.
+
 ## Expected evidence
 
 ~~~text
@@ -93,7 +95,8 @@ poc/sqlite-load/runtime/*-backup-*.sqlite3
 
 Evidence records:
 
-- SQLite version;
+- host/container platform, architecture, CPU count, memory visibility/limit;
+- Python and SQLite version;
 - preload row counts;
 - DB/WAL/SHM sizes;
 - p50/p95/p99/max latency;
