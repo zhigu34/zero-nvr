@@ -1083,3 +1083,102 @@ def get_camera_live_stream(
         fps=profile.fps,
         has_audio=profile.has_audio,
     )
+
+
+
+@router.get("/cameras/{camera_id}/snapshot")
+def get_camera_snapshot(
+    camera_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    camera = CameraService.get_camera(session, camera_id)
+    if not camera.enabled:
+        raise ApiError(
+            status_code=409,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+
+    bindings = {
+        binding.purpose: binding
+        for binding in camera.stream_bindings
+    }
+    purpose = next(
+        (
+            candidate
+            for candidate in (
+                "SNAPSHOT",
+                "LIVE_HIGH",
+                "RECORD",
+                "LIVE_LOW",
+            )
+            if candidate in bindings
+        ),
+        None,
+    )
+    if purpose is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_snapshot_unavailable",
+            message="Camera has no stream bound for snapshots.",
+        )
+
+    profile_id = bindings[purpose].stream_profile_id
+    runtime = CameraMediaRuntimeService(
+        request.app.state.settings
+    )
+    desired = runtime.desired_streams(
+        session,
+        camera=camera,
+    )
+    selected = next(
+        (
+            item
+            for item in desired
+            if item.profile_id == profile_id
+        ),
+        None,
+    )
+    if selected is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_snapshot_unavailable",
+            message="Camera snapshot stream is unavailable.",
+        )
+
+    try:
+        references = runtime.ensure_streams([selected])
+        reference = references[0]
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            content, content_type = zlm.snapshot(
+                source_url=runtime.internal_rtsp_url(
+                    reference
+                ),
+                timeout_seconds=10,
+                expire_seconds=3,
+            )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    return Response(
+        content=content,
+        media_type=content_type,
+        headers={
+            "Cache-Control": "private, no-store",
+            "Content-Disposition": (
+                f'attachment; filename="zero-nvr-{camera.id}-snapshot.jpg"'
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

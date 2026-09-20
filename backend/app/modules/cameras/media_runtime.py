@@ -178,6 +178,12 @@ class CameraMediaRuntimeService:
                 references.append(item.reference)
         return references
 
+    def internal_rtsp_url(self, reference: ZlmStreamReference) -> str:
+        base = self.settings.zlm_rtsp_base_url.rstrip("/")
+        app = quote(reference.app, safe="")
+        stream = quote(reference.stream, safe="")
+        return f"{base}/{app}/{stream}"
+
     def public_hls_url(self, reference: ZlmStreamReference) -> str:
         base = self.settings.zlm_public_base_url.rstrip("/")
         app = quote(reference.app, safe="")

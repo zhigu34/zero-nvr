@@ -13,6 +13,7 @@ import type { CameraSummary } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
 import {
+  cameraSnapshotUrl,
   getCameraLiveStream,
   type CameraLiveStream,
   type LiveQuality
@@ -222,6 +223,15 @@ function toggleMute(): void {
   if (video.value) video.value.muted = muted.value
 }
 
+function downloadSnapshot(): void {
+  const anchor = document.createElement("a")
+  anchor.href = cameraSnapshotUrl(props.camera.id)
+  anchor.download = `${props.camera.name.replaceAll(/[^A-Za-z0-9._-]+/g, "-") || "camera"}-snapshot.jpg`
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+}
+
 async function enterFullscreen(): Promise<void> {
   await tile.value?.requestFullscreen?.()
 }
@@ -367,6 +377,16 @@ onBeforeUnmount(() => {
           @click.stop="toggleManualRecording"
         >
           <UiIcon name="record" :size="16" />
+        </button>
+
+        <button
+          class="media-button"
+          type="button"
+          aria-label="Download snapshot"
+          title="Snapshot"
+          @click.stop="downloadSnapshot"
+        >
+          <UiIcon name="snapshot" :size="16" />
         </button>
 
         <button

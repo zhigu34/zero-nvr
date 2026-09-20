@@ -126,3 +126,103 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         )
         assert unavailable.status_code == 409
         assert unavailable.json()["error"]["code"] == "camera_disabled"
+
+
+
+def test_camera_snapshot_uses_internal_zlm_stream_only(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    captured: dict[str, str] = {}
+
+    def fake_ensure(self, desired):
+        return [item.reference for item in desired]
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def snapshot(
+            self,
+            *,
+            source_url: str,
+            timeout_seconds: int,
+            expire_seconds: int,
+        ):
+            captured["source_url"] = source_url
+            assert timeout_seconds == 10
+            assert expire_seconds == 3
+            return b"\xff\xd8snapshot\xff\xd9", "image/jpeg"
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Front Door",
+                "location": "Entrance",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://alice:camera-secret@10.0.0.10/main"
+                        "?token=camera-token"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+
+        snapshot = client.get(
+            f"/api/v1/cameras/{camera_id}/snapshot"
+        )
+        assert snapshot.status_code == 200
+        assert snapshot.headers["content-type"].startswith(
+            "image/jpeg"
+        )
+        assert snapshot.content.startswith(b"\xff\xd8")
+        assert "attachment;" in snapshot.headers[
+            "content-disposition"
+        ]
+
+    source_url = captured["source_url"]
+    assert source_url.startswith(
+        "rtsp://zlmediakit:554/zero-nvr/profile-"
+    )
+    assert "camera-secret" not in source_url
+    assert "camera-token" not in source_url
+    assert "10.0.0.10" not in source_url

@@ -25,3 +25,8 @@ export function getCameraLiveStream(
     `/cameras/${encodeURIComponent(cameraId)}/live?${params}`
   )
 }
+
+
+export function cameraSnapshotUrl(cameraId: string): string {
+  return `/api/v1/cameras/${encodeURIComponent(cameraId)}/snapshot`
+}

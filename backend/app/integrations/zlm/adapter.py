@@ -172,6 +172,57 @@ class ZlmAdapter:
 
         return payload
 
+    def snapshot(
+        self,
+        *,
+        source_url: str,
+        timeout_seconds: int = 10,
+        expire_seconds: int = 3,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> tuple[bytes, str]:
+        form = {
+            "secret": self._api_secret(),
+            "url": source_url,
+            "timeout_sec": self._form_value(timeout_seconds),
+            "expire_sec": self._form_value(expire_seconds),
+        }
+        try:
+            response = self._client.post(
+                "/index/api/getSnap",
+                data=form,
+                headers={"Accept": "image/jpeg"},
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise ZlmIntegrationError(
+                "zlm_snapshot_timeout",
+                "ZLMediaKit snapshot did not complete in time.",
+                status_code=504,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ZlmIntegrationError(
+                "zlm_unavailable",
+                "ZLMediaKit snapshot request failed.",
+                status_code=503,
+            ) from exc
+
+        content_type = response.headers.get(
+            "content-type",
+            "",
+        ).split(";", 1)[0].strip().lower()
+        content = response.content
+        if content_type not in {"image/jpeg", "image/jpg"}:
+            raise ZlmIntegrationError(
+                "zlm_snapshot_failed",
+                "ZLMediaKit could not produce a camera snapshot.",
+            )
+        if not content or len(content) > max_bytes:
+            raise ZlmIntegrationError(
+                "zlm_snapshot_invalid",
+                "ZLMediaKit returned an invalid camera snapshot.",
+            )
+        return content, "image/jpeg"
+
     def version(self) -> dict[str, str | None]:
         payload = self._call("version")
         data = payload.get("data")

@@ -115,7 +115,9 @@ const icons: Record<string, string> = {
   share:
     '<circle cx="18" cy="5" r="2"/><circle cx="6" cy="12" r="2"/><circle cx="18" cy="19" r="2"/><path d="m8 11 8-5M8 13l8 5"/>',
   record:
-    '<circle cx="12" cy="12" r="5"/>'
+    '<circle cx="12" cy="12" r="5"/>',
+  snapshot:
+    '<path d="M4 7h4l1.5-2h5L16 7h4v12H4Z"/><circle cx="12" cy="13" r="3"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

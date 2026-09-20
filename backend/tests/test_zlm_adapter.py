@@ -309,3 +309,62 @@ def test_load_mp4_file_uses_native_zlm_vod_api() -> None:
     assert body["enable_fmp4"] == ["1"]
     assert body["enable_rtsp"] == ["1"]
     assert body["auto_close"] == ["1"]
+
+
+
+def test_snapshot_posts_sensitive_inputs_and_returns_jpeg() -> None:
+    requests: list[httpx.Request] = []
+    internal_url = "rtsp://zlmediakit:554/zero-nvr/profile-test"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/getSnap")
+        return httpx.Response(
+            200,
+            content=b"\xff\xd8fake-jpeg\xff\xd9",
+            headers={"content-type": "image/jpeg"},
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        content, content_type = adapter.snapshot(
+            source_url=internal_url,
+            timeout_seconds=7,
+            expire_seconds=2,
+        )
+
+    assert content.startswith(b"\xff\xd8")
+    assert content_type == "image/jpeg"
+    assert len(requests) == 1
+    request = requests[0]
+    assert not request.url.query
+    body = form(request)
+    assert body["secret"] == [ZLM_SECRET]
+    assert body["url"] == [internal_url]
+    assert body["timeout_sec"] == ["7"]
+    assert body["expire_sec"] == ["2"]
+
+
+def test_snapshot_rejects_non_image_response_without_echoing_url() -> None:
+    internal_url = "rtsp://zlmediakit:554/zero-nvr/profile-secret"
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "code": -1,
+                "msg": f"failed to open {internal_url}",
+            },
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        with pytest.raises(ZlmIntegrationError) as captured:
+            adapter.snapshot(source_url=internal_url)
+
+    assert captured.value.code == "zlm_snapshot_failed"
+    assert internal_url not in str(captured.value)
