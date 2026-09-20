@@ -1,6 +1,6 @@
 # zero-nvr Project Baseline
 
-Status: **V1 Design Freeze Candidate**
+Status: **V1 Architecture Frozen**
 
 This file is the highest-level engineering baseline for zero-nvr. When another document conflicts with this file, this file wins until the conflict is resolved by an explicit architecture decision.
 
@@ -14,7 +14,7 @@ The first stable release must be usable end-to-end rather than a demo/MVP. Compl
 
 1. **Mature components first.** Reuse proven media, protocol, transfer, notification, backup, and identity libraries/tools instead of reimplementing them.
 2. **One clear owner per capability.**
-   - ZLMediaKit: camera ingest, media routing, live delivery, MP4 recording, VOD.
+   - ZLMediaKit: camera ingest, media routing, live delivery, fMP4 recording by default, VOD.
    - Frigate: optional AI detection/tracking.
    - FFmpeg/ffprobe: on-demand derived-media work only.
    - rclone: remote file transfer/verification/restore.
@@ -349,24 +349,33 @@ Do not block the first stable release on infrastructure that is not required for
 
 These can exist as optional/future integrations without weakening the V1 product lifecycle.
 
-## Design-freeze gate
+## Architecture-freeze status
 
-The architecture remains **V1 Design Freeze Candidate** until every Core gate has a clean accepted runtime result.
+**V1 Architecture Frozen.**
 
-Already passed and incorporated into this baseline:
+The freeze is backed by the successful final design-validation workflow:
 
-- POC-02 — fMP4 abnormal termination/crash recovery;
+~~~text
+GitHub Actions run: 35490737812
+head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
+conclusion: success
+~~~
+
+All 10 design-freeze POCs have accepted runtime results:
+
+- POC-01 — ZLM recording / Hook indexing / control-plane restart convergence;
+- POC-02 — fMP4 abnormal-termination recovery and MP4 comparison;
 - POC-03 — EVENT_ONLY pre-roll;
 - POC-04 — overlapping Event promotion-window extension;
+- POC-05 — wall-clock Timeline precision / real source-loss Gap;
+- POC-06 — ZLM VOD seek;
 - POC-07 — remote restore -> bounded cache -> ZLM playback;
-- POC-09 — SQLite load at 8/16-camera representative targets;
-- POC-10 — recovery reconciliation after lost hooks/control-plane/SQLite/process faults.
+- POC-08 — ZLM stream sharing / source-camera connection count;
+- POC-09 — SQLite 8/16-camera mixed load + retention-query plan;
+- POC-10 — fault/reconciliation convergence.
 
-Remaining clean-rerun gates:
+Persistence boundaries are frozen by Plan 02; public/internal API and module ownership are frozen by Plan 03.
 
-- POC-01 — ZLM continuous recording + on_record_mp4 indexing + control-plane restart continuity;
-- POC-05 — recording wall-clock / Timeline precision using ZLM-observed media-session boundaries;
-- POC-06 — ZLM VOD seek at beginning/middle/near-end positions;
-- POC-08 — ZLM stream sharing and expected source-camera connection count.
+After this point, implementation may refine internals, versions, DTO details, UI, and measured performance without reopening architecture. Changes to core ownership, mandatory runtime services/containers, recording/storage lifecycle, default database class, persistence boundary, or frontend trust boundary require an explicit ADR.
 
-After these remaining gates pass, the status becomes **V1 Architecture Frozen** and changes to core ownership or deployment boundaries require an explicit ADR.
+See [ADR 0011 — V1 Architecture Freeze](adr/0011-v1-architecture-freeze.md) and [POC result index](poc-results/README.md).
