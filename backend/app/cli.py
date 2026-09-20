@@ -26,7 +26,7 @@ from app.modules.backups.execution import (
     BackupExecutionService,
     BackupRunService,
 )
-from app.modules.backups.models import BackupPolicy
+from app.modules.backups.models import BackupPolicy, BackupSet
 from app.modules.backups.service import BackupPolicyService
 from app.modules.backups.database_snapshot import (
     DatabaseSnapshotService,
