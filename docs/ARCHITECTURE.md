@@ -76,17 +76,21 @@ See [Spec 0013 — First Production Release Scope and Completeness Policy](specs
 
 ### Production database modes
 
-zero-nvr supports two production database modes behind one persistence/domain contract.
+zero-nvr supports one logical SQLAlchemy/Alembic domain model on two production database choices:
 
 ```text
-                DatabaseCapabilities
-                /                  \
-        SQLite (default)       PostgreSQL
-        lightweight            optional scale-up
-        WAL                    client/server
+SQLite (default)
+  lightweight single-host
+  WAL
+  no separate DB service
+
+PostgreSQL (optional)
+  scale-up path
+  client/server
+  managed or external
 ```
 
-SQLite is the default for single-host lightweight deployment. PostgreSQL is available for sustained higher write concurrency and larger installations. User-visible business features stay the same.
+SQLite is the default for single-host lightweight deployment. PostgreSQL is available when measured write concurrency or deployment requirements justify it. User-visible business features stay the same. Backend-specific behavior stays in small persistence helpers rather than a heavyweight DatabaseCapabilities framework.
 
 A separate versioned SQLite portable index remains available for offline inspection/export/import independent from whichever production database is active.
 
@@ -303,27 +307,25 @@ See [Spec 0018 — Camera Onboarding, Discovery, Capability Probe, and Stream Se
 
 ### Device runtime lifecycle and reconfiguration
 
-Durable configuration and runtime state are separate.
+Durable Camera/Device configuration and observed runtime are separate.
 
 ```text
-Device / Camera / MediaStream config
+Device / Camera configuration
              ↓
-       RuntimeSupervisor
-      /      |       \
- control   media    event/PTZ/time
-            ↓
-       ZLMediaKit
-            ↓
-     RecordingManager
+      RuntimeReconciler
+       /      |      \
+    ONVIF    ZLM    optional provider
+             ↓
+        observed health
 ```
 
-Runtime-relevant changes carry monotonic config revisions and short-lived runtime generations. Late callbacks from an old ZLM stream, event subscription, reconnect timer, or device probe are ignored for current-state mutation once a newer revision is authoritative.
+RuntimeReconciler is thin and idempotent. It applies desired configuration through mature adapters, observes ZLM/ONVIF/provider state, and fences stale asynchronous results when configuration revisions race.
 
-Configuration apply follows prepare/validate/commit/apply. Metadata-only edits do not restart media. Endpoint/credential changes rebuild only affected runtimes when possible. Source-profile switches use shadow verification and safe handoff.
+It does not own RTSP packet monitoring, reconnect backoff, media decoding, or a second recorder. ZLMediaKit remains responsible for source pull/reconnect and recording runtime.
 
-Recording-profile changes preserve RecordingSession and active RecordingIntents. Planned changes switch at a safe formal segment boundary; forced changes close the physical segment with `completion_reason = source_reconfigured` and start a new segment while keeping logical recording intent active.
+Metadata-only edits should not restart media. Endpoint/credential/profile changes validate and apply only the minimum affected adapter configuration. A recording-profile switch prefers a safe segment boundary where practical; any actual media discontinuity becomes a real new RecordingSegment/gap.
 
-Capability/profile/channel drift is diffed rather than treated as device deletion. Missing NVR channels keep their Camera identity/history and revive when the same stable channel returns.
+Capability/profile/channel drift is diffed rather than treated as Camera deletion.
 
 See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Drift](specs/0019-device-runtime-lifecycle-and-reconfiguration.md).
 
@@ -351,11 +353,11 @@ Grid tiles use `live_preview`; focused/fullscreen views may promote to `live_mai
 
 H.265 recording remains independent from browser live compatibility. When the browser cannot directly consume the selected H.265 live source, zero-nvr first prefers a compatible H.264 source profile and otherwise may create a shared on-demand H.264 live derivative through TranscodeManager.
 
-Remote WebRTC uses STUN/TURN; coturn is the default TURN implementation. TURN credentials are short-lived and issued only for authorized MediaSessions.
+TURN/coturn is optional for deployments that need remote WebRTC traversal. LAN-only V1 does not depend on it.
 
-Audio playback and TalkSession are separate from video. Talk uses an adapter-specific TalkBackend for ONVIF/RTSP backchannel, HIK/vendor SDK, GB28181/WVP, or other supported device paths.
+Audio playback is capability-dependent. Two-way talk is also optional and uses mature ONVIF/RTSP/vendor backchannel support when implemented; talk failure never affects video or recording.
 
-See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
 
 ### Live view
 
@@ -409,269 +411,53 @@ Preferred implementation candidates reuse ZLMediaKit's existing rolling HLS/fMP4
 The final physical composition and fMP4 choice are validated by [V1 Design-Freeze POC Plan](plans/01-design-freeze-poc.md). Until that POC passes, older rolling-MP4/tmpfs details are candidate implementation notes rather than frozen invariants.
 
 
-### Recording intent arbitration
+### Recording arbitration
 
-Recording modes are additive business intents rather than mutually exclusive recorder states.
+Recording requirement is derived rather than represented by a mandatory RecordingIntent/RecordingSession persistence model.
 
 ```text
-continuous / schedule / event / manual intents
-                    ↓
-             RecordingManager
-                    ↓
-        one RecordingSession per
-      uninterrupted formal interval
-                    ↓
-        one formal media pipeline
+RecordingPolicy
+  continuous/schedule baseline
+        +
+active RecordingTriggers
+  event/manual/API
+        ↓
+per-camera recording arbiter
+        ↓
+one desired recorder state
+        ↓
+ZLMediaKit recorder
 ```
-
-The camera remains in formal recording while at least one intent is active. Adding/removing intents does not restart recording or reset the 5-minute segment clock.
 
 Important behavior:
 
-- event during continuous/schedule/manual recording adds event markers and retention without restarting media;
-- manual start during existing recording adds a manual intent only;
-- manual stop removes only the manual intent;
-- schedule end stops media only when no other intent remains;
-- a true interval with no active intents ends the RecordingSession;
-- V2 `hybrid` means scheduled baseline recording plus event-triggered recording outside schedule windows.
+- continuous/schedule/event/manual reasons are additive;
+- adding/removing one reason never starts a duplicate recorder;
+- event during existing recording adds Event/Trigger/retention semantics without creating another MP4;
+- manual stop removes only the manual trigger/reason;
+- schedule end stops recording only if no other reason remains;
+- actual finalized media is represented only by RecordingSegment.
 
-See [Spec 0007 — Recording Intent Arbitration and Mode Composition](specs/0007-recording-intent-arbitration.md).
-
+See [Spec 0007 — Recording Intent Arbitration](specs/0007-recording-intent-arbitration.md).
 
 ### Stream loss and reconnect recovery
 
-Transport/media failure is separated from business recording intent.
+ZLMediaKit owns source pull and reconnect runtime.
+
+zero-nvr observes media registration/recorder state and projects product health:
 
 ```text
-camera/protocol runtime
-        ↓
-ZLMediaKit runtime stream
-        ↓
-RecordingSegment
-        ↓
-RecordingSession / RecordingIntent
+ONLINE
+DEGRADED
+OFFLINE
+DISABLED
 ```
 
-A confirmed media break closes the current physical RecordingSegment and marks it with `completion_reason = source_lost` (or another explicit interruption reason). Recovery always writes a new physical file; it never appends new media into the old MP4.
+A real interruption ends the current finalized media coverage. After recovery, new media uses actual recovery timestamps and any missing interval remains a real timeline gap.
 
-If RecordingIntent still requires recording, the same RecordingSession remains active across the outage:
+If policy/active triggers still require recording, zero-nvr simply reconciles desired recorder state after ZLM/source recovery. It does not preserve a synthetic RecordingSession object across the outage or run a competing reconnect engine.
 
-```text
-RecordingSession  ─────────────────────────────
-
-physical media    [segment A]    [segment B]
-                              gap
-```
-
-After actual media recovery, the formal physical segment clock restarts from the recovery time. This is an exception to the normal healthy-intent rule: intent changes do not reset cadence, but real media discontinuity does.
-
-Camera health may progress through `degraded → reconnecting → offline`, while background retry continues for enabled cameras. Historical playback exposes the actual gap such as `source_lost`.
-
-ZLMediaKit implementation must use source/runtime signals rather than reader-count hooks; `on_stream_none_reader` is not a camera-disconnect signal.
-
-See [Spec 0008 — Stream Loss, Reconnect, and Recording Recovery](specs/0008-stream-reconnect-and-recording-recovery.md).
-
-### Detection providers, observations, and event fusion
-
-Event providers do not directly become recording/alert engines.
-
-```text
-ONVIF / HIK / Frigate / local detector
-                ↓
-        DetectionProvider
-                ↓
-       DetectionObservation
-                ↓
-         EventNormalizer
-                ↓
-         DetectionEvent
-          ↓            ↓
-  EventFusionGroup   DetectionPolicy
-                       ↓
-              RecordingManager / AlertEvaluator
-```
-
-Provider observations are append-oriented source evidence. DetectionEvent is the provider-neutral business/timeline event. Cross-provider EventFusionGroup correlation is deliberately non-destructive so forensic detail can still show every provider report.
-
-A Camera may bind multiple providers with independent timeline/recording/alert eligibility. Frigate is treated as an optional DetectionProvider; its object/event database and recordings are never zero-nvr business authority.
-
-Provider stateful events use START/UPDATE/END with durable idempotency keys, out-of-order protection, timestamp provenance, and bounded liveness on provider disconnect. Zones map through canonical EventZone while preserving external-provider semantics.
-
-See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
-
-### Native / AI / external automation events
-
-```text
-Camera ONVIF/HIK
-      or
-Local RTSP detector
-      or
-Optional AI provider
-      or
-Optional IntegrationAdapter
-(Home Assistant / MQTT / Webhook)
-      ↓
-Canonical DetectionEvent START / END
-      ↓
-RecordingManager
-      ├── RecordingSession lifecycle
-      ├── Event timeline marker
-      └── EventLog
-      ↓
-Recording Policy / AlertRule
-      ↓
-RecorderBackend / Notification / Webhook
-```
-
-Event sources report state; zero-nvr alone owns recording execution and lifecycle. Home Assistant, MQTT, ONVIF, local detection, AI providers and similar systems must not directly start/stop FFmpeg or manipulate ZLMediaKit internals.
-
-For stateful event recording, the accepted lifecycle is defined in [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md):
-
-- first event START with no active recording uses the configured pre-roll (V2 default: 10 seconds);
-- any ACTIVE event keeps the same event RecordingSession alive;
-- after the final event END, the configured post-roll begins (V2 default: 10 seconds);
-- a new event during post-roll cancels the pending stop and reuses the same RecordingSession;
-- each event remains an independent timeline marker and EventLog entry even when multiple events share one recording;
-- continuous/manual/schedule recording is annotated by events rather than restarted.
-
-
-### Alert incidents and notification delivery
-
-Alerting consumes canonical event/health/security signals independently from RecordingManager.
-
-```text
-DetectionEvent / Health / Security
-            ↓
-        AlertEvaluator
-            ↓
-         AlertRule
-            ↓
-       AlertIncident
-       ├─ grouping/cooldown
-       ├─ acknowledge/resolve
-       └─ escalation
-            ↓
-       DeliveryPlanner
-            ↓
-       AlertDelivery
-            ↓
- SMTP / Apprise / Webhook / HA / MQTT
-```
-
-AlertIncident is the human-attention lifecycle. It may group many source events without deleting them. Lifecycle state and acknowledgement are independent.
-
-Quiet schedules and temporary AlertSilence may suppress outbound delivery while preserving source events/incidents. Escalation and retry timers are durable across restart.
-
-AlertDelivery uses stable idempotency keys and per-attempt diagnostics. zero-nvr does not falsely promise exactly-once external delivery when a remote provider cannot guarantee it.
-
-A failing notification channel never blocks recording, event persistence, or another healthy channel.
-
-See [Spec 0014 — Alert Incidents, Notification Routing, Escalation, and Delivery](specs/0014-alerting-notification-and-escalation.md).
-
-### Remote archive
-
-~~~text
-local RecordingLocation AVAILABLE
-     ↓
-create remote RecordingLocation ARCHIVING
-     ↓
-Huey worker -> rclone copy/copyto
-     ↓
-verify
-     ↓
-remote RecordingLocation AVAILABLE
-     ↓
-retention may delete local RecordingLocation
-~~~
-
-Huey owns task execution/retry. RecordingLocation owns product-visible copy state. V1 does not need a separate UploadJob business table.
-
-Local media is never purged merely because rclone returned success; the required remote copy must be verified and AVAILABLE.
-
-### Recording retention and disk pressure
-
-Retention is metadata/claim driven rather than file-age driven.
-
-Initial V2 defaults:
-
-```text
-continuous = 7 days
-schedule   = 7 days
-event      = 30 days
-manual     = 30 days
-```
-
-A RecordingSegment may carry several claims at once. For example, a 5-minute continuous segment containing a motion event keeps the stronger event retention without duplicating the MP4.
-
-Disk guard defaults:
-
-```text
-warning   80%
-pressure  85%
-critical  92%
-emergency 96%
-target    80%
-```
-
-Normal cleanup only removes expired/unprotected media. Under critical pressure, zero-nvr may evict unlocked unexpired media in this order:
-
-```text
-verified-remote local copies
-→ continuous/schedule
-→ event
-→ manual
-```
-
-User-locked and currently writing/finalizing media is never automatically purged.
-
-See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
-
-
-### Backup and disaster recovery
-
-Recording archive and system backup are separate protection layers.
-
-```text
-Recording media
-   -> rclone archive
-   -> verified remote RecordingLocation
-
-SQLite
-   -> Online Backup API
-   -> restic
-
-PostgreSQL
-   -> pg_dump
-   -> restic
-
-Secret/bootstrap recovery
-   -> RecoveryKit
-   -> clean-host restore
-```
-
-System backup protects metadata, configuration, encrypted credentials, and the bootstrap material required to recover them. Recording media is governed by recording/archive policy rather than copied into every system backup.
-
-Litestream, pgBackRest, WAL/PITR, and platform snapshots are optional advanced integrations rather than V1 dependencies.
-
-See [Spec 0015 — Backup, Disaster Recovery, and System Migration](specs/0015-backup-disaster-recovery-and-pitr.md).
-
-### Upgrade, schema migration, and rollback
-
-V1 host mutation is driven by the deployment interface:
-
-```text
-./deploy.sh update
-```
-
-The update path performs preflight, creates a verified database/restic safety point when required, pulls pinned images, runs Alembic migrations, starts services, checks health, and reconciles media/catalog state.
-
-SQLite uses Online Backup before incompatible migration work. PostgreSQL uses pg_dump + restic for the V1 safety point. Cross-database SQLite <-> PostgreSQL migration is a separate operation and is never silently bundled into a normal update.
-
-The web UI may report versions and compatibility, but it does not need Docker-socket access or a second self-update orchestrator.
-
-Database rollback never auto-deletes media newer than the restored metadata point.
-
-See [Spec 0017 — Upgrade, Schema Migration, Database Migration, and Rollback](specs/0017-upgrade-migration-and-rollback.md).
+See [Spec 0008 — Stream Loss, Runtime Recovery, and Recording Reconciliation](specs/0008-stream-reconnect-and-recording-recovery.md).
 
 ### Historical playback
 
@@ -784,31 +570,28 @@ See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording
 
 ### Configuration and secret management
 
-Ordinary configuration and recoverable credentials use different storage paths.
+Ordinary product settings live in the selected product database.
+
+Recoverable credentials use opaque `secret_ref` values pointing to encrypted SecretRecord rows:
 
 ```text
-ordinary config
-   → PostgreSQL
+business row
+   -> secret_ref
+   -> SecretStore
+   -> authenticated-encrypted SecretRecord
 
-recoverable secret
-   → secret_ref
-   → SecretStore
-   → encrypted SecretRecord in PostgreSQL
-   → per-record DEK
-   → externally supplied/persisted KEK keyring
+deployment bootstrap
+   -> ZERO_NVR_SECRET_KEY / *_FILE
+   -> key material kept outside the product DB
 ```
 
-Initial V2 uses authenticated envelope encryption for recoverable secrets. Business rows store only opaque `secret_ref` values; public/read APIs expose configured state rather than plaintext.
+V1 uses mature cryptographic libraries such as Python `cryptography`/Fernet/MultiFernet or equivalent. It does not require a custom DEK/KEK envelope-encryption protocol.
 
-Verifier-only credentials such as local user passwords and authentication tokens are one-way hashed instead of reversibly encrypted.
+Verifier-only credentials such as local passwords, Personal API Tokens, and reset tokens are one-way hashed.
 
-The KEK/keyring that unlocks SecretStore is a bootstrap/deployment secret and never lives in the same PostgreSQL database as the encrypted SecretRecords. Compose deployments prefer secret files/`*_FILE` bootstrap settings over production plaintext environment variables.
+Logs, traces, Event/Audit metadata, and normal configuration exports never expose secret plaintext. Disaster recovery preserves the external key material required to decrypt restored SecretRecords.
 
-Credential replacement preserves the previous working secret until the new value is validated and committed where practical. Logs, traces, EventLog, and AuditEvent redact credentials and credential-bearing URLs.
-
-Database backups contain ciphertext but not the KEK. Normal configuration/support exports exclude secrets. An explicit privileged portable backup may include secrets only inside a separate strongly encrypted export.
-
-See [Spec 0012 — Configuration, Secret Storage, Key Rotation, and Backup](specs/0012-config-secrets-key-management.md).
+See [Spec 0012 — Configuration and Secret Storage](specs/0012-config-secrets-key-management.md).
 
 ### Authentication, authorization, and audit
 
