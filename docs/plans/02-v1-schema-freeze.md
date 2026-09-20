@@ -545,6 +545,8 @@ stream_profile_id nullable
 started_at
 ended_at
 duration_ms
+timing_status                 PROVISIONAL | FINAL
+timing_source                 HOOK_RAW | NEXT_SEGMENT_BOUNDARY | EXPLICIT_STOP | RECOVERY
 recording_reasons_json
 size_bytes
 codec
