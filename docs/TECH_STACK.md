@@ -48,11 +48,16 @@ Default media engine for:
 
 - RTSP ingest/proxy;
 - stream reconnect;
+- **fMP4 recording by default** (`record.enableFmp4=1`);
 - WebRTC;
 - HTTP-fMP4;
 - HLS;
+- MP4/fMP4 VOD;
+- snapshots;
 - media runtime state;
 - media webhooks.
+
+The fMP4 default is frozen by ADR 0009 / POC-02. Ordinary MP4 remains a compatibility override only if a future measured regression justifies it.
 
 ### FFmpeg / ffprobe
 
