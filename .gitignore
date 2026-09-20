@@ -51,3 +51,4 @@ poc/runtime-results/
 # Generated deployment state / recovery secrets
 deploy/zlm/config.ini
 deploy/recovery.env
+recovery-kit/
