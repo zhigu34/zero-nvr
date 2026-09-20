@@ -3,10 +3,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.db import Database
+from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.modules.cameras.models import (
     CameraGroup,
@@ -481,3 +484,164 @@ class RetentionPlanner:
             )
             for location in locations
         ]
+
+
+
+class RetentionDeleteError(RuntimeError):
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+@dataclass(frozen=True, slots=True)
+class RetentionDeleteResult:
+    location_id: uuid.UUID
+    deleted: bool
+    reason: str
+
+
+class LocalRetentionDeletionService:
+    """Delete only local locations already approved by RetentionPlanner."""
+
+    @staticmethod
+    def _safe_path(
+        *,
+        target: StorageTarget,
+        object_path: str,
+    ) -> Path:
+        raw_root = (target.config_json or {}).get("path")
+        if not isinstance(raw_root, str) or not raw_root:
+            raise RetentionDeleteError(
+                "retention_local_target_invalid",
+                "Local recording target is invalid.",
+            )
+
+        root = Path(raw_root).expanduser().resolve(strict=False)
+        candidate = (root / object_path).resolve(strict=False)
+        try:
+            candidate.relative_to(root)
+        except ValueError as exc:
+            raise RetentionDeleteError(
+                "retention_local_path_invalid",
+                "Local recording path is invalid.",
+            ) from exc
+        return candidate
+
+    @staticmethod
+    def _mark_failed(
+        database: Database,
+        *,
+        location_id: uuid.UUID,
+        error_code: str,
+    ) -> None:
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            if location is not None:
+                location.state = "FAILED"
+                location.last_attempt_at = utc_now()
+                location.last_error = error_code
+                session.commit()
+
+    @classmethod
+    def execute(
+        cls,
+        database: Database,
+        *,
+        location_id: uuid.UUID,
+        pressure: bool = False,
+        now: datetime | None = None,
+    ) -> RetentionDeleteResult:
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            if location is None:
+                raise RetentionDeleteError(
+                    "retention_location_missing",
+                    "Recording location is unavailable.",
+                )
+            if location.state == "DELETED":
+                session.commit()
+                return RetentionDeleteResult(
+                    location_id=location.id,
+                    deleted=False,
+                    reason="already_deleted",
+                )
+            if location.state != "AVAILABLE":
+                session.commit()
+                return RetentionDeleteResult(
+                    location_id=location.id,
+                    deleted=False,
+                    reason="not_available",
+                )
+
+            decision = RetentionPlanner.evaluate(
+                session,
+                location=location,
+                now=now,
+                pressure=pressure,
+            )
+            if not decision.eligible_for_delete:
+                session.commit()
+                return RetentionDeleteResult(
+                    location_id=location.id,
+                    deleted=False,
+                    reason=decision.reason,
+                )
+
+            target = session.get(
+                StorageTarget,
+                location.storage_target_id,
+            )
+            if target is None:
+                raise RetentionDeleteError(
+                    "retention_local_target_missing",
+                    "Local recording target is unavailable.",
+                )
+            file_path = cls._safe_path(
+                target=target,
+                object_path=location.object_path,
+            )
+            location.state = "DELETING"
+            location.last_attempt_at = utc_now()
+            location.last_error = None
+            session.commit()
+
+        try:
+            file_path.unlink(missing_ok=True)
+        except OSError as exc:
+            cls._mark_failed(
+                database,
+                location_id=location_id,
+                error_code="retention_delete_failed",
+            )
+            raise RetentionDeleteError(
+                "retention_delete_failed",
+                "Local recording file could not be deleted.",
+            ) from exc
+
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            if location is None:
+                raise RetentionDeleteError(
+                    "retention_location_missing",
+                    "Recording location disappeared during deletion.",
+                )
+            location.state = "DELETED"
+            location.deleted_at = utc_now()
+            location.last_attempt_at = utc_now()
+            location.last_error = None
+            session.commit()
+
+        return RetentionDeleteResult(
+            location_id=location_id,
+            deleted=True,
+            reason="deleted",
+        )
