@@ -216,3 +216,40 @@ class ResticAdapter:
                 )
             args.extend([flag, str(value)])
         self._run(args)
+
+
+    def verify_snapshot(self, snapshot_id: str) -> None:
+        if (
+            not snapshot_id
+            or len(snapshot_id) > 128
+            or any(ch not in "0123456789abcdefABCDEF" for ch in snapshot_id)
+        ):
+            raise ResticIntegrationError(
+                "restic_snapshot_invalid",
+                "restic snapshot id is invalid.",
+            )
+
+        completed = self._run(
+            ["snapshots", "--json", snapshot_id],
+            timeout=min(self.timeout_seconds, 60.0),
+        )
+        try:
+            rows = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise ResticIntegrationError(
+                "restic_invalid_response",
+                "restic returned an invalid snapshot response.",
+            ) from exc
+        if (
+            not isinstance(rows, list)
+            or not any(
+                isinstance(row, dict)
+                and isinstance(row.get("id"), str)
+                and row["id"].startswith(snapshot_id)
+                for row in rows
+            )
+        ):
+            raise ResticIntegrationError(
+                "restic_snapshot_missing",
+                "restic snapshot is unavailable.",
+            )
