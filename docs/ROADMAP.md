@@ -68,8 +68,9 @@ Resource targets to benchmark:
 - [x] Define canonical Event normalization for ONVIF/Frigate/system sources and idempotent provider updates; generic event fusion deferred.
 - [x] Complete reuse/ownership audit and remove duplicate media/storage/job/alert/secret implementations.
 - [x] Freeze canonical V1 persistence boundary and explicit non-tables.
-- [ ] Complete API/module-boundary freeze.
-- [ ] Execute and record all design-freeze POCs.
+- [x] Complete API/module-boundary freeze document and public/internal ownership contract.
+- [x] Commit executable harnesses and NOT RUN result records for all 10 design-freeze POCs.
+- [ ] Execute all design-freeze POCs on a real Docker host and replace NOT RUN with measured results.
 - [ ] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
 
 ## Phase 1 — Platform foundation
