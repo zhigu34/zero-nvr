@@ -186,18 +186,40 @@ Start here:
 - [V1 Schema Freeze](docs/plans/02-v1-schema-freeze.md)
 - [V1 API / Module Freeze](docs/plans/03-v1-api-module-freeze.md)
 
-## First executable POC
+## Design-freeze POC suite
 
-The first committed harness covers:
-
-- ZLM continuous recording / `on_record_mp4`;
-- lost-hook reconciliation;
-- source-facing connection sharing.
+The committed harnesses cover every architecture-freeze POC.
 
 ~~~bash
 cd poc/zlm-recording
 cp .env.example .env
+
+# POC-01 + POC-08
 sh ./scripts/run.sh
+
+# POC-02
+sh ./scripts/run-fmp4-crash.sh
+
+# POC-03 + POC-04
+sh ./scripts/run-event-preroll.sh
+
+# POC-05 + POC-06
+sh ./scripts/run-timeline-playback.sh
+
+# POC-07
+sh ./scripts/run-remote-restore.sh
+
+# POC-10
+sh ./scripts/run-reconciliation.sh
 ~~~
 
-A committed harness is not a passing result. POC result documents remain `NOT RUN` until actual Docker evidence exists.
+SQLite load is separate:
+
+~~~bash
+cd poc/sqlite-load
+sh ./run.sh
+~~~
+
+That covers POC-09.
+
+A committed harness is not a passing result. Every document under `docs/poc-results/` remains `NOT RUN` until the corresponding command produces real evidence on a Docker host.
