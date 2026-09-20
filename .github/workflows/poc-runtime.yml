@@ -1,0 +1,62 @@
+name: Design Freeze Runtime POCs
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/poc-runtime.yml"
+
+jobs:
+  runtime-poc:
+    name: POC ${{ matrix.selector }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        selector:
+          - "01"
+          - "02"
+          - "03"
+          - "05"
+          - "07"
+          - "09"
+          - "10"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Docker versions
+        run: |
+          docker version
+          docker compose version
+          uname -a
+          free -h
+          df -h
+
+      - name: Run design-freeze POC
+        env:
+          KEEP_RUNNING: "0"
+        run: |
+          sh poc/run-design-freeze.sh "${{ matrix.selector }}"
+
+      - name: Upload zero-nvr media POC evidence
+        if: always() && matrix.selector != '09'
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc-${{ matrix.selector }}-evidence
+          path: |
+            poc/zlm-recording/runtime/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload SQLite POC evidence
+        if: always() && matrix.selector == '09'
+        uses: actions/upload-artifact@v4
+        with:
+          name: poc-09-evidence
+          path: |
+            poc/sqlite-load/runtime/**
+          if-no-files-found: warn
+          retention-days: 14
