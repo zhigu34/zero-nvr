@@ -166,12 +166,12 @@ docs/          architecture, ADRs, specs and freeze plans
 ## Current status
 
 ~~~text
-V1 Design Freeze Candidate
+V1 Architecture Frozen
 ~~~
 
-The architecture ownership, persistence boundary, and API/module boundary are now documented.
+Architecture ownership, persistence, deployment/container boundaries, recording/storage lifecycle, and API/module boundaries have passed the design-freeze gates.
 
-Before declaring `V1 Architecture Frozen`, the media/storage/database POCs in the design-freeze plan must produce real evidence.
+All 10 design POCs have accepted runtime results. The final aggregate regression workflow `35490737812` completed successfully. Broad implementation can proceed; changing a frozen core boundary now requires an ADR.
 
 Start here:
 
