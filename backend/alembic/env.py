@@ -10,7 +10,9 @@ from sqlalchemy import engine_from_config, pool
 from app.core.db.base import Base
 
 # Import canonical model modules so their tables are registered in Base.metadata.
+from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.auth import models as auth_models  # noqa: F401
+from app.modules.system import models as system_models  # noqa: F401
 
 
 config = context.config
