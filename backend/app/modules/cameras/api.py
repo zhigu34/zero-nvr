@@ -33,6 +33,7 @@ from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
 from .media_runtime import CameraMediaRuntimeService
 from .onvif_onboarding import OnvifOnboardingService
+from .ptz import CameraPtzService
 from .models import (
     Camera,
     CameraStreamBinding,
@@ -50,6 +51,8 @@ from .schemas import (
     CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
+    CameraPtzActionView,
+    CameraPtzMove,
     CameraProbeTrackView,
     CameraStreamBindingView,
     CameraStreamBindingsUpdate,
@@ -178,10 +181,15 @@ def _discovery_session_view(
 
 def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
     adapter_type = None
+    ptz_capable = False
     if camera.device_id is not None:
         device = session.get(Device, camera.device_id)
         if device is not None:
             adapter_type = device.adapter_type
+            ptz_capable = CameraPtzService.is_capable(
+                session,
+                camera,
+            )
 
     return CameraSummary(
         id=camera.id,
@@ -190,6 +198,7 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         location=camera.location,
         storage_label=camera.storage_label,
         adapter_type=adapter_type,
+        ptz_capable=ptz_capable,
     )
 
 
@@ -1182,3 +1191,111 @@ def get_camera_snapshot(
             "X-Content-Type-Options": "nosniff",
         },
     )
+
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/move",
+    response_model=CameraPtzActionView,
+)
+async def move_camera_ptz(
+    camera_id: uuid.UUID,
+    body: CameraPtzMove,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.control")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraPtzActionView:
+    if (
+        abs(body.pan) < 1e-9
+        and abs(body.tilt) < 1e-9
+        and abs(body.zoom) < 1e-9
+    ):
+        raise ApiError(
+            status_code=400,
+            code="camera_ptz_move_invalid",
+            message="PTZ move requires non-zero velocity.",
+        )
+
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    if not camera.enabled:
+        raise ApiError(
+            status_code=409,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+    connection = CameraPtzService(
+        request.app.state.settings
+    ).connection(session, camera)
+    session.commit()
+
+    try:
+        await OnvifAdapter(
+            request.app.state.settings
+        ).ptz_move(
+            host=connection.host,
+            port=connection.port,
+            username=connection.username,
+            password=connection.password,
+            preferred_profile_tokens=(
+                connection.preferred_profile_tokens
+            ),
+            pan=body.pan,
+            tilt=body.tilt,
+            zoom=body.zoom,
+        )
+    except OnvifIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+    return CameraPtzActionView()
+
+
+@router.post(
+    "/cameras/{camera_id}/ptz/stop",
+    response_model=CameraPtzActionView,
+)
+async def stop_camera_ptz(
+    camera_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.control")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraPtzActionView:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    connection = CameraPtzService(
+        request.app.state.settings
+    ).connection(session, camera)
+    session.commit()
+
+    try:
+        await OnvifAdapter(
+            request.app.state.settings
+        ).ptz_stop(
+            host=connection.host,
+            port=connection.port,
+            username=connection.username,
+            password=connection.password,
+            preferred_profile_tokens=(
+                connection.preferred_profile_tokens
+            ),
+        )
+    except OnvifIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+    return CameraPtzActionView()

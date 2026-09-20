@@ -9,7 +9,11 @@ import {
   watch
 } from "vue"
 
-import type { CameraSummary } from "../../api/cameras"
+import {
+  moveCameraPtz,
+  stopCameraPtz,
+  type CameraSummary
+} from "../../api/cameras"
 import { errorMessage } from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
 import {
@@ -49,11 +53,16 @@ const muted = ref(true)
 const recordingTrigger = ref<RecordingTrigger | null>(null)
 const recordingBusy = ref(false)
 const recordingError = ref<string | null>(null)
+const ptzOpen = ref(false)
+const ptzError = ref<string | null>(null)
+const ptzHolding = ref(false)
 
 let hls: Hls | null = null
 let generation = 0
 let tokenRefreshTimer: number | null = null
 let recordingErrorTimer: number | null = null
+let ptzMovePromise: Promise<void> | null = null
+let ptzStopPromise: Promise<void> | null = null
 
 const manualRecordingActive = computed(() => {
   const trigger = recordingTrigger.value
@@ -80,6 +89,63 @@ function showRecordingError(message: string): void {
     recordingErrorTimer = null
     recordingError.value = null
   }, 5000)
+}
+
+async function stopPtzNow(): Promise<void> {
+  if (ptzStopPromise) {
+    await ptzStopPromise
+    return
+  }
+  ptzStopPromise = stopCameraPtz(props.camera.id)
+    .then(() => undefined)
+    .catch((caught) => {
+      ptzError.value = errorMessage(caught)
+    })
+    .finally(() => {
+      ptzStopPromise = null
+    })
+  await ptzStopPromise
+}
+
+async function beginPtz(
+  pan: number,
+  tilt: number,
+  zoom = 0
+): Promise<void> {
+  if (
+    !props.camera.ptz_capable ||
+    !auth.hasPermission("camera.control")
+  ) {
+    return
+  }
+  ptzHolding.value = true
+  ptzError.value = null
+  if (ptzMovePromise) return
+
+  ptzMovePromise = moveCameraPtz(
+    props.camera.id,
+    { pan, tilt, zoom }
+  )
+    .then(() => undefined)
+    .catch((caught) => {
+      ptzError.value = errorMessage(caught)
+      ptzHolding.value = false
+    })
+    .finally(async () => {
+      ptzMovePromise = null
+      if (!ptzHolding.value) {
+        await stopPtzNow()
+      }
+    })
+  await ptzMovePromise
+}
+
+function endPtz(): void {
+  if (!ptzHolding.value && !ptzMovePromise) return
+  ptzHolding.value = false
+  if (!ptzMovePromise) {
+    void stopPtzNow()
+  }
 }
 
 function clearTokenRefresh(): void {
@@ -245,6 +311,8 @@ function handleVideoError(): void {
 onMounted(() => {
   void loadStream()
   void loadRecordingState()
+  window.addEventListener("pointerup", endPtz)
+  window.addEventListener("pointercancel", endPtz)
 })
 
 watch(
@@ -259,6 +327,11 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (ptzHolding.value || ptzMovePromise) {
+    endPtz()
+  }
+  window.removeEventListener("pointerup", endPtz)
+  window.removeEventListener("pointercancel", endPtz)
   destroyPlayer()
   clearRecordingError()
 })
@@ -339,6 +412,78 @@ onBeforeUnmount(() => {
     </header>
 
     <div
+      v-if="ptzOpen && camera.ptz_capable"
+      class="live-ptz-panel"
+      @dblclick.stop
+    >
+      <div class="live-ptz-pad">
+        <button
+          class="media-button"
+          type="button"
+          aria-label="Pan up"
+          @pointerdown.stop.prevent="beginPtz(0, 0.6)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="chevron-up" :size="15" />
+        </button>
+        <button
+          class="media-button"
+          type="button"
+          aria-label="Pan left"
+          @pointerdown.stop.prevent="beginPtz(-0.6, 0)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="chevron-left" :size="15" />
+        </button>
+        <span class="live-ptz-pad__center">
+          <UiIcon name="ptz" :size="14" />
+        </span>
+        <button
+          class="media-button"
+          type="button"
+          aria-label="Pan right"
+          @pointerdown.stop.prevent="beginPtz(0.6, 0)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="chevron-right" :size="15" />
+        </button>
+        <button
+          class="media-button"
+          type="button"
+          aria-label="Pan down"
+          @pointerdown.stop.prevent="beginPtz(0, -0.6)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="chevron-down" :size="15" />
+        </button>
+      </div>
+
+      <div class="live-ptz-zoom">
+        <button
+          class="media-button media-button--text"
+          type="button"
+          @pointerdown.stop.prevent="beginPtz(0, 0, -0.6)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="minus" :size="14" />
+          Zoom
+        </button>
+        <button
+          class="media-button media-button--text"
+          type="button"
+          @pointerdown.stop.prevent="beginPtz(0, 0, 0.6)"
+          @pointerleave="endPtz"
+        >
+          <UiIcon name="plus" :size="14" />
+          Zoom
+        </button>
+      </div>
+      <span v-if="ptzError" class="live-ptz-error">
+        {{ ptzError }}
+      </span>
+    </div>
+
+    <div
       v-if="recordingError"
       class="live-tile__action-error"
     >
@@ -356,6 +501,21 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="live-tile__buttons">
+        <button
+          v-if="
+            camera.ptz_capable &&
+            auth.hasPermission('camera.control')
+          "
+          class="media-button"
+          :class="{ 'media-button--active': ptzOpen }"
+          type="button"
+          aria-label="Toggle PTZ controls"
+          title="PTZ controls"
+          @click.stop="ptzOpen = !ptzOpen"
+        >
+          <UiIcon name="ptz" :size="16" />
+        </button>
+
         <button
           v-if="auth.hasPermission('camera.control')"
           class="media-button"
@@ -462,6 +622,76 @@ onBeforeUnmount(() => {
 .media-button--recording {
   background: rgba(207, 63, 79, 0.22);
   color: #ff8691;
+}
+
+.live-ptz-panel {
+  position: absolute;
+  right: 10px;
+  bottom: 50px;
+  z-index: 6;
+  width: 156px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--radius-md);
+  background: rgba(10, 12, 15, 0.88);
+  color: #f4f6f8;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(14px);
+}
+
+.live-ptz-pad {
+  display: grid;
+  grid-template-columns: repeat(3, 34px);
+  grid-template-rows: repeat(3, 34px);
+  justify-content: center;
+  gap: 3px;
+}
+
+.live-ptz-pad > :nth-child(1) {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.live-ptz-pad > :nth-child(2) {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.live-ptz-pad__center {
+  display: grid;
+  grid-column: 2;
+  grid-row: 2;
+  color: rgba(255, 255, 255, 0.5);
+  place-items: center;
+}
+
+.live-ptz-pad > :nth-child(4) {
+  grid-column: 3;
+  grid-row: 2;
+}
+
+.live-ptz-pad > :nth-child(5) {
+  grid-column: 2;
+  grid-row: 3;
+}
+
+.live-ptz-zoom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.live-ptz-zoom .media-button {
+  justify-content: center;
+}
+
+.live-ptz-error {
+  display: block;
+  margin-top: 6px;
+  color: #ff9da6;
+  font-size: 7px;
+  line-height: 1.35;
 }
 
 .live-tile__action-error {

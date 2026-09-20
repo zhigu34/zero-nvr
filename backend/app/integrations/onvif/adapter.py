@@ -224,6 +224,174 @@ class OnvifAdapter:
                 except Exception:
                     pass
 
+    @staticmethod
+    def _select_ptz_profile(
+        raw_profiles: list[Any],
+        preferred_tokens: tuple[str, ...],
+    ) -> str:
+        candidates: list[str] = []
+        for raw_profile in raw_profiles:
+            token = _text(
+                _read(raw_profile, "token")
+                or _read(raw_profile, "Token")
+            )
+            configuration = _read(
+                raw_profile,
+                "PTZConfiguration",
+            )
+            if token is not None and configuration is not None:
+                candidates.append(token)
+
+        for token in preferred_tokens:
+            if token in candidates:
+                return token
+        if candidates:
+            return candidates[0]
+
+        raise OnvifIntegrationError(
+            "onvif_ptz_profile_unavailable",
+            "The ONVIF device has no media profile with PTZ configuration.",
+            status_code=409,
+        )
+
+    async def ptz_move(
+        self,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        preferred_profile_tokens: tuple[str, ...] = (),
+        pan: float = 0.0,
+        tilt: float = 0.0,
+        zoom: float = 0.0,
+    ) -> None:
+        camera: Any | None = None
+        try:
+            camera = self._camera_factory(
+                host,
+                port,
+                username,
+                password,
+                nat_override=True,
+                no_cache=True,
+            )
+            async with asyncio.timeout(
+                self.settings.onvif_timeout_seconds
+            ):
+                await camera.update_xaddrs()
+                media = camera.create_media_service()
+                ptz = camera.create_ptz_service()
+                raw_profiles = list(
+                    await media.GetProfiles() or []
+                )
+                profile_token = self._select_ptz_profile(
+                    raw_profiles,
+                    preferred_profile_tokens,
+                )
+                velocity: dict[str, object] = {}
+                if pan != 0.0 or tilt != 0.0:
+                    velocity["PanTilt"] = {
+                        "x": float(pan),
+                        "y": float(tilt),
+                    }
+                if zoom != 0.0:
+                    velocity["Zoom"] = {
+                        "x": float(zoom),
+                    }
+                if not velocity:
+                    raise OnvifIntegrationError(
+                        "onvif_ptz_move_invalid",
+                        "PTZ move requires non-zero velocity.",
+                        status_code=400,
+                    )
+                await ptz.ContinuousMove(
+                    {
+                        "ProfileToken": profile_token,
+                        "Velocity": velocity,
+                    }
+                )
+        except TimeoutError as exc:
+            raise OnvifIntegrationError(
+                "onvif_ptz_timeout",
+                "The ONVIF PTZ command timed out.",
+                status_code=504,
+            ) from exc
+        except OnvifIntegrationError:
+            raise
+        except Exception as exc:
+            raise OnvifIntegrationError(
+                "onvif_ptz_failed",
+                "The ONVIF PTZ command failed.",
+                status_code=422,
+            ) from exc
+        finally:
+            if camera is not None:
+                try:
+                    await camera.close()
+                except Exception:
+                    pass
+
+    async def ptz_stop(
+        self,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        preferred_profile_tokens: tuple[str, ...] = (),
+    ) -> None:
+        camera: Any | None = None
+        try:
+            camera = self._camera_factory(
+                host,
+                port,
+                username,
+                password,
+                nat_override=True,
+                no_cache=True,
+            )
+            async with asyncio.timeout(
+                self.settings.onvif_timeout_seconds
+            ):
+                await camera.update_xaddrs()
+                media = camera.create_media_service()
+                ptz = camera.create_ptz_service()
+                raw_profiles = list(
+                    await media.GetProfiles() or []
+                )
+                profile_token = self._select_ptz_profile(
+                    raw_profiles,
+                    preferred_profile_tokens,
+                )
+                await ptz.Stop(
+                    {
+                        "ProfileToken": profile_token,
+                        "PanTilt": True,
+                        "Zoom": True,
+                    }
+                )
+        except TimeoutError as exc:
+            raise OnvifIntegrationError(
+                "onvif_ptz_timeout",
+                "The ONVIF PTZ stop command timed out.",
+                status_code=504,
+            ) from exc
+        except OnvifIntegrationError:
+            raise
+        except Exception as exc:
+            raise OnvifIntegrationError(
+                "onvif_ptz_failed",
+                "The ONVIF PTZ stop command failed.",
+                status_code=422,
+            ) from exc
+        finally:
+            if camera is not None:
+                try:
+                    await camera.close()
+                except Exception:
+                    pass
+
     async def _inspect_profile(
         self,
         media: Any,

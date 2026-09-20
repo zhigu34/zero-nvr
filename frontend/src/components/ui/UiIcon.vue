@@ -117,7 +117,17 @@ const icons: Record<string, string> = {
   record:
     '<circle cx="12" cy="12" r="5"/>',
   snapshot:
-    '<path d="M4 7h4l1.5-2h5L16 7h4v12H4Z"/><circle cx="12" cy="13" r="3"/>'
+    '<path d="M4 7h4l1.5-2h5L16 7h4v12H4Z"/><circle cx="12" cy="13" r="3"/>',
+  ptz:
+    '<circle cx="12" cy="12" r="3"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4M9 4l3-2 3 2M9 20l3 2 3-2M4 9l-2 3 2 3M20 9l2 3-2 3"/>',
+  "chevron-up":
+    '<path d="m6 15 6-6 6 6"/>',
+  "chevron-left":
+    '<path d="m15 18-6-6 6-6"/>',
+  "chevron-down":
+    '<path d="m6 9 6 6 6-6"/>',
+  minus:
+    '<path d="M5 12h14"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

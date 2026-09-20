@@ -34,6 +34,7 @@ class CameraSummary(BaseModel):
     location: str | None
     storage_label: str | None
     adapter_type: str | None
+    ptz_capable: bool = False
 
 
 class CameraGroupCreate(BaseModel):
@@ -219,3 +220,14 @@ class CameraLiveStreamView(BaseModel):
     height: int | None
     fps: float | None
     has_audio: bool
+
+
+
+class CameraPtzMove(BaseModel):
+    pan: float = Field(default=0.0, ge=-1.0, le=1.0)
+    tilt: float = Field(default=0.0, ge=-1.0, le=1.0)
+    zoom: float = Field(default=0.0, ge=-1.0, le=1.0)
+
+
+class CameraPtzActionView(BaseModel):
+    ok: Literal[True] = True

@@ -385,3 +385,115 @@ async def test_discovery_error_is_sanitized_and_stop_is_called() -> None:
     assert captured.value.status_code == 503
     assert PASSWORD not in str(captured.value)
     assert FailingDiscovery.instances[-1].stopped is True
+
+
+
+class FakePtz:
+    def __init__(self) -> None:
+        self.moves = []
+        self.stops = []
+
+    async def ContinuousMove(self, request):
+        self.moves.append(request)
+
+    async def Stop(self, request):
+        self.stops.append(request)
+
+
+class FakePtzMedia:
+    async def GetProfiles(self):
+        return [
+            SimpleNamespace(
+                token="no-ptz",
+                PTZConfiguration=None,
+            ),
+            SimpleNamespace(
+                token="ptz-main",
+                PTZConfiguration=SimpleNamespace(
+                    token="ptz-config"
+                ),
+            ),
+        ]
+
+
+class FakePtzCamera:
+    instances = []
+
+    def __init__(
+        self,
+        host,
+        port,
+        username,
+        password,
+        **kwargs,
+    ) -> None:
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.kwargs = kwargs
+        self.media = FakePtzMedia()
+        self.ptz = FakePtz()
+        self.closed = False
+        self.instances.append(self)
+
+    async def update_xaddrs(self) -> None:
+        return None
+
+    def create_media_service(self):
+        return self.media
+
+    def create_ptz_service(self):
+        return self.ptz
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+@pytest.mark.asyncio
+async def test_ptz_continuous_move_and_stop_use_ptz_profile() -> None:
+    FakePtzCamera.instances = []
+    adapter = OnvifAdapter(
+        settings(),
+        camera_factory=FakePtzCamera,
+    )
+
+    await adapter.ptz_move(
+        host="192.168.10.30",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+        preferred_profile_tokens=("ptz-main",),
+        pan=-0.6,
+        tilt=0.4,
+    )
+    move_camera = FakePtzCamera.instances[-1]
+    assert move_camera.ptz.moves == [
+        {
+            "ProfileToken": "ptz-main",
+            "Velocity": {
+                "PanTilt": {
+                    "x": -0.6,
+                    "y": 0.4,
+                }
+            },
+        }
+    ]
+    assert move_camera.closed is True
+
+    await adapter.ptz_stop(
+        host="192.168.10.30",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+        preferred_profile_tokens=("ptz-main",),
+    )
+    stop_camera = FakePtzCamera.instances[-1]
+    assert stop_camera.ptz.stops == [
+        {
+            "ProfileToken": "ptz-main",
+            "PanTilt": True,
+            "Zoom": True,
+        }
+    ]
+    assert stop_camera.closed is True

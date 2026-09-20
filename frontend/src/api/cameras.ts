@@ -7,6 +7,7 @@ export interface CameraSummary {
   location: string | null
   storage_label: string | null
   adapter_type: string | null
+  ptz_capable: boolean
 }
 
 export interface CameraProbeTrack {
@@ -283,5 +284,36 @@ export function deleteCameraGroup(groupId: string): Promise<void> {
   return apiRequest<void>(
     `/camera-groups/${encodeURIComponent(groupId)}`,
     { method: "DELETE" }
+  )
+}
+
+
+export function moveCameraPtz(
+  cameraId: string,
+  velocity: {
+    pan?: number
+    tilt?: number
+    zoom?: number
+  }
+): Promise<{ ok: true }> {
+  return apiRequest<{ ok: true }>(
+    `/cameras/${encodeURIComponent(cameraId)}/ptz/move`,
+    {
+      method: "POST",
+      json: {
+        pan: velocity.pan ?? 0,
+        tilt: velocity.tilt ?? 0,
+        zoom: velocity.zoom ?? 0
+      }
+    }
+  )
+}
+
+export function stopCameraPtz(
+  cameraId: string
+): Promise<{ ok: true }> {
+  return apiRequest<{ ok: true }>(
+    `/cameras/${encodeURIComponent(cameraId)}/ptz/stop`,
+    { method: "POST" }
   )
 }
