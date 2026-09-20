@@ -35,6 +35,7 @@ A conflict should be fixed rather than left as permanent dual truth.
 - [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md) — required media/storage/database POCs before V1 Architecture Frozen
 - [plans/02-v1-schema-freeze.md](plans/02-v1-schema-freeze.md) — canonical V1 tables, constraints, and explicit non-tables
 - [plans/03-v1-api-module-freeze.md](plans/03-v1-api-module-freeze.md) — public API, internal hooks, module ownership, dependency direction
+- [poc-results/README.md](poc-results/README.md) — design-freeze POC status matrix and result index
 - [plans/00-bootstrap.md](plans/00-bootstrap.md) — platform bootstrap work
 - [plans/01-zlmediakit-media-plane.md](plans/01-zlmediakit-media-plane.md) — media-plane implementation slice
 
