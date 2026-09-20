@@ -473,8 +473,24 @@ class BackupPolicyService:
                     code="backup_credentials_invalid",
                     message="Backup credentials are invalid.",
                 )
-            password = raw.get("password")
-            environment = raw.get("environment", {})
+
+            current_credentials: dict[str, object] = {}
+            if policy.credential_secret_ref is not None:
+                current_credentials = self._decrypt(
+                    session,
+                    policy=policy,
+                    secret_id=policy.credential_secret_ref,
+                    kind="backup_credentials",
+                )
+
+            password = raw.get(
+                "password",
+                current_credentials.get("password"),
+            )
+            environment = raw.get(
+                "environment",
+                current_credentials.get("environment", {}),
+            )
             if (
                 not isinstance(password, str)
                 or not password

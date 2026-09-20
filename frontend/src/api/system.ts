@@ -469,6 +469,33 @@ export function createBackupPolicy(body: {
   })
 }
 
+export function updateBackupPolicy(
+  policyId: string,
+  changes: {
+    name?: string
+    enabled?: boolean
+    repository?: string
+    credentials?: {
+      password?: string
+      environment?: Record<string, string>
+    }
+    initialize_if_missing?: boolean
+    schedule?: Record<string, unknown>
+    retention?: Record<string, unknown>
+    verify_after_backup?: boolean
+    repository_check_schedule?: Record<string, unknown>
+    include_deployment_config?: boolean
+  }
+): Promise<BackupPolicy> {
+  return apiRequest<BackupPolicy>(
+    `/backups/policies/${encodeURIComponent(policyId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
 export function listBackups(): Promise<BackupPage> {
   return apiRequest<BackupPage>("/backups?limit=50")
 }

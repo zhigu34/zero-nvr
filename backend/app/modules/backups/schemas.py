@@ -34,6 +34,11 @@ class BackupPolicyCreate(BaseModel):
     include_deployment_config: bool = False
 
 
+class BackupCredentialsUpdate(BaseModel):
+    password: SecretStr | None = None
+    environment: dict[str, SecretStr] | None = None
+
+
 class BackupPolicyUpdate(BaseModel):
     name: str | None = Field(
         default=None,
@@ -42,7 +47,7 @@ class BackupPolicyUpdate(BaseModel):
     )
     enabled: bool | None = None
     repository: SecretStr | None = None
-    credentials: BackupCredentialsInput | None = None
+    credentials: BackupCredentialsUpdate | None = None
     initialize_if_missing: bool | None = None
     schedule: dict[str, object] | None = None
     retention: dict[str, object] | None = None

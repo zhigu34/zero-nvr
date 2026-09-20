@@ -143,6 +143,32 @@ def test_backup_policy_api_redacts_secrets_updates_and_queues_run(
                 "B2_ACCOUNT_KEY": "new-b2-secret",
             }
 
+        password_only = client.patch(
+            f"/api/v1/backups/policies/{policy_id}",
+            json={
+                "credentials": {
+                    "password": "rotated-restic-password",
+                }
+            },
+        )
+        assert password_only.status_code == 200
+
+        with app.state.database.session() as session:
+            policy = BackupPolicyService.get(
+                session,
+                policy_id,
+            )
+            resolved = BackupPolicyService(
+                app.state.settings
+            ).resolve(
+                session,
+                policy=policy,
+            )
+            assert resolved.password == "rotated-restic-password"
+            assert resolved.environment == {
+                "B2_ACCOUNT_KEY": "new-b2-secret",
+            }
+
         run = client.post(
             "/api/v1/backups/run",
             json={

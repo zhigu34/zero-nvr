@@ -41,6 +41,7 @@ import {
   setUserEnabled,
   testFrigateProvider,
   testNotificationTarget,
+  updateBackupPolicy,
   updateNotificationTarget,
   verifyBackup,
   type AdminUser,
@@ -105,6 +106,7 @@ const userForm = reactive({
 const targets = ref<NotificationTarget[]>([])
 const deliveries = ref<NotificationDelivery[]>([])
 const notificationPanelOpen = ref(false)
+const editingNotification = ref<NotificationTarget | null>(null)
 const notificationSaving = ref(false)
 const testingNotificationId = ref<string | null>(null)
 const notificationForm = reactive({
@@ -136,6 +138,7 @@ const frigateForm = reactive({
 const backupPolicies = ref<BackupPolicy[]>([])
 const backups = ref<BackupSet[]>([])
 const backupPanelOpen = ref(false)
+const editingBackupPolicy = ref<BackupPolicy | null>(null)
 const backupSaving = ref(false)
 const runningBackupId = ref<string | null>(null)
 const verifyingBackupId = ref<string | null>(null)
@@ -151,7 +154,8 @@ const backupForm = reactive({
   keepWeekly: 4,
   keepMonthly: 6,
   verifyAfter: true,
-  includeDeploymentConfig: true
+  includeDeploymentConfig: true,
+  enabled: true
 })
 
 const auditEvents = ref<AuditEvent[]>([])
@@ -500,21 +504,44 @@ async function savePasswordReset(): Promise<void> {
 }
 
 function openNotificationPanel(): void {
+  editingNotification.value = null
   notificationForm.name = ""
   notificationForm.url = ""
   notificationPanelOpen.value = true
+}
+
+function openEditNotification(item: NotificationTarget): void {
+  editingNotification.value = item
+  notificationForm.name = item.name
+  notificationForm.url = ""
+  notificationPanelOpen.value = true
+  notice.value = null
 }
 
 async function saveNotification(): Promise<void> {
   notificationSaving.value = true
   error.value = null
   try {
-    await createNotificationTarget(
-      notificationForm.name.trim(),
-      notificationForm.url.trim()
-    )
+    const name = notificationForm.name.trim()
+    const url = notificationForm.url.trim()
+
+    if (editingNotification.value) {
+      const changes: Record<string, unknown> = { name }
+      if (url) {
+        changes.url = url
+      }
+      await updateNotificationTarget(
+        editingNotification.value.id,
+        changes
+      )
+      notice.value = "Notification target updated."
+    } else {
+      await createNotificationTarget(name, url)
+      notice.value = "Notification target created."
+    }
+
+    editingNotification.value = null
     notificationPanelOpen.value = false
-    notice.value = "Notification target created."
     await loadNotifications()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -653,6 +680,7 @@ async function queueBackfill(): Promise<void> {
 }
 
 function openBackupPanel(): void {
+  editingBackupPolicy.value = null
   backupForm.name = "System backup"
   backupForm.repository = ""
   backupForm.password = ""
@@ -665,7 +693,60 @@ function openBackupPanel(): void {
   backupForm.keepMonthly = 6
   backupForm.verifyAfter = true
   backupForm.includeDeploymentConfig = true
+  backupForm.enabled = true
   backupPanelOpen.value = true
+}
+
+function numberFromRecord(
+  value: Record<string, unknown>,
+  key: string,
+  fallback: number
+): number {
+  const raw = value[key]
+  return typeof raw === "number" && Number.isFinite(raw)
+    ? raw
+    : fallback
+}
+
+function openEditBackupPolicy(policy: BackupPolicy): void {
+  editingBackupPolicy.value = policy
+  backupForm.name = policy.name
+  backupForm.repository = ""
+  backupForm.password = ""
+  backupForm.initializeIfMissing = false
+  backupForm.scheduled =
+    typeof policy.schedule.cron === "string" &&
+    Boolean(policy.schedule.cron)
+  backupForm.cron =
+    typeof policy.schedule.cron === "string"
+      ? policy.schedule.cron
+      : "0 3 * * *"
+  backupForm.keepLast = numberFromRecord(
+    policy.retention,
+    "keep_last",
+    7
+  )
+  backupForm.keepDaily = numberFromRecord(
+    policy.retention,
+    "keep_daily",
+    7
+  )
+  backupForm.keepWeekly = numberFromRecord(
+    policy.retention,
+    "keep_weekly",
+    4
+  )
+  backupForm.keepMonthly = numberFromRecord(
+    policy.retention,
+    "keep_monthly",
+    6
+  )
+  backupForm.verifyAfter = policy.verify_after_backup
+  backupForm.includeDeploymentConfig =
+    policy.include_deployment_config
+  backupForm.enabled = policy.enabled
+  backupPanelOpen.value = true
+  notice.value = null
 }
 
 async function saveBackupPolicy(): Promise<void> {
@@ -674,34 +755,76 @@ async function saveBackupPolicy(): Promise<void> {
   const timezone =
     settings.value?.general.display_timezone || "UTC"
   try {
-    await createBackupPolicy({
-      name: backupForm.name.trim(),
-      enabled: true,
-      repository: backupForm.repository.trim(),
-      credentials: {
-        password: backupForm.password,
-        environment: {}
-      },
-      initialize_if_missing: backupForm.initializeIfMissing,
-      database_backend: info.value?.database_backend || "sqlite",
-      schedule: backupForm.scheduled
-        ? {
-            cron: backupForm.cron.trim(),
-            timezone
-          }
-        : {},
-      retention: {
-        keep_last: Number(backupForm.keepLast),
-        keep_daily: Number(backupForm.keepDaily),
-        keep_weekly: Number(backupForm.keepWeekly),
-        keep_monthly: Number(backupForm.keepMonthly)
-      },
-      verify_after_backup: backupForm.verifyAfter,
-      repository_check_schedule: {},
-      include_deployment_config: backupForm.includeDeploymentConfig
-    })
+    const schedule = backupForm.scheduled
+      ? {
+          cron: backupForm.cron.trim(),
+          timezone
+        }
+      : {}
+    const retention = {
+      keep_last: Number(backupForm.keepLast),
+      keep_daily: Number(backupForm.keepDaily),
+      keep_weekly: Number(backupForm.keepWeekly),
+      keep_monthly: Number(backupForm.keepMonthly)
+    }
+
+    if (editingBackupPolicy.value) {
+      const changes: {
+        name: string
+        enabled: boolean
+        schedule: Record<string, unknown>
+        retention: Record<string, unknown>
+        verify_after_backup: boolean
+        include_deployment_config: boolean
+        repository?: string
+        credentials?: { password?: string }
+      } = {
+        name: backupForm.name.trim(),
+        enabled: backupForm.enabled,
+        schedule,
+        retention,
+        verify_after_backup: backupForm.verifyAfter,
+        include_deployment_config:
+          backupForm.includeDeploymentConfig
+      }
+
+      if (backupForm.repository.trim()) {
+        changes.repository = backupForm.repository.trim()
+      }
+      if (backupForm.password) {
+        changes.credentials = {
+          password: backupForm.password
+        }
+      }
+
+      await updateBackupPolicy(
+        editingBackupPolicy.value.id,
+        changes
+      )
+      notice.value = "Backup policy updated."
+    } else {
+      await createBackupPolicy({
+        name: backupForm.name.trim(),
+        enabled: backupForm.enabled,
+        repository: backupForm.repository.trim(),
+        credentials: {
+          password: backupForm.password,
+          environment: {}
+        },
+        initialize_if_missing: backupForm.initializeIfMissing,
+        database_backend: info.value?.database_backend || "sqlite",
+        schedule,
+        retention,
+        verify_after_backup: backupForm.verifyAfter,
+        repository_check_schedule: {},
+        include_deployment_config:
+          backupForm.includeDeploymentConfig
+      })
+      notice.value = "Backup policy created."
+    }
+
+    editingBackupPolicy.value = null
     backupPanelOpen.value = false
-    notice.value = "Backup policy created."
     await loadBackups()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -960,6 +1083,14 @@ onBeforeUnmount(() => {
               >
                 {{ testingNotificationId === item.id ? "Testing…" : "Test" }}
               </button>
+              <button
+                class="icon-button"
+                type="button"
+                title="Edit target"
+                @click="openEditNotification(item)"
+              >
+                <UiIcon name="settings" :size="14" />
+              </button>
               <button class="icon-button" type="button" @click="toggleNotification(item)">
                 <UiIcon :name="item.enabled ? 'pause' : 'play'" :size="14" />
               </button>
@@ -1007,10 +1138,16 @@ onBeforeUnmount(() => {
         <aside v-if="notificationPanelOpen" class="system-drawer">
           <header class="storage-editor__header">
             <div>
-              <strong>Add notification target</strong>
+              <strong>
+                {{
+                  editingNotification
+                    ? "Edit notification target"
+                    : "Add notification target"
+                }}
+              </strong>
               <span>Any Apprise-compatible URL</span>
             </div>
-            <button class="icon-button" type="button" @click="notificationPanelOpen = false">
+            <button class="icon-button" type="button" @click="notificationPanelOpen = false; editingNotification = null">
               <UiIcon name="close" :size="16" />
             </button>
           </header>
@@ -1024,18 +1161,34 @@ onBeforeUnmount(() => {
               <textarea
                 v-model="notificationForm.url"
                 rows="7"
-                required
+                :required="!editingNotification"
                 spellcheck="false"
-                placeholder="mailto://user:pass@smtp.example.com?to=alerts@example.com"
+                :placeholder="
+                  editingNotification
+                    ? 'Leave blank to keep the existing destination'
+                    : 'mailto://user:pass@smtp.example.com?to=alerts@example.com'
+                "
               />
-              <small>Stored encrypted and never returned to the browser.</small>
+              <small>
+                {{
+                  editingNotification
+                    ? "Leave blank to keep the existing encrypted URL."
+                    : "Stored encrypted and never returned to the browser."
+                }}
+              </small>
             </label>
             <div class="storage-editor__actions">
-              <button class="button button--ghost" type="button" @click="notificationPanelOpen = false">
+              <button class="button button--ghost" type="button" @click="notificationPanelOpen = false; editingNotification = null">
                 Cancel
               </button>
               <button class="button button--primary" type="submit" :disabled="notificationSaving">
-                {{ notificationSaving ? "Saving…" : "Create target" }}
+                {{
+                  notificationSaving
+                    ? "Saving…"
+                    : editingNotification
+                      ? "Save target"
+                      : "Create target"
+                }}
               </button>
             </div>
           </form>
@@ -1327,10 +1480,16 @@ onBeforeUnmount(() => {
         <aside v-if="backupPanelOpen" class="system-drawer">
           <header class="storage-editor__header">
             <div>
-              <strong>Add backup policy</strong>
+              <strong>
+                {{
+                  editingBackupPolicy
+                    ? "Edit backup policy"
+                    : "Add backup policy"
+                }}
+              </strong>
               <span>Restic repository</span>
             </div>
-            <button class="icon-button" type="button" @click="backupPanelOpen = false">
+            <button class="icon-button" type="button" @click="backupPanelOpen = false; editingBackupPolicy = null">
               <UiIcon name="close" :size="16" />
             </button>
           </header>
@@ -1341,15 +1500,41 @@ onBeforeUnmount(() => {
             </label>
             <label>
               <span>Repository</span>
-              <input v-model="backupForm.repository" required placeholder="/backups/zero-nvr or s3:..." />
+              <input
+                v-model="backupForm.repository"
+                :required="!editingBackupPolicy"
+                :placeholder="
+                  editingBackupPolicy
+                    ? 'Leave blank to keep the existing repository'
+                    : '/backups/zero-nvr or s3:...'
+                "
+              />
+              <small v-if="editingBackupPolicy">
+                Leave blank to keep the existing encrypted repository.
+              </small>
             </label>
             <label>
               <span>Restic password</span>
-              <input v-model="backupForm.password" type="password" required />
+              <input
+                v-model="backupForm.password"
+                type="password"
+                :required="!editingBackupPolicy"
+                autocomplete="new-password"
+              />
+              <small v-if="editingBackupPolicy">
+                Leave blank to keep the current password. A password-only change preserves repository environment credentials.
+              </small>
             </label>
-            <label class="storage-check">
+            <label
+              v-if="!editingBackupPolicy"
+              class="storage-check"
+            >
               <input v-model="backupForm.initializeIfMissing" type="checkbox" />
               <span>Initialize repository if missing</span>
+            </label>
+            <label class="storage-check">
+              <input v-model="backupForm.enabled" type="checkbox" />
+              <span>Policy enabled</span>
             </label>
             <label class="storage-check">
               <input v-model="backupForm.scheduled" type="checkbox" />
@@ -1373,6 +1558,10 @@ onBeforeUnmount(() => {
                 <span>Weekly</span>
                 <input v-model.number="backupForm.keepWeekly" type="number" min="0" />
               </label>
+              <label>
+                <span>Monthly</span>
+                <input v-model.number="backupForm.keepMonthly" type="number" min="0" />
+              </label>
             </div>
             <label class="storage-check">
               <input v-model="backupForm.verifyAfter" type="checkbox" />
@@ -1383,11 +1572,17 @@ onBeforeUnmount(() => {
               <span>Include deployment configuration / RecoveryKit inputs</span>
             </label>
             <div class="storage-editor__actions">
-              <button class="button button--ghost" type="button" @click="backupPanelOpen = false">
+              <button class="button button--ghost" type="button" @click="backupPanelOpen = false; editingBackupPolicy = null">
                 Cancel
               </button>
               <button class="button button--primary" type="submit" :disabled="backupSaving">
-                {{ backupSaving ? "Saving…" : "Create policy" }}
+                {{
+                  backupSaving
+                    ? "Saving…"
+                    : editingBackupPolicy
+                      ? "Save policy"
+                      : "Create policy"
+                }}
               </button>
             </div>
           </form>
