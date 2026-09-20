@@ -188,7 +188,7 @@ def known_locations() -> dict[str, dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT l.id AS location_id, l.object_path, l.state,
-                   s.id AS segment_id, s.stream, s.start_at, s.end_at
+                   s.id AS segment_id, s.stream, s.start_at, s.end_at, s.source
             FROM recording_locations l
             JOIN recording_segments s ON s.id = l.segment_id
             """
@@ -419,11 +419,28 @@ def prepare() -> None:
         timeout=30,
     )
 
+    with connect() as conn:
+        dropped_row = conn.execute(
+            """
+            SELECT object_path, received_at
+            FROM poc_hook_events
+            WHERE dropped = 1
+            ORDER BY id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+    if not dropped_row or not dropped_row["object_path"]:
+        raise AssertionError("deliberately dropped hook has no object_path evidence")
+
     state = {
         "prepared_at": iso(time.time()),
         "proxy_key": key,
         "baseline_segment_count": len(baseline),
         "dropped_hook_summary": dropped,
+        "dropped_hook": {
+            "object_path": dropped_row["object_path"],
+            "received_at": dropped_row["received_at"],
+        },
         "zlm_version": version,
     }
     STATE.write_text(
@@ -532,6 +549,73 @@ def verify() -> None:
 
     locations = known_locations()
 
+    dropped_path = state["dropped_hook"]["object_path"]
+    dropped_location = locations.get(dropped_path)
+    if not dropped_location or dropped_location["state"] != "AVAILABLE":
+        raise AssertionError(
+            f"deliberately dropped-hook media was not recovered: {dropped_location}"
+        )
+
+    api_window_path = RUNTIME / "api-downtime.json"
+    if not api_window_path.exists():
+        raise AssertionError("API downtime window evidence missing")
+    api_window = json.loads(api_window_path.read_text(encoding="utf-8"))
+    api_start = parse_iso(api_window["started_at"])
+    api_end = parse_iso(api_window["finished_at"])
+
+    db_started_path = RUNTIME / "db-lock-started.json"
+    db_finished_path = RUNTIME / "db-lock-finished.json"
+    if not db_started_path.exists() or not db_finished_path.exists():
+        raise AssertionError("SQLite lock-window evidence missing")
+    db_started = json.loads(db_started_path.read_text(encoding="utf-8"))
+    db_finished = json.loads(db_finished_path.read_text(encoding="utf-8"))
+    db_start = parse_iso(db_started["started_at"])
+    db_end = parse_iso(db_finished["finished_at"])
+
+    def overlapping_available(start: datetime, end: datetime) -> list[dict[str, Any]]:
+        rows = []
+        for row in locations.values():
+            if row["stream"] != STREAM or row["state"] != "AVAILABLE":
+                continue
+            seg_start = parse_iso(row["start_at"])
+            seg_end = parse_iso(row["end_at"])
+            if seg_start < end and seg_end > start:
+                rows.append(row)
+        return rows
+
+    api_overlap = overlapping_available(api_start, api_end)
+    if not api_overlap:
+        raise AssertionError(
+            "no AVAILABLE catalog media overlaps the FastAPI downtime window"
+        )
+
+    db_overlap = overlapping_available(db_start, db_end)
+    if not db_overlap:
+        raise AssertionError(
+            "no AVAILABLE catalog media overlaps the SQLite lock window"
+        )
+
+    # FastAPI was completely stopped, so at least one finalized file from that
+    # window should normally require reconciliation rather than hook insertion.
+    # If a boundary lands exactly outside the window, still preserve the full
+    # overlap list as evidence and require at least one reconcile-sourced row
+    # within a small segment-duration margin.
+    api_margin_start = api_start - timedelta(seconds=SEGMENT_SECONDS)
+    api_margin_end = api_end + timedelta(seconds=SEGMENT_SECONDS)
+    api_reconciled = [
+        row
+        for row in locations.values()
+        if row["stream"] == STREAM
+        and row["state"] == "AVAILABLE"
+        and row["source"] == "reconcile"
+        and parse_iso(row["start_at"]) < api_margin_end
+        and parse_iso(row["end_at"]) > api_margin_start
+    ]
+    if not api_reconciled:
+        raise AssertionError(
+            "FastAPI downtime produced no nearby reconcile-sourced media"
+        )
+
     stale = locations.get(fixture["stale_catalog_path"])
     if not stale or stale["state"] != "MISSING":
         raise AssertionError(
@@ -579,6 +663,11 @@ def verify() -> None:
         "final_run": final_run,
         "idempotent_second_run": second_run,
         "catalog_checks": {
+            "dropped_hook_path": dropped_path,
+            "dropped_hook_recovered_state": dropped_location["state"],
+            "api_downtime_available_overlap": api_overlap,
+            "api_downtime_reconcile_sourced": api_reconciled,
+            "db_lock_available_overlap": db_overlap,
             "stale_state": stale["state"],
             "proven_orphan_state": proven["state"],
             "ambiguous_cataloged": ambiguous in locations,
@@ -592,16 +681,9 @@ def verify() -> None:
             "path": str(vod),
             "rtsp_decode": "PASS",
         },
-        "db_lock_started": json.loads(
-            (RUNTIME / "db-lock-started.json").read_text(encoding="utf-8")
-        )
-        if (RUNTIME / "db-lock-started.json").exists()
-        else None,
-        "db_lock_finished": json.loads(
-            (RUNTIME / "db-lock-finished.json").read_text(encoding="utf-8")
-        )
-        if (RUNTIME / "db-lock-finished.json").exists()
-        else None,
+        "api_downtime": api_window,
+        "db_lock_started": db_started,
+        "db_lock_finished": db_finished,
         "simulated_worker_crash": json.loads(
             (RUNTIME / "reconciliation-simulated-crash.json").read_text(
                 encoding="utf-8"
