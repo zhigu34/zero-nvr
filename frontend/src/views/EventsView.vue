@@ -249,7 +249,9 @@ async function loadInitial(): Promise<void> {
   error.value = null
   try {
     if (auth.hasPermission("camera.view")) {
-      cameras.value = await listCameras()
+      cameras.value = await listCameras({
+        includeRetired: true
+      })
     }
   } catch (caught) {
     error.value = errorMessage(caught)

@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.modules.auth.models import SecretRecord
@@ -31,8 +32,13 @@ class CameraService:
         session: Session,
         *,
         allowed_camera_ids: frozenset[uuid.UUID] | None,
+        include_retired: bool = False,
     ) -> list[Camera]:
         statement = select(Camera).order_by(Camera.name, Camera.id)
+        if not include_retired:
+            statement = statement.where(
+                Camera.retired_at.is_(None)
+            )
         if allowed_camera_ids is not None:
             if not allowed_camera_ids:
                 return []
@@ -354,7 +360,32 @@ class CameraService:
         camera: Camera,
         enabled: bool,
     ) -> Camera:
+        if enabled and camera.retired_at is not None:
+            raise ApiError(
+                status_code=409,
+                code="camera_retired",
+                message="Retired camera must be restored before it can be enabled.",
+            )
         camera.enabled = enabled
+        session.flush()
+        return camera
+
+    @staticmethod
+    def set_retired(
+        session: Session,
+        *,
+        camera: Camera,
+        retired: bool,
+    ) -> Camera:
+        if retired:
+            if camera.retired_at is None:
+                camera.retired_at = utc_now()
+            camera.enabled = False
+        elif camera.retired_at is not None:
+            camera.retired_at = None
+            # Restore to inventory only. Explicit enable is a separate action
+            # so restoring a camera can never unexpectedly start media pulls.
+            camera.enabled = False
         session.flush()
         return camera
 

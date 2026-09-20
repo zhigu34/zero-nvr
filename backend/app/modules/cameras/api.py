@@ -28,6 +28,7 @@ from app.modules.auth.dependencies import (
     require_permission,
 )
 from app.modules.auth.service import AuthContext
+from app.modules.recordings.triggers import RecordingTriggerService
 
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
@@ -186,15 +187,19 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         device = session.get(Device, camera.device_id)
         if device is not None:
             adapter_type = device.adapter_type
-            ptz_capable = CameraPtzService.is_capable(
-                session,
-                camera,
+            ptz_capable = (
+                camera.retired_at is None
+                and CameraPtzService.is_capable(
+                    session,
+                    camera,
+                )
             )
 
     return CameraSummary(
         id=camera.id,
         name=camera.name,
         enabled=camera.enabled,
+        retired_at=camera.retired_at,
         location=camera.location,
         storage_label=camera.storage_label,
         adapter_type=adapter_type,
@@ -247,6 +252,11 @@ def _camera_audit_snapshot(session: Session, camera: Camera) -> dict[str, Any]:
     return {
         "name": summary.name,
         "enabled": summary.enabled,
+        "retired_at": (
+            summary.retired_at.isoformat()
+            if summary.retired_at is not None
+            else None
+        ),
         "location": summary.location,
         "storage_label": summary.storage_label,
         "adapter_type": summary.adapter_type,
@@ -456,6 +466,7 @@ def delete_camera_group(
 
 @router.get("/cameras", response_model=list[CameraSummary])
 def list_cameras(
+    include_retired: bool = Query(default=False),
     context: AuthContext = Depends(require_permission("camera.view")),
     session: Session = Depends(get_db_session),
 ) -> list[CameraSummary]:
@@ -466,6 +477,7 @@ def list_cameras(
         for camera in CameraService.list_cameras(
             session,
             allowed_camera_ids=allowed,
+            include_retired=include_retired,
         )
     ]
 
@@ -901,6 +913,123 @@ def disable_camera(
     return _set_camera_enabled(
         camera_id=camera_id,
         enabled=False,
+        request=request,
+        context=context,
+        session=session,
+    )
+
+
+
+def _set_camera_retired(
+    *,
+    camera_id: uuid.UUID,
+    retired: bool,
+    request: Request,
+    context: AuthContext,
+    session: Session,
+) -> CameraDetail:
+    closed_manual_triggers = 0
+    try:
+        camera = CameraService.get_camera(session, camera_id)
+        before = _camera_audit_snapshot(session, camera)
+        camera = CameraService.set_retired(
+            session,
+            camera=camera,
+            retired=retired,
+        )
+        if retired:
+            closed_manual_triggers = (
+                RecordingTriggerService.close_active_manual_for_camera(
+                    session,
+                    camera_id=camera.id,
+                )
+            )
+        after = _camera_audit_snapshot(session, camera)
+        if before != after:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action=(
+                    "camera.retire"
+                    if retired
+                    else "camera.restore"
+                ),
+                resource_type="camera",
+                resource_id=camera.id,
+                camera_id=camera.id,
+                before=before,
+                after=after,
+                metadata={
+                    "closed_manual_recording_triggers": (
+                        closed_manual_triggers
+                    )
+                },
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    if retired:
+        try:
+            request.app.state.recording_tasks.reconcile_runtime(
+                camera_id
+            )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="camera_runtime_queue_unavailable",
+                message=(
+                    "Camera was retired but runtime reconciliation "
+                    "could not be queued."
+                ),
+                details={
+                    "camera_persisted": True,
+                    "camera_id": str(camera_id),
+                    "retired": True,
+                },
+            ) from exc
+
+    return _camera_detail(session, camera)
+
+
+@router.post(
+    "/cameras/{camera_id}/retire",
+    response_model=CameraDetail,
+)
+def retire_camera(
+    camera_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraDetail:
+    return _set_camera_retired(
+        camera_id=camera_id,
+        retired=True,
+        request=request,
+        context=context,
+        session=session,
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/restore",
+    response_model=CameraDetail,
+)
+def restore_camera(
+    camera_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraDetail:
+    return _set_camera_retired(
+        camera_id=camera_id,
+        retired=False,
         request=request,
         context=context,
         session=session,

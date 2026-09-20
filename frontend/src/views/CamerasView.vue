@@ -1,5 +1,10 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue"
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  ref
+} from "vue"
 
 import { listCameras, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
@@ -14,13 +19,32 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showOnboarding = ref(false)
 const selectedCamera = ref<CameraSummary | null>(null)
-const workspace = ref<"cameras" | "groups">("cameras")
+const workspace = ref<"cameras" | "groups" | "retired">("cameras")
+
+const activeCameras = computed(() =>
+  cameras.value.filter((camera) => !camera.retired_at)
+)
+const retiredCameras = computed(() =>
+  cameras.value.filter((camera) => Boolean(camera.retired_at))
+)
+const inventoryCameras = computed(() =>
+  workspace.value === "retired"
+    ? retiredCameras.value
+    : activeCameras.value
+)
+const inventoryTitle = computed(() =>
+  workspace.value === "retired"
+    ? "Retired cameras"
+    : "Configured cameras"
+)
 
 async function refresh(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    cameras.value = await listCameras()
+    cameras.value = await listCameras({
+      includeRetired: auth.hasPermission("camera.configure")
+    })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -47,6 +71,14 @@ async function handleCameraChanged(): Promise<void> {
   if (selectedId) {
     selectedCamera.value =
       cameras.value.find((item) => item.id === selectedId) ?? null
+    if (selectedCamera.value?.retired_at) {
+      workspace.value = "retired"
+    } else if (
+      selectedCamera.value &&
+      workspace.value === "retired"
+    ) {
+      workspace.value = "cameras"
+    }
   }
 }
 
@@ -83,7 +115,11 @@ onBeforeUnmount(() => {
           v-if="auth.hasPermission('camera.configure')"
           class="button button--primary"
           type="button"
-          @click="showOnboarding = !showOnboarding"
+          @click="
+            workspace = 'cameras';
+            selectedCamera = null;
+            showOnboarding = !showOnboarding
+          "
         >
           {{ showOnboarding ? "Hide onboarding" : "Add camera" }}
         </button>
@@ -102,6 +138,18 @@ onBeforeUnmount(() => {
         @click="workspace = 'cameras'"
       >
         Cameras
+      </button>
+      <button
+        type="button"
+        :class="{ 'camera-workspace-tab--active': workspace === 'retired' }"
+        @click="
+          workspace = 'retired';
+          showOnboarding = false;
+          selectedCamera = null
+        "
+      >
+        Retired
+        <span v-if="retiredCameras.length">{{ retiredCameras.length }}</span>
       </button>
       <button
         type="button"
@@ -124,24 +172,45 @@ onBeforeUnmount(() => {
 
     <CameraGroupsPanel
       v-if="workspace === 'groups'"
-      :cameras="cameras"
+      :cameras="activeCameras"
     />
 
     <template v-else>
     <section class="panel">
       <div class="panel__header">
         <div>
-          <p class="eyebrow">Inventory</p>
-          <h2>Configured cameras</h2>
+          <p class="eyebrow">
+            {{ workspace === "retired" ? "History" : "Inventory" }}
+          </p>
+          <h2>{{ inventoryTitle }}</h2>
         </div>
-        <span class="badge badge--muted">{{ cameras.length }}</span>
+        <span class="badge badge--muted">
+          {{ inventoryCameras.length }}
+        </span>
       </div>
 
-      <div v-if="!cameras.length" class="empty-state empty-state--large">
-        <strong>No cameras configured</strong>
-        <p v-if="auth.hasPermission('camera.configure')">
+      <div
+        v-if="!inventoryCameras.length"
+        class="empty-state empty-state--large"
+      >
+        <strong>
+          {{
+            workspace === "retired"
+              ? "No retired cameras"
+              : "No cameras configured"
+          }}
+        </strong>
+        <p
+          v-if="
+            auth.hasPermission('camera.configure') &&
+            workspace !== 'retired'
+          "
+        >
           Use Add camera for ONVIF discovery/import or a manually supplied RTSP
           source.
+        </p>
+        <p v-else-if="workspace === 'retired'">
+          Retired cameras keep their recordings and event history.
         </p>
         <p v-else>
           No Cameras are visible within your current scope.
@@ -161,7 +230,7 @@ onBeforeUnmount(() => {
           </thead>
           <tbody>
             <tr
-              v-for="camera in cameras"
+              v-for="camera in inventoryCameras"
               :key="camera.id"
               class="camera-inventory-row"
               tabindex="0"
@@ -183,9 +252,21 @@ onBeforeUnmount(() => {
               <td>
                 <span
                   class="badge"
-                  :class="camera.enabled ? 'badge--ok' : 'badge--muted'"
+                  :class="
+                    camera.retired_at
+                      ? 'badge--muted'
+                      : camera.enabled
+                        ? 'badge--ok'
+                        : 'badge--muted'
+                  "
                 >
-                  {{ camera.enabled ? "Enabled" : "Disabled" }}
+                  {{
+                    camera.retired_at
+                      ? "Retired"
+                      : camera.enabled
+                        ? "Enabled"
+                        : "Disabled"
+                  }}
                 </span>
               </td>
             </tr>
@@ -214,7 +295,10 @@ onBeforeUnmount(() => {
 }
 
 .camera-workspace-tabs button {
+  display: inline-flex;
   min-height: 34px;
+  align-items: center;
+  gap: 5px;
   padding: 0 10px;
   border: 0;
   border-bottom: 2px solid transparent;
@@ -223,6 +307,17 @@ onBeforeUnmount(() => {
   cursor: pointer;
   font-size: 9px;
   font-weight: 600;
+}
+
+.camera-workspace-tabs button > span {
+  display: inline-grid;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  place-items: center;
+  font-size: 7px;
 }
 
 .camera-workspace-tabs .camera-workspace-tab--active {

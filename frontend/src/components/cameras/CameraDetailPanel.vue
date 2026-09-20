@@ -10,6 +10,8 @@ import {
 import {
   getCamera,
   replaceCameraBindings,
+  retireCamera,
+  restoreCamera,
   setCameraEnabled,
   updateCamera,
   type CameraDetail,
@@ -59,6 +61,7 @@ const loading = ref(false)
 const savingGeneral = ref(false)
 const savingStreams = ref(false)
 const savingRecording = ref(false)
+const retirementSaving = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
@@ -315,6 +318,38 @@ async function toggleEnabled(): Promise<void> {
   }
 }
 
+async function toggleRetired(): Promise<void> {
+  if (!detail.value || !canConfigure.value) return
+
+  const restoring = Boolean(detail.value.retired_at)
+  if (
+    !restoring &&
+    !window.confirm(
+      `Retire "${detail.value.name}"? Live viewing and recording will stop, but recordings and event history will be preserved.`
+    )
+  ) {
+    return
+  }
+
+  retirementSaving.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const updated = restoring
+      ? await restoreCamera(detail.value.id)
+      : await retireCamera(detail.value.id)
+    detail.value = updated
+    notice.value = restoring
+      ? "Camera restored to inventory. It remains disabled until explicitly enabled."
+      : "Camera retired. Historical recordings and events are preserved."
+    emit("changed")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    retirementSaving.value = false
+  }
+}
+
 async function saveStreams(): Promise<void> {
   if (!detail.value) return
   savingStreams.value = true
@@ -488,7 +523,13 @@ onMounted(() => {
         class="status-pill"
         :class="detail?.enabled ? 'status-pill--ok' : 'status-pill--muted'"
       >
-        {{ detail?.enabled ? "Enabled" : "Disabled" }}
+        {{
+          detail?.retired_at
+            ? "Retired"
+            : detail?.enabled
+              ? "Enabled"
+              : "Disabled"
+        }}
       </span>
       <span>{{ detail?.adapter_type || "manual" }}</span>
       <span v-if="policy?.runtime">
@@ -557,12 +598,27 @@ onMounted(() => {
 
         <div class="camera-detail-actions">
           <button
-            v-if="canConfigure"
+            v-if="canConfigure && !detail.retired_at"
             class="button button--ghost"
             type="button"
             @click="toggleEnabled"
           >
             {{ detail.enabled ? "Disable camera" : "Enable camera" }}
+          </button>
+          <button
+            v-if="canConfigure"
+            class="button button--ghost"
+            type="button"
+            :disabled="retirementSaving"
+            @click="toggleRetired"
+          >
+            {{
+              retirementSaving
+                ? "Saving…"
+                : detail.retired_at
+                  ? "Restore camera"
+                  : "Retire camera"
+            }}
           </button>
           <button
             class="button button--primary"

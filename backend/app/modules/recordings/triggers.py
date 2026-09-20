@@ -292,6 +292,34 @@ class RecordingTriggerService:
         session.flush()
         return trigger, True
 
+    @staticmethod
+    def close_active_manual_for_camera(
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        stopped_at: datetime | None = None,
+    ) -> int:
+        now = stopped_at or datetime.now(UTC)
+        items = list(
+            session.scalars(
+                select(RecordingTrigger).where(
+                    RecordingTrigger.camera_id == camera_id,
+                    RecordingTrigger.type == "MANUAL",
+                    RecordingTrigger.state == "ACTIVE",
+                    RecordingTrigger.planned_end_at.is_(None),
+                )
+            )
+        )
+        for trigger in items:
+            trigger.planned_end_at = max(
+                now,
+                trigger.planned_start_at,
+            )
+            trigger.state = "COMPLETED"
+        if items:
+            session.flush()
+        return len(items)
+
     @classmethod
     def stop_manual(
         cls,

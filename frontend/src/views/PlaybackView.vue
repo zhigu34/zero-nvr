@@ -323,7 +323,9 @@ async function refreshCameras(): Promise<void> {
   loadingCameras.value = true
   error.value = null
   try {
-    cameras.value = await listCameras()
+    cameras.value = await listCameras({
+      includeRetired: true
+    })
     const validIds = new Set(cameras.value.map((camera) => camera.id))
     const routeCamera =
       typeof route.query.camera === "string"

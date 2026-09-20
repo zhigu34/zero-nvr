@@ -332,3 +332,106 @@ def test_camera_enable_disable_queues_runtime_reconcile(
             app.state.recording_tasks.runtime_reconciles
             == [camera_id, camera_id]
         )
+
+
+
+def test_camera_retire_restore_preserves_history_identity(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        created = create_camera(
+            client,
+            name="Retire Camera",
+            host="10.10.0.40",
+            with_secondary=False,
+        )
+        camera_id = uuid.UUID(created.json()["id"])
+
+        retired = client.post(
+            f"/api/v1/cameras/{camera_id}/retire"
+        )
+        assert retired.status_code == 200
+        retired_body = retired.json()
+        assert retired_body["enabled"] is False
+        assert retired_body["retired_at"] is not None
+
+        default_list = client.get("/api/v1/cameras")
+        assert default_list.status_code == 200
+        assert str(camera_id) not in {
+            item["id"] for item in default_list.json()
+        }
+
+        history_list = client.get(
+            "/api/v1/cameras?include_retired=true"
+        )
+        assert history_list.status_code == 200
+        history_camera = next(
+            item
+            for item in history_list.json()
+            if item["id"] == str(camera_id)
+        )
+        assert history_camera["retired_at"] is not None
+        assert history_camera["enabled"] is False
+
+        still_addressable = client.get(
+            f"/api/v1/cameras/{camera_id}"
+        )
+        assert still_addressable.status_code == 200
+        assert still_addressable.json()["name"] == "Retire Camera"
+
+        enable_retired = client.post(
+            f"/api/v1/cameras/{camera_id}/enable"
+        )
+        assert enable_retired.status_code == 409
+        assert (
+            enable_retired.json()["error"]["code"]
+            == "camera_retired"
+        )
+
+        restored = client.post(
+            f"/api/v1/cameras/{camera_id}/restore"
+        )
+        assert restored.status_code == 200
+        restored_body = restored.json()
+        assert restored_body["retired_at"] is None
+        assert restored_body["enabled"] is False
+
+        visible_again = client.get("/api/v1/cameras")
+        assert visible_again.status_code == 200
+        assert str(camera_id) in {
+            item["id"] for item in visible_again.json()
+        }
+
+        enabled = client.post(
+            f"/api/v1/cameras/{camera_id}/enable"
+        )
+        assert enabled.status_code == 200
+        assert enabled.json()["enabled"] is True
+
+        assert app.state.recording_tasks.runtime_reconciles == [
+            camera_id,
+            camera_id,
+        ]
+
+    with app.state.database.session() as session:
+        actions = set(
+            session.scalars(
+                select(AuditEvent.action).where(
+                    AuditEvent.camera_id == camera_id
+                )
+            ).all()
+        )
+    assert "camera.retire" in actions
+    assert "camera.restore" in actions

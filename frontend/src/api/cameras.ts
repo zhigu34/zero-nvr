@@ -4,6 +4,7 @@ export interface CameraSummary {
   id: string
   name: string
   enabled: boolean
+  retired_at: string | null
   location: string | null
   storage_label: string | null
   adapter_type: string | null
@@ -112,8 +113,15 @@ export interface OnvifImportInput extends OnvifCredentialsInput {
   discovery_candidate_id?: string | null
 }
 
-export function listCameras(): Promise<CameraSummary[]> {
-  return apiRequest<CameraSummary[]>("/cameras")
+export function listCameras(
+  options: { includeRetired?: boolean } = {}
+): Promise<CameraSummary[]> {
+  const params = new URLSearchParams()
+  if (options.includeRetired) {
+    params.set("include_retired", "true")
+  }
+  const suffix = params.size ? `?${params.toString()}` : ""
+  return apiRequest<CameraSummary[]>(`/cameras${suffix}`)
 }
 
 export function testManualCamera(
@@ -220,6 +228,24 @@ export function setCameraEnabled(
 ): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(
     `/cameras/${encodeURIComponent(cameraId)}/${enabled ? "enable" : "disable"}`,
+    { method: "POST" }
+  )
+}
+
+export function retireCamera(
+  cameraId: string
+): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}/retire`,
+    { method: "POST" }
+  )
+}
+
+export function restoreCamera(
+  cameraId: string
+): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}/restore`,
     { method: "POST" }
   )
 }

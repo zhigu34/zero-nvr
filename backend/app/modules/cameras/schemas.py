@@ -31,6 +31,7 @@ class CameraSummary(BaseModel):
     id: uuid.UUID
     name: str
     enabled: bool
+    retired_at: datetime | None
     location: str | None
     storage_label: str | None
     adapter_type: str | None

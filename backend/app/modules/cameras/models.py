@@ -206,6 +206,7 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="uq_cameras_device_channel",
         ),
         Index("ix_cameras_enabled_name", "enabled", "name"),
+        Index("ix_cameras_retired_at", "retired_at"),
     )
 
     device_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -216,6 +217,10 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     channel_key: Mapped[str] = mapped_column(String(256), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    retired_at: Mapped[datetime | None] = mapped_column(
+        UTCDateTime(),
+        nullable=True,
+    )
     location: Mapped[str | None] = mapped_column(String(256), nullable=True)
     storage_label: Mapped[str | None] = mapped_column(String(128), nullable=True)
 
