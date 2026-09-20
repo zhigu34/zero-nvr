@@ -175,7 +175,7 @@ def safety_snapshot_command(
     settings, database = _settings_database()
     try:
         timestamp = datetime.now(UTC).strftime(
-            "%Y%m%dT%H%M%SZ"
+            "%Y%m%dT%H%M%S%fZ"
         )
         destination = (
             settings.data_dir
@@ -504,7 +504,7 @@ def _restore_safety_snapshot(
         database
     )
     timestamp = datetime.now(UTC).strftime(
-        "%Y%m%dT%H%M%SZ"
+        "%Y%m%dT%H%M%S%fZ"
     )
     rollback_dir = (
         settings.data_dir
@@ -666,7 +666,7 @@ def restore_staged_command(
     )
 
     timestamp = datetime.now(UTC).strftime(
-        "%Y%m%dT%H%M%SZ"
+        "%Y%m%dT%H%M%S%fZ"
     )
     rollback_dir = (
         settings.data_dir
