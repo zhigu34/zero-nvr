@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/deployment-state.sh"
 
 cd "$ROOT_DIR"
 
@@ -12,6 +13,7 @@ usage() {
 Usage:
   ./deploy.sh [install]
   ./deploy.sh update
+  ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
   ./deploy.sh migrate
@@ -119,17 +121,27 @@ install_stack() {
   build_backend
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
+  record_installed_revision
 }
 
 update_stack() {
+  local target_revision previous_revision
+  local previous_rollback_revision previous_rollback_snapshot
+  local rollback_revision="" rollback_snapshot=""
+
   preflight
   ensure_env
   ensure_host_dirs
 
+  target_revision="$(git_revision || true)"
+  previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
+  previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
+  previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+
+  SAFETY_SNAPSHOT_REL=""
   if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
     echo "Creating pre-upgrade database safety snapshot..."
-    compose run --rm --no-deps zero-nvr \
-      python -m app.cli safety-snapshot
+    create_local_safety_snapshot
   else
     echo "WARN zero-nvr image is not installed; no pre-upgrade safety snapshot created" >&2
   fi
@@ -138,6 +150,27 @@ update_stack() {
   compose build --pull zero-nvr
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
+
+  if valid_revision "$target_revision"; then
+    if valid_revision "$previous_revision" \
+      && [[ "$previous_revision" != "$target_revision" ]] \
+      && [[ -n "$SAFETY_SNAPSHOT_REL" ]]; then
+      rollback_revision="$previous_revision"
+      rollback_snapshot="$SAFETY_SNAPSHOT_REL"
+    elif [[ "$previous_revision" == "$target_revision" ]]; then
+      rollback_revision="$previous_rollback_revision"
+      rollback_snapshot="$previous_rollback_snapshot"
+    else
+      echo "WARN previous deployment revision is unknown; this update cannot be automatically rolled back by version" >&2
+    fi
+
+    write_deployment_state \
+      "$target_revision" \
+      "$rollback_revision" \
+      "$rollback_snapshot"
+  else
+    echo "WARN target Git revision unavailable; deployment state was not advanced" >&2
+  fi
 }
 
 command="${1:-install}"
@@ -153,6 +186,9 @@ case "$command" in
       exit 2
     fi
     update_stack
+    ;;
+  rollback)
+    "$SCRIPT_DIR/rollback.sh" "$@"
     ;;
   status)
     ensure_env
