@@ -42,6 +42,7 @@ class Settings(BaseSettings):
 
     zlm_base_url: str = "http://zlmediakit"
     zlm_api_secret: SecretStr | None = None
+    zlm_hook_secret: SecretStr | None = None
     zlm_timeout_seconds: float = 8.0
     zlm_probe_timeout_seconds: float = 12.0
 
@@ -70,6 +71,20 @@ class Settings(BaseSettings):
                     "every ZERO_NVR_SECRET_KEY_PREVIOUS entry must be at least 32 bytes"
                 )
         return values
+
+    @field_validator("zlm_hook_secret")
+    @classmethod
+    def validate_zlm_hook_secret(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+        if len(value.get_secret_value().encode("utf-8")) < 32:
+            raise ValueError(
+                "ZERO_NVR_ZLM_HOOK_SECRET must be at least 32 bytes"
+            )
+        return value
 
     @field_validator("session_ttl_hours")
     @classmethod
