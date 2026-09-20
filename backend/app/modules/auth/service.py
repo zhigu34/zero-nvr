@@ -64,9 +64,10 @@ class AuthService:
                 role.built_in = True
 
             current = {item.permission: item for item in role.permissions}
-            for permission in desired_permissions - current.keys():
+            current_permissions = set(current)
+            for permission in desired_permissions - current_permissions:
                 role.permissions.append(RolePermission(permission=permission))
-            for permission in current.keys() - desired_permissions:
+            for permission in current_permissions - desired_permissions:
                 session.delete(current[permission])
 
             roles[name] = role
@@ -138,6 +139,13 @@ class AuthService:
                 message="Invalid username or password.",
             )
         return user
+
+    @staticmethod
+    def user_roles_and_permissions(
+        user: User,
+    ) -> tuple[tuple[str, ...], frozenset[str]]:
+        roles, permissions = self.user_roles_and_permissions(user)
+        return roles, permissions
 
     def create_session(self, session: Session, user: User) -> tuple[UserSession, str]:
         now = utc_now()
