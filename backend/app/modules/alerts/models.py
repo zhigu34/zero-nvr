@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base import Base
 from app.core.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
-from app.core.db.types import UTCDateTime, UUIDType
+from app.core.db.types import UTCDateTime, UUIDType, utc_now
 
 
 class AlertPolicy(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -135,4 +135,5 @@ class Alert(UUIDPrimaryKeyMixin, Base):
     created_at: Mapped[datetime] = mapped_column(
         UTCDateTime(),
         nullable=False,
+        default=utc_now,
     )
