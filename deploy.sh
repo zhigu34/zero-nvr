@@ -18,6 +18,7 @@ Usage:
   ./deploy.sh backup [reason] [policy-id-or-name]
   ./deploy.sh restore list
   ./deploy.sh restore [snapshot-id|latest] --force
+  ./deploy.sh recovery-kit export [directory] [policy-id-or-name]
   ./deploy.sh admin reset-password <username>
 
 Core deployment is intentionally three containers:
@@ -194,6 +195,23 @@ case "$command" in
       prepare_zlm
     fi
     "$SCRIPT_DIR/restore.sh" "$@"
+    ;;
+  recovery-kit)
+    subcommand="${1:-}"
+    shift || true
+    case "$subcommand" in
+      export)
+        ensure_env
+        output="${1:-$ROOT_DIR/recovery-kit}"
+        policy="${2:-}"
+        "$SCRIPT_DIR/recovery-kit.sh" "$output" "$policy"
+        ;;
+      *)
+        echo "error: unsupported recovery-kit command: $subcommand" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
     ;;
   admin)
     subcommand="${1:-}"
