@@ -119,6 +119,7 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         )
         assert old_password.status_code == 401
 
+        client.cookies.clear()
         new_viewer_token = login(
             client,
             "viewer",
