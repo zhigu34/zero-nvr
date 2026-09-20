@@ -613,537 +613,103 @@ See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](
 
 ## RecordingPolicy
 
-Describes desired recording behavior.
+Describes the durable recording policy for one Camera.
 
-```text
-camera_id
-mode                          continuous | schedule | event | hybrid
-schedule
-prebuffer_enabled
-idle_prebuffer_segment_seconds
-formal_record_segment_seconds
-pre_roll_seconds
-post_roll_seconds
-retention_policy_id
-storage_target_id
-enabled
-```
-
-V2 recording defaults are:
-
-```text
-prebuffer_enabled               = true
-idle_prebuffer_segment_seconds  = 20
-formal_record_segment_seconds   = 300
-pre_roll_seconds                = 10
-post_roll_seconds               = 10
-```
-
-These values are persisted configuration and must be editable from Recording Settings. They are defaults rather than hard-coded runtime constants.
-
-The 20-second segment target applies only to temporary idle tmpfs PrebufferFragments. Formal continuous/manual/schedule/event recording defaults to 5-minute RecordingSegments. For event recording, required pre-roll is included inside the first 5-minute formal segment window.
-
-Event recording duration itself is not fixed in advance. Stateful events keep the event RecordingIntent active until the final event ends, after which post-roll is applied. Other active intents may keep the same RecordingSession alive after the event intent completes.
-
-Initial V2 hybrid semantics are: scheduled baseline recording during configured schedule windows, plus event-triggered recording outside those windows.
-
-
-## RetentionPolicy
-
-Defines media retention and disk-pressure behavior. System defaults may be overridden per camera.
+The policy intentionally separates baseline recording from event-triggered recording so EVENT_ONLY and hybrid behavior do not require mutually exclusive mode tables.
 
 ```text
 id
-name
-continuous_keep_days
-schedule_keep_days
-event_keep_days
-manual_keep_days
-warning_usage_percent
-cleanup_start_percent
-critical_usage_percent
-emergency_usage_percent
-cleanup_target_percent
-min_free_bytes
+camera_id
+baseline_mode                 continuous | schedule | disabled
+schedule                      nullable
+schedule_timezone             nullable
+event_recording_enabled
+segment_target_seconds        default 300
+pre_roll_seconds              default 10
+post_roll_seconds             default 10
+storage_target_id             nullable -> system default LOCAL_RECORDING target
+retention_policy_id
+enabled
 created_at
 updated_at
 ```
 
-Initial defaults:
+Interpretation:
 
 ```text
-continuous_keep_days = 7
-schedule_keep_days   = 7
-event_keep_days      = 30
-manual_keep_days     = 30
+CONTINUOUS:
+  baseline_mode = continuous
 
-warning_usage_percent   = 80
-cleanup_start_percent   = 85
-critical_usage_percent  = 92
-emergency_usage_percent = 96
-cleanup_target_percent  = 80
+SCHEDULE:
+  baseline_mode = schedule
+
+EVENT_ONLY:
+  baseline_mode = disabled
+  event_recording_enabled = true
+
+SCHEDULE + out-of-window event recording:
+  baseline_mode = schedule
+  event_recording_enabled = true
+
+DISABLED:
+  baseline_mode = disabled
+  event_recording_enabled = false
 ```
 
-See [Spec 0005 — Recording Retention, Disk Pressure, and Safe Purge](specs/0005-recording-retention-and-purge.md).
+The nominal segment duration is a target, not timeline truth. Actual RecordingSegment timestamps come from finalized media metadata.
 
-## RetentionClaim
+The requested EVENT_ONLY pre-roll is product policy; its physical implementation is design-freeze POC gated and is not represented by a mandatory PrebufferFragment table.
 
-Represents one reason a RecordingSegment must remain available.
+## RetentionPolicy
+
+Defines how long canonical recordings/copies should remain and when local deletion is legal.
 
 ```text
 id
-recording_segment_id
-reason
-priority
-retain_until
-source_type
-source_id
+name
+scope_type                    global | camera_group | camera
+scope_id                      nullable
+ordinary_keep_days
+event_keep_days
+manual_keep_days
+mode                          best_effort | hard
+require_archive_before_delete
+enabled
 created_at
+updated_at
+```
+
+Deletion eligibility is derived from the policy, overlapping Events/RecordingTriggers, RecordingProtection ranges, RecordingLocation state, and current disk pressure.
+
+V1 does not require a per-segment RetentionClaim table merely to cache derivable retention facts.
+
+## RecordingProtection
+
+Explicitly protects a camera/time range from automatic retention deletion.
+
+```text
+id
+camera_id
+started_at
+ended_at
+reason
+created_by
+expires_at                    nullable
+created_at
+updated_at
 ```
 
 Typical reasons:
 
 ```text
-continuous_policy
-schedule_policy
-event_policy
-manual_policy
-user_lock
-upload_source
-export_job
+manual_lock
+incident
+legal_hold
+user_saved
 system_recovery
 ```
 
-Finite effective retention is the maximum `retain_until` across active claims. `user_lock` is indefinite until explicitly unlocked.
-
-This claim model is required because one 5-minute physical segment may simultaneously belong to normal recording and contain one or more events with longer retention.
-
-## RecordingIntent
-
-Represents one business reason why a camera currently requires formal recording.
-
-```text
-id
-camera_id
-intent_type          continuous | schedule | event | manual
-source_type
-source_id
-started_at
-planned_end_at
-ended_at
-state                pending | active | post_roll | completed | cancelled
-correlation_id
-metadata
-created_at
-updated_at
-```
-
-Recording intents are additive. A camera may have continuous, event, and manual intents active at the same time without creating duplicate media recorders.
-
-`hybrid` is a RecordingPolicy composition mode rather than a runtime intent type. Initial V2 hybrid semantics are scheduled baseline recording plus event-triggered recording outside the schedule.
-
-See [Spec 0007 — Recording Intent Arbitration and Mode Composition](specs/0007-recording-intent-arbitration.md).
-
-## RecordingSession
-
-Represents one maximal uninterrupted formal-recording interval owned by zero-nvr.
-
-```text
-id
-camera_id
-started_at
-planned_end_at
-ended_at
-actual_media_started_at
-actual_media_ended_at
-status
-origin_intent_type
-active_storage_target_id
-created_at
-updated_at
-```
-
-A RecordingSession remains active while at least one RecordingIntent requires media.
-
-`origin_intent_type` records which intent caused the idle → formal transition for diagnostics/history. It is not a mutually exclusive recording classification.
-
-Adding or removing another intent while the active-intent set remains non-empty:
-
-- does not restart the recorder;
-- does not create a second media pipeline;
-- does not reset the formal segment clock;
-- does not force a physical segment boundary.
-
-A true interval with zero active RecordingIntents ends the RecordingSession. A later intent starts a new RecordingSession.
-
-RecorderBackend processes are runtime implementations of this session/media requirement, not the business identity of individual intents.
-
-## PrebufferFragment
-
-Temporary media produced only for idle event pre-recording.
-
-```text
-id
-camera_id
-started_at
-ended_at
-duration
-path
-state           writing | ready | protected | consumed | expired
-created_at
-```
-
-Default physical target is 20 seconds.
-
-PrebufferFragment is not a canonical historical recording. When a RecordingSession starts, the required fragment ranges become source material for the first formal RecordingSegment and may be deleted after that formal segment is verified.
-
-## RecordingSegment
-
-The canonical persisted formal-recording timeline unit.
-
-```text
-id
-camera_id
-stream_role
-sequence
-started_at
-ended_at
-duration
-codec
-container
-size
-local_object_id
-integrity_status
-completion_reason     normal_boundary | session_end | manual_stop | schedule_end | source_lost | runtime_restart | media_discontinuity | failure
-created_at
-```
-
-Segment identity remains stable even if its media object later moves to remote storage.
-
-For a healthy active RecordingSession, intermediate RecordingSegments follow the configured formal segment cadence anchored at `RecordingSession.started_at`. Shorter files are expected only for the final session segment or an explicit interruption/recovery boundary. `completion_reason` makes that distinction queryable.
-
-Canonical RecordingSegment timestamps are UTC. Calendar/day boundaries do not force segment rollover. Physical location belongs to StorageObject and uses a stable object key such as:
-
-```text
-recordings/{name_id}/{YYYY-MM-DD}/{name_id}_{YYYY-MM-DD}_{HH-MM-SS}.mp4
-```
-
-The local layout uses the Camera's stable human-readable name/id, configured recording timezone, local start date, and human-readable recording start time. See [Spec 0004 — Recording Storage Layout and Time Index](specs/0004-recording-storage-layout.md).
-
-## RecordingSessionSegment
-
-Maps one logical RecordingSession onto the required range of one physical RecordingSegment.
-
-```text
-recording_session_id
-recording_segment_id
-sequence
-use_started_at
-use_ended_at
-created_at
-```
-
-A RecordingSession may span multiple physical MP4 files. The first/last physical files may contain additional footage outside the logical session; `use_started_at` / `use_ended_at` define the business-visible range.
-
-This mapping allows normal playback to cross segment boundaries without first generating a merged MP4. A single-file crop/concat is a derived export operation.
-
-See [Spec 0003 — Rolling MP4 Pre-buffer and Event Segment Composition](specs/0003-rolling-mp4-prebuffer.md).
-
-## DetectionProviderInstance
-
-Configured event/AI provider.
-
-```text
-id
-type                    onvif_native | hik_native | frigate | local_motion | custom
-name
-enabled
-config
-credential_secret_ref
-health_state
-last_connected_at
-last_observation_at
-last_error_code
-sanitized_error
-created_at
-updated_at
-```
-
-## DetectionProviderBinding
-
-Maps one provider source to a canonical Camera and controls downstream eligibility.
-
-```text
-id
-provider_instance_id
-camera_id
-external_source_key
-enabled
-priority
-timeline_enabled
-recording_enabled
-alert_enabled
-event_type_filter
-object_class_filter
-zone_mapping
-config
-created_at
-updated_at
-```
-
-## DetectionObservation
-
-Append-oriented normalized provider update/evidence.
-
-```text
-id
-provider_instance_id
-binding_id
-camera_id
-provider_event_key
-provider_track_key
-provider_sequence
-transition              start | update | end | pulse | instant
-provider_event_type
-canonical_hint
-source_occurred_at
-received_at
-occurred_at
-timestamp_quality
-object_class
-object_subclass
-confidence
-bounding_box
-provider_zones
-attributes
-snapshot_ref
-payload_digest
-metadata
-created_at
-```
-
-Provider ingress is idempotent; repeated delivery of the same source update must not create duplicate business events.
-
-## EventZone
-
-```text
-id
-camera_id
-name
-enabled
-normalized_polygon
-presentation
-created_at
-updated_at
-```
-
-## ProviderZoneBinding
-
-```text
-detection_provider_binding_id
-provider_zone_key
-event_zone_id
-```
-
-## DetectionEventZoneInterval
-
-```text
-detection_event_id
-event_zone_id
-entered_at
-exited_at
-```
-
-## DetectionPolicy
-
-```text
-camera_id
-enabled
-provider_bindings
-recording_event_filters
-alert_event_filters
-fusion_enabled
-fusion_window_ms
-snapshot_policy
-observation_retention
-updated_at
-```
-
-RecordingPolicy still owns recording pre/post-roll and RecordingIntent behavior.
-
-## DetectionEvent
-
-Provider-neutral business event aggregate. Provider updates are retained separately as DetectionObservation.
-
-```text
-id
-camera_id
-source_kind
-provider
-provider_instance_id
-external_id
-event_type
-object_class
-object_subclass
-lifecycle_kind          stateful | instant
-status                  active | completed
-end_reason
-source_occurred_at
-received_at
-occurred_at
-timestamp_source
-timestamp_quality
-clock_offset_ms_applied
-started_at
-last_activity_at
-ended_at
-confidence
-current_zones
-snapshot_object_id
-recording_session_id
-correlation_id
-fusion_group_id
-metadata
-created_at
-updated_at
-```
-
-Canonical event-type families include at least:
-
-```text
-motion
-object
-zone_entry
-zone_exit
-intrusion
-line_crossing
-loitering
-tamper
-digital_input
-audio
-face
-plate
-custom
-unknown
-```
-
-Object labels/classes remain separate:
-
-```text
-person
-vehicle
-car
-truck
-bicycle
-motorcycle
-animal
-dog
-cat
-package
-provider-defined class
-```
-
-For stateful events:
-
-```text
-START -> UPDATE* -> END
-```
-
-While ACTIVE, `ended_at` remains NULL. `last_activity_at` advances as the provider updates the same logical event/track.
-
-For instant events:
-
-```text
-started_at = occurred_at
-ended_at   = occurred_at
-status     = completed
-```
-
-Instant events do not invent an artificial active duration. Recording policy applies the normal pre-roll/post-roll window around the occurrence timestamp.
-
-Repeated activity for the same provider event/track identity must not create duplicate business events. Late stale updates do not reopen a completed DetectionEvent.
-
-Timeline seek offsets are derived from absolute event timestamps rather than stored as authoritative offsets.
-
-## EventFusionGroup
-
-Non-destructive cross-provider correlation group.
-
-```text
-id
-camera_id
-opened_at
-last_activity_at
-closed_at
-fusion_key
-summary_type
-summary_object_class
-canonical_zone_ids
-created_at
-updated_at
-```
-
-## EventFusionMember
-
-```text
-fusion_group_id
-detection_event_id
-relation                same_occurrence | supports | derived_from | possibly_related
-confidence
-created_at
-```
-
-Fusion helps presentation/alert deduplication but never deletes or rewrites member DetectionEvents.
-
-See [Spec 0021 — Detection Providers, AI Events, Object Tracking, Zones, and Event Fusion](specs/0021-detection-providers-ai-events-and-fusion.md).
-## RecordingTrigger
-
-Represents an explicit external or internal **recording intent** when an integration needs to ask zero-nvr to preserve/record something without exposing recorder-process commands.
-
-It is not the canonical model for stateful sensor events. Motion/person/presence-style START/END input should normalize into DetectionEvent and then be evaluated by RecordingManager.
-
-Conceptual fields:
-
-```text
-id
-camera_id
-source
-external_id
-trigger_type
-received_at
-processed_at
-status
-reason
-correlation_id
-metadata
-created_at
-```
-
-Typical sources may include:
-
-```text
-home_assistant
-mqtt
-webhook
-manual
-api
-system
-```
-
-Typical processing states may include:
-
-```text
-received
-accepted
-ignored
-merged
-rejected
-failed
-```
-
-RecordingTrigger records what intent was received and how zero-nvr handled it. It never directly represents or controls an FFmpeg/ZLMediaKit process.
-
-Stateful event-driven recording behavior is defined by DetectionEvent + RecordingSession in [Spec 0002 — Event Recording Lifecycle](specs/0002-event-recording-lifecycle.md).
+Protection is metadata. zero-nvr does not copy footage into a separate protected-video directory just to retain it.
 
 ## AlertRule
 
@@ -1442,50 +1008,48 @@ last_successful_write_at
 last_error
 ```
 
-## StorageObject
+## RecordingLocation
 
-Represents a physical copy of media/data.
+Represents one physical copy of a finalized RecordingSegment.
 
 ```text
 id
-logical_kind
-logical_id
+recording_segment_id
 storage_target_id
-object_key
-size
-checksum
-state
-verified_at
+object_path
+state                         available | archiving | failed | deleting | deleted | missing
+size_bytes
+checksum                      nullable
+verified_at                   nullable
+last_attempt_at               nullable
+last_error                    nullable
 created_at
+deleted_at                    nullable
 ```
 
-A RecordingSegment can have multiple StorageObjects.
-
-## UploadJob
+A RecordingSegment may have multiple RecordingLocations, for example:
 
 ```text
-id
-storage_object_id
-target_id
-state
-attempt
-next_retry_at
-last_error
-created_at
-updated_at
+local SSD        AVAILABLE
+NAS              AVAILABLE
+cloud/OpenList   AVAILABLE
 ```
 
-State direction:
+Archive workflow:
 
 ```text
-PENDING
-UPLOADING
-VERIFYING
-REMOTE_READY
-FAILED
+create remote RecordingLocation = ARCHIVING
+-> Huey worker invokes rclone copy/copyto
+-> verify
+-> remote RecordingLocation = AVAILABLE
+-> retention may later transition local location DELETING -> DELETED
 ```
 
-Local-purge eligibility is a policy decision after verified remote readiness.
+Huey owns job execution/retry scheduling. V1 does not require a separate UploadJob business table or a second rclone-job state machine.
+
+A failed transfer is reflected on the target RecordingLocation as FAILED with sanitized error/attempt metadata and may be retried idempotently.
+
+Caches, thumbnails, exports, and temporary pre-roll fragments are not RecordingLocations unless they become canonical retained copies of a RecordingSegment.
 
 ## Upgrade/runtime migration state
 
@@ -1609,7 +1173,7 @@ metadata
 
 A non-authoritative read model returned by playback APIs for an absolute time range.
 
-It is composed from RecordingSegment, StorageObject, DetectionEvent, recording policy/runtime history, and retention state rather than persisted as the primary source of truth.
+It is composed from RecordingSegment, RecordingLocation, DetectionEvent, recording policy/runtime history, and retention state rather than persisted as the primary source of truth.
 
 Conceptual shape:
 
@@ -1834,7 +1398,7 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 30. Recording paths/object keys are storage metadata; playback and retention still use database timestamps/relations rather than directory scanning.
 31. Retention is claim-based; a shared physical segment keeps the strongest active retention requirement without duplicating media.
 32. User-locked media is never automatically purged.
-33. Upload success without verified REMOTE_READY state never permits safe local-source deletion.
+33. Upload success without a verified remote RecordingLocation in AVAILABLE state never permits safe local-source deletion.
 34. Critical disk-pressure purge is priority ordered and explicitly logged; currently writing/finalizing media is never an automatic purge candidate.
 35. Historical playback is absolute-time driven; physical MP4 boundaries and filenames are never the playback clock.
 36. Playback API time values use UTC Unix milliseconds consistently.
@@ -1891,7 +1455,7 @@ See [Spec 0011 — Authentication, Camera-Scoped Authorization, and Audit](specs
 87. Database/system backup never implies local-only recording media is disaster-protected.
 88. SecretStore recovery requires matching keyring/RecoveryKit; encrypted database rows alone are insufficient.
 89. A complete disaster-recovery target must be bootstrap-accessible without first restoring the lost SecretStore.
-90. Any restore is followed by non-destructive StorageObject/media reconciliation before normal cleanup.
+90. Any restore is followed by non-destructive RecordingLocation/media reconciliation before normal cleanup.
 91. Backup creation, verification, repository checking, and restore testing are distinct protection states.
 73. Ordinary configuration and recoverable secrets are separate storage concerns.
 74. Domain resources reference recoverable secrets by opaque secret_ref and never embed plaintext credentials.
