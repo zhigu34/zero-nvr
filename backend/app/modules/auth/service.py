@@ -13,6 +13,7 @@ from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.modules.system.models import SystemSetting
 
+from .camera_scope import CameraScopeService
 from .models import Role, RolePermission, User, UserSession
 from .permissions import BUILTIN_ROLE_PERMISSIONS
 from .security import PasswordService, SessionSigner
@@ -70,6 +71,12 @@ class AuthService:
             for permission in current_permissions - desired_permissions:
                 session.delete(current[permission])
 
+            CameraScopeService.ensure_scope(
+                session,
+                principal_type="role",
+                principal_id=role.id,
+                mode="all",
+            )
             roles[name] = role
 
         return roles
