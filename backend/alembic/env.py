@@ -13,6 +13,7 @@ from app.core.db.base import Base
 from app.modules.alerts import models as alert_models  # noqa: F401
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.auth import models as auth_models  # noqa: F401
+from app.modules.backups import models as backup_models  # noqa: F401
 from app.modules.cameras import models as camera_models  # noqa: F401
 from app.modules.events import models as event_models  # noqa: F401
 from app.modules.exports import models as export_models  # noqa: F401
