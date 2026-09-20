@@ -12,6 +12,7 @@ import {
   type CameraSummary
 } from "../api/cameras"
 import { errorMessage } from "../api/client"
+import { browserMediaUrl } from "../api/media"
 import {
   getCameraTimeline,
   resolveCameraPlayback,
@@ -313,7 +314,7 @@ async function resolveAt(
     if (result.status !== "playable") return
 
     playbackAnchorMs.value = at.getTime()
-    playbackUrl.value = result.url
+    playbackUrl.value = browserMediaUrl(result.url)
     await nextTick()
 
     if (video.value) {

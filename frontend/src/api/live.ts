@@ -8,6 +8,7 @@ export interface CameraLiveStream {
   purpose: "LIVE_HIGH" | "LIVE_LOW" | "RECORD"
   transport: "hls"
   hls_url: string
+  expires_at: string
   codec: string | null
   width: number | null
   height: number | null

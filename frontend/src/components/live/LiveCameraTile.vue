@@ -10,6 +10,7 @@ import {
 
 import type { CameraSummary } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
+import { browserMediaUrl } from "../../api/media"
 import {
   getCameraLiveStream,
   type CameraLiveStream,
@@ -37,9 +38,29 @@ const muted = ref(true)
 
 let hls: Hls | null = null
 let generation = 0
+let tokenRefreshTimer: number | null = null
+
+function clearTokenRefresh(): void {
+  if (tokenRefreshTimer === null) return
+  window.clearTimeout(tokenRefreshTimer)
+  tokenRefreshTimer = null
+}
+
+function scheduleTokenRefresh(expiresAt: string): void {
+  clearTokenRefresh()
+  const refreshIn = Math.max(
+    5_000,
+    new Date(expiresAt).getTime() - Date.now() - 60_000
+  )
+  tokenRefreshTimer = window.setTimeout(() => {
+    tokenRefreshTimer = null
+    void loadStream()
+  }, refreshIn)
+}
 
 function destroyPlayer(): void {
   generation += 1
+  clearTokenRefresh()
   hls?.destroy()
   hls = null
   playing.value = false
@@ -56,8 +77,10 @@ async function attachStream(stream: CameraLiveStream): Promise<void> {
   const element = video.value
   if (!element) return
 
+  const source = browserMediaUrl(stream.hls_url)
+
   if (element.canPlayType("application/vnd.apple.mpegurl")) {
-    element.src = stream.hls_url
+    element.src = source
     await element.play().catch(() => undefined)
     return
   }
@@ -72,13 +95,14 @@ async function attachStream(stream: CameraLiveStream): Promise<void> {
     maxBufferLength: 18,
     liveSyncDurationCount: 2
   })
-  hls.loadSource(stream.hls_url)
+  hls.loadSource(source)
   hls.attachMedia(element)
   await element.play().catch(() => undefined)
 }
 
 async function loadStream(): Promise<void> {
   const currentGeneration = ++generation
+  clearTokenRefresh()
   hls?.destroy()
   hls = null
   descriptor.value = null
@@ -94,6 +118,9 @@ async function loadStream(): Promise<void> {
     if (generation !== currentGeneration) return
     descriptor.value = stream
     await attachStream(stream)
+    if (generation === currentGeneration) {
+      scheduleTokenRefresh(stream.expires_at)
+    }
   } catch (caught) {
     if (generation !== currentGeneration) return
     error.value = errorMessage(caught)
