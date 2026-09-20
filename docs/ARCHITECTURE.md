@@ -407,9 +407,30 @@ events remain independent timeline markers
 one camera does not start duplicate recorders for overlapping intents
 ```
 
-Preferred implementation candidates reuse ZLMediaKit's existing rolling HLS/fMP4/GOP/recording capabilities. zero-nvr must not implement a custom H.264/H.265 packet ring buffer.
+The current **primary POC candidate** keeps one ordinary ZLMediaKit recorder continuously writing short finalized fragments into a bounded shared tmpfs. Event/RecordingTrigger state changes only which overlapping finalized fragments are protected and promoted to the persistent LOCAL RecordingTarget.
 
-The final physical composition and fMP4 choice are validated by [V1 Design-Freeze POC Plan](plans/01-design-freeze-poc.md). Until that POC passes, older rolling-MP4/tmpfs details are candidate implementation notes rather than frozen invariants.
+```text
+Camera
+  -> ZLM normal recorder
+  -> bounded tmpfs short fragments
+  -> on_record_mp4
+  -> Event window overlap
+  -> copy / verify / atomic publish
+  -> RecordingSegment + RecordingLocation
+```
+
+This keeps the ordinary ZLM MP4Recorder/hook/reconciliation path and naturally handles unknown Event duration without recorder restart. Whole overlapping fragments may contain extra media before/after the exact Event window; Timeline/Event timestamps remain exact, while exact trimming is an Export concern.
+
+Two additional ZLM-native approaches are comparison candidates:
+
+- `startRecordTask(back_ms, forward_ms)`, which currently creates an independent fixed-duration recording task per call;
+- ordinary `startRecord` after pre-creating ZLM's frame GOP Ring.
+
+Neither is frozen until runtime evidence resolves task-extension, Ring-lifecycle, and absolute-timestamp behavior.
+
+zero-nvr must not implement a custom H.264/H.265 packet ring buffer or a second permanent event recorder.
+
+The final mechanism, fragment target, tmpfs budget, fMP4 choice, and H.265 behavior are validated by [V1 Design-Freeze POC Plan](plans/01-design-freeze-poc.md) and [Spec 0003](specs/0003-rolling-mp4-prebuffer.md).
 
 
 ### Recording arbitration
