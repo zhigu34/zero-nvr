@@ -107,3 +107,15 @@ class SystemUpdateInfoView(BaseModel):
     deployment_method: Literal["deploy.sh"] = "deploy.sh"
     automatic_host_mutation: bool = False
     update_command: str = "./deploy.sh update"
+
+
+
+class HealthComponentView(BaseModel):
+    status: Literal["OK", "DEGRADED", "ERROR", "DISABLED"]
+    message: str | None = None
+    details: dict[str, object] = Field(default_factory=dict)
+
+
+class SystemHealthView(BaseModel):
+    status: Literal["OK", "DEGRADED", "ERROR", "DISABLED"]
+    components: dict[str, HealthComponentView]
