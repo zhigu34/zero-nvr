@@ -49,9 +49,6 @@ awk '
   section=="hook" && /^enable=/ {
     print "enable=1"; next
   }
-  section=="hook" && /^admin_params=/ {
-    print "admin_params=secret=" ENVIRON["ZERO_NVR_ZLM_API_SECRET"]; next
-  }
   section=="hook" && /^on_play=/ {
     print "on_play=" ENVIRON["ZERO_NVR_ZLM_HOOK_BASE_URL"] "/play"; next
   }
@@ -74,7 +71,6 @@ grep -Fxq "apiDebug=0" "$rendered"
 grep -Fxq "secret=$api_secret" "$rendered"
 grep -Fxq "mediaServerId=$hook_secret" "$rendered"
 grep -Fxq "enableFmp4=1" "$rendered"
-grep -Fxq "admin_params=secret=$api_secret" "$rendered"
 grep -Fxq "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" "$rendered"
 grep -Fxq "on_record_mp4=http://zero-nvr:8000/internal/hooks/zlm/record-mp4" "$rendered"
 grep -Fxq "on_stream_changed=http://zero-nvr:8000/internal/hooks/zlm/stream-changed" "$rendered"

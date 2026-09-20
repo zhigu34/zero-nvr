@@ -96,7 +96,10 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert low_body["hls_url"].startswith(
             "/zlm/zero-nvr/profile-"
         )
-        assert low_body["hls_url"].endswith("/hls.m3u8")
+        assert "/hls.m3u8?" in low_body["hls_url"]
+        assert "zn_exp=" in low_body["hls_url"]
+        assert "zn_sig=" in low_body["hls_url"]
+        assert low_body["expires_at"]
 
         high = client.get(
             f"/api/v1/cameras/{camera_id}/live?quality=high"
