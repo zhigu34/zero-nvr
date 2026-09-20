@@ -1,0 +1,38 @@
+logLevel: info
+
+rtsp: true
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+api: true
+apiAddress: :9997
+
+metrics: true
+metricsAddress: :9998
+
+paths:
+  cam_main:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel warning
+      -re -f lavfi -i testsrc2=size=1280x720:rate=25
+      -an
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -profile:v main
+      -g 50 -keyint_min 50 -sc_threshold 0
+      -b:v 1500k -maxrate 1500k -bufsize 3000k
+      -f rtsp -rtsp_transport tcp
+      rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
+
+  cam_sub:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel warning
+      -re -f lavfi -i testsrc2=size=640x360:rate=15
+      -an
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -pix_fmt yuv420p -profile:v main
+      -g 30 -keyint_min 30 -sc_threshold 0
+      -b:v 450k -maxrate 450k -bufsize 900k
+      -f rtsp -rtsp_transport tcp
+      rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes
