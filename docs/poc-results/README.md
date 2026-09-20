@@ -12,15 +12,15 @@ A committed harness is **not** a passing result. Every POC stays `NOT RUN` until
 
 | POC | Purpose | Runner | Current result |
 |---|---|---|---|
-| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | NOT RUN |
-| 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | NOT RUN |
-| 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | NOT RUN |
-| 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | NOT RUN |
-| 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | NOT RUN |
-| 06 | ZLM VOD seek | same as POC-05 | NOT RUN |
-| 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | NOT RUN |
-| 08 | ZLM stream sharing / source connection count | same as POC-01 | NOT RUN |
-| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | NOT RUN |
+| 01 | ZLM recording / hook indexing / API restart / reconciliation | `poc/zlm-recording/scripts/run.sh` | RERUN REQUIRED — restart/reconciliation subtest passed; first run hit MediaMTX metrics auth |
+| 02 | fMP4 abnormal termination recovery | `poc/zlm-recording/scripts/run-fmp4-crash.sh` | RERUN REQUIRED — ordinary MP4 baseline failed recovery as expected; harness cleanup bug fixed before fMP4 phase |
+| 03 | EVENT_ONLY pre-roll | `poc/zlm-recording/scripts/run-event-preroll.sh` | RUNNING / first runtime round |
+| 04 | overlapping Event extension / deduplicated promotion | same as POC-03 | RUNNING / first runtime round |
+| 05 | wall-clock timeline precision / real Gap | `poc/zlm-recording/scripts/run-timeline-playback.sh` | RERUN REQUIRED — first run exposed raw ZLM Hook start-time GOP bias; timing normalization added |
+| 06 | ZLM VOD seek | same as POC-05 | RERUN REQUIRED — first run stopped at POC-05 timing gate before seek checks |
+| 07 | rclone remote restore playback / bounded cache | `poc/zlm-recording/scripts/run-remote-restore.sh` | PASS |
+| 08 | ZLM stream sharing / source connection count | same as POC-01 | RERUN REQUIRED — first run blocked by MediaMTX metrics auth before reader-count assertion |
+| 09 | SQLite 8/16-camera mixed load | `poc/sqlite-load/run.sh` | RERUN REQUIRED — first run had harness mount-path bug; no performance conclusion |
 | 10 | fault/reconciliation convergence | `poc/zlm-recording/scripts/run-reconciliation.sh` | NOT RUN |
 
 ## Aggregate runner
