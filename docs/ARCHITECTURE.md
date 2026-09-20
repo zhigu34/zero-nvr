@@ -512,6 +512,10 @@ The remote branch above is validated by [POC-07 — Remote Restore Playback](poc
 
 Playback API timestamps use timezone-aware ISO 8601 strings. The frontend converts them to epoch milliseconds internally for timeline math, then maps absolute time to a RecordingSegment and relative media offset only at the playback boundary.
 
+RecordingSegment absolute coverage is normalized at the ZLM adapter/catalog boundary. Within one proven continuous ZLM media session, a known next-segment boundary plus the current segment's actual muxed duration resolves startup/keyframe bias. ZLM source unregister/re-register always splits timing sessions, so normalization never bridges real source loss.
+
+See [ADR 0011 — Normalize ZLM Recording Time Within Proven Media Sessions](adr/0011-zlm-recording-time-normalization.md) and [POC-05](poc-results/05-timeline-precision.md).
+
 Multi-camera playback uses one Master Clock. Default `tolerant` synchronization allows healthy cameras to continue when one camera buffers; optional `strict` synchronization pauses/re-aligns participating playable cameras for forensic comparison.
 
 Known gaps distinguish states such as not scheduled, no event, source loss, runtime restart, storage failure, missing media, and purged media. Event markers aggregate at wide zoom and expand to individual events at close zoom.
