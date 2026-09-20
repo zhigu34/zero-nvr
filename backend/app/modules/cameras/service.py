@@ -50,7 +50,7 @@ class CameraService:
         return camera
 
     @staticmethod
-    def _parse_rtsp_url(value: str) -> tuple[str, int]:
+    def validate_rtsp_url(value: str) -> tuple[str, int]:
         try:
             parsed = urlsplit(value)
             port = parsed.port or 554
@@ -113,9 +113,9 @@ class CameraService:
         secondary_name: str | None,
         secondary_url: str | None,
     ) -> Camera:
-        primary_host, primary_port = self._parse_rtsp_url(primary_url)
+        primary_host, primary_port = self.validate_rtsp_url(primary_url)
         if secondary_url is not None:
-            self._parse_rtsp_url(secondary_url)
+            self.validate_rtsp_url(secondary_url)
 
         device = Device(
             name=name,
