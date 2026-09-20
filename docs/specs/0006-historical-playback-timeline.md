@@ -360,7 +360,7 @@ Requirements:
 - set the standby player to the expected starting offset and wait until it is actually ready enough to switch;
 - switch according to the absolute segment boundary, not only an unreliable browser `duration` value;
 - immediately recycle the old active player as the preload slot for the following segment;
-- do not expose the transition as a new RecordingSession;
+- do not expose a physical file/player transition as a new logical recording item;
 - emit diagnostics if the seam visibly stalls.
 
 Segment selection/seek should use the ordered-segment binary lookup described above.
