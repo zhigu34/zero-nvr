@@ -39,7 +39,6 @@ import {
   patchSystemSettings,
   putFrigateProvider,
   runBackup,
-  resetUserPassword,
   setUserEnabled,
   testFrigateProvider,
   testNotificationTarget,
