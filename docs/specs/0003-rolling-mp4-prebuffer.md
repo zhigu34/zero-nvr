@@ -1,4 +1,4 @@
-# Spec 0003 — EVENT_ONLY Pre-roll Candidate
+# Spec 0003 — EVENT_ONLY Rolling Pre-roll and Promotion
 
 Status: **accepted — validated by POC-03/04**
 
