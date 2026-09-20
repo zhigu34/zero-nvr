@@ -54,6 +54,66 @@ class StorageTargetService:
         self.secret_store = SecretStore(settings)
 
     @staticmethod
+    def _ensure_name_available(
+        session: Session,
+        *,
+        name: str,
+        exclude_id: uuid.UUID | None = None,
+    ) -> None:
+        statement = select(StorageTarget.id).where(
+            StorageTarget.name == name
+        )
+        if exclude_id is not None:
+            statement = statement.where(
+                StorageTarget.id != exclude_id
+            )
+        if session.scalar(statement.limit(1)) is not None:
+            raise ApiError(
+                status_code=409,
+                code="storage_target_name_conflict",
+                message="Storage target name is already in use.",
+            )
+
+    @staticmethod
+    def _ensure_default_recording_unique(
+        session: Session,
+        *,
+        target_id: uuid.UUID | None,
+        target_type: str,
+        role: str,
+        enabled: bool,
+        config: dict[str, object],
+    ) -> None:
+        if not (
+            target_type == "local"
+            and role == "recording"
+            and enabled
+            and bool(config.get("default_recording"))
+        ):
+            return
+
+        statement = select(StorageTarget.id).where(
+            StorageTarget.type == "local",
+            StorageTarget.role == "recording",
+            StorageTarget.enabled.is_(True),
+        )
+        if target_id is not None:
+            statement = statement.where(
+                StorageTarget.id != target_id
+            )
+
+        for existing_id in session.scalars(statement):
+            existing = session.get(StorageTarget, existing_id)
+            if existing is not None and bool(
+                (existing.config_json or {}).get("default_recording")
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="default_recording_target_conflict",
+                    message="Only one enabled local recording target can be the default.",
+                )
+
+    @staticmethod
     def list(session: Session) -> list[StorageTarget]:
         return list(
             session.scalars(
@@ -247,10 +307,24 @@ class StorageTargetService:
             role=role,
             config=config,
         )
+        normalized_name = name.strip()
+        self._ensure_name_available(
+            session,
+            name=normalized_name,
+        )
+        self._ensure_default_recording_unique(
+            session,
+            target_id=None,
+            target_type=target_type,
+            role=role,
+            enabled=enabled,
+            config=normalized,
+        )
+
         target = StorageTarget(
             type=target_type,
             role=role,
-            name=name.strip(),
+            name=normalized_name,
             enabled=enabled,
             config_json=normalized,
         )
@@ -294,7 +368,13 @@ class StorageTargetService:
                     code="storage_target_name_invalid",
                     message="Storage target name is invalid.",
                 )
-            target.name = name.strip()
+            normalized_name = name.strip()
+            self._ensure_name_available(
+                session,
+                name=normalized_name,
+                exclude_id=target.id,
+            )
+            target.name = normalized_name
 
         if "enabled" in changes:
             target.enabled = bool(changes["enabled"])
@@ -312,6 +392,15 @@ class StorageTargetService:
                 role=target.role,
                 config=config,
             )
+
+        self._ensure_default_recording_unique(
+            session,
+            target_id=target.id,
+            target_type=target.type,
+            role=target.role,
+            enabled=target.enabled,
+            config=target.config_json or {},
+        )
 
         if "rclone_config" in changes:
             if target.type != "rclone":
