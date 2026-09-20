@@ -26,7 +26,7 @@ MediaMTX supplies deterministic main/sub RTSP paths and exposes source reader-co
 ## Tested versions
 
 ~~~text
-GitHub Actions run: 35490737812
+GitHub Actions run: 35490899825
 job: POC 01
 ZLMediaKit master commit: b794772
 MediaMTX: 1.21.0-ffmpeg
@@ -64,9 +64,10 @@ The downstream consumers therefore attached to ZLM and did not create additional
 ## Primary artifact
 
 ~~~text
-GitHub Actions run: 35490737812
+GitHub Actions run: 35490899825
 artifact: poc-01-evidence
-artifact id: 10598827593
+artifact id: 10598049983
+artifact SHA256: eaea47b3a2a26cb3ddebec1a6712c01d8df5c39f344feabb726035fff1e3f95a
 runtime/evidence.json
 ~~~
 
