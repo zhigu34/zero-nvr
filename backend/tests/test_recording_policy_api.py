@@ -32,6 +32,7 @@ def make_app(tmp_path: Path):
         data_dir=tmp_path / "data",
         cache_dir=tmp_path / "cache",
         prebuffer_dir=tmp_path / "prebuffer",
+        prebuffer_require_tmpfs=False,
         session_cookie_secure=False,
     )
     settings.prebuffer_dir.mkdir(parents=True, exist_ok=True)
