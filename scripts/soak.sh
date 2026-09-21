@@ -3,6 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/release-validation-lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -161,6 +162,7 @@ import collections
 import json
 import os
 import sys
+from datetime import UTC, datetime
 
 items = [
     json.loads(line)
@@ -182,6 +184,7 @@ passed = (
 )
 
 report = {
+    "generated_at": datetime.now(UTC).isoformat(),
     "profile": (
         f"{os.environ['"'"'SOAK_EXPECTED'"'"']}-camera-soak"
     ),
@@ -225,6 +228,7 @@ print(json.dumps(report, sort_keys=True))
 )"
 
 printf '%s\n' "$report"
+persist_release_validation_report soak "$report"
 
 if [[ "$failed_samples" -ne 0 || "$final_rc" -ne 0 ]]; then
   exit 1

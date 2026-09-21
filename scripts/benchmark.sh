@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/benchmark-lib.sh"
+. "$SCRIPT_DIR/release-validation-lib.sh"
 
 usage() {
   cat <<'EOF'
@@ -194,6 +195,7 @@ report="$(
 import json
 import os
 import sys
+from datetime import UTC, datetime
 
 runtime = json.load(sys.stdin)
 resource_pass = (
@@ -207,6 +209,7 @@ runtime_pass = (
 
 report = {
     "profile": os.environ["BENCH_PROFILE"],
+    "generated_at": datetime.now(UTC).isoformat(),
     "passed": resource_pass and runtime_pass,
     "runtime": runtime,
     "resources": {
@@ -269,6 +272,7 @@ print(json.dumps(report, sort_keys=True))
 )"
 
 printf '%s\n' "$report"
+persist_release_validation_report benchmark "$report"
 
 if [[ "$runtime_rc" -ne 0 || "$image_pass" != true || "$memory_pass" != true ]]; then
   exit 1

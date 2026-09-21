@@ -30,6 +30,9 @@ from .camera_ntp import CameraNtpService
 from .config_export import ConfigurationExportService
 from .config_import import ConfigurationImportService
 from .health import SystemHealthService
+from .release_validation import (
+    ReleaseValidationReportService,
+)
 from .frigate_managed import ManagedFrigateConfigService
 from .settings import SystemSettingsService
 from .frigate import (
@@ -56,6 +59,8 @@ from .schemas import (
     FrigateProviderView,
     GeneralSystemSettingsView,
     HealthComponentView,
+    ReleaseValidationArtifactView,
+    ReleaseValidationView,
     SystemHealthView,
     SystemSettingsPatch,
     SystemSettingsView,
@@ -1108,4 +1113,37 @@ async def camera_clock_health(
         degraded=degraded,
         error=errors,
         results=results,
+    )
+
+
+
+@router.get(
+    "/release-validation",
+    response_model=ReleaseValidationView,
+)
+def release_validation(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+) -> ReleaseValidationView:
+    benchmark, soak = (
+        ReleaseValidationReportService(
+            request.app.state.settings
+        ).collect()
+    )
+
+    def view(item) -> ReleaseValidationArtifactView:
+        return ReleaseValidationArtifactView(
+            kind=item.kind,
+            state=item.state,
+            command=item.command,
+            updated_at=item.updated_at,
+            report=item.report,
+            error_code=item.error_code,
+        )
+
+    return ReleaseValidationView(
+        benchmark=view(benchmark),
+        soak=view(soak),
     )

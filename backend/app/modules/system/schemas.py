@@ -217,3 +217,22 @@ class ConfigurationImportApplyView(BaseModel):
         ConfigurationImportApplyItemView
     ]
     warnings: list[str]
+
+
+
+class ReleaseValidationArtifactView(BaseModel):
+    kind: Literal["benchmark", "soak"]
+    state: Literal[
+        "AVAILABLE",
+        "MISSING",
+        "INVALID",
+    ]
+    command: str
+    updated_at: datetime | None = None
+    report: dict[str, object] | None = None
+    error_code: str | None = None
+
+
+class ReleaseValidationView(BaseModel):
+    benchmark: ReleaseValidationArtifactView
+    soak: ReleaseValidationArtifactView
