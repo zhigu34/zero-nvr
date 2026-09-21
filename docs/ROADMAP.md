@@ -223,7 +223,7 @@ Acceptance:
 - [x] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [x] priority-based emergency purge with structured logs.
 - [x] RecordingProtection range create/update/delete and UI.
-- [ ] safe local purge only after verified remote readiness where applicable.
+- [x] safe local purge only after verified remote readiness where applicable.
 - [x] disk capacity guard.
 - [ ] basic timeline.
 

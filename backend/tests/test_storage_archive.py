@@ -188,6 +188,48 @@ class SuccessfulAdapter:
         )
 
 
+class VerifyExistingAdapter:
+    stat_calls: list[str] = []
+    copy_calls = 0
+
+    def __init__(
+        self,
+        *,
+        config_text: str,
+        binary: str,
+        timeout_seconds: float,
+    ) -> None:
+        pass
+
+    def stat(
+        self,
+        remote_path: str,
+    ):
+        self.stat_calls.append(remote_path)
+        return SimpleNamespace(
+            path=remote_path,
+            size_bytes=4096,
+        )
+
+    def copy_to_remote(self, **_kwargs):
+        self.copy_calls += 1
+        raise AssertionError(
+            "unverified AVAILABLE archive "
+            "must be verified before recopy"
+        )
+
+
+class FailingVerifyAdapter:
+    def __init__(self, **_kwargs) -> None:
+        pass
+
+    def stat(self, _remote_path: str):
+        raise RcloneIntegrationError(
+            "rclone_operation_failed",
+            "rclone operation failed.",
+        )
+
+
 class FailingAdapter:
     def __init__(self, **_kwargs) -> None:
         pass
@@ -272,6 +314,164 @@ def test_archive_copy_verify_marks_remote_available_and_retry_is_idempotent(
         assert retry.transferred is False
         assert retry.already_available is True
         assert len(SuccessfulAdapter.calls) == 1
+    finally:
+        database.close()
+
+
+def test_unverified_available_remote_is_verified_before_reuse(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            segment_id,
+            local_id,
+            remote_id,
+            source,
+        ) = seed(
+            settings,
+            database,
+        )
+        with database.session() as session:
+            local = session.scalar(
+                select(RecordingLocation).where(
+                    RecordingLocation.storage_target_id
+                    == local_id,
+                    RecordingLocation.recording_segment_id
+                    == segment_id,
+                )
+            )
+            assert local is not None
+            remote = RecordingLocation(
+                recording_segment_id=segment_id,
+                storage_target_id=remote_id,
+                object_path=local.object_path,
+                state="AVAILABLE",
+                size_bytes=local.size_bytes,
+                verified_at=None,
+            )
+            session.add(remote)
+            session.commit()
+            remote_location_id = remote.id
+
+        VerifyExistingAdapter.stat_calls = []
+        VerifyExistingAdapter.copy_calls = 0
+        service = ArchiveLifecycleService(
+            settings,
+            adapter_factory=(
+                VerifyExistingAdapter
+            ),
+        )
+        result = service.execute(
+            database,
+            segment_id=segment_id,
+            target_id=remote_id,
+        )
+        assert result.location_id == (
+            remote_location_id
+        )
+        assert result.transferred is False
+        assert result.already_available is True
+        assert source.is_file()
+        assert len(
+            VerifyExistingAdapter.stat_calls
+        ) == 1
+        assert (
+            VerifyExistingAdapter.copy_calls
+            == 0
+        )
+
+        with database.session() as session:
+            remote = session.get(
+                RecordingLocation,
+                remote_location_id,
+            )
+            assert remote is not None
+            assert remote.state == "AVAILABLE"
+            assert remote.verified_at is not None
+            assert remote.last_error is None
+    finally:
+        database.close()
+
+
+def test_unverified_available_remote_verify_failure_keeps_local(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            segment_id,
+            local_id,
+            remote_id,
+            source,
+        ) = seed(
+            settings,
+            database,
+        )
+        with database.session() as session:
+            local = session.scalar(
+                select(RecordingLocation).where(
+                    RecordingLocation.storage_target_id
+                    == local_id,
+                    RecordingLocation.recording_segment_id
+                    == segment_id,
+                )
+            )
+            assert local is not None
+            remote = RecordingLocation(
+                recording_segment_id=segment_id,
+                storage_target_id=remote_id,
+                object_path=local.object_path,
+                state="AVAILABLE",
+                size_bytes=local.size_bytes,
+                verified_at=None,
+            )
+            session.add(remote)
+            session.commit()
+            remote_location_id = remote.id
+
+        service = ArchiveLifecycleService(
+            settings,
+            adapter_factory=(
+                FailingVerifyAdapter
+            ),
+        )
+        with pytest.raises(
+            ArchiveLifecycleError
+        ) as captured:
+            service.execute(
+                database,
+                segment_id=segment_id,
+                target_id=remote_id,
+            )
+        assert (
+            captured.value.code
+            == "rclone_operation_failed"
+        )
+        assert source.is_file()
+
+        with database.session() as session:
+            remote = session.get(
+                RecordingLocation,
+                remote_location_id,
+            )
+            assert remote is not None
+            assert remote.state == "FAILED"
+            assert remote.verified_at is None
+            local = session.scalar(
+                select(RecordingLocation).where(
+                    RecordingLocation.storage_target_id
+                    == local_id,
+                    RecordingLocation.recording_segment_id
+                    == segment_id,
+                )
+            )
+            assert local is not None
+            assert local.state == "AVAILABLE"
     finally:
         database.close()
 

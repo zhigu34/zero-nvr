@@ -35,6 +35,7 @@ class ArchivePlan:
     object_path: str
     remote_path: str
     expected_size: int
+    verify_existing: bool = False
     rclone_config: str = field(repr=False)
 
 
@@ -151,18 +152,34 @@ class ArchiveLifecycleService:
                     RecordingLocation.object_path == object_path,
                 )
             )
-            if existing is not None and existing.state == "AVAILABLE":
+            if (
+                existing is not None
+                and existing.recording_segment_id
+                != segment.id
+            ):
+                raise ArchiveLifecycleError(
+                    "archive_location_conflict",
+                    "Archive object path is already owned by another recording segment.",
+                )
+
+            verify_existing = False
+            if (
+                existing is not None
+                and existing.state == "AVAILABLE"
+            ):
                 if existing.size_bytes != expected_size:
                     raise ArchiveLifecycleError(
                         "archive_location_conflict",
                         "Archive location exists with different media facts.",
                     )
-                session.commit()
-                return ArchiveResult(
-                    location_id=existing.id,
-                    transferred=False,
-                    already_available=True,
-                )
+                if existing.verified_at is not None:
+                    session.commit()
+                    return ArchiveResult(
+                        location_id=existing.id,
+                        transferred=False,
+                        already_available=True,
+                    )
+                verify_existing = True
 
             resolved = StorageTargetService(
                 self.settings
@@ -188,12 +205,11 @@ class ArchiveLifecycleService:
                 )
                 session.add(existing)
                 session.flush()
+            elif verify_existing:
+                existing.last_attempt_at = now
+                existing.last_error = None
+                session.flush()
             else:
-                if existing.recording_segment_id != segment.id:
-                    raise ArchiveLifecycleError(
-                        "archive_location_conflict",
-                        "Archive object path is already owned by another recording segment.",
-                    )
                 existing.state = "ARCHIVING"
                 existing.size_bytes = expected_size
                 existing.last_attempt_at = now
@@ -210,6 +226,7 @@ class ArchiveLifecycleService:
                 object_path=object_path,
                 remote_path=remote_path,
                 expected_size=expected_size,
+                verify_existing=verify_existing,
                 rclone_config=resolved.config_text,
             )
             session.commit()
@@ -291,6 +308,64 @@ class ArchiveLifecycleService:
             return prepared
 
         plan = prepared
+
+        if plan.verify_existing:
+            try:
+                adapter = self._adapter_factory(
+                    config_text=plan.rclone_config,
+                    binary=self.settings.rclone_binary,
+                    timeout_seconds=(
+                        self.settings
+                        .rclone_timeout_seconds
+                    ),
+                )
+                remote_stat = adapter.stat(
+                    plan.remote_path
+                )
+                if (
+                    remote_stat.size_bytes
+                    != plan.expected_size
+                ):
+                    raise ArchiveLifecycleError(
+                        "rclone_size_mismatch",
+                        "Archived object size verification failed.",
+                    )
+            except RcloneIntegrationError as exc:
+                self._mark_failed(
+                    database,
+                    location_id=(
+                        plan.remote_location_id
+                    ),
+                    error_code=exc.code,
+                )
+                raise ArchiveLifecycleError(
+                    exc.code,
+                    str(exc),
+                ) from exc
+            except ArchiveLifecycleError as exc:
+                self._mark_failed(
+                    database,
+                    location_id=(
+                        plan.remote_location_id
+                    ),
+                    error_code=exc.code,
+                )
+                raise
+
+            self._mark_available(
+                database,
+                location_id=(
+                    plan.remote_location_id
+                ),
+                expected_size=plan.expected_size,
+            )
+            return ArchiveResult(
+                location_id=(
+                    plan.remote_location_id
+                ),
+                transferred=False,
+                already_available=True,
+            )
 
         try:
             if not plan.source_path.is_file():
