@@ -117,7 +117,7 @@ current code/tests.
 
 ## Phase 1 — Platform foundation
 
-- [ ] Backend project bootstrap.
+- [x] Backend project bootstrap.
 - [ ] Frontend project bootstrap.
 - [ ] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [ ] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
