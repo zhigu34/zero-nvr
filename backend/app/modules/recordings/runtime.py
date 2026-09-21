@@ -15,6 +15,9 @@ from app.integrations.zlm import ZlmRecordingAdapter
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import Camera, CameraStreamBinding, CameraStreamProfile
 from app.modules.storage.recording_resolver import RecordingStorageResolver
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
 
 from .prebuffer import validate_prebuffer_root
 
@@ -161,6 +164,12 @@ class RecordingRuntimeService:
             policy=policy,
             at=instant,
         )
+        runtime_tuning = (
+            RuntimeTuningSettingsService.get(
+                session,
+                settings=settings,
+            )
+        )
 
         if arbitration.mode == "persistent":
             target = RecordingStorageResolver.local_target_for_camera(
@@ -190,7 +199,9 @@ class RecordingRuntimeService:
         elif arbitration.mode == "prebuffer":
             mode = "prebuffer"
             root = str(validate_prebuffer_root(settings))
-            max_second = settings.prebuffer_fragment_seconds
+            max_second = (
+                runtime_tuning.prebuffer_fragment_seconds
+            )
         else:
             mode = "off"
             root = None

@@ -64,6 +64,8 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "camera_ntp_servers": [],
         }
         assert defaults.json()["runtime"] == {
+            "prebuffer_fragment_seconds": 5,
+            "prebuffer_buffer_seconds": 35,
             "playback_cache_max_bytes": 4294967296,
             "playback_cache_ttl_seconds": 21600,
             "playback_restore_lock_ttl_seconds": 900,
@@ -103,6 +105,8 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "/api/v1/system/settings",
             json={
                 "runtime": {
+                    "prebuffer_fragment_seconds": 7,
+                    "prebuffer_buffer_seconds": 45,
                     "playback_cache_max_bytes": 134217728,
                     "playback_cache_ttl_seconds": 3600,
                     "playback_restore_lock_ttl_seconds": 300,
@@ -117,6 +121,8 @@ def test_system_settings_are_bounded_persisted_and_audited(
         )
         assert runtime.status_code == 200
         assert runtime.json()["runtime"] == {
+            "prebuffer_fragment_seconds": 7,
+            "prebuffer_buffer_seconds": 45,
             "playback_cache_max_bytes": 134217728,
             "playback_cache_ttl_seconds": 3600,
             "playback_restore_lock_ttl_seconds": 300,
@@ -169,6 +175,18 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "runtime_tuning",
         )
         assert runtime_row is not None
+        assert (
+            runtime_row.value_json[
+                "prebuffer_fragment_seconds"
+            ]
+            == 7
+        )
+        assert (
+            runtime_row.value_json[
+                "prebuffer_buffer_seconds"
+            ]
+            == 45
+        )
         assert (
             runtime_row.value_json[
                 "live_transcode_max_derivatives"

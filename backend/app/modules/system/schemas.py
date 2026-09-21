@@ -94,6 +94,8 @@ class GeneralSystemSettingsPatch(BaseModel):
 
 
 class RuntimeTuningSettingsView(BaseModel):
+    prebuffer_fragment_seconds: int
+    prebuffer_buffer_seconds: int
     playback_cache_max_bytes: int
     playback_cache_ttl_seconds: int
     playback_restore_lock_ttl_seconds: int
@@ -106,6 +108,16 @@ class RuntimeTuningSettingsView(BaseModel):
 
 
 class RuntimeTuningSettingsPatch(BaseModel):
+    prebuffer_fragment_seconds: int | None = Field(
+        default=None,
+        ge=2,
+        le=30,
+    )
+    prebuffer_buffer_seconds: int | None = Field(
+        default=None,
+        ge=10,
+        le=600,
+    )
     playback_cache_max_bytes: int | None = Field(
         default=None,
         ge=64 * 1024 * 1024,

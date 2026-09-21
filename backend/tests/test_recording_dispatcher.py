@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
+from types import SimpleNamespace
 import uuid
 
+from app.core.config import Settings
 from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 
 
@@ -164,3 +167,42 @@ def test_recording_dispatcher_schedules_manual_boundary(
     assert calls == [
         ((str(camera_id),), eta)
     ]
+
+
+
+def test_recording_dispatcher_uses_runtime_prebuffer_buffer_seconds(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    settings = Settings(
+        secret_key=(
+            "recording-dispatcher-test-secret-key-"
+            "32-bytes-minimum"
+        ),
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        prebuffer_buffer_seconds=35,
+    )
+
+    class FakeDatabase:
+        @contextmanager
+        def session(self):
+            yield object()
+
+    monkeypatch.setattr(
+        "app.modules.recordings.dispatcher."
+        "RuntimeTuningSettingsService.get",
+        lambda _session, *, settings: SimpleNamespace(
+            prebuffer_buffer_seconds=77
+        ),
+    )
+
+    dispatcher = RecordingTaskDispatcher(
+        settings,
+        database=FakeDatabase(),  # type: ignore[arg-type]
+    )
+
+    assert (
+        dispatcher._prebuffer_buffer_seconds()
+        == 77
+    )

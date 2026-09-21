@@ -171,6 +171,8 @@ const generalForm = reactive({
   ntpServers: ""
 })
 const runtimeForm = reactive({
+  prebufferFragmentSeconds: 5,
+  prebufferBufferSeconds: 35,
   playbackCacheMiB: 4096,
   playbackCacheTtlSeconds: 21600,
   playbackRestoreLockTtlSeconds: 900,
@@ -550,6 +552,10 @@ async function loadBase(): Promise<void> {
       settingsValue.general.display_timezone
     generalForm.ntpServers =
       settingsValue.general.camera_ntp_servers.join("\n")
+    runtimeForm.prebufferFragmentSeconds =
+      settingsValue.runtime.prebuffer_fragment_seconds
+    runtimeForm.prebufferBufferSeconds =
+      settingsValue.runtime.prebuffer_buffer_seconds
     runtimeForm.playbackCacheMiB =
       settingsValue.runtime.playback_cache_max_bytes /
       (1024 * 1024)
@@ -792,6 +798,10 @@ async function saveRuntime(): Promise<void> {
   try {
     const updated = await patchSystemSettings({
       runtime: {
+        prebuffer_fragment_seconds:
+          Number(runtimeForm.prebufferFragmentSeconds),
+        prebuffer_buffer_seconds:
+          Number(runtimeForm.prebufferBufferSeconds),
         playback_cache_max_bytes: Math.round(
           runtimeForm.playbackCacheMiB * 1024 * 1024
         ),
@@ -1533,6 +1543,45 @@ onBeforeUnmount(() => {
             class="system-form-card system-form-card--wide"
             @submit.prevent="saveRuntime"
           >
+            <div class="system-subsection">
+              <div class="system-subsection__heading">
+                <div>
+                  <strong>Event prebuffer</strong>
+                  <span>
+                    Fragment duration controls ZLM rolling segment length.
+                    Buffer duration controls how long finalized tmpfs
+                    fragments remain eligible for event promotion.
+                  </span>
+                </div>
+              </div>
+              <div class="system-form-row">
+                <label>
+                  <span>Fragment duration (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.prebufferFragmentSeconds"
+                    type="number"
+                    min="2"
+                    max="30"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Buffer duration (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.prebufferBufferSeconds"
+                    type="number"
+                    min="10"
+                    max="600"
+                    required
+                  />
+                </label>
+              </div>
+              <small>
+                The tmpfs capacity and mount path remain deployment settings
+                because Docker must establish them before zero-nvr starts.
+              </small>
+            </div>
+
             <div class="system-form-row">
               <label>
                 <span>Playback cache limit (MiB)</span>

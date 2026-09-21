@@ -46,7 +46,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         database=database,
     )
     media_sessions = MediaSessionRegistry()
-    recording_tasks = RecordingTaskDispatcher(resolved_settings)
+    recording_tasks = RecordingTaskDispatcher(
+        resolved_settings,
+        database=database,
+    )
     backup_tasks = BackupTaskDispatcher()
     export_tasks = ExportTaskDispatcher()
     notification_tasks = NotificationTaskDispatcher()

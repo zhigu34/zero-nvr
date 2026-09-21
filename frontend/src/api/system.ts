@@ -25,6 +25,8 @@ export interface SystemSettings {
     camera_ntp_servers: string[]
   }
   runtime: {
+    prebuffer_fragment_seconds: number
+    prebuffer_buffer_seconds: number
     playback_cache_max_bytes: number
     playback_cache_ttl_seconds: number
     playback_restore_lock_ttl_seconds: number

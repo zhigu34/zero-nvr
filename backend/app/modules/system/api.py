@@ -7,6 +7,7 @@ import json
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -23,6 +24,8 @@ from app.modules.audit.service import append_audit_event
 from app.modules.cameras.media_runtime import (
     CameraMediaRuntimeService,
 )
+from app.modules.recordings.models import RecordingPolicy
+from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
 
@@ -735,6 +738,12 @@ def _runtime_tuning_view(
     value: RuntimeTuningSettings,
 ) -> RuntimeTuningSettingsView:
     return RuntimeTuningSettingsView(
+        prebuffer_fragment_seconds=(
+            value.prebuffer_fragment_seconds
+        ),
+        prebuffer_buffer_seconds=(
+            value.prebuffer_buffer_seconds
+        ),
         playback_cache_max_bytes=(
             value.playback_cache_max_bytes
         ),
@@ -769,6 +778,12 @@ def _runtime_tuning_snapshot(
     value: RuntimeTuningSettings,
 ) -> dict[str, object]:
     return {
+        "prebuffer_fragment_seconds": (
+            value.prebuffer_fragment_seconds
+        ),
+        "prebuffer_buffer_seconds": (
+            value.prebuffer_buffer_seconds
+        ),
         "playback_cache_max_bytes": (
             value.playback_cache_max_bytes
         ),
@@ -874,6 +889,32 @@ def patch_system_settings(
                 )
             )
 
+        prebuffer_reconfigure_ids: list = []
+        if (
+            before_runtime.prebuffer_fragment_seconds
+            != after_runtime.prebuffer_fragment_seconds
+        ):
+            now = datetime.now(UTC)
+            policies = list(
+                session.scalars(
+                    select(RecordingPolicy).where(
+                        RecordingPolicy.enabled.is_(True),
+                        RecordingPolicy.event_recording_enabled.is_(True),
+                    )
+                )
+            )
+            for policy in policies:
+                if not (
+                    RecordingPolicyService
+                    .baseline_should_record(
+                        policy,
+                        at=now,
+                    )
+                ):
+                    prebuffer_reconfigure_ids.append(
+                        policy.camera_id
+                    )
+
         append_audit_event(
             session,
             request=request,
@@ -917,6 +958,29 @@ def patch_system_settings(
     except Exception:
         session.rollback()
         raise
+
+    if prebuffer_reconfigure_ids:
+        try:
+            for camera_id in prebuffer_reconfigure_ids:
+                request.app.state.recording_tasks.reconcile_runtime(
+                    camera_id,
+                    force_reconfigure=True,
+                )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="recording_task_queue_unavailable",
+                message=(
+                    "Runtime tuning was saved but prebuffer "
+                    "recorders could not be queued for reconfiguration."
+                ),
+                details={
+                    "settings_persisted": True,
+                    "camera_count": len(
+                        prebuffer_reconfigure_ids
+                    ),
+                },
+            ) from exc
 
     return SystemSettingsView(
         general=GeneralSystemSettingsView(

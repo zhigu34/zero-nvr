@@ -197,6 +197,8 @@ class SystemSettingsService:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeTuningSettings:
+    prebuffer_fragment_seconds: int
+    prebuffer_buffer_seconds: int
     playback_cache_max_bytes: int
     playback_cache_ttl_seconds: int
     playback_restore_lock_ttl_seconds: int
@@ -275,6 +277,12 @@ class RuntimeTuningSettingsService:
         settings: Settings,
     ) -> RuntimeTuningSettings:
         return RuntimeTuningSettings(
+            prebuffer_fragment_seconds=(
+                settings.prebuffer_fragment_seconds
+            ),
+            prebuffer_buffer_seconds=(
+                settings.prebuffer_buffer_seconds
+            ),
             playback_cache_max_bytes=(
                 settings.playback_cache_max_bytes
             ),
@@ -314,6 +322,12 @@ class RuntimeTuningSettingsService:
     ) -> dict[str, object]:
         defaults = cls.defaults(settings)
         base: dict[str, object] = {
+            "prebuffer_fragment_seconds": (
+                defaults.prebuffer_fragment_seconds
+            ),
+            "prebuffer_buffer_seconds": (
+                defaults.prebuffer_buffer_seconds
+            ),
             "playback_cache_max_bytes": defaults.playback_cache_max_bytes,
             "playback_cache_ttl_seconds": defaults.playback_cache_ttl_seconds,
             "playback_restore_lock_ttl_seconds": (
@@ -343,6 +357,20 @@ class RuntimeTuningSettingsService:
         base.update(changes)
 
         return {
+            "prebuffer_fragment_seconds": cls._bounded_int(
+                base["prebuffer_fragment_seconds"],
+                minimum=2,
+                maximum=30,
+                code="runtime_prebuffer_fragment_seconds_invalid",
+                field="Prebuffer fragment seconds",
+            ),
+            "prebuffer_buffer_seconds": cls._bounded_int(
+                base["prebuffer_buffer_seconds"],
+                minimum=10,
+                maximum=600,
+                code="runtime_prebuffer_buffer_seconds_invalid",
+                field="Prebuffer buffer seconds",
+            ),
             "playback_cache_max_bytes": cls._bounded_int(
                 base["playback_cache_max_bytes"],
                 minimum=64 * 1024 * 1024,
@@ -422,6 +450,12 @@ class RuntimeTuningSettingsService:
             changes={},
         )
         return RuntimeTuningSettings(
+            prebuffer_fragment_seconds=int(
+                value["prebuffer_fragment_seconds"]
+            ),
+            prebuffer_buffer_seconds=int(
+                value["prebuffer_buffer_seconds"]
+            ),
             playback_cache_max_bytes=int(value["playback_cache_max_bytes"]),
             playback_cache_ttl_seconds=int(value["playback_cache_ttl_seconds"]),
             playback_restore_lock_ttl_seconds=int(

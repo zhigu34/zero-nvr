@@ -3,14 +3,41 @@ from __future__ import annotations
 import uuid
 
 from app.core.config import Settings
+from app.core.db import Database
 from app.modules.recordings.prebuffer import PrebufferFragment
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
 
 
 class RecordingTaskDispatcher:
     """Thin enqueue boundary so API/hooks do not own worker mechanics."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        database: Database | None = None,
+    ) -> None:
         self.settings = settings
+        self.database = database
+
+    def _prebuffer_buffer_seconds(self) -> int:
+        if self.database is None:
+            return (
+                RuntimeTuningSettingsService
+                .defaults(self.settings)
+                .prebuffer_buffer_seconds
+            )
+        with self.database.session() as session:
+            return (
+                RuntimeTuningSettingsService
+                .get(
+                    session,
+                    settings=self.settings,
+                )
+                .prebuffer_buffer_seconds
+            )
 
     @staticmethod
     def _args(fragment: PrebufferFragment) -> tuple[object, ...]:
@@ -44,7 +71,7 @@ class RecordingTaskDispatcher:
         promote_prebuffer_fragment(*args)
         gc_prebuffer_fragment.schedule(
             args=args,
-            delay=self.settings.prebuffer_buffer_seconds,
+            delay=self._prebuffer_buffer_seconds(),
         )
 
     @staticmethod

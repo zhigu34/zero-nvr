@@ -27,6 +27,7 @@ VIEWER_PASSWORD = "viewer-correct-horse-battery"
 class FakeRecordingTasks:
     def __init__(self) -> None:
         self.scheduled = []
+        self.runtime_calls = []
 
     def schedule_policy(
         self,
@@ -45,6 +46,21 @@ class FakeRecordingTasks:
 
     def reconcile_camera(self, _camera_id) -> None:
         return None
+
+    def reconcile_runtime(
+        self,
+        camera_id,
+        *,
+        restart_streams: bool = False,
+        force_reconfigure: bool = False,
+    ) -> None:
+        self.runtime_calls.append(
+            (
+                camera_id,
+                restart_streams,
+                force_reconfigure,
+            )
+        )
 
     def finalized_prebuffer_fragment(self, _fragment) -> None:
         return None
@@ -144,6 +160,11 @@ def patch_runtime_success(monkeypatch):
             {
                 "kind": "recorder",
                 "mode": desired.mode if desired else "off",
+                "max_second": (
+                    desired.max_second
+                    if desired is not None
+                    else 0
+                ),
                 "force": force_reconfigure,
             }
         )
@@ -220,6 +241,7 @@ def test_recording_policy_put_get_audit_and_runtime(tmp_path: Path, monkeypatch)
         assert calls[1] == {
             "kind": "recorder",
             "mode": "persistent",
+            "max_second": 300,
             "force": True,
         }
 
@@ -292,6 +314,16 @@ def test_event_only_policy_plans_prebuffer_mode(tmp_path: Path, monkeypatch) -> 
         camera_id = seed_camera_and_storage(app)
         calls = patch_runtime_success(monkeypatch)
 
+        tuning = client.patch(
+            "/api/v1/system/settings",
+            json={
+                "runtime": {
+                    "prebuffer_fragment_seconds": 7,
+                }
+            },
+        )
+        assert tuning.status_code == 200
+
         payload = continuous_payload()
         payload.update(
             {
@@ -310,6 +342,20 @@ def test_event_only_policy_plans_prebuffer_mode(tmp_path: Path, monkeypatch) -> 
         assert response.status_code == 200
         assert response.json()["runtime"]["desired_mode"] == "prebuffer"
         assert calls[-1]["mode"] == "prebuffer"
+        assert calls[-1]["max_second"] == 7
+
+        updated_tuning = client.patch(
+            "/api/v1/system/settings",
+            json={
+                "runtime": {
+                    "prebuffer_fragment_seconds": 9,
+                }
+            },
+        )
+        assert updated_tuning.status_code == 200
+        assert app.state.recording_tasks.runtime_calls == [
+            (camera_id, False, True)
+        ]
 
 
 def test_policy_runtime_failure_does_not_roll_back_canonical_policy(
