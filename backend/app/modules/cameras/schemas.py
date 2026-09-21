@@ -215,6 +215,14 @@ class CameraLiveStreamView(BaseModel):
     profile_id: uuid.UUID
     purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
     transport: Literal["hls"] = "hls"
+    transports: list[
+        Literal["webrtc", "hls"]
+    ] = Field(
+        default_factory=lambda: [
+            "webrtc",
+            "hls",
+        ]
+    )
     hls_url: str
     expires_at: datetime
     codec: str | None

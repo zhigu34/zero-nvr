@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
+from app.integrations.zlm import ZlmWhepSession
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 
 
@@ -102,6 +103,7 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         low_body = low.json()
         assert low_body["purpose"] == "LIVE_LOW"
         assert low_body["transport"] == "hls"
+        assert low_body["transports"] == ["webrtc", "hls"]
         assert low_body["hls_url"].startswith(
             "/zlm/zero-nvr/profile-"
         )
@@ -235,3 +237,161 @@ def test_camera_snapshot_uses_internal_zlm_stream_only(
     assert "camera-secret" not in source_url
     assert "camera-token" not in source_url
     assert "10.0.0.10" not in source_url
+
+
+
+def test_whep_live_session_is_authorized_proxied_and_revocable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    app.state.settings.zlm_webrtc_extern_ip = "192.0.2.10"
+    app.state.settings.zlm_webrtc_port = 9000
+    captured: dict[str, object] = {}
+
+    def fake_ensure(self, desired):
+        return [item.reference for item in desired]
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def whep_play(
+            self,
+            *,
+            app: str,
+            stream: str,
+            offer_sdp: str,
+            playback_params: dict[str, str],
+            preferred_tcp: bool = False,
+            candidate_udp: str | None = None,
+            candidate_tcp: str | None = None,
+        ):
+            captured["app"] = app
+            captured["stream"] = stream
+            captured["offer_sdp"] = offer_sdp
+            captured["playback_params"] = playback_params
+            captured["preferred_tcp"] = preferred_tcp
+            captured["candidate_udp"] = candidate_udp
+            captured["candidate_tcp"] = candidate_tcp
+            return ZlmWhepSession(
+                answer_sdp=(
+                    "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\n"
+                ),
+                session_id="session-123",
+                session_token="cleanup-token",
+            )
+
+        def delete_webrtc(
+            self,
+            *,
+            session_id: str,
+            session_token: str,
+        ) -> None:
+            captured["deleted"] = (
+                session_id,
+                session_token,
+            )
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+
+        unauthenticated = client.post(
+            "/api/v1/cameras/00000000-0000-0000-0000-000000000001/live/whep",
+            headers={"content-type": "application/sdp"},
+            content="v=0\r\n",
+        )
+        assert unauthenticated.status_code == 401
+
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Front Door",
+                "location": "Entrance",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://alice:camera-secret@10.0.0.10/main"
+                        "?token=camera-token"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+
+        offer = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
+        whep = client.post(
+            f"/api/v1/cameras/{camera_id}/live/whep?quality=high",
+            headers={
+                "content-type": "application/sdp",
+                "accept": "application/sdp",
+            },
+            content=offer,
+        )
+        assert whep.status_code == 201
+        assert whep.headers["content-type"].startswith(
+            "application/sdp"
+        )
+        assert whep.text.startswith("v=0")
+        location = whep.headers["location"]
+        assert location.startswith(
+            f"/api/v1/cameras/{camera_id}/live/whep/"
+        )
+
+        assert captured["app"] == "zero-nvr"
+        assert str(captured["stream"]).startswith(
+            "profile-"
+        )
+        assert captured["offer_sdp"] == offer
+        assert captured["candidate_udp"] == "192.0.2.10:9000"
+        assert captured["candidate_tcp"] == "192.0.2.10:9000"
+        params = captured["playback_params"]
+        assert isinstance(params, dict)
+        assert "zn_exp" in params
+        assert "zn_sig" in params
+
+        serialized = json.dumps(captured)
+        assert "camera-secret" not in serialized
+        assert "camera-token" not in serialized
+        assert "rtsp://" not in serialized
+
+        deleted = client.delete(location)
+        assert deleted.status_code == 204
+        assert captured["deleted"] == (
+            "session-123",
+            "cleanup-token",
+        )

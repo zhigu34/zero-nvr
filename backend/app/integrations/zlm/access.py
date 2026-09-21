@@ -45,15 +45,14 @@ class ZlmMediaAccess:
             hashlib.sha256,
         ).hexdigest()
 
-    def sign_url(
+    def issue_params(
         self,
-        url: str,
         *,
         app: str,
         stream: str,
         ttl_seconds: int,
         now_epoch: int | None = None,
-    ) -> tuple[str, datetime]:
+    ) -> tuple[dict[str, str], datetime]:
         if ttl_seconds <= 0 or ttl_seconds > self.max_ttl_seconds:
             raise ValueError("invalid ZLM media token TTL")
 
@@ -66,6 +65,29 @@ class ZlmMediaAccess:
             stream=stream,
             expires_at=expires_at,
         )
+        return (
+            {
+                self.expiry_param: str(expires_at),
+                self.signature_param: signature,
+            },
+            datetime.fromtimestamp(expires_at, tz=UTC),
+        )
+
+    def sign_url(
+        self,
+        url: str,
+        *,
+        app: str,
+        stream: str,
+        ttl_seconds: int,
+        now_epoch: int | None = None,
+    ) -> tuple[str, datetime]:
+        issued, expires_at = self.issue_params(
+            app=app,
+            stream=stream,
+            ttl_seconds=ttl_seconds,
+            now_epoch=now_epoch,
+        )
 
         parsed = urlsplit(url)
         query = [
@@ -76,12 +98,7 @@ class ZlmMediaAccess:
             )
             if name not in {self.expiry_param, self.signature_param}
         ]
-        query.extend(
-            [
-                (self.expiry_param, str(expires_at)),
-                (self.signature_param, signature),
-            ]
-        )
+        query.extend(issued.items())
         signed = urlunsplit(
             (
                 parsed.scheme,
@@ -91,10 +108,7 @@ class ZlmMediaAccess:
                 parsed.fragment,
             )
         )
-        return (
-            signed,
-            datetime.fromtimestamp(expires_at, tz=UTC),
-        )
+        return signed, expires_at
 
     def verify(
         self,

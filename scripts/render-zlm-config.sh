@@ -10,6 +10,14 @@ require_command docker
 api_secret="$(env_get ZERO_NVR_ZLM_API_SECRET)"
 hook_secret="$(env_get ZERO_NVR_ZLM_HOOK_SECRET)"
 image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
+webrtc_port="$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8000")"
+webrtc_extern_ip="$(env_get ZERO_NVR_ZLM_WEBRTC_EXTERN_IP "")"
+
+if [[ ! "$webrtc_port" =~ ^[1-9][0-9]*$ ]] \
+  || (( webrtc_port > 65535 )); then
+  echo "error: ZERO_NVR_ZLM_WEBRTC_PORT must be between 1 and 65535" >&2
+  exit 1
+fi
 
 if [[ ${#api_secret} -lt 32 || ${#hook_secret} -lt 32 ]]; then
   echo "error: ZLM API/hook secrets must be generated before rendering config" >&2
@@ -30,6 +38,8 @@ docker run --rm --entrypoint /bin/cat "$image" \
 export ZERO_NVR_ZLM_API_SECRET="$api_secret"
 export ZERO_NVR_ZLM_HOOK_SECRET="$hook_secret"
 export ZERO_NVR_ZLM_HOOK_BASE_URL="http://zero-nvr:8000/internal/hooks/zlm"
+export ZERO_NVR_ZLM_WEBRTC_PORT="$webrtc_port"
+export ZERO_NVR_ZLM_WEBRTC_EXTERN_IP="$webrtc_extern_ip"
 
 awk '
   /^\[[^]]+\]$/ {
@@ -64,6 +74,15 @@ awk '
   section=="record" && /^enableFmp4=/ {
     print "enableFmp4=1"; next
   }
+  section=="rtc" && /^externIP=/ {
+    print "externIP=" ENVIRON["ZERO_NVR_ZLM_WEBRTC_EXTERN_IP"]; next
+  }
+  section=="rtc" && /^port=/ {
+    print "port=" ENVIRON["ZERO_NVR_ZLM_WEBRTC_PORT"]; next
+  }
+  section=="rtc" && /^tcpPort=/ {
+    print "tcpPort=" ENVIRON["ZERO_NVR_ZLM_WEBRTC_PORT"]; next
+  }
   { print }
 ' "$base" > "$rendered"
 
@@ -71,6 +90,9 @@ grep -Fxq "apiDebug=0" "$rendered"
 grep -Fxq "secret=$api_secret" "$rendered"
 grep -Fxq "mediaServerId=$hook_secret" "$rendered"
 grep -Fxq "enableFmp4=1" "$rendered"
+grep -Fxq "externIP=$webrtc_extern_ip" "$rendered"
+grep -Fxq "port=$webrtc_port" "$rendered"
+grep -Fxq "tcpPort=$webrtc_port" "$rendered"
 grep -Fxq "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" "$rendered"
 grep -Fxq "on_record_mp4=http://zero-nvr:8000/internal/hooks/zlm/record-mp4" "$rendered"
 grep -Fxq "on_stream_changed=http://zero-nvr:8000/internal/hooks/zlm/stream-changed" "$rendered"

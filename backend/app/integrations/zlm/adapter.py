@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import time
 from typing import Any, Callable
+from urllib.parse import parse_qs, urlsplit
 import uuid
 
 import httpx
@@ -47,6 +48,13 @@ class ZlmMediaProbe:
     stream: str
     video: ZlmTrackProbe | None
     audio: ZlmTrackProbe | None
+
+
+@dataclass(frozen=True, slots=True)
+class ZlmWhepSession:
+    answer_sdp: str
+    session_id: str
+    session_token: str
 
 
 MP4_RECORD_TYPE = 1
@@ -171,6 +179,182 @@ class ZlmAdapter:
             )
 
         return payload
+
+    def whep_play(
+        self,
+        *,
+        app: str,
+        stream: str,
+        offer_sdp: str,
+        playback_params: dict[str, str],
+        preferred_tcp: bool = False,
+        candidate_udp: str | None = None,
+        candidate_tcp: str | None = None,
+        max_sdp_bytes: int = 256 * 1024,
+    ) -> ZlmWhepSession:
+        offer_bytes = offer_sdp.encode("utf-8")
+        if (
+            not offer_bytes
+            or len(offer_bytes) > max_sdp_bytes
+        ):
+            raise ZlmIntegrationError(
+                "zlm_whep_offer_invalid",
+                "WebRTC offer SDP is invalid.",
+                status_code=422,
+            )
+
+        params: dict[str, object] = {
+            "app": app,
+            "stream": stream,
+            **playback_params,
+        }
+        if preferred_tcp:
+            params["preferred_tcp"] = 1
+        if candidate_udp:
+            params["cand_udp"] = candidate_udp
+        if candidate_tcp:
+            params["cand_tcp"] = candidate_tcp
+
+        try:
+            response = self._client.post(
+                "/index/api/whep",
+                params=params,
+                content=offer_bytes,
+                headers={
+                    "Accept": "application/sdp",
+                    "Content-Type": "application/sdp",
+                },
+            )
+        except httpx.TimeoutException as exc:
+            raise ZlmIntegrationError(
+                "zlm_whep_timeout",
+                "ZLMediaKit WebRTC negotiation timed out.",
+                status_code=504,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ZlmIntegrationError(
+                "zlm_whep_unavailable",
+                "ZLMediaKit WebRTC negotiation failed.",
+                status_code=503,
+            ) from exc
+
+        if response.status_code != 201:
+            raise ZlmIntegrationError(
+                "zlm_whep_negotiation_failed",
+                "ZLMediaKit rejected the WebRTC negotiation.",
+                status_code=502,
+            )
+
+        content_type = response.headers.get(
+            "content-type",
+            "",
+        ).split(";", 1)[0].strip().lower()
+        answer_sdp = response.text
+        if (
+            content_type != "application/sdp"
+            or not answer_sdp
+            or len(answer_sdp.encode("utf-8"))
+            > max_sdp_bytes
+        ):
+            raise ZlmIntegrationError(
+                "zlm_whep_invalid_response",
+                "ZLMediaKit returned an invalid WebRTC answer.",
+            )
+
+        location = response.headers.get("location", "")
+        parsed = urlsplit(location)
+        query = parse_qs(
+            parsed.query,
+            keep_blank_values=True,
+        )
+        ids = query.get("id", [])
+        tokens = query.get("token", [])
+        if (
+            not parsed.path.endswith(
+                "/index/api/delete_webrtc"
+            )
+            or len(ids) != 1
+            or len(tokens) != 1
+            or not ids[0]
+            or not tokens[0]
+            or len(ids[0]) > 512
+            or len(tokens[0]) > 2048
+        ):
+            raise ZlmIntegrationError(
+                "zlm_whep_invalid_response",
+                "ZLMediaKit returned invalid WebRTC session metadata.",
+            )
+
+        return ZlmWhepSession(
+            answer_sdp=answer_sdp,
+            session_id=ids[0],
+            session_token=tokens[0],
+        )
+
+    def delete_webrtc(
+        self,
+        *,
+        session_id: str,
+        session_token: str,
+    ) -> None:
+        if (
+            not session_id
+            or not session_token
+            or len(session_id) > 512
+            or len(session_token) > 2048
+        ):
+            raise ZlmIntegrationError(
+                "zlm_whep_session_invalid",
+                "WebRTC session metadata is invalid.",
+                status_code=422,
+            )
+        try:
+            response = self._client.delete(
+                "/index/api/delete_webrtc",
+                params={
+                    "id": session_id,
+                    "token": session_token,
+                },
+                headers={"Accept": "application/json"},
+            )
+            response.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise ZlmIntegrationError(
+                "zlm_whep_cleanup_timeout",
+                "ZLMediaKit WebRTC cleanup timed out.",
+                status_code=504,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ZlmIntegrationError(
+                "zlm_whep_cleanup_failed",
+                "ZLMediaKit WebRTC cleanup failed.",
+                status_code=503,
+            ) from exc
+
+        content_type = response.headers.get(
+            "content-type",
+            "",
+        ).split(";", 1)[0].strip().lower()
+        if content_type == "application/json":
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise ZlmIntegrationError(
+                    "zlm_whep_invalid_response",
+                    "ZLMediaKit returned an invalid WebRTC cleanup response.",
+                ) from exc
+            if isinstance(payload, dict):
+                code = payload.get("code", 0)
+                try:
+                    numeric_code = int(code)
+                except (TypeError, ValueError):
+                    numeric_code = -1
+                if numeric_code != 0:
+                    raise ZlmIntegrationError(
+                        "zlm_whep_cleanup_failed",
+                        "ZLMediaKit rejected WebRTC cleanup.",
+                        status_code=502,
+                    )
 
     def snapshot(
         self,

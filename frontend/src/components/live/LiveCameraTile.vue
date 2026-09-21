@@ -18,6 +18,8 @@ import { errorMessage } from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
 import {
   cameraSnapshotUrl,
+  createCameraWhepSession,
+  deleteCameraWhepSession,
   getCameraLiveStream,
   type CameraLiveStream,
   type LiveQuality
@@ -60,8 +62,11 @@ const pageVisible = ref(!document.hidden)
 const tileVisible = ref(true)
 const fullscreenActive = ref(false)
 const reconnecting = ref(false)
+const activeTransport = ref<"webrtc" | "hls" | null>(null)
 
 let hls: Hls | null = null
+let rtcPeer: RTCPeerConnection | null = null
+let whepLocation: string | null = null
 let generation = 0
 let tokenRefreshTimer: number | null = null
 let reconnectTimer: number | null = null
@@ -208,16 +213,35 @@ function scheduleReconnect(): void {
   }, delay)
 }
 
+function releaseWebRtcSession(): void {
+  const peer = rtcPeer
+  const location = whepLocation
+  rtcPeer = null
+  whepLocation = null
+
+  if (peer) {
+    peer.ontrack = null
+    peer.onconnectionstatechange = null
+    peer.close()
+  }
+  if (location) {
+    void deleteCameraWhepSession(location).catch(() => undefined)
+  }
+}
+
 function destroyPlayer(): void {
   generation += 1
   clearTokenRefresh()
   clearReconnect()
   hls?.destroy()
   hls = null
+  releaseWebRtcSession()
+  activeTransport.value = null
   playing.value = false
 
   if (video.value) {
     video.value.pause()
+    video.value.srcObject = null
     video.value.removeAttribute("src")
     video.value.load()
   }
@@ -242,14 +266,135 @@ function handleTileFullscreenChange(): void {
     document.fullscreenElement === tile.value
 }
 
-async function attachStream(stream: CameraLiveStream): Promise<void> {
+function waitForIceGatheringComplete(
+  peer: RTCPeerConnection
+): Promise<void> {
+  if (peer.iceGatheringState === "complete") {
+    return Promise.resolve()
+  }
+
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = () => {
+      if (settled) return
+      settled = true
+      peer.removeEventListener(
+        "icegatheringstatechange",
+        handleChange
+      )
+      window.clearTimeout(timeout)
+      resolve()
+    }
+    const handleChange = () => {
+      if (peer.iceGatheringState === "complete") {
+        finish()
+      }
+    }
+    const timeout = window.setTimeout(finish, 2500)
+    peer.addEventListener(
+      "icegatheringstatechange",
+      handleChange
+    )
+  })
+}
+
+async function attachWebRtc(
+  stream: CameraLiveStream
+): Promise<void> {
+  if (typeof RTCPeerConnection === "undefined") {
+    throw new Error("WebRTC is not available in this browser.")
+  }
+
+  await nextTick()
+  const element = video.value
+  if (!element) {
+    throw new Error("Live video element is unavailable.")
+  }
+
+  releaseWebRtcSession()
+  const peer = new RTCPeerConnection()
+  const remoteStream = new MediaStream()
+  rtcPeer = peer
+
+  peer.addTransceiver("video", { direction: "recvonly" })
+  if (stream.has_audio) {
+    peer.addTransceiver("audio", { direction: "recvonly" })
+  }
+
+  peer.ontrack = (event) => {
+    if (!remoteStream.getTrackById(event.track.id)) {
+      remoteStream.addTrack(event.track)
+    }
+    if (element.srcObject !== remoteStream) {
+      element.srcObject = remoteStream
+    }
+  }
+
+  peer.onconnectionstatechange = () => {
+    if (
+      rtcPeer !== peer ||
+      peer.connectionState !== "failed" ||
+      playbackSuspended.value
+    ) {
+      return
+    }
+    error.value =
+      "WebRTC was interrupted. Reconnecting automatically."
+    descriptor.value = null
+    loading.value = false
+    destroyPlayer()
+    scheduleReconnect()
+  }
+
+  try {
+    const offer = await peer.createOffer()
+    await peer.setLocalDescription(offer)
+    await waitForIceGatheringComplete(peer)
+
+    const offerSdp = peer.localDescription?.sdp
+    if (!offerSdp) {
+      throw new Error("WebRTC offer SDP is unavailable.")
+    }
+
+    const whep = await createCameraWhepSession(
+      props.camera.id,
+      requestedQuality.value,
+      offerSdp
+    )
+    if (rtcPeer !== peer) {
+      void deleteCameraWhepSession(whep.location).catch(
+        () => undefined
+      )
+      throw new Error("WebRTC session was superseded.")
+    }
+
+    whepLocation = whep.location
+    await peer.setRemoteDescription({
+      type: "answer",
+      sdp: whep.answerSdp
+    })
+    activeTransport.value = "webrtc"
+    await element.play().catch(() => undefined)
+  } catch (caught) {
+    if (rtcPeer === peer) {
+      releaseWebRtcSession()
+    }
+    throw caught
+  }
+}
+
+async function attachHls(
+  stream: CameraLiveStream
+): Promise<void> {
   await nextTick()
   const element = video.value
   if (!element) return
 
+  releaseWebRtcSession()
   const source = browserMediaUrl(stream.hls_url)
 
   if (element.canPlayType("application/vnd.apple.mpegurl")) {
+    activeTransport.value = "hls"
     element.src = source
     await element.play().catch(() => undefined)
     return
@@ -279,9 +424,28 @@ async function attachStream(stream: CameraLiveStream): Promise<void> {
     destroyPlayer()
     scheduleReconnect()
   })
+  activeTransport.value = "hls"
   hls.loadSource(source)
   hls.attachMedia(element)
   await element.play().catch(() => undefined)
+}
+
+async function attachPreferredStream(
+  stream: CameraLiveStream
+): Promise<void> {
+  if (
+    stream.transports.includes("webrtc") &&
+    typeof RTCPeerConnection !== "undefined"
+  ) {
+    try {
+      await attachWebRtc(stream)
+      return
+    } catch {
+      // WHEP is preferred but never blocks the HLS compatibility fallback.
+    }
+  }
+
+  await attachHls(stream)
 }
 
 async function loadRecordingState(): Promise<void> {
@@ -359,7 +523,7 @@ async function loadStream(): Promise<void> {
       return
     }
     descriptor.value = stream
-    await attachStream(stream)
+    await attachPreferredStream(stream)
     if (
       generation === currentGeneration &&
       !playbackSuspended.value
@@ -616,6 +780,12 @@ onBeforeUnmount(() => {
                 ? "REC"
                 : "HD"
           }}
+        </span>
+        <span
+          v-if="activeTransport"
+          class="live-quality-badge"
+        >
+          {{ activeTransport === "webrtc" ? "RTC" : "HLS" }}
         </span>
       </div>
     </header>

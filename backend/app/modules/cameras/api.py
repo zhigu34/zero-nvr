@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import ipaddress
+from dataclasses import dataclass
 import uuid
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -32,7 +35,7 @@ from app.modules.recordings.triggers import RecordingTriggerService
 
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
-from .media_runtime import CameraMediaRuntimeService
+from .media_runtime import CameraMediaRuntimeService, ZlmStreamReference
 from .onvif_onboarding import OnvifOnboardingService
 from .ptz import CameraPtzService
 from .models import (
@@ -1159,20 +1162,29 @@ def replace_camera_stream_bindings(
 
 
 
-@router.get(
-    "/cameras/{camera_id}/live",
-    response_model=CameraLiveStreamView,
-)
-def get_camera_live_stream(
+LivePurpose = Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
+
+
+@dataclass(frozen=True, slots=True)
+class _LiveSelection:
+    camera: Camera
+    profile: CameraStreamProfile
+    purpose: LivePurpose
+    runtime: CameraMediaRuntimeService
+    reference: ZlmStreamReference
+
+
+def _select_live_stream(
+    *,
     camera_id: uuid.UUID,
+    quality: Literal["auto", "high", "low"],
     request: Request,
-    quality: Literal["auto", "high", "low"] = Query(default="auto"),
-    _context: AuthContext = Depends(
-        require_camera_permission("camera.view")
-    ),
-    session: Session = Depends(get_db_session),
-) -> CameraLiveStreamView:
-    camera = CameraService.get_camera(session, camera_id)
+    session: Session,
+) -> _LiveSelection:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
     if not camera.enabled:
         raise ApiError(
             status_code=409,
@@ -1180,10 +1192,25 @@ def get_camera_live_stream(
             message="Camera is disabled.",
         )
 
-    priorities = {
-        "auto": ("LIVE_LOW", "LIVE_HIGH", "RECORD"),
-        "low": ("LIVE_LOW", "LIVE_HIGH", "RECORD"),
-        "high": ("LIVE_HIGH", "RECORD", "LIVE_LOW"),
+    priorities: dict[
+        str,
+        tuple[LivePurpose, ...],
+    ] = {
+        "auto": (
+            "LIVE_LOW",
+            "LIVE_HIGH",
+            "RECORD",
+        ),
+        "low": (
+            "LIVE_LOW",
+            "LIVE_HIGH",
+            "RECORD",
+        ),
+        "high": (
+            "LIVE_HIGH",
+            "RECORD",
+            "LIVE_LOW",
+        ),
     }
     bindings = {
         binding.purpose: binding
@@ -1201,7 +1228,10 @@ def get_camera_live_stream(
         raise ApiError(
             status_code=409,
             code="camera_live_stream_unavailable",
-            message="Camera has no stream bound for live viewing.",
+            message=(
+                "Camera has no stream bound "
+                "for live viewing."
+            ),
         )
 
     binding = bindings[purpose]
@@ -1209,7 +1239,8 @@ def get_camera_live_stream(
         (
             item
             for item in camera.stream_profiles
-            if item.id == binding.stream_profile_id
+            if item.id
+            == binding.stream_profile_id
         ),
         None,
     )
@@ -1217,11 +1248,19 @@ def get_camera_live_stream(
         raise ApiError(
             status_code=409,
             code="camera_stream_binding_invalid",
-            message="Camera live binding references a missing profile.",
+            message=(
+                "Camera live binding references "
+                "a missing profile."
+            ),
         )
 
-    runtime = CameraMediaRuntimeService(request.app.state.settings)
-    desired = runtime.desired_streams(session, camera=camera)
+    runtime = CameraMediaRuntimeService(
+        request.app.state.settings
+    )
+    desired = runtime.desired_streams(
+        session,
+        camera=camera,
+    )
     selected = next(
         (
             item
@@ -1234,11 +1273,16 @@ def get_camera_live_stream(
         raise ApiError(
             status_code=409,
             code="camera_live_stream_unavailable",
-            message="Camera live stream is not available.",
+            message=(
+                "Camera live stream is not "
+                "available."
+            ),
         )
 
     try:
-        references = runtime.ensure_streams([selected])
+        references = runtime.ensure_streams(
+            [selected]
+        )
     except ZlmIntegrationError as exc:
         raise ApiError(
             status_code=exc.status_code,
@@ -1247,28 +1291,360 @@ def get_camera_live_stream(
             details={},
         ) from exc
 
-    reference = references[0]
+    return _LiveSelection(
+        camera=camera,
+        profile=profile,
+        purpose=purpose,
+        runtime=runtime,
+        reference=references[0],
+    )
+
+
+def _whep_ticket_serializer(
+    request: Request,
+) -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(
+        request.app.state.settings.secret_key
+        .get_secret_value(),
+        salt="zero-nvr-whep-session-v1",
+    )
+
+
+def _whep_cleanup_ticket(
+    request: Request,
+    *,
+    camera_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session_id: str,
+    session_token: str,
+) -> str:
+    return _whep_ticket_serializer(
+        request
+    ).dumps(
+        {
+            "camera_id": str(camera_id),
+            "user_id": str(user_id),
+            "session_id": session_id,
+            "session_token": session_token,
+        }
+    )
+
+
+def _parse_whep_cleanup_ticket(
+    request: Request,
+    *,
+    ticket: str,
+    camera_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> tuple[str, str]:
+    try:
+        payload = _whep_ticket_serializer(
+            request
+        ).loads(
+            ticket,
+            max_age=60 * 60,
+        )
+    except BadData as exc:
+        raise ApiError(
+            status_code=404,
+            code="camera_whep_session_not_found",
+            message=(
+                "WebRTC live session was not "
+                "found or has expired."
+            ),
+        ) from exc
+
+    if not isinstance(payload, dict):
+        raise ApiError(
+            status_code=404,
+            code="camera_whep_session_not_found",
+            message=(
+                "WebRTC live session was not "
+                "found or has expired."
+            ),
+        )
+
+    if (
+        payload.get("camera_id")
+        != str(camera_id)
+        or payload.get("user_id")
+        != str(user_id)
+    ):
+        raise ApiError(
+            status_code=404,
+            code="camera_whep_session_not_found",
+            message=(
+                "WebRTC live session was not "
+                "found or has expired."
+            ),
+        )
+
+    session_id = payload.get("session_id")
+    session_token = payload.get(
+        "session_token"
+    )
+    if (
+        not isinstance(session_id, str)
+        or not session_id
+        or not isinstance(session_token, str)
+        or not session_token
+    ):
+        raise ApiError(
+            status_code=404,
+            code="camera_whep_session_not_found",
+            message=(
+                "WebRTC live session was not "
+                "found or has expired."
+            ),
+        )
+    return session_id, session_token
+
+
+def _whep_candidate_udp(
+    request: Request,
+) -> str | None:
+    settings = request.app.state.settings
+    host = settings.zlm_webrtc_extern_ip
+    if host is None:
+        request_host = request.url.hostname
+        if not request_host:
+            return None
+        try:
+            address = ipaddress.ip_address(
+                request_host
+            )
+        except ValueError:
+            return None
+        if address.version != 4:
+            return None
+        host = str(address)
+    else:
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return None
+        if address.version != 4:
+            return None
+        host = str(address)
+
+    return (
+        f"{host}:"
+        f"{settings.zlm_webrtc_port}"
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/live",
+    response_model=CameraLiveStreamView,
+)
+def get_camera_live_stream(
+    camera_id: uuid.UUID,
+    request: Request,
+    quality: Literal[
+        "auto",
+        "high",
+        "low",
+    ] = Query(default="auto"),
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> CameraLiveStreamView:
+    selection = _select_live_stream(
+        camera_id=camera_id,
+        quality=quality,
+        request=request,
+        session=session,
+    )
     hls_url, expires_at = ZlmMediaAccess(
         request.app.state.settings
     ).sign_url(
-        runtime.public_hls_url(reference),
-        app=reference.app,
-        stream=reference.stream,
-        ttl_seconds=ZlmMediaAccess.live_ttl_seconds,
+        selection.runtime.public_hls_url(
+            selection.reference
+        ),
+        app=selection.reference.app,
+        stream=selection.reference.stream,
+        ttl_seconds=(
+            ZlmMediaAccess.live_ttl_seconds
+        ),
     )
     return CameraLiveStreamView(
-        camera_id=camera.id,
-        profile_id=profile.id,
-        purpose=purpose,
+        camera_id=selection.camera.id,
+        profile_id=selection.profile.id,
+        purpose=selection.purpose,
         hls_url=hls_url,
         expires_at=expires_at,
-        codec=profile.codec,
-        width=profile.width,
-        height=profile.height,
-        fps=profile.fps,
-        has_audio=profile.has_audio,
+        codec=selection.profile.codec,
+        width=selection.profile.width,
+        height=selection.profile.height,
+        fps=selection.profile.fps,
+        has_audio=selection.profile.has_audio,
     )
 
+
+@router.post(
+    "/cameras/{camera_id}/live/whep",
+    status_code=201,
+)
+async def create_camera_whep_session(
+    camera_id: uuid.UUID,
+    request: Request,
+    quality: Literal[
+        "auto",
+        "high",
+        "low",
+    ] = Query(default="auto"),
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> Response:
+    content_type = request.headers.get(
+        "content-type",
+        "",
+    ).split(";", 1)[0].strip().lower()
+    if content_type != "application/sdp":
+        raise ApiError(
+            status_code=415,
+            code="camera_whep_content_type_invalid",
+            message=(
+                "WebRTC negotiation requires "
+                "application/sdp."
+            ),
+        )
+
+    offer_bytes = await request.body()
+    if (
+        not offer_bytes
+        or len(offer_bytes) > 256 * 1024
+    ):
+        raise ApiError(
+            status_code=422,
+            code="camera_whep_offer_invalid",
+            message="WebRTC offer SDP is invalid.",
+        )
+    try:
+        offer_sdp = offer_bytes.decode(
+            "utf-8"
+        )
+    except UnicodeDecodeError as exc:
+        raise ApiError(
+            status_code=422,
+            code="camera_whep_offer_invalid",
+            message="WebRTC offer SDP is invalid.",
+        ) from exc
+
+    selection = _select_live_stream(
+        camera_id=camera_id,
+        quality=quality,
+        request=request,
+        session=session,
+    )
+    access = ZlmMediaAccess(
+        request.app.state.settings
+    )
+    playback_params, _expires_at = (
+        access.issue_params(
+            app=selection.reference.app,
+            stream=selection.reference.stream,
+            ttl_seconds=(
+                ZlmMediaAccess.live_ttl_seconds
+            ),
+        )
+    )
+
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            whep = zlm.whep_play(
+                app=selection.reference.app,
+                stream=selection.reference.stream,
+                offer_sdp=offer_sdp,
+                playback_params=(
+                    playback_params
+                ),
+                candidate_udp=(
+                    _whep_candidate_udp(
+                        request
+                    )
+                ),
+                candidate_tcp=(
+                    _whep_candidate_udp(
+                        request
+                    )
+                ),
+            )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    ticket = _whep_cleanup_ticket(
+        request,
+        camera_id=camera_id,
+        user_id=context.user.id,
+        session_id=whep.session_id,
+        session_token=whep.session_token,
+    )
+    location = (
+        f"/api/v1/cameras/{camera_id}"
+        f"/live/whep/{ticket}"
+    )
+    return Response(
+        content=whep.answer_sdp,
+        status_code=201,
+        media_type="application/sdp",
+        headers={
+            "Location": location,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@router.delete(
+    "/cameras/{camera_id}/live/whep/{ticket}",
+    status_code=204,
+)
+def delete_camera_whep_session(
+    camera_id: uuid.UUID,
+    ticket: str,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> Response:
+    session_id, session_token = (
+        _parse_whep_cleanup_ticket(
+            request,
+            ticket=ticket,
+            camera_id=camera_id,
+            user_id=context.user.id,
+        )
+    )
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            zlm.delete_webrtc(
+                session_id=session_id,
+                session_token=session_token,
+            )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+    return Response(status_code=204)
 
 
 @router.get("/cameras/{camera_id}/snapshot")

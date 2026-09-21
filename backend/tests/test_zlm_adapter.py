@@ -368,3 +368,85 @@ def test_snapshot_rejects_non_image_response_without_echoing_url() -> None:
 
     assert captured.value.code == "zlm_snapshot_failed"
     assert internal_url not in str(captured.value)
+
+
+
+def test_whep_play_and_cleanup_use_standard_session_contract() -> None:
+    requests: list[httpx.Request] = []
+    offer = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
+    answer = "v=0\r\no=- 2 2 IN IP4 127.0.0.1\r\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/whep"):
+            return httpx.Response(
+                201,
+                text=answer,
+                headers={
+                    "content-type": "application/sdp",
+                    "location": (
+                        "/index/api/delete_webrtc"
+                        "?id=rtc-session-1"
+                        "&token=rtc-delete-token"
+                    ),
+                },
+            )
+        if request.url.path.endswith("/delete_webrtc"):
+            return httpx.Response(
+                200,
+                json={"code": 0},
+            )
+        raise AssertionError(request.url.path)
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        session = adapter.whep_play(
+            app="zero-nvr",
+            stream="profile-abc",
+            offer_sdp=offer,
+            playback_params={
+                "zn_exp": "1234567890",
+                "zn_sig": "play-signature",
+            },
+            candidate_udp="192.0.2.10:8000",
+            candidate_tcp="192.0.2.10:8000",
+        )
+        assert session.answer_sdp == answer
+        assert session.session_id == "rtc-session-1"
+        assert session.session_token == "rtc-delete-token"
+
+        adapter.delete_webrtc(
+            session_id=session.session_id,
+            session_token=session.session_token,
+        )
+
+    assert len(requests) == 2
+
+    create_request = requests[0]
+    assert create_request.method == "POST"
+    assert create_request.headers["content-type"].startswith(
+        "application/sdp"
+    )
+    assert create_request.content.decode("utf-8") == offer
+    query = parse_qs(
+        create_request.url.query.decode("utf-8")
+    )
+    assert query["app"] == ["zero-nvr"]
+    assert query["stream"] == ["profile-abc"]
+    assert query["zn_exp"] == ["1234567890"]
+    assert query["zn_sig"] == ["play-signature"]
+    assert query["cand_udp"] == ["192.0.2.10:8000"]
+    assert query["cand_tcp"] == ["192.0.2.10:8000"]
+    assert "secret" not in query
+
+    delete_request = requests[1]
+    assert delete_request.method == "DELETE"
+    delete_query = parse_qs(
+        delete_request.url.query.decode("utf-8")
+    )
+    assert delete_query == {
+        "id": ["rtc-session-1"],
+        "token": ["rtc-delete-token"],
+    }

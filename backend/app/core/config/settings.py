@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import ipaddress
 from pathlib import Path
 
 from pydantic import Field, SecretStr, field_validator
@@ -51,6 +52,8 @@ class Settings(BaseSettings):
     zlm_base_url: str = "http://zlmediakit"
     zlm_rtsp_base_url: str = "rtsp://zlmediakit:554"
     zlm_public_base_url: str = "/zlm"
+    zlm_webrtc_port: int = 8000
+    zlm_webrtc_extern_ip: str | None = None
     zlm_api_secret: SecretStr | None = None
     zlm_hook_secret: SecretStr | None = None
     zlm_timeout_seconds: float = 8.0
@@ -183,6 +186,34 @@ class Settings(BaseSettings):
         raise ValueError(
             "ZERO_NVR_ZLM_PUBLIC_BASE_URL must be same-origin /path or http(s) URL"
         )
+
+    @field_validator("zlm_webrtc_port")
+    @classmethod
+    def validate_zlm_webrtc_port(cls, value: int) -> int:
+        if value < 1 or value > 65535:
+            raise ValueError(
+                "ZERO_NVR_ZLM_WEBRTC_PORT must be between 1 and 65535"
+            )
+        return value
+
+    @field_validator("zlm_webrtc_extern_ip")
+    @classmethod
+    def validate_zlm_webrtc_extern_ip(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        try:
+            ipaddress.ip_address(normalized)
+        except ValueError as exc:
+            raise ValueError(
+                "ZERO_NVR_ZLM_WEBRTC_EXTERN_IP must be an IPv4 or IPv6 address"
+            ) from exc
+        return normalized
 
     @field_validator(
         "restic_timeout_seconds",

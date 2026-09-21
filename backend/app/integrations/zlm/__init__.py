@@ -5,6 +5,7 @@ from .adapter import (
     ZlmIntegrationError,
     ZlmMediaProbe,
     ZlmTrackProbe,
+    ZlmWhepSession,
 )
 
 __all__ = [
@@ -15,4 +16,5 @@ __all__ = [
     "ZlmIntegrationError",
     "ZlmMediaProbe",
     "ZlmTrackProbe",
+    "ZlmWhepSession",
 ]

@@ -173,7 +173,8 @@ services:
     ports:
       - "${ZERO_NVR_ZLM_HTTP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_HTTP_PORT:-8080}:80"
       - "${ZERO_NVR_ZLM_RTSP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_RTSP_PORT:-8554}:554"
-      - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}:8000/udp"
+      - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}:${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}/udp"
+      - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}:${ZERO_NVR_ZLM_WEBRTC_PORT:-8000}/tcp"
     healthcheck:
       test:
         - CMD-SHELL
