@@ -435,6 +435,86 @@ function healthMessage(item: HealthComponent): string {
   return item.message || "Healthy"
 }
 
+interface StorageHealthTarget {
+  id: string
+  name: string
+  path?: string
+  level: "normal" | "warning" | "high" | "critical" | "unavailable"
+  used_percent?: number
+  free_bytes?: number
+  total_bytes?: number
+  warning_percent?: number
+  high_percent?: number
+  critical_percent?: number
+  error?: string
+}
+
+function storageHealthTargets(
+  component: HealthComponent
+): StorageHealthTarget[] {
+  const value = component.details.target_details
+  if (!Array.isArray(value)) return []
+  return value.filter(
+    (item): item is StorageHealthTarget =>
+      Boolean(
+        item &&
+          typeof item === "object" &&
+          typeof (item as StorageHealthTarget).id === "string" &&
+          typeof (item as StorageHealthTarget).name === "string" &&
+          typeof (item as StorageHealthTarget).level === "string"
+      )
+  )
+}
+
+function storageHealthSummary(
+  item: StorageHealthTarget
+): string {
+  if (item.level === "unavailable") {
+    return pretty(item.error || "unavailable")
+  }
+  const used =
+    typeof item.used_percent === "number"
+      ? `${item.used_percent.toFixed(1)}% used`
+      : "Usage unavailable"
+  const free =
+    typeof item.free_bytes === "number"
+      ? `${formatBytes(item.free_bytes)} free`
+      : null
+  return [used, free].filter(Boolean).join(" · ")
+}
+
+function storageHealthStatus(
+  item: StorageHealthTarget
+): HealthComponent["status"] {
+  if (
+    item.level === "critical" ||
+    item.level === "unavailable"
+  ) {
+    return "ERROR"
+  }
+  if (
+    item.level === "warning" ||
+    item.level === "high"
+  ) {
+    return "DEGRADED"
+  }
+  return "OK"
+}
+
+function storageWatermarkSummary(
+  item: StorageHealthTarget
+): string | null {
+  if (
+    typeof item.warning_percent !== "number" ||
+    typeof item.high_percent !== "number" ||
+    typeof item.critical_percent !== "number"
+  ) {
+    return null
+  }
+  return `Warn ${item.warning_percent}% · High ${item.high_percent}% · Critical ${item.critical_percent}%`
+}
+
+
 async function loadBase(): Promise<void> {
   if (!auth.hasPermission("system.view")) return
 
@@ -1156,6 +1236,9 @@ onBeforeUnmount(() => {
               v-for="[name, component] in healthComponents"
               :key="name"
               class="health-component"
+              :class="{
+                'health-component--storage': name === 'storage'
+              }"
             >
               <div class="health-component__title">
                 <strong>{{ pretty(name) }}</strong>
@@ -1167,6 +1250,30 @@ onBeforeUnmount(() => {
                 </span>
               </div>
               <p>{{ healthMessage(component) }}</p>
+              <div
+                v-if="name === 'storage' && storageHealthTargets(component).length"
+                class="storage-health-list"
+              >
+                <div
+                  v-for="target in storageHealthTargets(component)"
+                  :key="target.id"
+                  class="storage-health-row"
+                >
+                  <div class="storage-health-row__main">
+                    <strong>{{ target.name }}</strong>
+                    <span>{{ storageHealthSummary(target) }}</span>
+                  </div>
+                  <span
+                    class="status-pill"
+                    :class="statusClass(storageHealthStatus(target))"
+                  >
+                    {{ target.level }}
+                  </span>
+                  <small v-if="storageWatermarkSummary(target)">
+                    {{ storageWatermarkSummary(target) }}
+                  </small>
+                </div>
+              </div>
             </article>
           </div>
         </div>

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -20,6 +19,10 @@ from app.integrations.frigate import (
 from app.integrations.zlm import (
     ZlmAdapter,
     ZlmIntegrationError,
+)
+from app.core.errors import ApiError
+from app.modules.storage.capacity import (
+    LocalStorageCapacityService,
 )
 from app.modules.storage.models import StorageTarget
 from app.modules.system.models import SystemSetting
@@ -176,29 +179,135 @@ class SystemHealthService:
                 message="recording_storage_not_configured",
             )
 
+        target_details: list[
+            dict[str, object]
+        ] = []
+        total_free = 0
+        unavailable = 0
+        warning = 0
+        high = 0
+        critical = 0
+
+        for target in local:
+            config = target.config_json or {}
+            raw = config.get("path")
+            base: dict[str, object] = {
+                "id": str(target.id),
+                "name": target.name,
+            }
+            if (
+                not isinstance(raw, str)
+                or not raw
+            ):
+                unavailable += 1
+                target_details.append(
+                    {
+                        **base,
+                        "level": "unavailable",
+                        "error": (
+                            "recording_storage_path_"
+                            "unconfigured"
+                        ),
+                    }
+                )
+                continue
+
+            try:
+                capacity = (
+                    LocalStorageCapacityService
+                    .inspect(
+                        root=Path(raw),
+                        config=config,
+                    )
+                )
+            except ApiError as exc:
+                unavailable += 1
+                target_details.append(
+                    {
+                        **base,
+                        "path": raw,
+                        "level": "unavailable",
+                        "error": exc.code,
+                    }
+                )
+                continue
+
+            total_free += capacity.free_bytes
+            if capacity.level == "warning":
+                warning += 1
+            elif capacity.level == "high":
+                high += 1
+            elif capacity.level == "critical":
+                critical += 1
+
+            target_details.append(
+                {
+                    **base,
+                    "path": raw,
+                    "level": capacity.level,
+                    "used_percent": round(
+                        capacity.used_percent,
+                        2,
+                    ),
+                    "free_bytes": (
+                        capacity.free_bytes
+                    ),
+                    "total_bytes": (
+                        capacity.total_bytes
+                    ),
+                    "warning_percent": (
+                        capacity.watermarks
+                        .warning_percent
+                    ),
+                    "high_percent": (
+                        capacity.watermarks
+                        .high_percent
+                    ),
+                    "critical_percent": (
+                        capacity.watermarks
+                        .critical_percent
+                    ),
+                }
+            )
+
         details: dict[str, object] = {
             "targets": len(local),
+            "free_bytes": total_free,
+            "unavailable_targets": unavailable,
+            "warning_targets": warning,
+            "high_targets": high,
+            "critical_targets": critical,
+            "target_details": target_details,
         }
-        errors = 0
-        total_free = 0
-        for target in local:
-            raw = target.config_json.get("path")
-            if not isinstance(raw, str) or not raw:
-                errors += 1
-                continue
-            path = Path(raw)
-            try:
-                usage = shutil.disk_usage(path)
-                total_free += usage.free
-            except OSError:
-                errors += 1
 
-        details["free_bytes"] = total_free
-        if errors:
-            details["unavailable_targets"] = errors
+        if unavailable:
             return HealthComponent(
                 status="ERROR",
                 message="recording_storage_unavailable",
+                details=details,
+            )
+        if critical:
+            return HealthComponent(
+                status="ERROR",
+                message=(
+                    "recording_storage_capacity_"
+                    "critical"
+                ),
+                details=details,
+            )
+        if high:
+            return HealthComponent(
+                status="DEGRADED",
+                message="recording_storage_capacity_high",
+                details=details,
+            )
+        if warning:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "recording_storage_capacity_"
+                    "warning"
+                ),
                 details=details,
             )
         return HealthComponent(

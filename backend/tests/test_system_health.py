@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
+import app.modules.storage.capacity as capacity_module
 import app.modules.system.health as health_module
 from app.core.config import Settings
 from app.core.db import Base
@@ -122,6 +124,14 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
         assert body["components"]["worker"]["status"] == "OK"
         assert body["components"]["zlmediakit"]["status"] == "OK"
         assert body["components"]["storage"]["status"] == "OK"
+        storage_details = body["components"]["storage"]["details"]
+        assert storage_details["targets"] == 1
+        assert storage_details["unavailable_targets"] == 0
+        assert len(storage_details["target_details"]) == 1
+        assert (
+            storage_details["target_details"][0]["level"]
+            == "normal"
+        )
         assert body["components"]["frigate"]["status"] == "DISABLED"
         assert body["components"]["archive"]["status"] == "DISABLED"
 
@@ -242,3 +252,114 @@ def test_health_surfaces_recording_reconciliation_state(
         )
     finally:
         database.close()
+
+
+
+def test_storage_health_surfaces_capacity_watermarks(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    root = app.state.settings.recordings_dir
+
+    with app.state.database.session() as session:
+        target = StorageTarget(
+            name="Local Recording",
+            type="local",
+            role="recording",
+            enabled=True,
+            config_json={
+                "path": str(root),
+                "warning_used_percent": 80,
+                "high_used_percent": 85,
+                "critical_used_percent": 95,
+            },
+        )
+        session.add(target)
+        session.commit()
+        session.refresh(target)
+        session.expunge(target)
+
+    def fake_statvfs(_path):
+        return SimpleNamespace(
+            f_blocks=100,
+            f_bavail=12,
+            f_frsize=1024,
+        )
+
+    monkeypatch.setattr(
+        capacity_module.os,
+        "statvfs",
+        fake_statvfs,
+    )
+
+    component = SystemHealthService._local_storage(
+        [target]
+    )
+    assert component.status == "DEGRADED"
+    assert (
+        component.message
+        == "recording_storage_capacity_high"
+    )
+    assert component.details["high_targets"] == 1
+    detail = component.details["target_details"][0]
+    assert detail["level"] == "high"
+    assert detail["used_percent"] == 88.0
+    assert detail["warning_percent"] == 80
+    assert detail["high_percent"] == 85
+    assert detail["critical_percent"] == 95
+
+    def critical_statvfs(_path):
+        return SimpleNamespace(
+            f_blocks=100,
+            f_bavail=4,
+            f_frsize=1024,
+        )
+
+    monkeypatch.setattr(
+        capacity_module.os,
+        "statvfs",
+        critical_statvfs,
+    )
+    critical = SystemHealthService._local_storage(
+        [target]
+    )
+    assert critical.status == "ERROR"
+    assert (
+        critical.message
+        == "recording_storage_capacity_critical"
+    )
+    assert (
+        critical.details["critical_targets"]
+        == 1
+    )
+
+
+def test_storage_health_marks_unavailable_target_error(
+    tmp_path: Path,
+) -> None:
+    target = StorageTarget(
+        name="Missing Recording",
+        type="local",
+        role="recording",
+        enabled=True,
+        config_json={
+            "path": str(
+                tmp_path / "missing"
+            ),
+        },
+    )
+    component = SystemHealthService._local_storage(
+        [target]
+    )
+    assert component.status == "ERROR"
+    assert (
+        component.message
+        == "recording_storage_unavailable"
+    )
+    assert (
+        component.details["unavailable_targets"]
+        == 1
+    )
+    detail = component.details["target_details"][0]
+    assert detail["level"] == "unavailable"

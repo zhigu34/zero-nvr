@@ -3787,6 +3787,17 @@ strong {
   background: var(--surface-raised);
 }
 
+
+.health-component--storage {
+  grid-column: span 2;
+}
+
+@media (max-width: 720px) {
+  .health-component--storage {
+    grid-column: span 1;
+  }
+}
+
 .health-component__title {
   display: flex;
   align-items: center;
@@ -3803,6 +3814,50 @@ strong {
   color: var(--text-muted);
   font-size: 8px;
   line-height: 1.4;
+}
+
+
+.storage-health-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.storage-health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 3px 8px;
+}
+
+.storage-health-row__main {
+  min-width: 0;
+}
+
+.storage-health-row__main strong,
+.storage-health-row__main span,
+.storage-health-row small {
+  display: block;
+}
+
+.storage-health-row__main strong {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-health-row__main span,
+.storage-health-row small {
+  color: var(--text-muted);
+  font-size: 7px;
+}
+
+.storage-health-row small {
+  grid-column: 1 / -1;
 }
 
 .status-pill--error {

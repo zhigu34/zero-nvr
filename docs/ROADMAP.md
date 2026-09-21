@@ -208,6 +208,9 @@ Acceptance:
 - [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
 - [ ] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
 - [ ] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
+  - [x] System Health reports per-target availability and warning/high/critical capacity state.
+  - [x] local recording failure/capacity pressure never implicitly falls back to cloud hot recording.
+  - [ ] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
 - [ ] safe administrator target change/migration without losing historical RecordingLocations.
 - [ ] cross-day segments without midnight force-split.
 - [ ] source-loss segment finalize with completion_reason = source_lost.
