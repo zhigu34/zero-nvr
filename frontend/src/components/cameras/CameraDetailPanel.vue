@@ -755,6 +755,7 @@ onMounted(() => {
             <button
               class="button button--ghost button--compact"
               type="button"
+              :disabled="!canConfigure"
               @click="addWindow"
             >
               <UiIcon name="plus" :size="13" />
@@ -766,6 +767,7 @@ onMounted(() => {
             <span>Timezone</span>
             <input
               v-model="recordingForm.timezone"
+              :disabled="!canConfigure"
               required
               placeholder="America/Los_Angeles"
             />
@@ -783,19 +785,30 @@ onMounted(() => {
                   :key="day"
                   type="button"
                   :class="{ 'recording-day--active': window.days.includes(dayIndex) }"
+                  :disabled="!canConfigure"
                   @click="toggleDay(window, dayIndex)"
                 >
                   {{ day }}
                 </button>
               </div>
               <div class="recording-window__time">
-                <input v-model="window.start" type="time" required />
+                <input
+                  v-model="window.start"
+                  type="time"
+                  :disabled="!canConfigure"
+                  required
+                />
                 <span>to</span>
-                <input v-model="window.end" type="time" required />
+                <input
+                  v-model="window.end"
+                  type="time"
+                  :disabled="!canConfigure"
+                  required
+                />
                 <button
                   class="icon-button icon-button--danger"
                   type="button"
-                  :disabled="recordingForm.weekly.length <= 1"
+                  :disabled="!canConfigure || recordingForm.weekly.length <= 1"
                   @click="removeWindow(index)"
                 >
                   <UiIcon name="trash" :size="14" />
@@ -820,6 +833,7 @@ onMounted(() => {
               <input
                 v-model.number="recordingForm.segmentSeconds"
                 type="number"
+                :disabled="!canConfigure"
                 min="10"
                 max="3600"
               />
@@ -829,6 +843,7 @@ onMounted(() => {
               <input
                 v-model.number="recordingForm.preRoll"
                 type="number"
+                :disabled="!canConfigure"
                 min="0"
                 max="600"
               />
@@ -838,6 +853,7 @@ onMounted(() => {
               <input
                 v-model.number="recordingForm.postRoll"
                 type="number"
+                :disabled="!canConfigure"
                 min="0"
                 max="600"
               />
@@ -847,7 +863,10 @@ onMounted(() => {
           <div class="camera-recording-number-grid camera-recording-number-grid--two">
             <label>
               <span>Local storage target</span>
-              <select v-model="recordingForm.storageTargetId">
+              <select
+                v-model="recordingForm.storageTargetId"
+                :disabled="!canConfigure"
+              >
                 <option value="">Use default local target</option>
                 <option
                   v-for="target in localTargets"
@@ -860,7 +879,10 @@ onMounted(() => {
             </label>
             <label>
               <span>Retention policy</span>
-              <select v-model="recordingForm.retentionPolicyId">
+              <select
+                v-model="recordingForm.retentionPolicyId"
+                :disabled="!canConfigure"
+              >
                 <option value="">Inherit retention</option>
                 <option
                   v-for="item in retentionPolicies"
@@ -887,6 +909,7 @@ onMounted(() => {
             <span>Labels</span>
             <input
               v-model="recordingForm.labels"
+              :disabled="!canConfigure"
               placeholder="person, car, dog"
             />
           </label>
@@ -894,6 +917,7 @@ onMounted(() => {
             <span>Zones</span>
             <input
               v-model="recordingForm.zones"
+              :disabled="!canConfigure"
               placeholder="front_yard, driveway"
             />
           </label>
@@ -902,6 +926,7 @@ onMounted(() => {
             <input
               v-model.number="recordingForm.minConfidence"
               type="range"
+              :disabled="!canConfigure"
               min="0"
               max="1"
               step="0.05"

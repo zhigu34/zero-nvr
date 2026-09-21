@@ -95,7 +95,7 @@ real camera while the remaining V1 work continues.
 - [x] validate the rendered Compose model before pull/build/start.
 - [x] successful install prints the effective Web UI address and published
   media ports.
-- [ ] complete the Camera Recording Settings UI so recording mode, schedule,
+- [x] complete the Camera Recording Settings UI so recording mode, schedule,
   segment duration, event pre/post-roll, storage target, and retention policy
   can be configured without direct API calls.
 - [ ] execute a clean-host Core install smoke test.
@@ -230,7 +230,7 @@ Acceptance:
 - [x] Keep FFmpeg out of the normal 24x7 recording path; use it only for derived/recovery jobs.
 - [x] RecordingPolicy / Recording Settings persistence and API.
 - [x] explicit schedule_timezone handling for wall-clock schedules.
-- [ ] Recording Settings UI for recording mode, nominal segment duration, and pre/post-roll; exact EVENT_ONLY pre-roll implementation follows the accepted POC result.
+- [x] Recording Settings UI for recording mode, nominal segment duration, and pre/post-roll; exact EVENT_ONLY pre-roll implementation follows the accepted POC result.
 - [x] segment persistence.
 - [x] UTC canonical recording timestamps and database timeline indexes.
 - [ ] map ZLM-native finalized recording paths into RecordingLocation without making filenames authoritative identity.
