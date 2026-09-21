@@ -689,9 +689,9 @@ def create_recording_trigger(
             session,
             camera_id=camera_id,
         )
-        assert policy is not None
         baseline_active = (
-            RecordingPolicyService
+            policy is not None
+            and RecordingPolicyService
             .baseline_should_record(
                 policy,
                 at=instant,
