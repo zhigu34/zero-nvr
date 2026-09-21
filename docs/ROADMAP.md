@@ -225,7 +225,7 @@ Acceptance:
 - [x] RecordingProtection range create/update/delete and UI.
 - [x] safe local purge only after verified remote readiness where applicable.
 - [x] disk capacity guard.
-- [ ] basic timeline.
+- [x] basic timeline.
 
 Acceptance:
 
