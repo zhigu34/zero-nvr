@@ -335,7 +335,6 @@ def test_media_runtime_does_not_implement_rtsp_reconnect_backoff() -> None:
     assert "retry_count=-1" in source
 
 
-
 def test_persistent_camera_proxy_lifecycle_stays_in_media_runtime() -> None:
     root = Path(__file__).resolve().parents[1]
     media_runtime = (
