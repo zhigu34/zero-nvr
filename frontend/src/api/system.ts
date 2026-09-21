@@ -183,6 +183,25 @@ export interface ConfigurationImportValidation {
   warnings: string[]
 }
 
+export interface ConfigurationImportApplyItem {
+  section: string
+  resource_type: string
+  source_id: string | null
+  target_id: string | null
+  name: string | null
+  action: "created" | "updated" | "matched" | "skipped"
+  reason: string | null
+}
+
+export interface ConfigurationImportApplyResult {
+  mode: "merge"
+  applied_count: number
+  skipped_count: number
+  applied: ConfigurationImportApplyItem[]
+  skipped: ConfigurationImportApplyItem[]
+  warnings: string[]
+}
+
 export interface BackupPolicy {
   id: string
   name: string
@@ -587,6 +606,18 @@ export function validateConfigurationImport(
 ): Promise<ConfigurationImportValidation> {
   return apiRequest<ConfigurationImportValidation>(
     "/system/configuration/import/validate",
+    {
+      method: "POST",
+      json: { bundle }
+    }
+  )
+}
+
+export function applyConfigurationImport(
+  bundle: Record<string, unknown>
+): Promise<ConfigurationImportApplyResult> {
+  return apiRequest<ConfigurationImportApplyResult>(
+    "/system/configuration/import/apply",
     {
       method: "POST",
       json: { bundle }

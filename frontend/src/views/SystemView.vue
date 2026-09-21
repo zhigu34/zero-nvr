@@ -18,6 +18,7 @@ import {
 } from "../api/client"
 import {
   applyCameraNtpSettings,
+  applyConfigurationImport,
   backfillFrigate,
   createBackupPolicy,
   createNotificationTarget,
@@ -47,6 +48,7 @@ import {
   type CameraClockHealth,
   type CameraNtpApplyResult,
   type BackupSet,
+  type ConfigurationImportApplyResult,
   type ConfigurationImportValidation,
   type FrigateCameraMapping,
   type HealthComponent,
@@ -132,7 +134,10 @@ const runningBackupId = ref<string | null>(null)
 const verifyingBackupId = ref<string | null>(null)
 const configImportInput = ref<HTMLInputElement | null>(null)
 const configImportValidation = ref<ConfigurationImportValidation | null>(null)
+const configImportBundle = ref<Record<string, unknown> | null>(null)
+const configImportApplyResult = ref<ConfigurationImportApplyResult | null>(null)
 const configImportValidating = ref(false)
+const configImportApplying = ref(false)
 const configImportFileName = ref<string | null>(null)
 const backupForm = reactive({
   name: "System backup",
@@ -263,6 +268,8 @@ async function handleConfigurationFile(
   error.value = null
   notice.value = null
   configImportValidation.value = null
+  configImportBundle.value = null
+  configImportApplyResult.value = null
   configImportFileName.value = file.name
 
   if (file.size > 5 * 1024 * 1024) {
@@ -285,17 +292,72 @@ async function handleConfigurationFile(
         "Configuration file must contain a JSON object."
       )
     }
+    const bundle =
+      parsed as Record<string, unknown>
     configImportValidation.value =
-      await validateConfigurationImport(
-        parsed as Record<string, unknown>
-      )
+      await validateConfigurationImport(bundle)
+    configImportBundle.value = bundle
     notice.value =
-      "Configuration bundle is valid. Validation did not apply any changes."
+      "Configuration bundle is valid. Review the preflight before applying the merge."
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
     configImportValidating.value = false
   }
+}
+
+async function applyValidatedConfigurationImport(): Promise<void> {
+  if (
+    !configImportBundle.value ||
+    !configImportValidation.value ||
+    configImportApplying.value
+  ) {
+    return
+  }
+
+  const credentialCount =
+    configImportValidation.value.credentials_required.length
+  const detail = credentialCount
+    ? ` ${credentialCount} credential-dependent resource(s) may be skipped and must be reconfigured afterward.`
+    : ""
+  if (
+    !window.confirm(
+      "Apply this validated configuration as a merge? Existing resources are not deleted and stored credentials are not overwritten." +
+        detail
+    )
+  ) {
+    return
+  }
+
+  configImportApplying.value = true
+  error.value = null
+  notice.value = null
+  try {
+    configImportApplyResult.value =
+      await applyConfigurationImport(
+        configImportBundle.value
+      )
+    notice.value =
+      `Configuration merge applied: ${configImportApplyResult.value.applied_count} applied, ${configImportApplyResult.value.skipped_count} skipped.`
+    await Promise.all([
+      loadBase(),
+      loadBackups()
+    ])
+    window.dispatchEvent(
+      new CustomEvent("zero-nvr:refresh")
+    )
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    configImportApplying.value = false
+  }
+}
+
+function discardConfigurationImport(): void {
+  configImportValidation.value = null
+  configImportBundle.value = null
+  configImportApplyResult.value = null
+  configImportFileName.value = null
 }
 
 function statusClass(value: string): string {
@@ -1594,8 +1656,8 @@ onBeforeUnmount(() => {
               <span>
                 {{
                   configImportFileName
-                    ? `${configImportFileName} · validation only`
-                    : "Validation only"
+                    ? `${configImportFileName} · ready to merge`
+                    : "Ready to merge"
                 }}
               </span>
             </div>
@@ -1696,9 +1758,150 @@ onBeforeUnmount(() => {
           <div class="storage-notice">
             <UiIcon name="check" :size="14" />
             <span>
-              No configuration was changed. Applying an import is a
-              separate operation.
+              Preflight only: no configuration has changed yet. Merge apply
+              never deletes target resources and never overwrites stored
+              credential material.
             </span>
+          </div>
+
+          <div
+            v-if="!configImportApplyResult"
+            class="system-form-actions"
+          >
+            <button
+              class="button button--ghost"
+              type="button"
+              :disabled="configImportApplying"
+              @click="discardConfigurationImport"
+            >
+              Discard
+            </button>
+            <button
+              class="button button--primary"
+              type="button"
+              :disabled="
+                configImportApplying ||
+                !configImportBundle ||
+                !auth.hasPermission('system.manage')
+              "
+              @click="applyValidatedConfigurationImport"
+            >
+              {{
+                configImportApplying
+                  ? "Applying…"
+                  : "Apply configuration merge"
+              }}
+            </button>
+          </div>
+
+          <div
+            v-else
+            class="configuration-import-result"
+          >
+            <div class="system-summary-grid">
+              <div>
+                <span>Applied</span>
+                <strong>
+                  {{ configImportApplyResult.applied_count }}
+                </strong>
+              </div>
+              <div>
+                <span>Skipped</span>
+                <strong>
+                  {{ configImportApplyResult.skipped_count }}
+                </strong>
+              </div>
+              <div>
+                <span>Mode</span>
+                <strong>{{ pretty(configImportApplyResult.mode) }}</strong>
+              </div>
+            </div>
+
+            <div
+              v-if="configImportApplyResult.applied.length"
+              class="system-table-wrap"
+            >
+              <table class="system-table">
+                <thead>
+                  <tr>
+                    <th>Applied resource</th>
+                    <th>Section</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(item, index) in configImportApplyResult.applied"
+                    :key="`applied-${item.section}-${item.target_id || item.source_id || index}`"
+                  >
+                    <td>
+                      <strong>
+                        {{ item.name || pretty(item.resource_type) }}
+                      </strong>
+                      <small v-if="item.target_id">
+                        {{ item.target_id }}
+                      </small>
+                    </td>
+                    <td>{{ pretty(item.section) }}</td>
+                    <td>
+                      <span class="status-pill status-pill--ok">
+                        {{ pretty(item.action) }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              v-if="configImportApplyResult.skipped.length"
+              class="system-table-wrap"
+            >
+              <table class="system-table">
+                <thead>
+                  <tr>
+                    <th>Skipped resource</th>
+                    <th>Section</th>
+                    <th>Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(item, index) in configImportApplyResult.skipped"
+                    :key="`skipped-${item.section}-${item.source_id || index}`"
+                  >
+                    <td>
+                      <strong>
+                        {{ item.name || pretty(item.resource_type) }}
+                      </strong>
+                    </td>
+                    <td>{{ pretty(item.section) }}</td>
+                    <td>
+                      {{ pretty(item.reason || "skipped") }}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              v-for="warning in configImportApplyResult.warnings"
+              :key="`applied-${warning}`"
+              class="storage-notice"
+            >
+              <UiIcon name="warning" :size="14" />
+              <span>{{ warning }}</span>
+            </div>
+
+            <div class="system-form-actions">
+              <button
+                class="button button--ghost"
+                type="button"
+                @click="discardConfigurationImport"
+              >
+                Close result
+              </button>
+            </div>
           </div>
         </section>
 
