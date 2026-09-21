@@ -298,6 +298,10 @@ def test_replace_streams_deletes_proxy_keys_before_readding(
             item.stream
             for item in desired
         ]
+        assert all(
+            item["retry_count"] == -1
+            for item in zlm.add_calls
+        )
         assert {
             item.proxy_key
             for item in references
@@ -308,3 +312,25 @@ def test_replace_streams_deletes_proxy_keys_before_readding(
         }
     finally:
         database.close()
+
+
+
+def test_media_runtime_does_not_implement_rtsp_reconnect_backoff() -> None:
+    source = (
+        Path(__file__).resolve().parents[1]
+        / "app/modules/cameras/media_runtime.py"
+    ).read_text(encoding="utf-8").lower()
+
+    for forbidden in (
+        "time.sleep",
+        "asyncio.sleep",
+        "backoff",
+        "reconnect_delay",
+        "retry_delay",
+    ):
+        assert forbidden not in source, (
+            "CameraMediaRuntimeService must delegate camera RTSP "
+            f"reconnect/backoff to ZLMediaKit; found {forbidden!r}"
+        )
+
+    assert "retry_count=-1" in source

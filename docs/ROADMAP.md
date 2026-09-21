@@ -196,7 +196,7 @@ Acceptance:
 - [ ] capability-specific health projection: control / media / recording / events / PTZ / clock.
 - [ ] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
 - [ ] consume ZLM registration/unregistration/recorder signals for observed media health.
-- [ ] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
+- [x] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
 - [ ] recovery reconciliation after ZLM/API/control-plane restart.
 - [x] MediaSession API with short-lived scoped authorization/revocation.
 - [x] Browser capability report and LivePlaybackResolver.
