@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+import os
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -17,6 +19,9 @@ from app.modules.recordings.playback import PlayablePlan, PlaybackResolverServic
 from app.modules.recordings.playback_cache import PlaybackCacheService
 from app.modules.storage.models import RecordingLocation, StorageTarget
 from app.modules.storage.service import ResolvedRcloneTarget
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -317,3 +322,55 @@ def test_pending_playback_queues_restore(tmp_path: Path) -> None:
         assert again.status_code == 200
         assert again.json()["status"] == "pending"
         assert fake_tasks.segment_ids == [segment_id]
+
+
+
+def test_playback_cache_uses_runtime_tuning_from_database(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        with database.session() as session:
+            RuntimeTuningSettingsService.update(
+                session,
+                settings=settings,
+                changes={
+                    "playback_cache_ttl_seconds": 60,
+                },
+            )
+            session.commit()
+
+        _camera_id, segment_id, _started_at = (
+            seed_remote_segment(
+                settings,
+                database,
+            )
+        )
+        cache = PlaybackCacheService(
+            settings,
+            adapter_factory=FakeRclone,
+            target_service_factory=FakeTargetService,
+        )
+        cache.root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        stale = cache.root / "stale.mp4"
+        stale.write_bytes(b"stale")
+        expired = time.time() - 120
+        os.utime(
+            stale,
+            (expired, expired),
+        )
+
+        FakeRclone.calls = []
+        result = cache.execute(
+            database,
+            segment_id=segment_id,
+        )
+
+        assert result.restored is True
+        assert stale.exists() is False
+        assert len(FakeRclone.calls) == 1
+    finally:
+        database.close()

@@ -22,6 +22,9 @@ from app.modules.auth.service import AuthContext
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.service import CameraService
 from app.modules.storage.recording_resolver import RecordingStorageResolver
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
 
 from .models import (
     RecordingPolicy,
@@ -986,6 +989,14 @@ def resolve_camera_playback(
         at=at,
         settings=request.app.state.settings,
     )
+    runtime_tuning = (
+        RuntimeTuningSettingsService.get(
+            session,
+            settings=request.app.state.settings,
+        )
+        if isinstance(plan, PendingPlan)
+        else None
+    )
     # No SQLite transaction remains open while filesystem/ZLM work runs.
     session.commit()
 
@@ -997,7 +1008,11 @@ def resolve_camera_playback(
         )
 
     if isinstance(plan, PendingPlan):
-        cache = PlaybackCacheService(request.app.state.settings)
+        assert runtime_tuning is not None
+        cache = PlaybackCacheService(
+            request.app.state.settings,
+            tuning=runtime_tuning,
+        )
         if cache.reserve_restore(segment_id=plan.segment_id):
             try:
                 request.app.state.storage_tasks.restore_playback_segment(

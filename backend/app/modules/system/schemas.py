@@ -93,12 +93,74 @@ class GeneralSystemSettingsPatch(BaseModel):
     camera_ntp_servers: list[str] | None = None
 
 
+class RuntimeTuningSettingsView(BaseModel):
+    playback_cache_max_bytes: int
+    playback_cache_ttl_seconds: int
+    playback_restore_lock_ttl_seconds: int
+    live_transcode_max_derivatives: int
+    live_transcode_idle_ttl_seconds: int
+    live_transcode_lease_ttl_seconds: int
+    live_transcode_startup_timeout_seconds: float
+    live_transcode_cpu_threads: int
+    live_transcode_video_bitrate_kbps: int
+
+
+class RuntimeTuningSettingsPatch(BaseModel):
+    playback_cache_max_bytes: int | None = Field(
+        default=None,
+        ge=64 * 1024 * 1024,
+        le=1024 * 1024 * 1024 * 1024,
+    )
+    playback_cache_ttl_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        le=7 * 24 * 60 * 60,
+    )
+    playback_restore_lock_ttl_seconds: int | None = Field(
+        default=None,
+        ge=60,
+        le=7 * 24 * 60 * 60,
+    )
+    live_transcode_max_derivatives: int | None = Field(
+        default=None,
+        ge=1,
+        le=8,
+    )
+    live_transcode_idle_ttl_seconds: int | None = Field(
+        default=None,
+        ge=5,
+        le=300,
+    )
+    live_transcode_lease_ttl_seconds: int | None = Field(
+        default=None,
+        ge=15,
+        le=300,
+    )
+    live_transcode_startup_timeout_seconds: float | None = Field(
+        default=None,
+        ge=1,
+        le=30,
+    )
+    live_transcode_cpu_threads: int | None = Field(
+        default=None,
+        ge=1,
+        le=8,
+    )
+    live_transcode_video_bitrate_kbps: int | None = Field(
+        default=None,
+        ge=512,
+        le=20000,
+    )
+
+
 class SystemSettingsView(BaseModel):
     general: GeneralSystemSettingsView
+    runtime: RuntimeTuningSettingsView
 
 
 class SystemSettingsPatch(BaseModel):
     general: GeneralSystemSettingsPatch | None = None
+    runtime: RuntimeTuningSettingsPatch | None = None
 
 
 class SystemUpdateInfoView(BaseModel):

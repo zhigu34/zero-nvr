@@ -14,6 +14,10 @@ from app.core.db import Database
 from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
 from app.modules.storage.models import RecordingLocation, StorageTarget
 from app.modules.storage.service import StorageTargetService
+from app.modules.system.settings import (
+    RuntimeTuningSettings,
+    RuntimeTuningSettingsService,
+)
 
 from .models import RecordingSegment
 
@@ -50,10 +54,28 @@ class PlaybackCacheService:
         *,
         adapter_factory: Callable[..., RcloneAdapter] = RcloneAdapter,
         target_service_factory: Callable[[Settings], Any] = StorageTargetService,
+        tuning: RuntimeTuningSettings | None = None,
     ) -> None:
         self.settings = settings
         self._adapter_factory = adapter_factory
         self._target_service_factory = target_service_factory
+        self._runtime_tuning = tuning
+
+    def _tuning(
+        self,
+        database: Database | None = None,
+    ) -> RuntimeTuningSettings:
+        if self._runtime_tuning is not None:
+            return self._runtime_tuning
+        if database is None:
+            return RuntimeTuningSettingsService.defaults(
+                self.settings
+            )
+        with database.session() as session:
+            return RuntimeTuningSettingsService.get(
+                session,
+                settings=self.settings,
+            )
 
     @property
     def root(self) -> Path:
@@ -92,7 +114,11 @@ class PlaybackCacheService:
         except OSError:
             age = 0
 
-        if age <= self.settings.playback_restore_lock_ttl_seconds:
+        if (
+            age
+            <= self._tuning()
+            .playback_restore_lock_ttl_seconds
+        ):
             return False
 
         try:
@@ -125,7 +151,12 @@ class PlaybackCacheService:
         except OSError:
             return None
 
-    def _prune(self, *, protected: set[Path] | None = None) -> None:
+    def _prune(
+        self,
+        database: Database,
+        *,
+        protected: set[Path] | None = None,
+    ) -> None:
         protected = {
             item.resolve(strict=False)
             for item in (protected or set())
@@ -133,7 +164,8 @@ class PlaybackCacheService:
         root = self.root
         root.mkdir(parents=True, exist_ok=True)
         now = time.time()
-        ttl = self.settings.playback_cache_ttl_seconds
+        tuning = self._tuning(database)
+        ttl = tuning.playback_cache_ttl_seconds
 
         files: list[tuple[float, int, Path]] = []
         for path in root.glob("*.mp4"):
@@ -153,11 +185,11 @@ class PlaybackCacheService:
             files.append((stat.st_mtime, stat.st_size, path))
 
         total = sum(size for _, size, _ in files)
-        if total <= self.settings.playback_cache_max_bytes:
+        if total <= tuning.playback_cache_max_bytes:
             return
 
         for _mtime, size, path in sorted(files):
-            if total <= self.settings.playback_cache_max_bytes:
+            if total <= tuning.playback_cache_max_bytes:
                 break
             if path.resolve(strict=False) in protected:
                 continue
@@ -237,7 +269,11 @@ class PlaybackCacheService:
             session.commit()
             return plan
 
-    def _acquire_lock(self, destination: Path) -> Path | None:
+    def _acquire_lock(
+        self,
+        database: Database,
+        destination: Path,
+    ) -> Path | None:
         destination.parent.mkdir(parents=True, exist_ok=True)
         lock = destination.with_name(destination.name + ".lock")
 
@@ -264,7 +300,11 @@ class PlaybackCacheService:
         except OSError:
             age = 0
 
-        if age <= self.settings.playback_restore_lock_ttl_seconds:
+        if (
+            age
+            <= self._tuning(database)
+            .playback_restore_lock_ttl_seconds
+        ):
             return None
 
         try:
@@ -287,7 +327,10 @@ class PlaybackCacheService:
             return prepared
 
         plan = prepared
-        lock = self._acquire_lock(plan.destination)
+        lock = self._acquire_lock(
+            database,
+            plan.destination,
+        )
         if lock is None:
             return PlaybackRestoreResult(
                 path=plan.destination,
@@ -308,7 +351,10 @@ class PlaybackCacheService:
                     already_cached=True,
                 )
 
-            self._prune(protected={plan.destination})
+            self._prune(
+                database,
+                protected={plan.destination},
+            )
             adapter = self._adapter_factory(
                 config_text=plan.rclone_config,
                 binary=self.settings.rclone_binary,
@@ -327,7 +373,10 @@ class PlaybackCacheService:
                 ) from exc
 
             os.utime(plan.destination, None)
-            self._prune(protected={plan.destination})
+            self._prune(
+                database,
+                protected={plan.destination},
+            )
             return PlaybackRestoreResult(
                 path=plan.destination,
                 restored=True,

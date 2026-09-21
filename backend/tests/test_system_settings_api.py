@@ -63,6 +63,17 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "display_timezone": "UTC",
             "camera_ntp_servers": [],
         }
+        assert defaults.json()["runtime"] == {
+            "playback_cache_max_bytes": 4294967296,
+            "playback_cache_ttl_seconds": 21600,
+            "playback_restore_lock_ttl_seconds": 900,
+            "live_transcode_max_derivatives": 2,
+            "live_transcode_idle_ttl_seconds": 20,
+            "live_transcode_lease_ttl_seconds": 30,
+            "live_transcode_startup_timeout_seconds": 10.0,
+            "live_transcode_cpu_threads": 2,
+            "live_transcode_video_bitrate_kbps": 4000,
+        }
 
         updated = client.patch(
             "/api/v1/system/settings",
@@ -86,6 +97,35 @@ def test_system_settings_are_bounded_persisted_and_audited(
                 "pool.ntp.org",
                 "192.168.1.1",
             ],
+        }
+
+        runtime = client.patch(
+            "/api/v1/system/settings",
+            json={
+                "runtime": {
+                    "playback_cache_max_bytes": 134217728,
+                    "playback_cache_ttl_seconds": 3600,
+                    "playback_restore_lock_ttl_seconds": 300,
+                    "live_transcode_max_derivatives": 1,
+                    "live_transcode_idle_ttl_seconds": 15,
+                    "live_transcode_lease_ttl_seconds": 45,
+                    "live_transcode_startup_timeout_seconds": 5,
+                    "live_transcode_cpu_threads": 1,
+                    "live_transcode_video_bitrate_kbps": 2500,
+                }
+            },
+        )
+        assert runtime.status_code == 200
+        assert runtime.json()["runtime"] == {
+            "playback_cache_max_bytes": 134217728,
+            "playback_cache_ttl_seconds": 3600,
+            "playback_restore_lock_ttl_seconds": 300,
+            "live_transcode_max_derivatives": 1,
+            "live_transcode_idle_ttl_seconds": 15,
+            "live_transcode_lease_ttl_seconds": 45,
+            "live_transcode_startup_timeout_seconds": 5.0,
+            "live_transcode_cpu_threads": 1,
+            "live_transcode_video_bitrate_kbps": 2500,
         }
 
         bad = client.patch(
@@ -124,6 +164,23 @@ def test_system_settings_are_bounded_persisted_and_audited(
         )
         assert row is not None
         assert row.value_json["system_name"] == "Home NVR"
+        runtime_row = session.get(
+            SystemSetting,
+            "runtime_tuning",
+        )
+        assert runtime_row is not None
+        assert (
+            runtime_row.value_json[
+                "live_transcode_max_derivatives"
+            ]
+            == 1
+        )
+        assert (
+            runtime_row.value_json[
+                "playback_cache_max_bytes"
+            ]
+            == 134217728
+        )
         actions = set(
             session.scalars(
                 select(AuditEvent.action)

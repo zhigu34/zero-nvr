@@ -6,9 +6,13 @@ from pathlib import Path
 import pytest
 
 from app.core.config import Settings
+from app.core.db import Base, Database
 from app.modules.cameras.live_transcode import (
     LiveTranscodeError,
     LiveTranscodeManager,
+)
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
 )
 
 
@@ -306,3 +310,77 @@ def test_hardware_failure_falls_back_to_bounded_cpu(
     assert "libx264" in commands[1]
     assert "-threads" in commands[1]
     manager.stop()
+
+
+
+def test_live_transcode_capacity_uses_runtime_tuning_database(
+    tmp_path: Path,
+) -> None:
+    FakeTimer.created = []
+    configured = settings(
+        tmp_path,
+        live_transcode_max_derivatives=2,
+    )
+    database = Database(configured)
+    database.initialize_runtime()
+    Base.metadata.create_all(database.engine)
+    try:
+        with database.session() as session:
+            RuntimeTuningSettingsService.update(
+                session,
+                settings=configured,
+                changes={
+                    "live_transcode_max_derivatives": 1,
+                },
+            )
+            session.commit()
+
+        manager = LiveTranscodeManager(
+            configured,
+            database=database,
+            popen_factory=(
+                lambda *_args, **_kwargs: FakeProcess()
+            ),
+            run_factory=(
+                lambda *_args, **_kwargs: FakeCompleted()
+            ),
+            zlm_factory=FakeZlm,
+            timer_factory=FakeTimer,
+        )
+        camera_id = uuid.uuid4()
+        owner_user_id = uuid.uuid4()
+        first_profile = uuid.uuid4()
+        second_profile = uuid.uuid4()
+
+        manager.acquire(
+            camera_id=camera_id,
+            owner_user_id=owner_user_id,
+            profile_id=first_profile,
+            source_url=(
+                "rtsp://zlmediakit:554/zero-nvr/"
+                f"profile-{first_profile.hex}"
+            ),
+            has_audio=False,
+        )
+
+        with pytest.raises(
+            LiveTranscodeError
+        ) as captured:
+            manager.acquire(
+                camera_id=camera_id,
+                owner_user_id=owner_user_id,
+                profile_id=second_profile,
+                source_url=(
+                    "rtsp://zlmediakit:554/zero-nvr/"
+                    f"profile-{second_profile.hex}"
+                ),
+                has_audio=False,
+            )
+
+        assert (
+            captured.value.code
+            == "live_transcode_capacity"
+        )
+        manager.stop()
+    finally:
+        database.close()

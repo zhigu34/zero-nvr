@@ -170,7 +170,19 @@ const generalForm = reactive({
   displayTimezone: "UTC",
   ntpServers: ""
 })
+const runtimeForm = reactive({
+  playbackCacheMiB: 4096,
+  playbackCacheTtlSeconds: 21600,
+  playbackRestoreLockTtlSeconds: 900,
+  liveTranscodeMaxDerivatives: 2,
+  liveTranscodeIdleTtlSeconds: 20,
+  liveTranscodeLeaseTtlSeconds: 30,
+  liveTranscodeStartupTimeoutSeconds: 10,
+  liveTranscodeCpuThreads: 2,
+  liveTranscodeVideoBitrateKbps: 4000
+})
 const generalSaving = ref(false)
+const runtimeSaving = ref(false)
 const ntpApplyResult = ref<CameraNtpApplyResult | null>(null)
 const cameraClockHealth = ref<CameraClockHealth | null>(null)
 const cameraClockLoading = ref(false)
@@ -538,6 +550,25 @@ async function loadBase(): Promise<void> {
       settingsValue.general.display_timezone
     generalForm.ntpServers =
       settingsValue.general.camera_ntp_servers.join("\n")
+    runtimeForm.playbackCacheMiB =
+      settingsValue.runtime.playback_cache_max_bytes /
+      (1024 * 1024)
+    runtimeForm.playbackCacheTtlSeconds =
+      settingsValue.runtime.playback_cache_ttl_seconds
+    runtimeForm.playbackRestoreLockTtlSeconds =
+      settingsValue.runtime.playback_restore_lock_ttl_seconds
+    runtimeForm.liveTranscodeMaxDerivatives =
+      settingsValue.runtime.live_transcode_max_derivatives
+    runtimeForm.liveTranscodeIdleTtlSeconds =
+      settingsValue.runtime.live_transcode_idle_ttl_seconds
+    runtimeForm.liveTranscodeLeaseTtlSeconds =
+      settingsValue.runtime.live_transcode_lease_ttl_seconds
+    runtimeForm.liveTranscodeStartupTimeoutSeconds =
+      settingsValue.runtime.live_transcode_startup_timeout_seconds
+    runtimeForm.liveTranscodeCpuThreads =
+      settingsValue.runtime.live_transcode_cpu_threads
+    runtimeForm.liveTranscodeVideoBitrateKbps =
+      settingsValue.runtime.live_transcode_video_bitrate_kbps
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -716,12 +747,14 @@ async function saveGeneral(): Promise<void> {
   error.value = null
   try {
     const updated = await patchSystemSettings({
-      system_name: generalForm.systemName.trim(),
-      display_timezone: generalForm.displayTimezone.trim(),
-      camera_ntp_servers: generalForm.ntpServers
-        .split(/\r?\n|,/)
-        .map((item) => item.trim())
-        .filter(Boolean)
+      general: {
+        system_name: generalForm.systemName.trim(),
+        display_timezone: generalForm.displayTimezone.trim(),
+        camera_ntp_servers: generalForm.ntpServers
+          .split(/\r?\n|,/)
+          .map((item) => item.trim())
+          .filter(Boolean)
+      }
     })
     settings.value = updated
     ntpApplyResult.value = null
@@ -749,6 +782,44 @@ async function saveGeneral(): Promise<void> {
     error.value = errorMessage(caught)
   } finally {
     generalSaving.value = false
+  }
+}
+
+async function saveRuntime(): Promise<void> {
+  if (!auth.hasPermission("system.manage")) return
+  runtimeSaving.value = true
+  error.value = null
+  try {
+    const updated = await patchSystemSettings({
+      runtime: {
+        playback_cache_max_bytes: Math.round(
+          runtimeForm.playbackCacheMiB * 1024 * 1024
+        ),
+        playback_cache_ttl_seconds:
+          Number(runtimeForm.playbackCacheTtlSeconds),
+        playback_restore_lock_ttl_seconds:
+          Number(runtimeForm.playbackRestoreLockTtlSeconds),
+        live_transcode_max_derivatives:
+          Number(runtimeForm.liveTranscodeMaxDerivatives),
+        live_transcode_idle_ttl_seconds:
+          Number(runtimeForm.liveTranscodeIdleTtlSeconds),
+        live_transcode_lease_ttl_seconds:
+          Number(runtimeForm.liveTranscodeLeaseTtlSeconds),
+        live_transcode_startup_timeout_seconds:
+          Number(runtimeForm.liveTranscodeStartupTimeoutSeconds),
+        live_transcode_cpu_threads:
+          Number(runtimeForm.liveTranscodeCpuThreads),
+        live_transcode_video_bitrate_kbps:
+          Number(runtimeForm.liveTranscodeVideoBitrateKbps)
+      }
+    })
+    settings.value = updated
+    notice.value =
+      "Runtime tuning saved. New playback restores and transcode work use it immediately."
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    runtimeSaving.value = false
   }
 }
 
@@ -1449,6 +1520,142 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </form>
+
+        <div class="system-section">
+          <div class="system-section__heading">
+            <strong>Runtime tuning</strong>
+            <span>
+              Product runtime limits stored in the database. Changes apply
+              without editing .env or restarting the containers.
+            </span>
+          </div>
+          <form
+            class="system-form-card system-form-card--wide"
+            @submit.prevent="saveRuntime"
+          >
+            <div class="system-form-row">
+              <label>
+                <span>Playback cache limit (MiB)</span>
+                <input
+                  v-model.number="runtimeForm.playbackCacheMiB"
+                  type="number"
+                  min="64"
+                  max="1048576"
+                  step="64"
+                  required
+                />
+              </label>
+              <label>
+                <span>Playback cache TTL (seconds)</span>
+                <input
+                  v-model.number="runtimeForm.playbackCacheTtlSeconds"
+                  type="number"
+                  min="60"
+                  max="604800"
+                  required
+                />
+              </label>
+              <label>
+                <span>Restore lock TTL (seconds)</span>
+                <input
+                  v-model.number="runtimeForm.playbackRestoreLockTtlSeconds"
+                  type="number"
+                  min="60"
+                  max="604800"
+                  required
+                />
+              </label>
+            </div>
+
+            <div class="system-subsection">
+              <div class="system-subsection__heading">
+                <div>
+                  <strong>Browser compatibility transcode</strong>
+                  <span>
+                    Bounds the on-demand FFmpeg derivatives used only when a
+                    browser cannot consume the camera codec directly.
+                  </span>
+                </div>
+              </div>
+              <div class="system-form-row">
+                <label>
+                  <span>Max derivatives</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeMaxDerivatives"
+                    type="number"
+                    min="1"
+                    max="8"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>CPU threads</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeCpuThreads"
+                    type="number"
+                    min="1"
+                    max="8"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Video bitrate (kbps)</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeVideoBitrateKbps"
+                    type="number"
+                    min="512"
+                    max="20000"
+                    step="128"
+                    required
+                  />
+                </label>
+              </div>
+              <div class="system-form-row">
+                <label>
+                  <span>Idle TTL (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeIdleTtlSeconds"
+                    type="number"
+                    min="5"
+                    max="300"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Lease TTL (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeLeaseTtlSeconds"
+                    type="number"
+                    min="15"
+                    max="300"
+                    required
+                  />
+                </label>
+                <label>
+                  <span>Startup timeout (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.liveTranscodeStartupTimeoutSeconds"
+                    type="number"
+                    min="1"
+                    max="30"
+                    step="0.5"
+                    required
+                  />
+                </label>
+              </div>
+            </div>
+
+            <div class="system-form-actions">
+              <button
+                class="button button--primary"
+                type="submit"
+                :disabled="runtimeSaving || !auth.hasPermission('system.manage')"
+              >
+                {{ runtimeSaving ? "Saving…" : "Save runtime tuning" }}
+              </button>
+            </div>
+          </form>
+        </div>
       </template>
 
       <template v-else-if="tab === 'users'">

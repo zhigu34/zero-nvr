@@ -41,7 +41,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     zlm_continuity = ZlmContinuityTracker()
     recorder_modes = RecorderModeTracker()
     prebuffer_fragments = PrebufferFragmentTracker()
-    live_transcodes = LiveTranscodeManager(resolved_settings)
+    live_transcodes = LiveTranscodeManager(
+        resolved_settings,
+        database=database,
+    )
     media_sessions = MediaSessionRegistry()
     recording_tasks = RecordingTaskDispatcher(resolved_settings)
     backup_tasks = BackupTaskDispatcher()

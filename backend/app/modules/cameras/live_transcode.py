@@ -9,9 +9,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from app.core.config import Settings
+from app.core.db import Database
 from app.integrations.zlm import (
     ZlmAdapter,
     ZlmIntegrationError,
+)
+from app.modules.system.settings import (
+    RuntimeTuningSettings,
+    RuntimeTuningSettingsService,
 )
 
 from .media_runtime import ZlmStreamReference
@@ -70,8 +75,10 @@ class LiveTranscodeManager:
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
         path_exists: Callable[[str], bool] | None = None,
+        database: Database | None = None,
     ) -> None:
         self.settings = settings
+        self.database = database
         self._popen_factory = popen_factory
         self._run_factory = run_factory
         self._zlm_factory = zlm_factory
@@ -93,6 +100,17 @@ class LiveTranscodeManager:
             _LeaseState,
         ] = {}
         self._acceleration: str | None = None
+
+    def _tuning(self) -> RuntimeTuningSettings:
+        if self.database is None:
+            return RuntimeTuningSettingsService.defaults(
+                self.settings
+            )
+        with self.database.session() as session:
+            return RuntimeTuningSettingsService.get(
+                session,
+                settings=self.settings,
+            )
 
     @staticmethod
     def _key(profile_id: uuid.UUID) -> str:
@@ -160,9 +178,9 @@ class LiveTranscodeManager:
         has_audio: bool,
         acceleration: str,
     ) -> list[str]:
+        tuning = self._tuning()
         bitrate = (
-            self.settings
-            .live_transcode_video_bitrate_kbps
+            tuning.live_transcode_video_bitrate_kbps
         )
         command = [
             self.settings.ffmpeg_binary,
@@ -213,7 +231,7 @@ class LiveTranscodeManager:
                     "zerolatency",
                     "-threads",
                     str(
-                        self.settings
+                        tuning
                         .live_transcode_cpu_threads
                     ),
                     "-profile:v",
@@ -304,7 +322,7 @@ class LiveTranscodeManager:
     ) -> bool:
         deadline = (
             self._monotonic()
-            + self.settings
+            + self._tuning()
             .live_transcode_startup_timeout_seconds
         )
         try:
@@ -415,7 +433,7 @@ class LiveTranscodeManager:
             return
         self._cancel_timer(lease.timer)
         lease.timer = self._make_timer(
-            self.settings
+            self._tuning()
             .live_transcode_lease_ttl_seconds,
             self._expire_lease,
             lease_id,
@@ -428,7 +446,7 @@ class LiveTranscodeManager:
     ) -> None:
         self._cancel_timer(entry.idle_timer)
         entry.idle_timer = self._make_timer(
-            self.settings
+            self._tuning()
             .live_transcode_idle_ttl_seconds,
             self._expire_derivative,
             key,
@@ -489,7 +507,7 @@ class LiveTranscodeManager:
     ) -> None:
         if (
             len(self._derivatives)
-            < self.settings
+            < self._tuning()
             .live_transcode_max_derivatives
         ):
             return

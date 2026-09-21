@@ -35,7 +35,11 @@ from .release_validation import (
 )
 from .release_readiness import ReleaseReadinessService
 from .frigate_managed import ManagedFrigateConfigService
-from .settings import SystemSettingsService
+from .settings import (
+    RuntimeTuningSettings,
+    RuntimeTuningSettingsService,
+    SystemSettingsService,
+)
 from .frigate import (
     FrigateCredentials,
     FrigateProviderConfig,
@@ -64,6 +68,7 @@ from .schemas import (
     ReleaseReadinessView,
     ReleaseValidationArtifactView,
     ReleaseValidationView,
+    RuntimeTuningSettingsView,
     SystemHealthView,
     SystemSettingsPatch,
     SystemSettingsView,
@@ -726,6 +731,74 @@ def export_configuration(
     )
 
 
+def _runtime_tuning_view(
+    value: RuntimeTuningSettings,
+) -> RuntimeTuningSettingsView:
+    return RuntimeTuningSettingsView(
+        playback_cache_max_bytes=(
+            value.playback_cache_max_bytes
+        ),
+        playback_cache_ttl_seconds=(
+            value.playback_cache_ttl_seconds
+        ),
+        playback_restore_lock_ttl_seconds=(
+            value.playback_restore_lock_ttl_seconds
+        ),
+        live_transcode_max_derivatives=(
+            value.live_transcode_max_derivatives
+        ),
+        live_transcode_idle_ttl_seconds=(
+            value.live_transcode_idle_ttl_seconds
+        ),
+        live_transcode_lease_ttl_seconds=(
+            value.live_transcode_lease_ttl_seconds
+        ),
+        live_transcode_startup_timeout_seconds=(
+            value.live_transcode_startup_timeout_seconds
+        ),
+        live_transcode_cpu_threads=(
+            value.live_transcode_cpu_threads
+        ),
+        live_transcode_video_bitrate_kbps=(
+            value.live_transcode_video_bitrate_kbps
+        ),
+    )
+
+
+def _runtime_tuning_snapshot(
+    value: RuntimeTuningSettings,
+) -> dict[str, object]:
+    return {
+        "playback_cache_max_bytes": (
+            value.playback_cache_max_bytes
+        ),
+        "playback_cache_ttl_seconds": (
+            value.playback_cache_ttl_seconds
+        ),
+        "playback_restore_lock_ttl_seconds": (
+            value.playback_restore_lock_ttl_seconds
+        ),
+        "live_transcode_max_derivatives": (
+            value.live_transcode_max_derivatives
+        ),
+        "live_transcode_idle_ttl_seconds": (
+            value.live_transcode_idle_ttl_seconds
+        ),
+        "live_transcode_lease_ttl_seconds": (
+            value.live_transcode_lease_ttl_seconds
+        ),
+        "live_transcode_startup_timeout_seconds": (
+            value.live_transcode_startup_timeout_seconds
+        ),
+        "live_transcode_cpu_threads": (
+            value.live_transcode_cpu_threads
+        ),
+        "live_transcode_video_bitrate_kbps": (
+            value.live_transcode_video_bitrate_kbps
+        ),
+    }
+
+
 @router.get(
     "/settings",
     response_model=SystemSettingsView,
@@ -741,6 +814,10 @@ def get_system_settings(
         session,
         settings=request.app.state.settings,
     )
+    runtime = RuntimeTuningSettingsService.get(
+        session,
+        settings=request.app.state.settings,
+    )
     return SystemSettingsView(
         general=GeneralSystemSettingsView(
             system_name=general.system_name,
@@ -748,7 +825,8 @@ def get_system_settings(
             camera_ntp_servers=list(
                 general.camera_ntp_servers
             ),
-        )
+        ),
+        runtime=_runtime_tuning_view(runtime),
     )
 
 
@@ -764,22 +842,38 @@ def patch_system_settings(
     ),
     session: Session = Depends(get_db_session),
 ) -> SystemSettingsView:
-    before = SystemSettingsService.get(
+    before_general = SystemSettingsService.get(
         session,
         settings=request.app.state.settings,
     )
-    changes: dict[str, object] = {}
-    if body.general is not None:
-        changes = body.general.model_dump(
-            exclude_unset=True
-        )
+    before_runtime = RuntimeTuningSettingsService.get(
+        session,
+        settings=request.app.state.settings,
+    )
 
     try:
-        after = SystemSettingsService.update(
-            session,
-            settings=request.app.state.settings,
-            changes=changes,
-        )
+        after_general = before_general
+        if body.general is not None:
+            after_general = SystemSettingsService.update(
+                session,
+                settings=request.app.state.settings,
+                changes=body.general.model_dump(
+                    exclude_unset=True
+                ),
+            )
+
+        after_runtime = before_runtime
+        if body.runtime is not None:
+            after_runtime = (
+                RuntimeTuningSettingsService.update(
+                    session,
+                    settings=request.app.state.settings,
+                    changes=body.runtime.model_dump(
+                        exclude_unset=True
+                    ),
+                )
+            )
+
         append_audit_event(
             session,
             request=request,
@@ -788,21 +882,35 @@ def patch_system_settings(
             resource_type="system_settings",
             before={
                 "general": {
-                    "system_name": before.system_name,
-                    "display_timezone": before.display_timezone,
-                    "camera_ntp_servers": list(
-                        before.camera_ntp_servers
+                    "system_name": (
+                        before_general.system_name
                     ),
-                }
+                    "display_timezone": (
+                        before_general.display_timezone
+                    ),
+                    "camera_ntp_servers": list(
+                        before_general.camera_ntp_servers
+                    ),
+                },
+                "runtime": _runtime_tuning_snapshot(
+                    before_runtime
+                ),
             },
             after={
                 "general": {
-                    "system_name": after.system_name,
-                    "display_timezone": after.display_timezone,
-                    "camera_ntp_servers": list(
-                        after.camera_ntp_servers
+                    "system_name": (
+                        after_general.system_name
                     ),
-                }
+                    "display_timezone": (
+                        after_general.display_timezone
+                    ),
+                    "camera_ntp_servers": list(
+                        after_general.camera_ntp_servers
+                    ),
+                },
+                "runtime": _runtime_tuning_snapshot(
+                    after_runtime
+                ),
             },
         )
         session.commit()
@@ -812,12 +920,17 @@ def patch_system_settings(
 
     return SystemSettingsView(
         general=GeneralSystemSettingsView(
-            system_name=after.system_name,
-            display_timezone=after.display_timezone,
-            camera_ntp_servers=list(
-                after.camera_ntp_servers
+            system_name=after_general.system_name,
+            display_timezone=(
+                after_general.display_timezone
             ),
-        )
+            camera_ntp_servers=list(
+                after_general.camera_ntp_servers
+            ),
+        ),
+        runtime=_runtime_tuning_view(
+            after_runtime
+        ),
     )
 
 

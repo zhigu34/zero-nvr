@@ -24,6 +24,17 @@ export interface SystemSettings {
     display_timezone: string
     camera_ntp_servers: string[]
   }
+  runtime: {
+    playback_cache_max_bytes: number
+    playback_cache_ttl_seconds: number
+    playback_restore_lock_ttl_seconds: number
+    live_transcode_max_derivatives: number
+    live_transcode_idle_ttl_seconds: number
+    live_transcode_lease_ttl_seconds: number
+    live_transcode_startup_timeout_seconds: number
+    live_transcode_cpu_threads: number
+    live_transcode_video_bitrate_kbps: number
+  }
 }
 
 export interface CameraNtpDeviceResult {
@@ -278,11 +289,14 @@ export function getSystemSettings(): Promise<SystemSettings> {
 }
 
 export function patchSystemSettings(
-  general: Partial<SystemSettings["general"]>
+  changes: {
+    general?: Partial<SystemSettings["general"]>
+    runtime?: Partial<SystemSettings["runtime"]>
+  }
 ): Promise<SystemSettings> {
   return apiRequest<SystemSettings>("/system/settings", {
     method: "PATCH",
-    json: { general }
+    json: changes
   })
 }
 
