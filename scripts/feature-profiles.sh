@@ -15,6 +15,9 @@ feature_profile_name() {
     postgres|postgresql)
       printf 'postgres'
       ;;
+    turn|coturn)
+      printf 'turn'
+      ;;
     *)
       return 1
       ;;
@@ -34,6 +37,9 @@ feature_service_name() {
       ;;
     postgres)
       printf 'postgres'
+      ;;
+    turn)
+      printf 'coturn'
       ;;
     *)
       return 1

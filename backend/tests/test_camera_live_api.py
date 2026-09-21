@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.core.db import Base
@@ -623,3 +624,128 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
         assert captured["released"][2] == captured[
             "owner_user_id"
         ]
+
+
+
+def test_live_ice_servers_require_authorized_media_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    def fake_ensure(self, desired):
+        return [
+            item.reference
+            for item in desired
+        ]
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Front Door",
+                "location": "Entrance",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://camera.local/main"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+
+        descriptor = client.get(
+            f"/api/v1/cameras/{camera_id}/live"
+        )
+        assert descriptor.status_code == 200
+        media_session_id = descriptor.json()[
+            "media_session_id"
+        ]
+
+        disabled = client.get(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                "/live/ice?media_session_id="
+                f"{media_session_id}"
+            )
+        )
+        assert disabled.status_code == 200
+        assert disabled.json() == {
+            "enabled": False,
+            "ice_servers": [],
+        }
+
+        app.state.settings.turn_enabled = True
+        app.state.settings.turn_public_host = (
+            "relay.example.test"
+        )
+        app.state.settings.turn_port = 3478
+        app.state.settings.turn_shared_secret = (
+            SecretStr("t" * 40)
+        )
+        app.state.settings.turn_credential_ttl_seconds = 600
+
+        enabled = client.get(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                "/live/ice?media_session_id="
+                f"{media_session_id}"
+            )
+        )
+        assert enabled.status_code == 200
+        body = enabled.json()
+        assert body["enabled"] is True
+        assert len(body["ice_servers"]) == 1
+        server = body["ice_servers"][0]
+        assert server["urls"] == [
+            (
+                "turn:relay.example.test:3478"
+                "?transport=udp"
+            ),
+            (
+                "turn:relay.example.test:3478"
+                "?transport=tcp"
+            ),
+        ]
+        assert server["username"]
+        assert server["credential"]
+        assert "t" * 40 not in enabled.text
+
+        missing = client.get(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                "/live/ice?media_session_id="
+                f"{uuid.uuid4()}"
+            )
+        )
+        assert missing.status_code == 404
+        assert (
+            missing.json()["error"]["code"]
+            == "media_session_not_found"
+        )

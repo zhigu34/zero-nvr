@@ -133,6 +133,40 @@ services:
     networks:
       - zero-nvr
 
+  coturn:
+    profiles:
+      - turn
+    image: ${ZERO_NVR_COTURN_IMAGE:-coturn/coturn:4.18.0-r0}
+    user: "0:0"
+    command:
+      - -c
+      - /etc/coturn/turnserver.conf
+    volumes:
+      - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}/managed/coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    tmpfs:
+      - /var/lib/coturn
+    ports:
+      - "${ZERO_NVR_TURN_BIND:-0.0.0.0}:${ZERO_NVR_TURN_PORT:-3478}:3478/tcp"
+      - "${ZERO_NVR_TURN_BIND:-0.0.0.0}:${ZERO_NVR_TURN_PORT:-3478}:3478/udp"
+      - "${ZERO_NVR_TURN_BIND:-0.0.0.0}:${ZERO_NVR_TURN_RELAY_MIN_PORT:-49160}-${ZERO_NVR_TURN_RELAY_MAX_PORT:-49200}:${ZERO_NVR_TURN_RELAY_MIN_PORT:-49160}-${ZERO_NVR_TURN_RELAY_MAX_PORT:-49200}/udp"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          turnutils_stunclient 127.0.0.1 -p 3478 >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - zero-nvr
+
   postgres:
     profiles:
       - postgres

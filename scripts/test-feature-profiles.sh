@@ -7,6 +7,8 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 [[ "$(feature_profile_name ai)" == "frigate" ]]
 [[ "$(feature_profile_name mosquitto)" == "mqtt" ]]
 [[ "$(feature_profile_name postgresql)" == "postgres" ]]
+[[ "$(feature_profile_name coturn)" == "turn" ]]
+[[ "$(feature_service_name turn)" == "coturn" ]]
 [[ "$(feature_service_name mqtt)" == "mosquitto" ]]
 [[ "$(feature_service_name openlist)" == "openlist" ]]
 

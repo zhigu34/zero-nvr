@@ -60,6 +60,14 @@ class Settings(BaseSettings):
     zlm_timeout_seconds: float = 8.0
     zlm_probe_timeout_seconds: float = 12.0
 
+    turn_enabled: bool = False
+    turn_urls: str = ""
+    turn_public_host: str | None = None
+    turn_port: int = 3478
+    turn_shared_secret: SecretStr | None = None
+    turn_credential_ttl_seconds: int = 10 * 60
+    turn_realm: str = "zero-nvr"
+
     onvif_timeout_seconds: float = 10.0
     onvif_discovery_timeout_seconds: float = 3.0
 
@@ -181,6 +189,92 @@ class Settings(BaseSettings):
         if value <= 0 or value > 120:
             raise ValueError("integration timeouts must be greater than 0 and at most 120 seconds")
         return value
+
+    @field_validator("turn_port")
+    @classmethod
+    def validate_turn_port(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 1 or value > 65535:
+            raise ValueError(
+                "ZERO_NVR_TURN_PORT must be between 1 and 65535"
+            )
+        return value
+
+    @field_validator("turn_credential_ttl_seconds")
+    @classmethod
+    def validate_turn_credential_ttl(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 60 or value > 3600:
+            raise ValueError(
+                "ZERO_NVR_TURN_CREDENTIAL_TTL_SECONDS must be between 60 and 3600"
+            )
+        return value
+
+    @field_validator("turn_shared_secret")
+    @classmethod
+    def validate_turn_shared_secret(
+        cls,
+        value: SecretStr | None,
+    ) -> SecretStr | None:
+        if value is None:
+            return None
+        if len(
+            value.get_secret_value().encode(
+                "utf-8"
+            )
+        ) < 32:
+            raise ValueError(
+                "ZERO_NVR_TURN_SHARED_SECRET must be at least 32 bytes"
+            )
+        return value
+
+    @field_validator("turn_public_host")
+    @classmethod
+    def validate_turn_public_host(
+        cls,
+        value: str | None,
+    ) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if (
+            "/" in normalized
+            or "://" in normalized
+            or any(
+                char.isspace()
+                for char in normalized
+            )
+        ):
+            raise ValueError(
+                "ZERO_NVR_TURN_PUBLIC_HOST must be a hostname or IP address"
+            )
+        return normalized
+
+    @field_validator("turn_realm")
+    @classmethod
+    def validate_turn_realm(
+        cls,
+        value: str,
+    ) -> str:
+        normalized = value.strip()
+        if (
+            not normalized
+            or len(normalized) > 253
+            or any(
+                char.isspace()
+                for char in normalized
+            )
+        ):
+            raise ValueError(
+                "ZERO_NVR_TURN_REALM must be a non-empty realm without spaces"
+            )
+        return normalized
 
     @field_validator("zlm_public_base_url")
     @classmethod

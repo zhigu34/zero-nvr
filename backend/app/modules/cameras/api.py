@@ -36,6 +36,10 @@ from app.modules.recordings.triggers import RecordingTriggerService
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
 from .live_transcode import LiveTranscodeError
+from .turn import (
+    TurnConfigurationError,
+    TurnCredentialService,
+)
 from .media_runtime import CameraMediaRuntimeService, ZlmStreamReference
 from .onvif_onboarding import OnvifOnboardingService
 from .ptz import CameraPtzService
@@ -53,6 +57,8 @@ from .schemas import (
     CameraGroupCreate,
     CameraGroupUpdate,
     CameraGroupView,
+    CameraIceServerView,
+    CameraIceServersView,
     CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
@@ -1547,6 +1553,62 @@ def get_camera_live_stream(
         height=selection.profile.height,
         fps=selection.profile.fps,
         has_audio=selection.profile.has_audio,
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/live/ice",
+    response_model=CameraIceServersView,
+)
+def get_camera_live_ice_servers(
+    camera_id: uuid.UUID,
+    request: Request,
+    response: Response,
+    media_session_id: uuid.UUID = Query(),
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> CameraIceServersView:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
+    response.headers[
+        "Cache-Control"
+    ] = "private, no-store"
+    try:
+        bundle = TurnCredentialService(
+            request.app.state.settings
+        ).issue(
+            user_id=context.user.id,
+            request_host=(
+                request.url.hostname
+            ),
+        )
+    except TurnConfigurationError as exc:
+        raise ApiError(
+            status_code=503,
+            code="turn_unavailable",
+            message=str(exc),
+        ) from exc
+
+    if bundle is None:
+        return CameraIceServersView(
+            enabled=False,
+        )
+
+    return CameraIceServersView(
+        enabled=True,
+        ice_servers=[
+            CameraIceServerView(
+                urls=bundle.urls,
+                username=bundle.username,
+                credential=bundle.credential,
+                expires_at=bundle.expires_at,
+            )
+        ],
     )
 
 

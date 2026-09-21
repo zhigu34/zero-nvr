@@ -243,6 +243,20 @@ class CameraLiveStreamView(BaseModel):
 
 
 
+class CameraIceServerView(BaseModel):
+    urls: list[str]
+    username: str
+    credential: str
+    expires_at: datetime
+
+
+class CameraIceServersView(BaseModel):
+    enabled: bool
+    ice_servers: list[
+        CameraIceServerView
+    ] = Field(default_factory=list)
+
+
 class CameraPtzMove(BaseModel):
     pan: float = Field(default=0.0, ge=-1.0, le=1.0)
     tilt: float = Field(default=0.0, ge=-1.0, le=1.0)

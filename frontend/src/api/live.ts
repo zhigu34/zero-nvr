@@ -76,6 +76,31 @@ export function releaseCameraCompatibilityLease(
 }
 
 
+export interface CameraIceServer {
+  urls: string[]
+  username: string
+  credential: string
+  expires_at: string
+}
+
+export interface CameraIceServers {
+  enabled: boolean
+  ice_servers: CameraIceServer[]
+}
+
+export function getCameraIceServers(
+  cameraId: string,
+  mediaSessionId: string
+): Promise<CameraIceServers> {
+  const params = new URLSearchParams({
+    media_session_id: mediaSessionId
+  })
+  return apiRequest<CameraIceServers>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/ice?${params}`
+  )
+}
+
+
 export interface CameraWhepSession {
   answerSdp: string
   location: string

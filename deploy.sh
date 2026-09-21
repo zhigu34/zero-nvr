@@ -28,9 +28,9 @@ Usage:
   ./deploy.sh recovery-kit export [directory] [policy-id-or-name]
   ./deploy.sh admin reset-password <username>
   ./deploy.sh feature list
-  ./deploy.sh feature enable <frigate|mqtt|openlist|postgres>
-  ./deploy.sh feature disable <frigate|mqtt|openlist|postgres>
-  ./deploy.sh feature restart <frigate|mqtt|openlist|postgres>
+  ./deploy.sh feature enable <frigate|mqtt|openlist|postgres|turn>
+  ./deploy.sh feature disable <frigate|mqtt|openlist|postgres|turn>
+  ./deploy.sh feature restart <frigate|mqtt|openlist|postgres|turn>
 
 Core deployment is intentionally three containers:
   zero-nvr API + zero-nvr worker + ZLMediaKit
@@ -372,6 +372,69 @@ EOF
     openlist)
       :
       ;;
+    turn)
+      local turn_secret turn_realm turn_external_ip
+      local relay_min relay_max turn_config_dir
+      turn_secret="$(env_get ZERO_NVR_TURN_SHARED_SECRET "")"
+      if [[ -z "$turn_secret" ]]; then
+        turn_secret="$(random_hex_32)"
+        set_env_value ZERO_NVR_TURN_SHARED_SECRET "$turn_secret"
+        echo "generated: ZERO_NVR_TURN_SHARED_SECRET"
+      elif [[ ${#turn_secret} -lt 32 ]]; then
+        echo "error: ZERO_NVR_TURN_SHARED_SECRET must be at least 32 characters" >&2
+        return 1
+      fi
+
+      turn_realm="$(env_get ZERO_NVR_TURN_REALM "zero-nvr")"
+      turn_external_ip="$(env_get ZERO_NVR_TURN_EXTERNAL_IP "")"
+      relay_min="$(env_get ZERO_NVR_TURN_RELAY_MIN_PORT "49160")"
+      relay_max="$(env_get ZERO_NVR_TURN_RELAY_MAX_PORT "49200")"
+
+      if [[ ! "$relay_min" =~ ^[0-9]+$ ]] \
+        || [[ ! "$relay_max" =~ ^[0-9]+$ ]] \
+        || (( relay_min < 1024 || relay_min > 65535 )) \
+        || (( relay_max < 1024 || relay_max > 65535 )) \
+        || (( relay_min > relay_max )); then
+        echo "error: TURN relay port range is invalid" >&2
+        return 1
+      fi
+      if [[ -z "$turn_realm" ]] \
+        || [[ "$turn_realm" =~ [[:space:]] ]]; then
+        echo "error: ZERO_NVR_TURN_REALM must be non-empty and contain no spaces" >&2
+        return 1
+      fi
+      if [[ -n "$turn_external_ip" ]] \
+        && [[ "$turn_external_ip" =~ [[:space:]/] ]]; then
+        echo "error: ZERO_NVR_TURN_EXTERNAL_IP must be an IP address" >&2
+        return 1
+      fi
+
+      turn_config_dir="$data_root/managed/coturn"
+      mkdir -p "$turn_config_dir"
+      {
+        printf '%s\n' \
+          'no-cli' \
+          'no-tls' \
+          'no-dtls' \
+          'log-file=stdout' \
+          'simple-log' \
+          'fingerprint' \
+          'use-auth-secret' \
+          "static-auth-secret=$turn_secret" \
+          "realm=$turn_realm" \
+          'listening-port=3478' \
+          "min-port=$relay_min" \
+          "max-port=$relay_max" \
+          'user-quota=12' \
+          'total-quota=200' \
+          'no-multicast-peers' \
+          'no-loopback-peers'
+        if [[ -n "$turn_external_ip" ]]; then
+          printf 'external-ip=%s\n' "$turn_external_ip"
+        fi
+      } > "$turn_config_dir/turnserver.conf"
+      chmod 600 "$turn_config_dir/turnserver.conf"
+      ;;
     postgres)
       local pg_password
       pg_password="$(env_get ZERO_NVR_POSTGRES_PASSWORD "")"
@@ -415,6 +478,17 @@ feature_enable() {
     return 1
   fi
 
+  if [[ "$profile" == "turn" ]]; then
+    set_env_value ZERO_NVR_TURN_ENABLED "true"
+    if ! compose up -d --force-recreate --wait --wait-timeout 180 zero-nvr; then
+      set_env_value ZERO_NVR_TURN_ENABLED "false"
+      compose rm -sf "$service" >/dev/null 2>&1 || true
+      set_env_value COMPOSE_PROFILES "$original_profiles"
+      compose up -d --force-recreate --wait --wait-timeout 180 zero-nvr >/dev/null 2>&1 || true
+      return 1
+    fi
+  fi
+
   echo "feature enabled: $profile"
   case "$profile" in
     frigate)
@@ -428,6 +502,10 @@ feature_enable() {
     postgres)
       echo "managed PostgreSQL is running but the active zero-nvr database was not changed"
       echo "database-engine migration remains an explicit operation"
+      ;;
+    turn)
+      echo "managed TURN is enabled for authorized WebRTC sessions"
+      echo "set ZERO_NVR_TURN_PUBLIC_HOST and ZERO_NVR_TURN_EXTERNAL_IP when clients connect through NAT"
       ;;
   esac
 }
@@ -444,9 +522,15 @@ feature_disable() {
 
   preflight
   ensure_env
+  if [[ "$profile" == "turn" ]]; then
+    set_env_value ZERO_NVR_TURN_ENABLED "false"
+  fi
   compose stop "$service" >/dev/null 2>&1 || true
   compose rm -f "$service" >/dev/null 2>&1 || true
   feature_set_profile disable "$profile"
+  if [[ "$profile" == "turn" ]]; then
+    compose up -d --force-recreate --wait --wait-timeout 180 zero-nvr
+  fi
   echo "feature disabled: $profile"
   echo "persistent feature data was retained"
 }
@@ -471,6 +555,10 @@ feature_restart() {
   ensure_host_dirs
   feature_prepare "$profile"
   compose up -d --force-recreate --wait --wait-timeout 180 "$service"
+  if [[ "$profile" == "turn" ]]; then
+    set_env_value ZERO_NVR_TURN_ENABLED "true"
+    compose up -d --force-recreate --wait --wait-timeout 180 zero-nvr
+  fi
   echo "feature restarted: $profile"
 }
 
@@ -478,7 +566,7 @@ feature_list() {
   local current profile
   ensure_env
   current="$(env_get COMPOSE_PROFILES "")"
-  for profile in frigate mqtt openlist postgres; do
+  for profile in frigate mqtt openlist postgres turn; do
     if profile_is_enabled "$current" "$profile"; then
       printf '%-10s enabled\n' "$profile"
     else

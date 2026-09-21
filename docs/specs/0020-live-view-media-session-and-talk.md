@@ -169,6 +169,14 @@ When enabled:
 
 If a deployment already has compatible TURN infrastructure, External mode/configuration should be possible rather than forcing another coturn service.
 
+Implemented deployment modes:
+
+- default/LAN: TURN disabled and no coturn container is pulled or started;
+- managed: `./deploy.sh feature enable turn` enables the optional coturn Compose profile, generates the shared secret, writes the managed coturn config, and enables short-lived credential issuance in the API;
+- external: operators set TURN URL(s) plus the shared secret without enabling the managed profile.
+
+Managed TURN keeps a bounded relay port range and can advertise an explicit external IP for NAT deployments. The browser requests ICE servers only after the user has an authorized Camera MediaSession; failure to obtain TURN credentials falls back to direct WebRTC and never affects recording.
+
 ## Two-way talk
 
 Two-way talk is capability-dependent and does **not** block V1 core completeness.

@@ -21,6 +21,7 @@ import {
   createCameraWhepSession,
   deleteCameraWhepSession,
   getCameraCompatibleLiveStream,
+  getCameraIceServers,
   getCameraLiveStream,
   keepCameraCompatibilityLease,
   releaseCameraCompatibilityLease,
@@ -574,7 +575,34 @@ async function attachWebRtc(
   }
 
   releaseWebRtcSession()
-  const peer = new RTCPeerConnection()
+
+  const mediaSessionId = activeMediaSessionId
+  if (!mediaSessionId) {
+    throw new Error(
+      "Live media session is unavailable."
+    )
+  }
+
+  let iceServers: RTCIceServer[] = []
+  try {
+    const ice = await getCameraIceServers(
+      props.camera.id,
+      mediaSessionId
+    )
+    iceServers = ice.ice_servers.map(
+      (server) => ({
+        urls: server.urls,
+        username: server.username,
+        credential: server.credential
+      })
+    )
+  } catch {
+    // TURN is optional. Direct LAN WebRTC must remain available.
+  }
+
+  const peer = new RTCPeerConnection({
+    iceServers
+  })
   const remoteStream = new MediaStream()
   rtcPeer = peer
 
@@ -616,11 +644,6 @@ async function attachWebRtc(
     const offerSdp = peer.localDescription?.sdp
     if (!offerSdp) {
       throw new Error("WebRTC offer SDP is unavailable.")
-    }
-
-    const mediaSessionId = activeMediaSessionId
-    if (!mediaSessionId) {
-      throw new Error("Live media session is unavailable.")
     }
 
     const whep = await createCameraWhepSession(

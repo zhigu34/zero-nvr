@@ -169,8 +169,8 @@ Acceptance:
 - [x] TranscodeManager for on-demand H.265/incompatible-H.264 -> browser-compatible H.264.
 - [x] shared transcode derivatives with refcount/idle TTL.
 - [x] hardware-acceleration capability probe and CPU fallback/resource limits.
-- [ ] coturn STUN/TURN deployment and health.
-- [ ] short-lived authenticated TURN credentials.
+- [x] coturn STUN/TURN deployment and health.
+- [x] short-lived authenticated TURN credentials.
 - [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.
 - [x] live audio negotiation and focused-camera audio behavior.
 - [ ] camera.talk permission and TalkSession API.
