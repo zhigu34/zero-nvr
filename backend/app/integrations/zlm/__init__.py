@@ -1,5 +1,6 @@
 from .access import ZlmMediaAccess
 from .continuity import ZlmContinuityTracker, ZlmStreamIdentity
+from .recording import ZlmRecordingAdapter
 from .adapter import (
     ZlmAdapter,
     ZlmIntegrationError,
@@ -11,6 +12,7 @@ from .adapter import (
 __all__ = [
     "ZlmAdapter",
     "ZlmMediaAccess",
+    "ZlmRecordingAdapter",
     "ZlmContinuityTracker",
     "ZlmStreamIdentity",
     "ZlmIntegrationError",

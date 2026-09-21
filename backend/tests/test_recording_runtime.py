@@ -25,15 +25,15 @@ class FakeZlm:
     def __exit__(self, *_exc) -> None:
         return None
 
-    def is_media_online(self, *, app: str, stream: str) -> bool:
+    def is_stream_online(self, *, app: str, stream: str) -> bool:
         self.calls.append(("online", app, stream))
         return self.online
 
-    def is_mp4_recording(self, *, app: str, stream: str) -> bool:
+    def is_recording(self, *, app: str, stream: str) -> bool:
         self.calls.append(("is", app, stream))
         return self.recording
 
-    def start_mp4_recording(
+    def start(
         self,
         *,
         app: str,
@@ -47,7 +47,7 @@ class FakeZlm:
         self.__class__.recording = True
         return True
 
-    def stop_mp4_recording(self, *, app: str, stream: str) -> bool:
+    def stop(self, *, app: str, stream: str) -> bool:
         self.calls.append(("stop", app, stream))
         self.__class__.recording = False
         return True

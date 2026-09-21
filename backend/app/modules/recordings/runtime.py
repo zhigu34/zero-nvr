@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
-from app.integrations.zlm import ZlmAdapter
+from app.integrations.zlm import ZlmRecordingAdapter
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import Camera, CameraStreamBinding, CameraStreamProfile
 from app.modules.storage.recording_resolver import RecordingStorageResolver
@@ -90,7 +90,7 @@ class RecordingRuntimeService:
         self,
         settings: Settings,
         *,
-        zlm_factory: Callable[[Settings], Any] = ZlmAdapter,
+        zlm_factory: Callable[[Settings], Any] = ZlmRecordingAdapter,
         mode_tracker: RecorderModeTracker | None = None,
     ) -> None:
         self.settings = settings
@@ -232,7 +232,7 @@ class RecordingRuntimeService:
         )
 
         with self._zlm_factory(self.settings) as zlm:
-            online = zlm.is_media_online(
+            online = zlm.is_stream_online(
                 app=desired.app,
                 stream=desired.stream,
             )
@@ -259,14 +259,14 @@ class RecordingRuntimeService:
                     message="Camera recording stream is not available in ZLMediaKit.",
                 )
 
-            current = zlm.is_mp4_recording(
+            current = zlm.is_recording(
                 app=desired.app,
                 stream=desired.stream,
             )
 
             if desired.mode == "off":
                 if current:
-                    if not zlm.stop_mp4_recording(
+                    if not zlm.stop(
                         app=desired.app,
                         stream=desired.stream,
                     ):
@@ -318,7 +318,7 @@ class RecordingRuntimeService:
                     )
 
                 if known_mode != desired.mode or force_reconfigure:
-                    if not zlm.stop_mp4_recording(
+                    if not zlm.stop(
                         app=desired.app,
                         stream=desired.stream,
                     ):
@@ -331,7 +331,7 @@ class RecordingRuntimeService:
                     changed = True
 
             if not current:
-                if not zlm.start_mp4_recording(
+                if not zlm.start(
                     app=desired.app,
                     stream=desired.stream,
                     customized_path=desired.target_root,

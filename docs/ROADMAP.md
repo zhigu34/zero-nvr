@@ -193,7 +193,7 @@ Acceptance:
 
 - [ ] Implement per-camera recording arbiter that derives desired recorder state from RecordingPolicy + active RecordingTriggers.
 - [ ] Keep runtime arbitration idempotent without a mandatory RecordingIntent table.
-- [ ] Implement thin ZLM RecordingAdapter for start/stop/status and recorder hooks.
+- [x] Implement thin ZLM RecordingAdapter for start/stop/status and recorder hooks.
 - [ ] Keep FFmpeg out of the normal 24x7 recording path; use it only for derived/recovery jobs.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
 - [ ] explicit schedule_timezone handling for wall-clock schedules.
