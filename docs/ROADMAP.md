@@ -221,7 +221,7 @@ Acceptance:
 - [x] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
 - [x] normal age-based retention worker.
 - [x] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
-- [ ] priority-based emergency purge with structured logs.
+- [x] priority-based emergency purge with structured logs.
 - [x] RecordingProtection range create/update/delete and UI.
 - [ ] safe local purge only after verified remote readiness where applicable.
 - [x] disk capacity guard.

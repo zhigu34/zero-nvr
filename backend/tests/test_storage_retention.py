@@ -304,6 +304,98 @@ def test_archive_gate_blocks_then_allows_expired_local_delete(
         database.close()
 
 
+def test_archive_gate_requires_verified_remote_copy(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=0,
+            require_archive=True,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            location_id,
+            relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=1)
+            ),
+            reasons=["continuous"],
+            object_name="unverified-remote",
+        )
+
+        with database.session() as session:
+            session.add(
+                RecordingLocation(
+                    recording_segment_id=(
+                        segment_id
+                    ),
+                    storage_target_id=remote_id,
+                    object_path=(
+                        relative.as_posix()
+                    ),
+                    state="AVAILABLE",
+                    size_bytes=1024,
+                    verified_at=None,
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            assert location is not None
+            decision = RetentionPlanner.evaluate(
+                session,
+                location=location,
+                now=now,
+            )
+            assert (
+                decision.eligible_for_delete
+                is False
+            )
+            assert (
+                decision
+                .verified_archive_available
+                is False
+            )
+            assert decision.reason in {
+                "archive_required",
+                "archive_unavailable",
+            }
+    finally:
+        database.close()
+
+
 def test_protection_wins_over_expiry_and_archive(
     tmp_path: Path,
 ) -> None:
@@ -436,6 +528,99 @@ def test_best_effort_pressure_can_expire_early_but_hard_cannot(
             )
             assert hard.eligible_for_delete is False
             assert hard.reason == "before_deadline"
+    finally:
+        database.close()
+
+
+def test_best_effort_pressure_never_expires_event_or_manual_early(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            mode="BEST_EFFORT",
+            ordinary_days=30,
+            event_days=30,
+            manual_days=30,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        _, event_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=1)
+            ),
+            reasons=["event"],
+            object_name="pressure-event",
+        )
+        _, manual_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=1)
+            ),
+            reasons=["manual"],
+            object_name="pressure-manual",
+        )
+
+        with database.session() as session:
+            for location_id in (
+                event_location,
+                manual_location,
+            ):
+                location = session.get(
+                    RecordingLocation,
+                    location_id,
+                )
+                assert location is not None
+                decision = (
+                    RetentionPlanner.evaluate(
+                        session,
+                        location=location,
+                        now=now,
+                        pressure=True,
+                    )
+                )
+                assert (
+                    decision
+                    .eligible_for_delete
+                    is False
+                )
+                assert (
+                    decision.pressure_override
+                    is False
+                )
+                assert (
+                    decision.reason
+                    == "before_deadline"
+                )
     finally:
         database.close()
 
@@ -1208,6 +1393,259 @@ def test_actionable_plan_deduplicates_archive_work_per_segment(
                 action.archive_target_id
                 == remote_id
             )
+    finally:
+        database.close()
+
+
+def test_pressure_actions_follow_safe_emergency_priority(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            mode="BEST_EFFORT",
+            ordinary_days=1,
+            event_days=1,
+            manual_days=1,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+
+        _, event_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=20)
+            ),
+            reasons=["event"],
+            object_name="priority-event",
+        )
+        _, ordinary_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=10)
+            ),
+            reasons=["continuous"],
+            object_name="priority-ordinary",
+        )
+        (
+            remote_segment,
+            remote_location,
+            remote_relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=5)
+            ),
+            reasons=["continuous"],
+            object_name="priority-remote",
+        )
+        add_remote_available(
+            database,
+            segment_id=remote_segment,
+            remote_target_id=remote_id,
+            object_path=(
+                remote_relative.as_posix()
+            ),
+        )
+        _, early_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(hours=12)
+            ),
+            reasons=["continuous"],
+            object_name="priority-early",
+        )
+
+        with database.session() as session:
+            batch = (
+                RetentionPlanner
+                .actionable_plan(
+                    session,
+                    now=now,
+                    pressure_target_ids={
+                        local_id
+                    },
+                    page_size=2,
+                    action_limit=10,
+                )
+            )
+            ordered = [
+                item.location_id
+                for item
+                in batch.decisions
+                if item
+                .eligible_for_delete
+            ]
+            assert ordered == [
+                remote_location,
+                ordinary_location,
+                event_location,
+                early_location,
+            ]
+            assert (
+                batch.decisions[0]
+                .verified_archive_available
+                is True
+            )
+            assert (
+                batch.decisions[-1]
+                .pressure_override
+                is True
+            )
+    finally:
+        database.close()
+
+
+def test_local_delete_emits_structured_result_log(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        policy_id = add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=0,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            location_id,
+            relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=1)
+            ),
+            reasons=["continuous"],
+            object_name="logged-delete",
+        )
+        write_local_file(
+            settings,
+            object_path=(
+                relative.as_posix()
+            ),
+        )
+
+        caplog.set_level(
+            "INFO",
+            logger=(
+                "zero_nvr.storage.retention"
+            ),
+        )
+        result = (
+            LocalRetentionDeletionService
+            .execute(
+                database,
+                location_id=location_id,
+                now=now,
+            )
+        )
+        assert result.deleted is True
+
+        records = [
+            item
+            for item in caplog.records
+            if item.getMessage()
+            == "retention_delete_completed"
+        ]
+        assert len(records) == 1
+        record = records[0]
+        assert (
+            record.retention_location_id
+            == str(location_id)
+        )
+        assert (
+            record.retention_segment_id
+            == str(segment_id)
+        )
+        assert (
+            record.retention_camera_id
+            == str(camera_id)
+        )
+        assert (
+            record.retention_storage_target_id
+            == str(local_id)
+        )
+        assert (
+            record.retention_policy_id
+            == str(policy_id)
+        )
+        assert (
+            record.retention_class
+            == "ordinary"
+        )
+        assert (
+            record.retention_reason
+            == "retention_expired"
+        )
+        assert (
+            record.retention_result
+            == "deleted"
+        )
+        assert (
+            record.retention_pressure_override
+            is False
+        )
     finally:
         database.close()
 

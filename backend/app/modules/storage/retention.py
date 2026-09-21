@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -29,6 +30,11 @@ from .models import RecordingLocation, StorageTarget
 from .service import StorageTargetService
 
 
+_LOGGER = logging.getLogger(
+    "zero_nvr.storage.retention"
+)
+
+
 @dataclass(frozen=True, slots=True)
 class RetentionDecision:
     location_id: uuid.UUID
@@ -40,6 +46,7 @@ class RetentionDecision:
     reason: str
     archive_target_id: uuid.UUID | None = None
     pressure_override: bool = False
+    verified_archive_available: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,6 +399,7 @@ class RetentionPlanner:
                     RecordingLocation.recording_segment_id
                     == segment_id,
                     RecordingLocation.state == "AVAILABLE",
+                    RecordingLocation.verified_at.is_not(None),
                     StorageTarget.type == "rclone",
                     StorageTarget.role == "archive",
                 )
@@ -560,9 +568,16 @@ class RetentionPlanner:
             )
 
         assert deadline is not None
+        verified_archive_available = (
+            cls._available_archive_exists(
+                session,
+                segment_id=segment.id,
+            )
+        )
         pressure_override = (
             pressure
             and policy.mode == "BEST_EFFORT"
+            and retention_class == "ordinary"
             and instant < deadline
         )
         if instant < deadline and not pressure_override:
@@ -578,10 +593,7 @@ class RetentionPlanner:
 
         if (
             policy.require_archive_before_delete
-            and not cls._available_archive_exists(
-                session,
-                segment_id=segment.id,
-            )
+            and not verified_archive_available
         ):
             archive_target_id = cls._archive_target_for_retry(
                 session,
@@ -602,6 +614,7 @@ class RetentionPlanner:
                 ),
                 archive_target_id=archive_target_id,
                 pressure_override=pressure_override,
+                verified_archive_available=False,
             )
 
         return RetentionDecision(
@@ -613,6 +626,48 @@ class RetentionPlanner:
             eligible_for_delete=True,
             reason="eligible",
             pressure_override=pressure_override,
+            verified_archive_available=(
+                verified_archive_available
+            ),
+        )
+
+    @staticmethod
+    def _emergency_priority(
+        decision: RetentionDecision,
+    ) -> tuple[
+        int,
+        datetime,
+        str,
+        str,
+    ]:
+        if decision.archive_target_id is not None:
+            bucket = 4
+        elif decision.pressure_override:
+            bucket = 3
+        elif (
+            decision.eligible_for_delete
+            and decision
+            .verified_archive_available
+        ):
+            bucket = 0
+        elif (
+            decision.eligible_for_delete
+            and decision.retention_class
+            == "ordinary"
+        ):
+            bucket = 1
+        else:
+            bucket = 2
+
+        deadline = (
+            decision.deadline
+            or datetime.max.replace(tzinfo=UTC)
+        )
+        return (
+            bucket,
+            deadline,
+            str(decision.segment_id),
+            str(decision.location_id),
         )
 
     @classmethod
@@ -697,14 +752,17 @@ class RetentionPlanner:
         ] | None = None,
         page_size: int = 500,
         action_limit: int = 500,
+        emergency_scan_limit: int = 5000,
     ) -> RetentionActionBatch:
-        """Scan past blocked old media so legal later work cannot starve."""
+        """Scan blocked media and prioritize safe emergency purge actions."""
 
         if (
             page_size < 1
             or page_size > 5000
             or action_limit < 1
             or action_limit > 5000
+            or emergency_scan_limit < 1
+            or emergency_scan_limit > 50000
         ):
             raise ApiError(
                 status_code=400,
@@ -727,8 +785,25 @@ class RetentionPlanner:
         scanned = 0
         blocked = 0
         offset = 0
+        emergency = (
+            pressure
+            or bool(pressure_target_ids)
+        )
 
-        while len(actions) < action_limit:
+        while True:
+            if (
+                emergency
+                and scanned
+                >= emergency_scan_limit
+            ):
+                break
+            page_limit = page_size
+            if emergency:
+                page_limit = min(
+                    page_size,
+                    emergency_scan_limit
+                    - scanned,
+                )
             page = cls.plan(
                 session,
                 now=now,
@@ -736,7 +811,7 @@ class RetentionPlanner:
                 pressure_target_ids=(
                     pressure_target_ids
                 ),
-                limit=page_size,
+                limit=page_limit,
                 offset=offset,
             )
             if not page:
@@ -774,21 +849,31 @@ class RetentionPlanner:
                 action_keys.add(key)
                 actions.append(decision)
                 if (
-                    len(actions)
+                    not emergency
+                    and len(actions)
                     >= action_limit
                 ):
                     break
 
+            if len(page) < page_limit:
+                break
             if (
-                len(page) < page_size
-                or len(actions)
+                not emergency
+                and len(actions)
                 >= action_limit
             ):
                 break
             offset += len(page)
 
+        if emergency:
+            actions.sort(
+                key=cls._emergency_priority
+            )
+
         return RetentionActionBatch(
-            decisions=tuple(actions),
+            decisions=tuple(
+                actions[:action_limit]
+            ),
             scanned=scanned,
             blocked=blocked,
         )
@@ -914,10 +999,66 @@ class LocalRetentionDeletionService:
                 target=target,
                 object_path=location.object_path,
             )
+            segment = session.get(
+                RecordingSegment,
+                decision.segment_id,
+            )
+            delete_log = {
+                "retention_location_id": str(
+                    location.id
+                ),
+                "retention_segment_id": str(
+                    decision.segment_id
+                ),
+                "retention_camera_id": (
+                    str(segment.camera_id)
+                    if segment is not None
+                    else None
+                ),
+                "retention_storage_target_id": str(
+                    location.storage_target_id
+                ),
+                "retention_policy_id": (
+                    str(decision.policy_id)
+                    if decision.policy_id
+                    is not None
+                    else None
+                ),
+                "retention_class": (
+                    decision.retention_class
+                ),
+                "retention_deadline": (
+                    decision.deadline.isoformat()
+                    if decision.deadline
+                    is not None
+                    else None
+                ),
+                "retention_reason": (
+                    "best_effort_pressure"
+                    if decision
+                    .pressure_override
+                    else "retention_expired"
+                ),
+                "retention_pressure_override": (
+                    decision.pressure_override
+                ),
+                "retention_verified_archive": (
+                    decision
+                    .verified_archive_available
+                ),
+            }
             location.state = "DELETING"
             location.last_attempt_at = utc_now()
             location.last_error = None
             session.commit()
+
+        _LOGGER.info(
+            "retention_delete_started",
+            extra={
+                **delete_log,
+                "retention_result": "started",
+            },
+        )
 
         try:
             file_path.unlink(missing_ok=True)
@@ -926,6 +1067,16 @@ class LocalRetentionDeletionService:
                 database,
                 location_id=location_id,
                 error_code="retention_delete_failed",
+            )
+            _LOGGER.error(
+                "retention_delete_failed",
+                extra={
+                    **delete_log,
+                    "retention_result": "failed",
+                    "retention_error": (
+                        "retention_delete_failed"
+                    ),
+                },
             )
             raise RetentionDeleteError(
                 "retention_delete_failed",
@@ -947,6 +1098,14 @@ class LocalRetentionDeletionService:
             location.last_attempt_at = utc_now()
             location.last_error = None
             session.commit()
+
+        _LOGGER.info(
+            "retention_delete_completed",
+            extra={
+                **delete_log,
+                "retention_result": "deleted",
+            },
+        )
 
         return RetentionDeleteResult(
             location_id=location_id,
