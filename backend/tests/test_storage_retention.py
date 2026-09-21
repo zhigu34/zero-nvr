@@ -982,6 +982,236 @@ def test_policy_precedence_explicit_then_camera_then_nearest_group_then_global(
         database.close()
 
 
+def test_actionable_plan_scans_past_blocked_old_media(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=1,
+            event_days=30,
+            manual_days=90,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+
+        for index in range(2):
+            add_segment(
+                database,
+                camera_id=camera_id,
+                profile_id=profile_id,
+                local_target_id=local_id,
+                ended_at=(
+                    now
+                    - timedelta(days=20)
+                    + timedelta(
+                        minutes=index
+                    )
+                ),
+                reasons=["event"],
+                object_name=(
+                    f"blocked-{index}"
+                ),
+            )
+
+        (
+            _segment_id,
+            eligible_location,
+            _relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=10)
+            ),
+            reasons=["continuous"],
+            object_name="eligible-later",
+        )
+
+        with database.session() as session:
+            first_page = (
+                RetentionPlanner.plan(
+                    session,
+                    now=now,
+                    limit=2,
+                )
+            )
+            assert len(first_page) == 2
+            assert all(
+                not item
+                .eligible_for_delete
+                for item in first_page
+            )
+
+            batch = (
+                RetentionPlanner
+                .actionable_plan(
+                    session,
+                    now=now,
+                    page_size=2,
+                    action_limit=10,
+                )
+            )
+            assert batch.scanned == 3
+            assert batch.blocked == 2
+            assert len(batch.decisions) == 1
+            assert (
+                batch.decisions[0]
+                .location_id
+                == eligible_location
+            )
+            assert (
+                batch.decisions[0]
+                .eligible_for_delete
+                is True
+            )
+    finally:
+        database.close()
+
+
+def test_actionable_plan_deduplicates_archive_work_per_segment(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=0,
+            require_archive=True,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            _location_id,
+            relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=1)
+            ),
+            reasons=["continuous"],
+            object_name="archive-once",
+        )
+
+        second_root = (
+            tmp_path
+            / "recordings-secondary"
+        )
+        second_root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        with database.session() as session:
+            second_target = (
+                StorageTargetService(
+                    settings
+                ).create(
+                    session,
+                    target_type="local",
+                    role="recording",
+                    name=(
+                        "Secondary Recording"
+                    ),
+                    enabled=True,
+                    config={
+                        "path": str(
+                            second_root
+                        ),
+                        "default_recording": (
+                            False
+                        ),
+                    },
+                    rclone_config=None,
+                )
+            )
+            session.add(
+                RecordingLocation(
+                    recording_segment_id=(
+                        segment_id
+                    ),
+                    storage_target_id=(
+                        second_target.id
+                    ),
+                    object_path=(
+                        relative.as_posix()
+                    ),
+                    state="AVAILABLE",
+                    size_bytes=1024,
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            batch = (
+                RetentionPlanner
+                .actionable_plan(
+                    session,
+                    now=now,
+                    page_size=1,
+                    action_limit=10,
+                )
+            )
+            assert batch.scanned == 2
+            assert len(batch.decisions) == 1
+            action = batch.decisions[0]
+            assert (
+                action.segment_id
+                == segment_id
+            )
+            assert (
+                action.archive_target_id
+                == remote_id
+            )
+    finally:
+        database.close()
+
+
 def test_local_delete_runs_only_after_planner_allows_it(
     tmp_path: Path,
 ) -> None:

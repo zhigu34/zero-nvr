@@ -929,20 +929,23 @@ def _run_retention_reconciliation(
                             target.id
                         )
 
-            decisions = RetentionPlanner.plan(
-                session,
-                pressure=pressure,
-                pressure_target_ids=(
-                    pressure_target_ids
-                ),
-                limit=500,
+            batch = (
+                RetentionPlanner
+                .actionable_plan(
+                    session,
+                    pressure=pressure,
+                    pressure_target_ids=(
+                        pressure_target_ids
+                    ),
+                    page_size=500,
+                    action_limit=500,
+                )
             )
             session.commit()
 
         archived = 0
         deleted = 0
-        blocked = 0
-        for decision in decisions:
+        for decision in batch.decisions:
             if decision.archive_target_id is not None:
                 archive_recording_segment(
                     str(decision.segment_id),
@@ -963,12 +966,11 @@ def _run_retention_reconciliation(
                 deleted += 1
                 continue
 
-            blocked += 1
-
         return {
             "archive_queued": archived,
             "delete_queued": deleted,
-            "blocked": blocked,
+            "blocked": batch.blocked,
+            "scanned": batch.scanned,
         }
     finally:
         database.close()

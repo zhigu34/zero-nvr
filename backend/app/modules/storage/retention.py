@@ -49,6 +49,16 @@ class _RetentionHorizon:
     active_event: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class RetentionActionBatch:
+    decisions: tuple[
+        RetentionDecision,
+        ...,
+    ]
+    scanned: int
+    blocked: int
+
+
 class RetentionPlanner:
     @staticmethod
     def _single_policy(
@@ -616,12 +626,19 @@ class RetentionPlanner:
             uuid.UUID
         ] | None = None,
         limit: int = 500,
+        offset: int = 0,
     ) -> list[RetentionDecision]:
         if limit < 1 or limit > 5000:
             raise ApiError(
                 status_code=400,
                 code="retention_limit_invalid",
                 message="Retention batch limit is invalid.",
+            )
+        if offset < 0:
+            raise ApiError(
+                status_code=400,
+                code="retention_offset_invalid",
+                message="Retention batch offset is invalid.",
             )
 
         locations = list(
@@ -646,6 +663,7 @@ class RetentionPlanner:
                     RecordingSegment.ended_at,
                     RecordingLocation.id,
                 )
+                .offset(offset)
                 .limit(limit)
             )
         )
@@ -666,6 +684,114 @@ class RetentionPlanner:
             )
             for location in locations
         ]
+
+    @classmethod
+    def actionable_plan(
+        cls,
+        session: Session,
+        *,
+        now: datetime | None = None,
+        pressure: bool = False,
+        pressure_target_ids: set[
+            uuid.UUID
+        ] | None = None,
+        page_size: int = 500,
+        action_limit: int = 500,
+    ) -> RetentionActionBatch:
+        """Scan past blocked old media so legal later work cannot starve."""
+
+        if (
+            page_size < 1
+            or page_size > 5000
+            or action_limit < 1
+            or action_limit > 5000
+        ):
+            raise ApiError(
+                status_code=400,
+                code=(
+                    "retention_action_batch_"
+                    "invalid"
+                ),
+                message=(
+                    "Retention action batch "
+                    "settings are invalid."
+                ),
+            )
+
+        actions: list[
+            RetentionDecision
+        ] = []
+        action_keys: set[
+            tuple[str, uuid.UUID]
+        ] = set()
+        scanned = 0
+        blocked = 0
+        offset = 0
+
+        while len(actions) < action_limit:
+            page = cls.plan(
+                session,
+                now=now,
+                pressure=pressure,
+                pressure_target_ids=(
+                    pressure_target_ids
+                ),
+                limit=page_size,
+                offset=offset,
+            )
+            if not page:
+                break
+
+            scanned += len(page)
+            for decision in page:
+                key: tuple[
+                    str,
+                    uuid.UUID,
+                ] | None = None
+                if (
+                    decision.archive_target_id
+                    is not None
+                ):
+                    key = (
+                        "archive",
+                        decision.segment_id,
+                    )
+                elif (
+                    decision
+                    .eligible_for_delete
+                ):
+                    key = (
+                        "delete",
+                        decision.location_id,
+                    )
+
+                if key is None:
+                    blocked += 1
+                    continue
+                if key in action_keys:
+                    continue
+
+                action_keys.add(key)
+                actions.append(decision)
+                if (
+                    len(actions)
+                    >= action_limit
+                ):
+                    break
+
+            if (
+                len(page) < page_size
+                or len(actions)
+                >= action_limit
+            ):
+                break
+            offset += len(page)
+
+        return RetentionActionBatch(
+            decisions=tuple(actions),
+            scanned=scanned,
+            blocked=blocked,
+        )
 
 
 
