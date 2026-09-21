@@ -19,6 +19,7 @@ Usage:
   ./deploy.sh doctor
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
+  ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
   ./deploy.sh migrate
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>]
   ./deploy.sh backup [reason] [policy-id-or-name]
@@ -553,6 +554,11 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/soak.sh" "$@"
+    ;;
+  release-check)
+    ensure_env
+    ensure_host_dirs
+    "$SCRIPT_DIR/release-check.sh" "$@"
     ;;
   migrate)
     ensure_env
