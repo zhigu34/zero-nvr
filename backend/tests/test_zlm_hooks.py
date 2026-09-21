@@ -14,6 +14,7 @@ from app.integrations.zlm import ZlmMediaAccess
 from app.main import create_app
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
+from app.modules.events.models import Event
 from app.modules.recordings.models import RecordingPolicy, RecordingSegment
 from app.modules.storage.models import RecordingLocation, StorageTarget
 
@@ -434,6 +435,26 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
         assert (
             by_start[2021].completion_reason
             != "source_lost"
+        )
+
+        connectivity_events = list(
+            session.scalars(
+                select(Event).where(
+                    Event.camera_id == camera_id,
+                    Event.source == "system",
+                    Event.category == "source_connectivity",
+                    Event.label == "source_lost",
+                )
+            )
+        )
+        assert len(connectivity_events) == 1
+        outage = connectivity_events[0]
+        assert outage.started_at == dt(2010)
+        assert outage.ended_at == dt(2012)
+        assert outage.metadata_json["source_stream"] == stream
+        assert (
+            outage.metadata_json["recovered_source_stream"]
+            == stream
         )
 
     reconciled = (

@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.events.models import Event
+from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import (
     RecordingPolicy,
     RecordingSegment,
@@ -125,6 +126,37 @@ class PlaybackTimelineService:
         if policy.baseline_mode == "disabled":
             return "not_scheduled"
 
+        connectivity = session.scalar(
+            select(Event)
+            .where(
+                Event.source
+                == SystemEventService.SOURCE,
+                Event.source_instance_id
+                == SystemEventService.SOURCE_INSTANCE_ID,
+                Event.camera_id == camera_id,
+                Event.category
+                == SystemEventService.SOURCE_CONNECTIVITY_CATEGORY,
+                Event.label
+                == SystemEventService.SOURCE_LOST_LABEL,
+                Event.started_at < end_at,
+            )
+            .order_by(
+                Event.started_at.desc(),
+                Event.id.desc(),
+            )
+            .limit(1)
+        )
+        if connectivity is not None:
+            if (
+                connectivity.ended_at is None
+                or connectivity.ended_at > start_at
+            ):
+                return "source_lost"
+
+            # A closed interval is explicit recovery evidence. Do not let an
+            # older segment completion marker stretch source_lost past recovery.
+            return "unknown"
+
         previous = session.scalar(
             select(RecordingSegment)
             .where(
@@ -150,8 +182,8 @@ class PlaybackTimelineService:
         ):
             return "source_lost"
 
-        # Schedule evaluation and other persisted runtime evidence refine this
-        # later. Do not guess an outage reason without actual segment evidence.
+        # When no transition event survived, finalized segment evidence is the
+        # safe fallback. Other outage causes remain unknown until proven.
         return "unknown"
 
     @classmethod
@@ -223,6 +255,20 @@ class PlaybackTimelineService:
         for item in projected:
             boundaries.add(item.clipped_start)
             boundaries.add(item.clipped_end)
+
+        # Connectivity transitions split otherwise-empty ranges so a recovered
+        # outage is not painted beyond its observed interval.
+        for event in timeline_events:
+            if not SystemEventService.is_source_loss(event):
+                continue
+            if start_at < event.started_at < end_at:
+                boundaries.add(event.started_at)
+            if (
+                event.ended_at is not None
+                and start_at < event.ended_at < end_at
+            ):
+                boundaries.add(event.ended_at)
+
         ordered = sorted(boundaries)
 
         recording_ranges: list[TimelineRecordingRangeView] = []

@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
+from app.modules.events.models import Event
 from app.modules.recordings.models import RecordingPolicy, RecordingSegment
 from app.modules.recordings.timeline import PlaybackTimelineService
 from app.modules.storage.models import RecordingLocation, StorageTarget
@@ -194,5 +195,75 @@ def test_timeline_merges_physical_segments_into_wall_clock_ranges(
             source_loss_timeline.gaps[0].reason
             == "source_lost"
         )
+
+        # Persisted connectivity transitions take precedence over the older
+        # segment-tail fallback and end exactly at observed recovery.
+        with database.session() as session:
+            last_segment = session.scalar(
+                select(RecordingSegment)
+                .where(
+                    RecordingSegment.camera_id
+                    == camera_id
+                )
+                .order_by(
+                    RecordingSegment.ended_at.desc()
+                )
+                .limit(1)
+            )
+            assert last_segment is not None
+            last_segment.completion_reason = "NORMAL"
+            session.add(
+                Event(
+                    source="system",
+                    source_instance_id="zero-nvr",
+                    camera_id=camera_id,
+                    category="source_connectivity",
+                    label="source_lost",
+                    started_at=(
+                        base
+                        + timedelta(minutes=13)
+                    ),
+                    ended_at=(
+                        base
+                        + timedelta(minutes=14)
+                    ),
+                    severity="warning",
+                    metadata_json={},
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            bounded_outage = PlaybackTimelineService.build(
+                session,
+                camera_id=camera_id,
+                start_at=base,
+                end_at=base + timedelta(minutes=15),
+            )
+
+        assert [
+            (
+                item.start_at,
+                item.end_at,
+                item.reason,
+            )
+            for item in bounded_outage.gaps
+        ] == [
+            (
+                base + timedelta(minutes=12),
+                base + timedelta(minutes=13),
+                "unknown",
+            ),
+            (
+                base + timedelta(minutes=13),
+                base + timedelta(minutes=14),
+                "source_lost",
+            ),
+            (
+                base + timedelta(minutes=14),
+                base + timedelta(minutes=15),
+                "unknown",
+            ),
+        ]
     finally:
         database.close()

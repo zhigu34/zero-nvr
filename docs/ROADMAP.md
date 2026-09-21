@@ -216,7 +216,7 @@ Acceptance:
 - [x] source-loss finalized media tail is identified with `completion_reason = source_lost` without stretching media timing to the later unregister callback.
 - [x] post-reconnect segments start in a new continuity generation and are never normalized against a pre-disconnect segment.
 - [x] preserve RecordingPolicy/active RecordingTriggers across source outage and reconcile recorder plus prebuffer promotion state after ZLM recovery.
-- [ ] SystemEvent/health transition persistence sufficient to explain source-loss gaps when evidence exists.
+- [x] SystemEvent/health transition persistence sufficient to explain source-loss gaps when evidence exists.
 - [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
 - [ ] normal age-based retention worker.

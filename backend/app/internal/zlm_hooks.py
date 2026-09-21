@@ -17,6 +17,7 @@ from app.modules.cameras.models import (
     CameraStreamBinding,
     CameraStreamProfile,
 )
+from app.modules.events.system import SystemEventService
 from app.modules.recordings.catalog import (
     FinalizedRecordingEvidence,
     RecordingCatalogService,
@@ -89,6 +90,29 @@ def _ack() -> dict[str, object]:
     return {"code": 0, "msg": "success"}
 
 
+def _recording_camera_id(
+    session: Session,
+    *,
+    stream: str,
+):
+    """Resolve a managed RECORD binding without treating other ZLM streams as outages."""
+
+    try:
+        profile_id = RecordingCatalogService.profile_id_from_stream(
+            stream
+        )
+    except ApiError:
+        return None
+
+    binding = session.scalar(
+        select(CameraStreamBinding).where(
+            CameraStreamBinding.stream_profile_id == profile_id,
+            CameraStreamBinding.purpose == "RECORD",
+        )
+    )
+    return binding.camera_id if binding is not None else None
+
+
 @router.post("/play")
 def zlm_play(
     body: ZlmPlayHook,
@@ -150,84 +174,81 @@ def zlm_stream_changed(
             stream=body.stream,
             at=boundary_at,
         )
+    else:
+        tracker.unregistered(
+            vhost=body.vhost,
+            app=body.app,
+            stream=body.stream,
+            at=boundary_at,
+        )
 
-        # ZLM owns reconnect. Once the managed RECORD source is registered
-        # again, re-apply the still-persisted RecordingPolicy/Trigger intent
-        # through the normal runtime reconciler. This is intentionally
-        # idempotent and does not introduce a second RTSP reconnect loop.
-        camera_id = None
-        try:
-            profile_id = (
-                RecordingCatalogService
-                .profile_id_from_stream(
-                    body.stream
-                )
-            )
-            binding = session.scalar(
-                select(
-                    CameraStreamBinding
-                ).where(
-                    CameraStreamBinding
-                    .stream_profile_id
-                    == profile_id,
-                    CameraStreamBinding
-                    .purpose
-                    == "RECORD",
-                )
-            )
-            if binding is not None:
-                camera_id = binding.camera_id
-            session.commit()
-        except Exception:
-            session.rollback()
-            request.app.state.logger.warning(
-                "recording recovery lookup failed after ZLM source registration",
-                extra={
-                    "stream": body.stream,
-                },
-            )
-
+    # Persist only meaningful RECORD-source transitions. The canonical Event
+    # interval is intentionally separate from high-frequency runtime telemetry:
+    # unregister opens source_lost and the next registration closes it.
+    camera_id = None
+    try:
+        camera_id = _recording_camera_id(
+            session,
+            stream=body.stream,
+        )
         if camera_id is not None:
-            dispatcher = (
-                request.app.state.recording_tasks
+            transition = (
+                SystemEventService.source_recovered
+                if body.regist
+                else SystemEventService.source_lost
             )
-            for operation, callback in (
-                (
-                    "runtime",
-                    dispatcher.reconcile_runtime,
+            transition(
+                session,
+                camera_id=camera_id,
+                observed_at=boundary_at,
+                stream=body.stream,
+                app=body.app,
+                vhost=body.vhost,
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        request.app.state.logger.warning(
+            "recording source health persistence failed after ZLM stream transition",
+            extra={
+                "stream": body.stream,
+                "transition": (
+                    "registered"
+                    if body.regist
+                    else "unregistered"
                 ),
-                (
-                    "prebuffer",
-                    dispatcher.reconcile_camera,
-                ),
-            ):
-                try:
-                    callback(camera_id)
-                except Exception:
-                    request.app.state.logger.warning(
-                        "recording recovery reconcile enqueue failed after ZLM source registration",
-                        extra={
-                            "camera_id": str(
-                                camera_id
-                            ),
-                            "stream": body.stream,
-                            "operation": operation,
-                        },
-                    )
-        return _ack()
+            },
+        )
 
-    tracker.unregistered(
-        vhost=body.vhost,
-        app=body.app,
-        stream=body.stream,
-        at=boundary_at,
-    )
+    if body.regist and camera_id is not None:
+        # ZLM owns reconnect. Re-apply the still-persisted RecordingPolicy and
+        # Trigger intent through the normal idempotent runtime reconcilers.
+        dispatcher = request.app.state.recording_tasks
+        for operation, callback in (
+            (
+                "runtime",
+                dispatcher.reconcile_runtime,
+            ),
+            (
+                "prebuffer",
+                dispatcher.reconcile_camera,
+            ),
+        ):
+            try:
+                callback(camera_id)
+            except Exception:
+                request.app.state.logger.warning(
+                    "recording recovery reconcile enqueue failed after ZLM source registration",
+                    extra={
+                        "camera_id": str(camera_id),
+                        "stream": body.stream,
+                        "operation": operation,
+                    },
+                )
 
-    # Source unregister proves that the continuity generation ended, but the
-    # callback may arrive later than the last decodable frame. Do not stretch a
-    # catalog segment to this wall-clock time. A finalized MP4 hook that is
-    # attributable to this closed generation marks the newest known tail with
-    # completion_reason=source_lost while preserving actual hook duration.
+    # An unregister callback is a continuity and health boundary, not exact
+    # media timing proof. Finalized media hooks still determine the physical
+    # tail and completion_reason=source_lost without stretching segment time.
     return _ack()
 
 
