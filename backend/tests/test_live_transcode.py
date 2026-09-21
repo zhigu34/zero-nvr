@@ -320,6 +320,9 @@ def test_live_transcode_capacity_uses_runtime_tuning_database(
     configured = settings(
         tmp_path,
         live_transcode_max_derivatives=2,
+        database_url=(
+            f"sqlite:///{tmp_path / 'live-transcode.db'}"
+        ),
     )
     database = Database(configured)
     database.initialize_runtime()
