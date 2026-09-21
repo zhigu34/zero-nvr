@@ -183,8 +183,15 @@ validation job on a fresh Ubuntu runner and invokes the real `./deploy.sh
 install` against Docker. It verifies the generated `.env`, bootstrap secrets,
 default WebRTC port, running API/worker/ZLMediaKit services, API health, schema
 compatibility, and install summary, then tears the stack and volumes down.
-This CI host is a real Docker clean-install check, but it still does not replace
-the final target-hardware and real-camera acceptance run.
+The real Docker clean-install job has passed and is now part of the required
+Deployment CI path. It proves the Core three-container first-install path on a
+fresh Ubuntu host class. The only remaining Deployment-test gate is the
+target-host real-camera lifecycle: live view, persistent recording, finalized
+hook/catalog entry, timeline/playback, then control/media restart and
+reconciliation without recreating the Camera.
+
+The CI host is not a substitute for that final target-hardware and real-camera
+acceptance run.
 
 The intended install sequence for the deployment-test gate is therefore:
 
@@ -200,6 +207,24 @@ Docker/Compose preflight
 -> health/readiness check
 -> print effective access addresses
 ~~~
+
+After first deployment on the intended host, the remaining real-camera
+acceptance run is deliberately operator-observed rather than simulated:
+
+~~~text
+1. add/validate one real ONVIF or RTSP camera;
+2. confirm Live produces video in the browser without exposing source credentials;
+3. set a persistent recording policy and wait for at least one finalized segment;
+4. confirm RecordingSegment + AVAILABLE local RecordingLocation are cataloged;
+5. confirm the same interval appears on the timeline and plays back;
+6. restart ZLMediaKit, zero-nvr API, and worker through the supported deployment path;
+7. confirm the same Camera identity remains, media reconnects, recording resumes,
+   and reconciliation does not duplicate or lose the finalized segment.
+~~~
+
+Do not mark the Deployment-test gate complete from synthetic sources alone; the
+last item exists specifically to expose real camera/network/codec/filesystem
+behavior that CI cannot reproduce.
 
 ### update
 
