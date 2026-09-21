@@ -97,7 +97,7 @@ const gridColumns = computed(() => {
 })
 
 const streamQuality = computed<LiveQuality>(() =>
-  focusedCameraId.value || layoutSlots.value <= 4 ? "high" : "low"
+  focusedCameraId.value || layoutSlots.value === 1 ? "high" : "low"
 )
 
 const activeLayout = computed(() =>

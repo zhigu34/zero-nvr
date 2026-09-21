@@ -162,7 +162,7 @@ Acceptance:
 - [ ] Browser capability report and LivePlaybackResolver.
 - [ ] WebRTC preferred transport with bounded fMP4/HLS fallback.
 - [ ] camera/live authorization before media-session issuance.
-- [ ] grid live_preview policy and focus/fullscreen live_main promotion/demotion.
+- [x] grid live_preview policy and focus/fullscreen live_main promotion/demotion.
 - [ ] viewport/network-aware auto quality with hysteresis.
 - [ ] live-session telemetry: bitrate/loss/RTT/jitter/first-frame/reconnect/relay.
 - [ ] H.265/H.264 browser compatibility resolution independent from recording profile.
@@ -178,8 +178,8 @@ Acceptance:
 - [ ] push-to-talk + full-duplex where supported; single-talker lease default.
 - [ ] live snapshot action without exposing camera snapshot URL.
 - [ ] PTZ overlay integrated with live view when authorized.
-- [ ] saved LiveViewLayout / grid layouts.
-- [ ] visibility/offscreen idle-session cleanup.
+- [x] saved LiveViewLayout / grid layouts.
+- [x] visibility/offscreen idle-session cleanup.
 - [ ] ZLM restart/session reconnect and current runtime-generation re-resolution.
 - [ ] Live Monitor complete UI.
 

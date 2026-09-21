@@ -56,6 +56,9 @@ const recordingError = ref<string | null>(null)
 const ptzOpen = ref(false)
 const ptzError = ref<string | null>(null)
 const ptzHolding = ref(false)
+const pageVisible = ref(!document.hidden)
+const tileVisible = ref(true)
+const fullscreenActive = ref(false)
 
 let hls: Hls | null = null
 let generation = 0
@@ -63,6 +66,15 @@ let tokenRefreshTimer: number | null = null
 let recordingErrorTimer: number | null = null
 let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
+let visibilityObserver: IntersectionObserver | null = null
+
+const playbackSuspended = computed(
+  () => !pageVisible.value || !tileVisible.value
+)
+
+const requestedQuality = computed<LiveQuality>(() =>
+  fullscreenActive.value ? "high" : props.quality
+)
 
 const manualRecordingActive = computed(() => {
   const trigger = recordingTrigger.value
@@ -180,6 +192,25 @@ function destroyPlayer(): void {
   }
 }
 
+function suspendPlayback(): void {
+  if (ptzHolding.value || ptzMovePromise) {
+    endPtz()
+  }
+  destroyPlayer()
+  descriptor.value = null
+  error.value = null
+  loading.value = false
+}
+
+function handlePageVisibilityChange(): void {
+  pageVisible.value = !document.hidden
+}
+
+function handleTileFullscreenChange(): void {
+  fullscreenActive.value =
+    document.fullscreenElement === tile.value
+}
+
 async function attachStream(stream: CameraLiveStream): Promise<void> {
   await nextTick()
   const element = video.value
@@ -256,6 +287,11 @@ async function toggleManualRecording(): Promise<void> {
 }
 
 async function loadStream(): Promise<void> {
+  if (playbackSuspended.value) {
+    loading.value = false
+    return
+  }
+
   const currentGeneration = ++generation
   clearTokenRefresh()
   hls?.destroy()
@@ -268,19 +304,34 @@ async function loadStream(): Promise<void> {
   try {
     const stream = await getCameraLiveStream(
       props.camera.id,
-      props.quality
+      requestedQuality.value
     )
-    if (generation !== currentGeneration) return
+    if (
+      generation !== currentGeneration ||
+      playbackSuspended.value
+    ) {
+      return
+    }
     descriptor.value = stream
     await attachStream(stream)
-    if (generation === currentGeneration) {
+    if (
+      generation === currentGeneration &&
+      !playbackSuspended.value
+    ) {
       scheduleTokenRefresh(stream.expires_at)
     }
   } catch (caught) {
-    if (generation !== currentGeneration) return
+    if (
+      generation !== currentGeneration ||
+      playbackSuspended.value
+    ) {
+      return
+    }
     error.value = errorMessage(caught)
   } finally {
-    if (generation === currentGeneration) loading.value = false
+    if (generation === currentGeneration) {
+      loading.value = false
+    }
   }
 }
 
@@ -309,29 +360,88 @@ function handleVideoError(): void {
 }
 
 onMounted(() => {
-  void loadStream()
+  pageVisible.value = !document.hidden
+
+  if (
+    typeof IntersectionObserver !== "undefined" &&
+    tile.value
+  ) {
+    tileVisible.value = false
+    visibilityObserver = new IntersectionObserver(
+      (entries) => {
+        const entry = entries.find(
+          (item) => item.target === tile.value
+        )
+        if (entry) {
+          tileVisible.value =
+            entry.isIntersecting &&
+            entry.intersectionRatio > 0
+        }
+      },
+      { threshold: 0.01 }
+    )
+    visibilityObserver.observe(tile.value)
+  } else {
+    tileVisible.value = true
+  }
+
+  if (playbackSuspended.value) {
+    suspendPlayback()
+  } else {
+    void loadStream()
+  }
   void loadRecordingState()
+
   window.addEventListener("pointerup", endPtz)
   window.addEventListener("pointercancel", endPtz)
+  document.addEventListener(
+    "visibilitychange",
+    handlePageVisibilityChange
+  )
+  document.addEventListener(
+    "fullscreenchange",
+    handleTileFullscreenChange
+  )
 })
 
 watch(
-  () => [props.camera.id, props.quality],
+  () => [props.camera.id, requestedQuality.value],
   () => {
     destroyPlayer()
+    descriptor.value = null
     recordingTrigger.value = null
     clearRecordingError()
-    void loadStream()
+    if (!playbackSuspended.value) {
+      void loadStream()
+    }
     void loadRecordingState()
   }
 )
+
+watch(playbackSuspended, (suspended, wasSuspended) => {
+  if (suspended) {
+    suspendPlayback()
+  } else if (wasSuspended) {
+    void loadStream()
+  }
+})
 
 onBeforeUnmount(() => {
   if (ptzHolding.value || ptzMovePromise) {
     endPtz()
   }
+  visibilityObserver?.disconnect()
+  visibilityObserver = null
   window.removeEventListener("pointerup", endPtz)
   window.removeEventListener("pointercancel", endPtz)
+  document.removeEventListener(
+    "visibilitychange",
+    handlePageVisibilityChange
+  )
+  document.removeEventListener(
+    "fullscreenchange",
+    handleTileFullscreenChange
+  )
   destroyPlayer()
   clearRecordingError()
 })
@@ -359,17 +469,40 @@ onBeforeUnmount(() => {
     />
 
     <div
-      v-if="loading || error"
+      v-if="loading || error || playbackSuspended"
       class="live-tile__state"
     >
       <UiIcon
-        :name="error ? 'warning' : 'cameras'"
+        :name="
+          error
+            ? 'warning'
+            : playbackSuspended
+              ? 'pause'
+              : 'cameras'
+        "
         :size="26"
       />
-      <strong>{{ error ? "Stream unavailable" : "Connecting…" }}</strong>
-      <span>{{ error || "Starting secure live session" }}</span>
+      <strong>
+        {{
+          error
+            ? "Stream unavailable"
+            : playbackSuspended
+              ? "Live view paused"
+              : "Connecting…"
+        }}
+      </strong>
+      <span>
+        {{
+          error ||
+          (
+            playbackSuspended
+              ? "Playback resumes automatically when this view is visible."
+              : "Starting secure live session"
+          )
+        }}
+      </span>
       <button
-        v-if="error"
+        v-if="error && !playbackSuspended"
         class="media-button media-button--text"
         type="button"
         @click.stop="loadStream"
