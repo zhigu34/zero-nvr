@@ -320,12 +320,6 @@ class OnvifOnboardingService:
             model.has_audio = probe.has_audio
             model.status = "available"
             model.last_verified_at = now
-            model.metadata_json = {
-                **(model.metadata_json or {}),
-                "onvif_audio_backchannel": (
-                    probe.talk_backchannel_capable
-                ),
-            }
 
             uri_secret = (
                 session.get(SecretRecord, model.stream_uri_ref)
@@ -554,11 +548,7 @@ class OnvifOnboardingService:
                     status="available",
                     discovered_at=utc_now(),
                     last_verified_at=utc_now(),
-                    metadata_json={
-                        "onvif_audio_backchannel": (
-                            profile.talk_backchannel_capable
-                        ),
-                    },
+                    metadata_json={},
                 )
                 session.add(model)
                 session.flush()

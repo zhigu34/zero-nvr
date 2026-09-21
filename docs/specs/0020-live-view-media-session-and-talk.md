@@ -1,4 +1,4 @@
-# Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk
+# Spec 0020 — Live View, Media Sessions, Compatibility, and Audio
 
 Status: **accepted**
 
@@ -177,20 +177,6 @@ Implemented deployment modes:
 
 Managed TURN keeps a bounded relay port range and can advertise an explicit external IP for NAT deployments. The browser requests ICE servers only after the user has an authorized Camera MediaSession; failure to obtain TURN credentials falls back to direct WebRTC and never affects recording.
 
-## Two-way talk
-
-Two-way talk is capability-dependent and does **not** block V1 core completeness.
-
-Where implemented:
-
-- requires explicit `camera.talk` permission and camera scope;
-- microphone capture starts only after user action;
-- mature ONVIF/RTSP backchannel or optional vendor adapter is used;
-- video/recording remains independent;
-- concurrency policy may default to one active talker per camera.
-
-Do not build a proprietary talk protocol.
-
 ## Health
 
 Live health is capability-specific:
@@ -201,7 +187,7 @@ ZLM
 selected playback protocol
 optional compatibility transcode
 optional TURN
-optional audio/talk
+optional audio
 ```
 
 Examples:
@@ -258,8 +244,6 @@ Live page baseline:
 9. TURN enabled:
    - credentials are short-lived and permission-gated.
 
-10. Talk unsupported:
-   - live/recording remains complete and UI reports unsupported capability.
 
 ## Invariants
 
@@ -268,6 +252,6 @@ Live page baseline:
 3. Frontend calls zero-nvr for authorization/resolution rather than administering ZLM.
 4. Grid and focused views use stream-purpose bindings rather than raw profile assumptions.
 5. FFmpeg live transcode is on-demand derived media only.
-6. Live transcode/ TURN/talk failure never stops recording.
-7. TURN and two-way talk are capability-dependent and non-blocking for V1.
+6. Live transcode/TURN failure never stops recording.
+7. TURN is capability-dependent and non-blocking for V1.
 8. Application WebSocket is not required for video transport.

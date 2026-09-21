@@ -56,15 +56,7 @@ class FakeMedia:
                 H264=None,
                 H265=SimpleNamespace(GovLength=50),
             ),
-            AudioEncoderConfiguration=SimpleNamespace(
-                Encoding="AAC"
-            ),
-            AudioOutputConfiguration=SimpleNamespace(
-                token="audio-output-main"
-            ),
-            AudioDecoderConfiguration=SimpleNamespace(
-                token="audio-decoder-main"
-            ),
+            AudioEncoderConfiguration=SimpleNamespace(Encoding="AAC"),
         )
         sub = SimpleNamespace(
             token="sub-token",
@@ -83,8 +75,6 @@ class FakeMedia:
                 H265=None,
             ),
             AudioEncoderConfiguration=None,
-            AudioOutputConfiguration=None,
-            AudioDecoderConfiguration=None,
         )
         return [main, sub]
 
@@ -179,7 +169,6 @@ async def test_inspect_device_parses_profiles_closes_and_hides_stream_uri() -> N
     assert main.gop_seconds == 2.0
     assert main.audio_codec == "aac"
     assert main.has_audio is True
-    assert main.talk_backchannel_capable is True
     assert main.stream_uri_available is True
     assert main.stream_uri is not None
 
@@ -194,7 +183,6 @@ async def test_inspect_device_parses_profiles_closes_and_hides_stream_uri() -> N
     assert sub.codec == "h264"
     assert sub.gop_seconds == 1.0
     assert sub.has_audio is False
-    assert sub.talk_backchannel_capable is False
     assert sub.stream_uri_available is False
     assert sub.stream_uri is None
 

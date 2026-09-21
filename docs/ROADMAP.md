@@ -66,7 +66,7 @@ Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-re
 - [x] Define deploy.sh-driven upgrade preflight, safety backup, Alembic migration classes, rollback, and database cutover safety.
 - [x] Define camera/device discovery, identity deduplication, multi-channel onboarding, capability probe, and stream-profile selection.
 - [x] Define device runtime lifecycle, config revision fencing, hot reconfiguration, capability drift, and multi-channel runtime recovery.
-- [x] Define live-view MediaSession, multi-grid quality switching, browser/codec fallback, bounded on-demand transcode, optional TURN/audio/talk.
+- [x] Define live-view MediaSession, multi-grid quality switching, browser/codec fallback, bounded on-demand transcode, optional TURN/audio.
 - [x] Define canonical Event normalization for ONVIF/Frigate/system sources and idempotent provider updates; generic event fusion deferred.
 - [x] Complete reuse/ownership audit and remove duplicate media/storage/job/alert/secret implementations.
 - [x] Freeze canonical V1 persistence boundary and explicit non-tables.
@@ -173,9 +173,6 @@ Acceptance:
 - [x] short-lived authenticated TURN credentials.
 - [x] direct/relayed ICE visibility and TURN bandwidth/session metrics.
 - [x] live audio negotiation and focused-camera audio behavior.
-- [x] camera.talk permission and TalkSession API.
-- [ ] TalkBackend abstraction for supported ONVIF/RTSP backchannels; vendor/GB28181 adapters remain optional extensions.
-- [ ] push-to-talk + full-duplex where supported; single-talker lease default.
 - [x] live snapshot action without exposing camera snapshot URL.
 - [x] PTZ overlay integrated with live view when authorized.
 - [x] saved LiveViewLayout / grid layouts.
@@ -190,7 +187,6 @@ Acceptance:
 - WebRTC failure can fall back to fMP4/HLS without exposing source credentials.
 - H.265 recording can remain native while incompatible browsers receive a compatible live path.
 - TURN, when enabled, uses short-lived credentials and does not become a Core dependency.
-- optional talk is separately authorized and never affects video/recording on failure.
 - media-engine restart is recoverable without losing Camera metadata.
 
 ## Phase 3 — Recording Plane

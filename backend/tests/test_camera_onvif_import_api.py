@@ -126,7 +126,6 @@ def inspection() -> OnvifInspection:
                 audio_codec="aac",
                 has_audio=True,
                 stream_uri_available=True,
-                talk_backchannel_capable=True,
                 stream_uri=URI_MAIN_A,
             ),
             OnvifProfileProbe(
@@ -142,7 +141,6 @@ def inspection() -> OnvifInspection:
                 audio_codec=None,
                 has_audio=False,
                 stream_uri_available=True,
-                talk_backchannel_capable=False,
                 stream_uri=URI_SUB_A,
             ),
             OnvifProfileProbe(
@@ -158,7 +156,6 @@ def inspection() -> OnvifInspection:
                 audio_codec=None,
                 has_audio=False,
                 stream_uri_available=True,
-                talk_backchannel_capable=False,
                 stream_uri=URI_MAIN_B,
             ),
         ),
@@ -242,8 +239,6 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             camera["adapter_type"] == "onvif"
             for camera in body["cameras"]
         )
-        assert body["cameras"][0]["talk_capable"] is True
-        assert body["cameras"][1]["talk_capable"] is False
 
         serialized = json.dumps(body)
         assert CAMERA_PASSWORD not in serialized
@@ -335,12 +330,6 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             )
         )
         assert main_profile is not None
-        assert (
-            main_profile.metadata_json[
-                "onvif_audio_backchannel"
-            ]
-            is True
-        )
 
         resolved = CameraService(
             app.state.settings
@@ -468,9 +457,6 @@ def _inspection_at(host: str) -> OnvifInspection:
                 audio_codec=item.audio_codec,
                 has_audio=item.has_audio,
                 stream_uri_available=True,
-                talk_backchannel_capable=(
-                    item.talk_backchannel_capable
-                ),
                 stream_uri=item.stream_uri.replace(
                     "192.168.70.20",
                     host,

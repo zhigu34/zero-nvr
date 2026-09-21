@@ -4,7 +4,6 @@ ALL_PERMISSIONS = frozenset(
     {
         "camera.view",
         "camera.control",
-        "camera.talk",
         "camera.configure",
         "recording.view",
         "recording.export",
@@ -28,7 +27,6 @@ BUILTIN_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
         {
             "camera.view",
             "camera.control",
-            "camera.talk",
             "recording.view",
             "recording.export",
             "recording.protect",
