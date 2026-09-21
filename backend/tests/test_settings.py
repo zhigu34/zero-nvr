@@ -46,3 +46,34 @@ def test_sqlite_synchronous_accepts_supported_values(value: str) -> None:
 def test_sqlite_synchronous_rejects_unknown_value() -> None:
     with pytest.raises(ValidationError):
         Settings(secret_key="x" * 32, sqlite_synchronous="FASTEST")
+
+
+
+def test_blank_turn_shared_secret_means_not_configured() -> None:
+    settings = Settings(
+        secret_key="x" * 32,
+        turn_shared_secret="",
+    )
+
+    assert settings.turn_shared_secret is None
+
+
+def test_turn_shared_secret_rejects_short_non_empty_value() -> None:
+    with pytest.raises(ValidationError):
+        Settings(
+            secret_key="x" * 32,
+            turn_shared_secret="too-short",
+        )
+
+
+def test_turn_shared_secret_accepts_configured_value() -> None:
+    settings = Settings(
+        secret_key="x" * 32,
+        turn_shared_secret="t" * 32,
+    )
+
+    assert settings.turn_shared_secret is not None
+    assert (
+        settings.turn_shared_secret.get_secret_value()
+        == "t" * 32
+    )

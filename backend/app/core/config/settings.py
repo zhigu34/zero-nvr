@@ -222,8 +222,11 @@ class Settings(BaseSettings):
     ) -> SecretStr | None:
         if value is None:
             return None
+        raw = value.get_secret_value()
+        if not raw.strip():
+            return None
         if len(
-            value.get_secret_value().encode(
+            raw.encode(
                 "utf-8"
             )
         ) < 32:
