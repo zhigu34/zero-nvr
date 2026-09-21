@@ -684,11 +684,38 @@ def create_recording_trigger(
     session: Session = Depends(get_db_session),
 ) -> RecordingTriggerView:
     try:
+        instant = datetime.now(UTC)
+        policy = RecordingPolicyService.get(
+            session,
+            camera_id=camera_id,
+        )
+        assert policy is not None
+        baseline_active = (
+            RecordingPolicyService
+            .baseline_should_record(
+                policy,
+                at=instant,
+            )
+        )
+        manual_already_active = any(
+            item.type.upper() == "MANUAL"
+            for item in RecordingTriggerService.active_at(
+                session,
+                camera_id=camera_id,
+                at=instant,
+            )
+        )
         trigger, created = RecordingTriggerService.create_manual(
             session,
             camera_id=camera_id,
+            requested_at=instant,
             reason=body.reason,
             idempotency_key=idempotency_key,
+        )
+        force_runtime_reconfigure = (
+            created
+            and not baseline_active
+            and not manual_already_active
         )
         if created:
             append_audit_event(
@@ -712,7 +739,9 @@ def create_recording_trigger(
         )
         request.app.state.recording_tasks.reconcile_runtime(
             camera_id,
-            force_reconfigure=True,
+            force_reconfigure=(
+                force_runtime_reconfigure
+            ),
         )
     except Exception as exc:
         raise ApiError(
@@ -784,7 +813,8 @@ def stop_recording_trigger(
             trigger=trigger,
         )
         after = _trigger_audit_snapshot(trigger)
-        if before != after:
+        trigger_changed = before != after
+        if trigger_changed:
             append_audit_event(
                 session,
                 request=request,
@@ -808,13 +838,15 @@ def stop_recording_trigger(
         )
         request.app.state.recording_tasks.reconcile_runtime(
             camera_id,
-            force_reconfigure=True,
+            force_reconfigure=False,
         )
-        if trigger.planned_end_at is not None:
-            request.app.state.recording_tasks.schedule_runtime(
+        if (
+            trigger_changed
+            and trigger.planned_end_at is not None
+        ):
+            request.app.state.recording_tasks.schedule_manual_boundary(
                 camera_id,
                 eta=trigger.planned_end_at,
-                force_reconfigure=True,
             )
     except Exception as exc:
         raise ApiError(

@@ -460,6 +460,40 @@ def reconcile_camera_runtime(
         database.close()
 
 
+@huey.task(retries=2, retry_delay=15)
+def reconcile_manual_recording_boundary(
+    camera_id: str,
+) -> str:
+    """Apply a MANUAL post-roll boundary without restarting baseline video."""
+
+    settings = Settings()
+    database = _database(settings)
+    camera_uuid = uuid.UUID(camera_id)
+    now = datetime.now(UTC)
+    try:
+        with database.session() as session:
+            desired = RecordingRuntimeService.desired(
+                session,
+                settings=settings,
+                camera_id=camera_uuid,
+                at=now,
+                capacity_behavior="off",
+            )
+            force_reconfigure = (
+                desired is not None
+                and desired.mode != "persistent"
+            )
+            session.commit()
+
+        return reconcile_camera_runtime(
+            camera_id,
+            False,
+            force_reconfigure,
+        )
+    finally:
+        database.close()
+
+
 @huey.periodic_task(
     crontab(minute="*/5")
 )

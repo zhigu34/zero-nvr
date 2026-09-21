@@ -127,3 +127,40 @@ def test_recording_dispatcher_schedules_runtime_boundary(
             eta,
         )
     ]
+
+
+
+def test_recording_dispatcher_schedules_manual_boundary(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(
+        "ZERO_NVR_HUEY_DB_PATH",
+        str(tmp_path / "huey.db"),
+    )
+    camera_id = uuid.uuid4()
+    eta = object()
+    calls = []
+
+    class FakeTask:
+        def schedule(
+            self,
+            *,
+            args,
+            eta,
+        ) -> None:
+            calls.append((args, eta))
+
+    monkeypatch.setattr(
+        "app.worker.tasks.reconcile_manual_recording_boundary",
+        FakeTask(),
+    )
+
+    RecordingTaskDispatcher.schedule_manual_boundary(
+        camera_id,
+        eta=eta,
+    )
+
+    assert calls == [
+        ((str(camera_id),), eta)
+    ]

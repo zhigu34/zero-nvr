@@ -89,6 +89,21 @@ class RecordingTaskDispatcher:
         )
 
     @staticmethod
+    def schedule_manual_boundary(
+        camera_id: uuid.UUID,
+        *,
+        eta,
+    ) -> None:
+        from app.worker.tasks import (
+            reconcile_manual_recording_boundary,
+        )
+
+        reconcile_manual_recording_boundary.schedule(
+            args=(str(camera_id),),
+            eta=eta,
+        )
+
+    @staticmethod
     def reconcile_catalog(
         *,
         full: bool = False,

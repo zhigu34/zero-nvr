@@ -23,8 +23,8 @@ class FakeDispatcher:
         self.runtime_calls: list[
             tuple[uuid.UUID, bool]
         ] = []
-        self.scheduled_runtime: list[
-            tuple[uuid.UUID, object, bool]
+        self.manual_boundaries: list[
+            tuple[uuid.UUID, object]
         ] = []
 
     def reconcile_camera(self, camera_id: uuid.UUID) -> None:
@@ -40,19 +40,14 @@ class FakeDispatcher:
             (camera_id, force_reconfigure)
         )
 
-    def schedule_runtime(
+    def schedule_manual_boundary(
         self,
         camera_id: uuid.UUID,
         *,
         eta,
-        force_reconfigure: bool = False,
     ) -> None:
-        self.scheduled_runtime.append(
-            (
-                camera_id,
-                eta,
-                force_reconfigure,
-            )
+        self.manual_boundaries.append(
+            (camera_id, eta)
         )
 
     def finalized_prebuffer_fragment(self, _fragment) -> None:
@@ -196,20 +191,21 @@ def test_manual_trigger_is_idempotent_and_stop_adds_postroll(
 
     dispatcher = app.state.recording_tasks
     assert dispatcher.camera_ids.count(camera_id) >= 3
+    assert dispatcher.runtime_calls.count(
+        (camera_id, True)
+    ) == 1
     assert (
         dispatcher.runtime_calls.count(
-            (camera_id, True)
+            (camera_id, False)
         )
         >= 3
     )
-    assert dispatcher.scheduled_runtime
+    assert len(
+        dispatcher.manual_boundaries
+    ) == 1
     assert (
-        dispatcher.scheduled_runtime[-1][0]
+        dispatcher.manual_boundaries[0][0]
         == camera_id
-    )
-    assert (
-        dispatcher.scheduled_runtime[-1][2]
-        is True
     )
 
 
@@ -241,3 +237,37 @@ def test_trigger_requires_event_recording_enabled(
             response.json()["error"]["code"]
             == "event_recording_not_enabled"
         )
+
+
+
+def test_manual_trigger_does_not_restart_continuous_recorder(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_event_camera(app)
+
+        with app.state.database.session() as session:
+            policy = session.scalar(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.camera_id
+                    == camera_id
+                )
+            )
+            assert policy is not None
+            policy.baseline_mode = "continuous"
+            session.commit()
+
+        response = client.post(
+            f"/api/v1/cameras/{camera_id}/recording-triggers",
+            json={"reason": "manual-check"},
+        )
+        assert response.status_code == 201
+
+    dispatcher = app.state.recording_tasks
+    assert dispatcher.runtime_calls[-1] == (
+        camera_id,
+        False,
+    )
