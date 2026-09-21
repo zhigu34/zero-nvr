@@ -671,3 +671,25 @@ export function verifyBackup(backupId: string): Promise<BackupSet> {
 export function listAuditEvents(): Promise<AuditPage> {
   return apiRequest<AuditPage>("/audit?limit=100")
 }
+
+
+
+export interface ReleaseValidationArtifact {
+  kind: "benchmark" | "soak"
+  state: "AVAILABLE" | "MISSING" | "INVALID"
+  command: string
+  updated_at: string | null
+  report: Record<string, unknown> | null
+  error_code: string | null
+}
+
+export interface ReleaseValidation {
+  benchmark: ReleaseValidationArtifact
+  soak: ReleaseValidationArtifact
+}
+
+export function getReleaseValidation(): Promise<ReleaseValidation> {
+  return apiRequest<ReleaseValidation>(
+    "/system/release-validation"
+  )
+}

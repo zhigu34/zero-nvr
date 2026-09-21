@@ -60,12 +60,14 @@ import {
 import SystemAccessControlPanel from "../components/system/SystemAccessControlPanel.vue"
 import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
 import SystemOidcPanel from "../components/system/SystemOidcPanel.vue"
+import SystemReleaseValidationPanel from "../components/system/SystemReleaseValidationPanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
 type SystemTab =
   | "overview"
+  | "validation"
   | "general"
   | "users"
   | "tokens"
@@ -167,6 +169,12 @@ const navigation = computed(() => {
     visible: boolean
   }> = [
     { id: "overview", label: "Overview", icon: "dashboard", visible: true },
+    {
+      id: "validation",
+      label: "Validation",
+      icon: "activity",
+      visible: auth.hasPermission("system.view")
+    },
     { id: "general", label: "General", icon: "system", visible: true },
     {
       id: "users",
@@ -1002,6 +1010,10 @@ onBeforeUnmount(() => {
             </article>
           </div>
         </div>
+      </template>
+
+      <template v-else-if="tab === 'validation'">
+        <SystemReleaseValidationPanel />
       </template>
 
       <template v-else-if="tab === 'general'">
