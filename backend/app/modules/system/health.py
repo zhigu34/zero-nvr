@@ -97,12 +97,85 @@ class SystemHealthService:
     def _database(self) -> HealthComponent:
         try:
             self.database.ping()
-            return HealthComponent(status="OK")
         except Exception:
             return HealthComponent(
                 status="ERROR",
                 message="database_unavailable",
             )
+
+        backend = self.database.url.get_backend_name()
+        details: dict[str, object] = {
+            "backend": backend,
+        }
+        if not self.database.is_sqlite:
+            return HealthComponent(
+                status="OK",
+                details=details,
+            )
+
+        try:
+            runtime = self.database.sqlite_runtime_health()
+        except Exception:
+            return HealthComponent(
+                status="DEGRADED",
+                message="sqlite_health_probe_failed",
+                details=details,
+            )
+
+        if runtime is None:
+            return HealthComponent(
+                status="DEGRADED",
+                message="sqlite_health_probe_failed",
+                details=details,
+            )
+
+        details.update(
+            {
+                "journal_mode": runtime.journal_mode,
+                "busy_timeout_ms": runtime.busy_timeout_ms,
+                "wal_autocheckpoint_pages": (
+                    runtime.wal_autocheckpoint_pages
+                ),
+                "page_size_bytes": runtime.page_size_bytes,
+                "wal_pages": runtime.wal_pages,
+                "checkpointed_pages": (
+                    runtime.checkpointed_pages
+                ),
+                "backlog_pages": runtime.backlog_pages,
+                "wal_bytes": runtime.wal_bytes,
+                "checkpoint_busy": (
+                    runtime.checkpoint_busy
+                ),
+                "write_pressure": (
+                    runtime.write_pressure
+                ),
+            }
+        )
+
+        if runtime.journal_mode != "wal":
+            return HealthComponent(
+                status="ERROR",
+                message="sqlite_wal_disabled",
+                details=details,
+            )
+        if runtime.write_pressure == "high":
+            return HealthComponent(
+                status="DEGRADED",
+                message="sqlite_write_pressure_high",
+                details=details,
+            )
+        if runtime.write_pressure == "elevated":
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "sqlite_write_pressure_elevated"
+                ),
+                details=details,
+            )
+        return HealthComponent(
+            status="OK",
+            details=details,
+        )
 
     def _worker(self) -> HealthComponent:
         path = self.worker_heartbeat_path
