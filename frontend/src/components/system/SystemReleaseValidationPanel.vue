@@ -12,6 +12,7 @@ import UiIcon from "../ui/UiIcon.vue"
 const validation = ref<ReleaseValidation | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const copiedCommand = ref<string | null>(null)
 
 function objectValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -142,6 +143,20 @@ const soakFailures = computed(() => {
   }
   return failures
 })
+
+async function copyCommand(command: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(command)
+    copiedCommand.value = command
+    window.setTimeout(() => {
+      if (copiedCommand.value === command) {
+        copiedCommand.value = null
+      }
+    }, 1600)
+  } catch {
+    copiedCommand.value = null
+  }
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -373,6 +388,48 @@ onMounted(() => {
       </article>
     </div>
 
+    <section class="release-validation-gate">
+      <div>
+        <strong>Production gate</strong>
+        <span>
+          After benchmark, soak and a verified backup are current, run one
+          final read-only host check for the deployment class you intend to
+          support.
+        </span>
+      </div>
+
+      <div class="release-validation-gate__commands">
+        <div>
+          <code>./deploy.sh release-check 8</code>
+          <button
+            class="button button--ghost button--compact"
+            type="button"
+            @click="copyCommand('./deploy.sh release-check 8')"
+          >
+            {{
+              copiedCommand === "./deploy.sh release-check 8"
+                ? "Copied"
+                : "Copy"
+            }}
+          </button>
+        </div>
+        <div>
+          <code>./deploy.sh release-check 16</code>
+          <button
+            class="button button--ghost button--compact"
+            type="button"
+            @click="copyCommand('./deploy.sh release-check 16')"
+          >
+            {{
+              copiedCommand === "./deploy.sh release-check 16"
+                ? "Copied"
+                : "Copy"
+            }}
+          </button>
+        </div>
+      </div>
+    </section>
+
     <div class="release-validation-panel__note">
       <UiIcon name="activity" :size="15" />
       <span>
@@ -498,6 +555,57 @@ onMounted(() => {
   align-items: center;
 }
 
+.release-validation-gate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.release-validation-gate > div:first-child strong,
+.release-validation-gate > div:first-child span {
+  display: block;
+}
+
+.release-validation-gate > div:first-child strong {
+  font-size: 10px;
+}
+
+.release-validation-gate > div:first-child span {
+  max-width: 680px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.release-validation-gate__commands {
+  display: grid;
+  gap: 5px;
+}
+
+.release-validation-gate__commands > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.release-validation-gate code {
+  overflow-x: auto;
+  padding: 6px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-secondary);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
 .release-validation-panel__note {
   display: flex;
   align-items: flex-start;
@@ -508,7 +616,8 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
-  .release-validation-panel__grid {
+  .release-validation-panel__grid,
+  .release-validation-gate {
     grid-template-columns: 1fr;
   }
 }
