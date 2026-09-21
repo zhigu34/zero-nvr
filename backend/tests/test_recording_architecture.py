@@ -40,3 +40,49 @@ def test_recovery_probe_is_confined_to_reconciliation() -> None:
 
     assert "ffprobe" in source
     assert "recording recovery ffprobe failed" in source
+
+
+
+def test_native_recording_runtime_does_not_write_media_files() -> None:
+    for relative in (
+        "app/modules/recordings/runtime.py",
+        "app/integrations/zlm/recording.py",
+    ):
+        source = (ROOT / relative).read_text(
+            encoding="utf-8"
+        ).lower()
+        for term in (
+            "shutil.copy",
+            "copyfile(",
+            "write_bytes(",
+            "open("wb",
+            "open('wb",
+            "open("ab",
+            "open('ab",
+        ):
+            assert term not in source, (
+                f"{relative} must leave media-file writing "
+                f"to ZLMediaKit; found {term!r}"
+            )
+
+
+def test_post_finalize_file_operations_are_explicitly_bounded() -> None:
+    prebuffer = (
+        ROOT / "app/modules/recordings/prebuffer.py"
+    ).read_text(encoding="utf-8")
+    reconciliation = (
+        ROOT
+        / "app/modules/recordings/reconciliation.py"
+    ).read_text(encoding="utf-8")
+
+    # EVENT_ONLY promotion copies only a finalized fragment to a .partial
+    # destination, verifies its size, fsyncs it, then publishes atomically.
+    assert "shutil.copy2(source, partial)" in prebuffer
+    assert "copied_size = partial.stat().st_size" in prebuffer
+    assert "os.replace(partial, destination)" in prebuffer
+
+    # Interrupted ZLM finalize recovery does not rewrite media bytes. It
+    # reproduces ZLM's final name transition only after probe/settle checks.
+    assert "os.link(" in reconciliation
+    assert "path.unlink()" in reconciliation
+    assert "shutil.copy" not in reconciliation
