@@ -19,9 +19,14 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
     def fake_task(
         value: str,
         restart_streams: bool = False,
+        force_reconfigure: bool = False,
     ) -> None:
         calls.append(
-            (value, restart_streams)
+            (
+                value,
+                restart_streams,
+                force_reconfigure,
+            )
         )
 
     monkeypatch.setattr(
@@ -32,7 +37,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
     RecordingTaskDispatcher.reconcile_runtime(camera_id)
 
     assert calls == [
-        (str(camera_id), False)
+        (str(camera_id), False, False)
     ]
 
     RecordingTaskDispatcher.reconcile_runtime(
@@ -41,6 +46,17 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
     )
     assert calls[-1] == (
         str(camera_id),
+        True,
+        False,
+    )
+
+    RecordingTaskDispatcher.reconcile_runtime(
+        camera_id,
+        force_reconfigure=True,
+    )
+    assert calls[-1] == (
+        str(camera_id),
+        False,
         True,
     )
 
