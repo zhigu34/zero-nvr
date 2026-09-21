@@ -243,7 +243,11 @@ def test_record_hooks_normalize_only_with_proven_same_generation(
     monkeypatch,
 ) -> None:
     app = make_app(tmp_path)
-    _camera_id, stream = seed_recording_camera(app)
+    camera_id_text, stream = seed_recording_camera(app)
+    camera_id = uuid.UUID(camera_id_text)
+    profile_id = uuid.UUID(
+        hex=stream.removeprefix("profile-")
+    )
 
     clock = iter([dt(1000)])
     monkeypatch.setattr(zlm_hooks, "utc_now", lambda: next(clock))
@@ -309,9 +313,38 @@ def test_record_hooks_normalize_only_with_proven_same_generation(
         assert rows[1].ended_at == dt(1018)
         assert rows[1].timing_status == "PROVISIONAL"
 
-        assert session.scalar(
-            select(func.count()).select_from(RecordingLocation)
-        ) == 2
+        assert all(
+            row.camera_id == camera_id
+            and row.stream_profile_id == profile_id
+            and row.source_app == "zero-nvr"
+            and row.source_stream == stream
+            and row.recording_reasons_json
+            == ["continuous"]
+            for row in rows
+        )
+
+        locations = list(
+            session.scalars(
+                select(RecordingLocation).order_by(
+                    RecordingLocation.object_path
+                )
+            )
+        )
+        assert len(locations) == 2
+        assert [
+            item.object_path
+            for item in locations
+        ] == [
+            "front-door/001.mp4",
+            "front-door/002.mp4",
+        ]
+        assert all(
+            item.recording_segment_id
+            in {row.id for row in rows}
+            and item.state == "AVAILABLE"
+            and item.size_bytes == 1_000_000
+            for item in locations
+        )
 
 
 def test_reconnect_late_old_hook_never_contaminates_new_generation(
