@@ -243,7 +243,7 @@ Acceptance:
 - [x] map ZLM-native finalized recording paths into RecordingLocation without making filenames authoritative identity.
 - [ ] keep all canonical DB timestamps UTC; UI/path display timezone is presentation/configuration, not recording truth.
 - [x] respect ZLM's own temporary-file/finalize semantics; zero-nvr must not add a second local media writer.
-- [ ] StorageTarget persistence and system default LOCAL_RECORDING target.
+- [x] StorageTarget persistence and system default LOCAL_RECORDING target.
 - [ ] optional per-camera/policy explicit storage_target_id routing.
 - [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
 - [ ] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.

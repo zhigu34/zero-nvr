@@ -22,6 +22,9 @@ from app.modules.storage.models import (
     RecordingLocation,
     StorageTarget,
 )
+from app.modules.storage.recording_resolver import (
+    RecordingStorageResolver,
+)
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -250,6 +253,91 @@ def test_storage_target_secret_is_encrypted_and_never_returned(
             )
             assert "super-secret-rclone-password" not in audit_json
             assert "pass =" not in audit_json
+
+
+def test_persisted_default_local_recording_target_is_resolved(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    primary_root = tmp_path / "recordings-primary"
+    secondary_root = tmp_path / "recordings-secondary"
+    primary_root.mkdir(parents=True)
+    secondary_root.mkdir(parents=True)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        primary = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Primary Recording",
+                "enabled": True,
+                "config": {
+                    "path": str(primary_root),
+                    "default_recording": True,
+                },
+            },
+        )
+        assert primary.status_code == 201
+        primary_id = uuid.UUID(
+            primary.json()["id"]
+        )
+
+        secondary = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Secondary Recording",
+                "enabled": True,
+                "config": {
+                    "path": str(secondary_root),
+                    "default_recording": False,
+                },
+            },
+        )
+        assert secondary.status_code == 201
+
+        with app.state.database.session() as session:
+            camera = CameraService(
+                app.state.settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Implicit Storage Camera",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://camera.local/implicit"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera.id,
+                    baseline_mode="continuous",
+                    storage_target_id=None,
+                    enabled=True,
+                )
+            )
+            session.commit()
+            camera_id = camera.id
+
+    # Re-open a database session after the API/client scope to prove the
+    # default lives in durable StorageTarget state rather than process memory.
+    with app.state.database.session() as session:
+        resolved = (
+            RecordingStorageResolver
+            .local_target_for_camera(
+                session,
+                camera_id=camera_id,
+            )
+        )
+        assert resolved.target.id == primary_id
+        assert resolved.root == primary_root.resolve()
 
 
 def test_storage_target_delete_is_blocked_while_policy_references_it(
