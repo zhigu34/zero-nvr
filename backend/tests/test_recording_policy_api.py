@@ -90,6 +90,13 @@ def setup_admin(client: TestClient) -> str:
 
 
 def seed_camera_and_storage(app) -> uuid.UUID:
+    recording_root = (
+        app.state.settings.recordings_dir
+    )
+    recording_root.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     with app.state.database.session() as session:
         camera = CameraService(
             app.state.settings
@@ -110,7 +117,7 @@ def seed_camera_and_storage(app) -> uuid.UUID:
                 role="recording",
                 enabled=True,
                 config_json={
-                    "path": "/recordings",
+                    "path": str(recording_root),
                     "default_recording": True,
                 },
             )
