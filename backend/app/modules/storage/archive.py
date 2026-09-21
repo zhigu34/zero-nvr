@@ -35,8 +35,8 @@ class ArchivePlan:
     object_path: str
     remote_path: str
     expected_size: int
-    verify_existing: bool = False
     rclone_config: str = field(repr=False)
+    verify_existing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
