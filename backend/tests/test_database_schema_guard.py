@@ -150,7 +150,6 @@ def test_schema_guard_distinguishes_old_and_unknown_revision(
         database.close()
 
 
-
 def test_all_canonical_datetime_columns_use_utc_datetime(
     tmp_path: Path,
 ) -> None:
