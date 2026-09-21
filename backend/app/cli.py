@@ -43,6 +43,9 @@ from app.modules.system.benchmark import (
 from app.modules.system.soak import (
     ReleaseSoakService,
 )
+from app.modules.system.release_readiness import (
+    ReleaseReadinessService,
+)
 
 
 def _settings_database() -> tuple[Settings, Database]:
@@ -756,6 +759,51 @@ def soak_status_command(
         database.close()
 
 
+
+
+def release_readiness_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        result = ReleaseReadinessService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=args.expected_cameras,
+            max_age_hours=args.max_age_hours,
+        )
+        print(
+            json.dumps(
+                {
+                    "expected_cameras": (
+                        result.expected_cameras
+                    ),
+                    "checked_at": (
+                        result.checked_at.isoformat()
+                    ),
+                    "max_age_hours": (
+                        result.max_age_hours
+                    ),
+                    "passed": result.passed,
+                    "checks": [
+                        {
+                            "name": item.name,
+                            "passed": item.passed,
+                            "code": item.code,
+                            "details": item.details,
+                        }
+                        for item in result.checks
+                    ],
+                },
+                sort_keys=True,
+            )
+        )
+        return 0 if result.passed else 1
+    finally:
+        database.close()
+
+
 def reset_password_command(
     args: argparse.Namespace,
 ) -> int:
@@ -1441,6 +1489,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     soak.set_defaults(
         handler=soak_status_command
+    )
+
+    readiness = sub.add_parser(
+        "release-readiness"
+    )
+    readiness.add_argument(
+        "--expected-cameras",
+        type=int,
+        choices=[8, 16],
+        required=True,
+    )
+    readiness.add_argument(
+        "--max-age-hours",
+        type=int,
+        default=168,
+    )
+    readiness.set_defaults(
+        handler=release_readiness_command
     )
 
     reset = sub.add_parser(
