@@ -569,7 +569,7 @@ class LiveTranscodeManager:
                 self._free_idle_capacity_locked()
                 if (
                     len(self._derivatives)
-                    >= self.settings
+                    >= self._tuning()
                     .live_transcode_max_derivatives
                 ):
                     raise LiveTranscodeError(
