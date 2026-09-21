@@ -433,6 +433,62 @@ def test_open_trigger_with_no_end_still_annotates_event_reason(
         database.close()
 
 
+def test_finalized_path_is_location_not_recording_identity(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        camera_id, profile_id, target_id = seed(
+            settings,
+            database,
+        )
+        misleading_profile_id = uuid.uuid4()
+        file_name = (
+            f"profile-{misleading_profile_id.hex}-"
+            "camera-other.mp4"
+        )
+
+        with database.session() as session:
+            result = RecordingCatalogService.ingest_finalized(
+                session,
+                evidence=evidence(
+                    profile_id=profile_id,
+                    start=6900,
+                    duration=10,
+                    file_name=file_name,
+                ),
+            )
+            assert result.segment is not None
+            segment_id = result.segment.id
+            session.commit()
+
+        with database.session() as session:
+            segment = session.get(
+                RecordingSegment,
+                segment_id,
+            )
+            assert segment is not None
+            assert segment.camera_id == camera_id
+            assert segment.stream_profile_id == profile_id
+            assert segment.source_stream == (
+                f"profile-{profile_id.hex}"
+            )
+
+            location = session.scalar(
+                select(RecordingLocation).where(
+                    RecordingLocation.recording_segment_id
+                    == segment_id
+                )
+            )
+            assert location is not None
+            assert location.storage_target_id == target_id
+            assert location.object_path == (
+                f"front-door/{file_name}"
+            )
+    finally:
+        database.close()
+
+
 def test_same_path_with_changed_size_is_conflict(
     tmp_path: Path,
 ) -> None:
