@@ -262,6 +262,18 @@ function exportConfiguration(): void {
   )
 }
 
+async function copyHostCommand(
+  command: string
+): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(command)
+    notice.value = "Host command copied."
+  } catch {
+    notice.value =
+      "Clipboard access was blocked. Select and copy the command manually."
+  }
+}
+
 function openConfigurationValidation(): void {
   configImportInput.value?.click()
 }
@@ -1732,6 +1744,74 @@ onBeforeUnmount(() => {
           </div>
         </header>
 
+        <section class="backup-recovery-card">
+          <div class="backup-recovery-card__heading">
+            <div>
+              <strong>Host recovery</strong>
+              <span>
+                Restore and RecoveryKit operations remain host-only so the
+                API never controls Docker or replaces its own live database.
+              </span>
+            </div>
+            <span class="status-pill">Host only</span>
+          </div>
+
+          <div class="backup-recovery-commands">
+            <div>
+              <span>List available restic snapshots</span>
+              <code>./deploy.sh restore list</code>
+              <button
+                class="button button--ghost button--compact"
+                type="button"
+                @click="copyHostCommand('./deploy.sh restore list')"
+              >
+                Copy
+              </button>
+            </div>
+
+            <div>
+              <span>Restore the latest recovery point</span>
+              <code>./deploy.sh restore latest --force</code>
+              <button
+                class="button button--ghost button--compact"
+                type="button"
+                @click="
+                  copyHostCommand(
+                    './deploy.sh restore latest --force'
+                  )
+                "
+              >
+                Copy
+              </button>
+            </div>
+
+            <div>
+              <span>Export RecoveryKit bootstrap material</span>
+              <code>./deploy.sh recovery-kit export</code>
+              <button
+                class="button button--ghost button--compact"
+                type="button"
+                @click="
+                  copyHostCommand(
+                    './deploy.sh recovery-kit export'
+                  )
+                "
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div class="storage-notice">
+            <UiIcon name="warning" :size="14" />
+            <span>
+              Restore stops the zero-nvr control plane, validates the staged
+              backup, replaces the database atomically, and then starts the
+              API and worker again. Recording media is not deleted by restore.
+            </span>
+          </div>
+        </section>
+
         <section
           v-if="configImportValidation"
           class="backup-policy-card"
@@ -2427,6 +2507,84 @@ onBeforeUnmount(() => {
   }
 
   .audit-toolbar__actions {
+    grid-column: 1 / -1;
+  }
+}
+</style>
+
+
+<style scoped>
+.backup-recovery-card {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.backup-recovery-card__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.backup-recovery-card__heading strong,
+.backup-recovery-card__heading span {
+  display: block;
+}
+
+.backup-recovery-card__heading strong {
+  font-size: 10px;
+}
+
+.backup-recovery-card__heading div > span {
+  max-width: 680px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.backup-recovery-commands {
+  display: grid;
+  gap: 5px;
+}
+
+.backup-recovery-commands > div {
+  display: grid;
+  grid-template-columns:
+    minmax(180px, 0.9fr)
+    minmax(260px, 1.4fr)
+    auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+.backup-recovery-commands span {
+  color: var(--text-secondary);
+  font-size: 8px;
+}
+
+.backup-recovery-commands code {
+  overflow-x: auto;
+  color: var(--text-primary);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 820px) {
+  .backup-recovery-commands > div {
+    grid-template-columns: 1fr auto;
+  }
+
+  .backup-recovery-commands span {
     grid-column: 1 / -1;
   }
 }
