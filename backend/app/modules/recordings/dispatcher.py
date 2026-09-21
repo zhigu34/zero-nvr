@@ -69,6 +69,26 @@ class RecordingTaskDispatcher:
         )
 
     @staticmethod
+    def schedule_runtime(
+        camera_id: uuid.UUID,
+        *,
+        eta,
+        force_reconfigure: bool = False,
+    ) -> None:
+        from app.worker.tasks import (
+            reconcile_camera_runtime,
+        )
+
+        reconcile_camera_runtime.schedule(
+            args=(
+                str(camera_id),
+                False,
+                force_reconfigure,
+            ),
+            eta=eta,
+        )
+
+    @staticmethod
     def reconcile_catalog(
         *,
         full: bool = False,

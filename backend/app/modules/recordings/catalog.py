@@ -15,6 +15,9 @@ from app.modules.recordings.models import (
     RecordingTrigger,
 )
 from app.modules.storage.models import RecordingLocation
+
+from .policy import RecordingPolicyService
+from .triggers import RecordingTriggerService
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 
@@ -80,28 +83,30 @@ class RecordingCatalogService:
                 RecordingPolicy.camera_id == camera_id
             )
         )
-        if (
-            policy is not None
-            and policy.enabled
-            and policy.baseline_mode == "continuous"
-        ):
-            reasons.add("continuous")
+        if policy is not None and policy.enabled:
+            reference = started_at + (
+                ended_at - started_at
+            ) / 2
+            if RecordingPolicyService.baseline_should_record(
+                policy,
+                at=reference,
+            ):
+                reasons.add(
+                    "continuous"
+                    if policy.baseline_mode == "continuous"
+                    else "schedule"
+                )
 
-        overlapping_trigger = session.scalar(
-            select(RecordingTrigger.id)
-            .where(
-                RecordingTrigger.camera_id == camera_id,
-                RecordingTrigger.state.notin_(["CANCELLED", "FAILED"]),
-                RecordingTrigger.planned_start_at < ended_at,
-                or_(
-                    RecordingTrigger.planned_end_at.is_(None),
-                    RecordingTrigger.planned_end_at > started_at,
-                ),
-            )
-            .limit(1)
-        )
-        if overlapping_trigger is not None:
-            reasons.add("event")
+        for trigger in RecordingTriggerService.overlapping(
+            session,
+            camera_id=camera_id,
+            started_at=started_at,
+            ended_at=ended_at,
+        ):
+            if trigger.type.upper() == "MANUAL":
+                reasons.add("manual")
+            else:
+                reasons.add("event")
 
         return sorted(reasons)
 

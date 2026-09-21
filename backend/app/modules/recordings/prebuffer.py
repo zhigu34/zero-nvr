@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.modules.recordings.models import RecordingSegment
+
+from .catalog import RecordingCatalogService
 from app.modules.storage.models import RecordingLocation
 
 
@@ -378,6 +380,15 @@ class PrebufferPromotionService:
             return existing
 
         fragment = receipt.fragment
+        reasons = RecordingCatalogService.recording_reasons(
+            session,
+            camera_id=fragment.camera_id,
+            started_at=fragment.started_at,
+            ended_at=fragment.ended_at,
+        )
+        if not reasons:
+            reasons = ["event"]
+
         segment = RecordingSegment(
             camera_id=fragment.camera_id,
             stream_profile_id=fragment.profile_id,
@@ -386,7 +397,7 @@ class PrebufferPromotionService:
             duration_ms=fragment.duration_ms,
             timing_status="PROVISIONAL",
             timing_source="HOOK_RAW",
-            recording_reasons_json=["event"],
+            recording_reasons_json=reasons,
             size_bytes=receipt.size_bytes,
             codec=None,
             container="fmp4",

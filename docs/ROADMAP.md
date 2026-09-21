@@ -191,8 +191,8 @@ Acceptance:
 
 ## Phase 3 — Recording Plane
 
-- [ ] Implement per-camera recording arbiter that derives desired recorder state from RecordingPolicy + active RecordingTriggers.
-- [ ] Keep runtime arbitration idempotent without a mandatory RecordingIntent table.
+- [x] Implement per-camera recording arbiter that derives desired recorder state from RecordingPolicy + active RecordingTriggers.
+- [x] Keep runtime arbitration idempotent without a mandatory RecordingIntent table.
 - [x] Implement thin ZLM RecordingAdapter for start/stop/status and recorder hooks.
 - [ ] Keep FFmpeg out of the normal 24x7 recording path; use it only for derived/recovery jobs.
 - [ ] RecordingPolicy / Recording Settings persistence and API.
@@ -371,7 +371,7 @@ Acceptance:
 ## Phase 9 — Event Recording
 
 - [ ] RecordingTrigger lifecycle for AI/ONVIF/HA/API/manual event recording requests.
-- [ ] derive desired recording state from baseline policy + active trigger windows.
+- [x] derive desired recording state from baseline policy + active trigger windows.
 - [ ] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [ ] continuous/scheduled/manual existing recording is annotated rather than restarted.
 - [ ] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.

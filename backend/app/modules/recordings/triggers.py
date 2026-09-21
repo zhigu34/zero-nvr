@@ -347,28 +347,85 @@ class RecordingTriggerService:
         return trigger
 
     @staticmethod
+    def active_at(
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        at: datetime,
+    ) -> list[RecordingTrigger]:
+        instant = at.astimezone(UTC)
+        return list(
+            session.scalars(
+                select(RecordingTrigger)
+                .where(
+                    RecordingTrigger.camera_id
+                    == camera_id,
+                    RecordingTrigger.state.notin_(
+                        ["CANCELLED", "FAILED"]
+                    ),
+                    RecordingTrigger.planned_start_at
+                    <= instant,
+                    or_(
+                        RecordingTrigger.planned_end_at
+                        .is_(None),
+                        RecordingTrigger.planned_end_at
+                        > instant,
+                    ),
+                )
+                .order_by(
+                    RecordingTrigger.planned_start_at,
+                    RecordingTrigger.id,
+                )
+            )
+        )
+
+    @staticmethod
+    def overlapping(
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        started_at: datetime,
+        ended_at: datetime,
+    ) -> list[RecordingTrigger]:
+        return list(
+            session.scalars(
+                select(RecordingTrigger)
+                .where(
+                    RecordingTrigger.camera_id
+                    == camera_id,
+                    RecordingTrigger.state.notin_(
+                        ["CANCELLED", "FAILED"]
+                    ),
+                    RecordingTrigger.planned_start_at
+                    < ended_at,
+                    or_(
+                        RecordingTrigger.planned_end_at
+                        .is_(None),
+                        RecordingTrigger.planned_end_at
+                        > started_at,
+                    ),
+                )
+                .order_by(
+                    RecordingTrigger.planned_start_at,
+                    RecordingTrigger.id,
+                )
+            )
+        )
+
+    @classmethod
     def overlaps_fragment(
+        cls,
         session: Session,
         *,
         camera_id: uuid.UUID,
         started_at: datetime,
         ended_at: datetime,
     ) -> bool:
-        return (
-            session.scalar(
-                select(RecordingTrigger.id)
-                .where(
-                    RecordingTrigger.camera_id == camera_id,
-                    RecordingTrigger.state.notin_(
-                        ["CANCELLED", "FAILED"]
-                    ),
-                    RecordingTrigger.planned_start_at < ended_at,
-                    or_(
-                        RecordingTrigger.planned_end_at.is_(None),
-                        RecordingTrigger.planned_end_at > started_at,
-                    ),
-                )
-                .limit(1)
+        return bool(
+            cls.overlapping(
+                session,
+                camera_id=camera_id,
+                started_at=started_at,
+                ended_at=ended_at,
             )
-            is not None
         )

@@ -20,9 +20,40 @@ ADMIN_PASSWORD = "correct-horse-battery-staple"
 class FakeDispatcher:
     def __init__(self) -> None:
         self.camera_ids: list[uuid.UUID] = []
+        self.runtime_calls: list[
+            tuple[uuid.UUID, bool]
+        ] = []
+        self.scheduled_runtime: list[
+            tuple[uuid.UUID, object, bool]
+        ] = []
 
     def reconcile_camera(self, camera_id: uuid.UUID) -> None:
         self.camera_ids.append(camera_id)
+
+    def reconcile_runtime(
+        self,
+        camera_id: uuid.UUID,
+        *,
+        force_reconfigure: bool = False,
+    ) -> None:
+        self.runtime_calls.append(
+            (camera_id, force_reconfigure)
+        )
+
+    def schedule_runtime(
+        self,
+        camera_id: uuid.UUID,
+        *,
+        eta,
+        force_reconfigure: bool = False,
+    ) -> None:
+        self.scheduled_runtime.append(
+            (
+                camera_id,
+                eta,
+                force_reconfigure,
+            )
+        )
 
     def finalized_prebuffer_fragment(self, _fragment) -> None:
         return None
@@ -165,6 +196,21 @@ def test_manual_trigger_is_idempotent_and_stop_adds_postroll(
 
     dispatcher = app.state.recording_tasks
     assert dispatcher.camera_ids.count(camera_id) >= 3
+    assert (
+        dispatcher.runtime_calls.count(
+            (camera_id, True)
+        )
+        >= 3
+    )
+    assert dispatcher.scheduled_runtime
+    assert (
+        dispatcher.scheduled_runtime[-1][0]
+        == camera_id
+    )
+    assert (
+        dispatcher.scheduled_runtime[-1][2]
+        is True
+    )
 
 
 def test_trigger_requires_event_recording_enabled(

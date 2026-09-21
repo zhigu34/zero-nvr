@@ -82,3 +82,48 @@ def test_recording_dispatcher_exposes_catalog_reconcile(
         full=True
     )
     assert calls == [True]
+
+
+
+def test_recording_dispatcher_schedules_runtime_boundary(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    monkeypatch.setenv(
+        "ZERO_NVR_HUEY_DB_PATH",
+        str(tmp_path / "huey.db"),
+    )
+    camera_id = uuid.uuid4()
+    eta = object()
+    calls = []
+
+    class FakeTask:
+        def schedule(
+            self,
+            *,
+            args,
+            eta,
+        ) -> None:
+            calls.append((args, eta))
+
+    monkeypatch.setattr(
+        "app.worker.tasks.reconcile_camera_runtime",
+        FakeTask(),
+    )
+
+    RecordingTaskDispatcher.schedule_runtime(
+        camera_id,
+        eta=eta,
+        force_reconfigure=True,
+    )
+
+    assert calls == [
+        (
+            (
+                str(camera_id),
+                False,
+                True,
+            ),
+            eta,
+        )
+    ]

@@ -18,6 +18,7 @@ from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 from .prebuffer import validate_prebuffer_root
 
+from .arbiter import RecordingArbiterService
 from .catalog import RecordingCatalogService
 from .models import RecordingPolicy
 from .prebuffer_mount import PrebufferMountService
@@ -35,6 +36,7 @@ class DesiredRecorder:
     mode: RecorderMode
     target_root: str | None
     max_second: int
+    reasons: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,8 +111,6 @@ class RecordingRuntimeService:
             "off",
         ] = "error",
     ) -> DesiredRecorder | None:
-        from .policy import RecordingPolicyService
-
         camera = session.get(Camera, camera_id)
         if camera is None:
             raise ApiError(
@@ -154,21 +154,15 @@ class RecordingRuntimeService:
         )
 
         instant = at or datetime.now(UTC)
-        baseline_recording = (
-            camera.enabled
-            and RecordingPolicyService.baseline_should_record(
-                policy,
-                at=instant,
-            )
-        )
-        event_prebuffer = (
-            camera.enabled
-            and policy.enabled
-            and policy.event_recording_enabled
-            and not baseline_recording
+        arbitration = RecordingArbiterService.evaluate(
+            session,
+            camera_id=camera.id,
+            camera_enabled=camera.enabled,
+            policy=policy,
+            at=instant,
         )
 
-        if baseline_recording:
+        if arbitration.mode == "persistent":
             target = RecordingStorageResolver.local_target_for_camera(
                 session,
                 camera_id=camera_id,
@@ -193,7 +187,7 @@ class RecordingRuntimeService:
                 mode = "persistent"
                 root = str(target.root)
                 max_second = policy.segment_target_seconds
-        elif event_prebuffer:
+        elif arbitration.mode == "prebuffer":
             mode = "prebuffer"
             root = str(validate_prebuffer_root(settings))
             max_second = settings.prebuffer_fragment_seconds
@@ -210,6 +204,7 @@ class RecordingRuntimeService:
             mode=mode,
             target_root=root,
             max_second=max_second,
+            reasons=arbitration.reasons,
         )
 
     def reconcile(

@@ -45,7 +45,10 @@ from app.modules.recordings.prebuffer import (
     PrebufferFragment,
     PrebufferPromotionService,
 )
-from app.modules.recordings.runtime import RecordingRuntimeService
+from app.modules.recordings.runtime import (
+    RecorderModeTracker,
+    RecordingRuntimeService,
+)
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.archive import ArchiveLifecycleService
 from app.modules.storage.capacity import (
@@ -64,6 +67,9 @@ from app.modules.storage.models import (
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 from .queue import huey
+
+
+_RECORDER_MODE_TRACKER = RecorderModeTracker()
 
 
 _ZLM_FILENAME = re.compile(
@@ -436,7 +442,8 @@ def reconcile_camera_runtime(
             )
 
         runtime_result = RecordingRuntimeService(
-            settings
+            settings,
+            mode_tracker=_RECORDER_MODE_TRACKER,
         ).reconcile(
             desired_recorder,
             force_reconfigure=(
@@ -686,7 +693,10 @@ def reconcile_recording_policy_boundary(
         ):
             media_runtime.ensure_streams(record_streams)
 
-        RecordingRuntimeService(settings).reconcile(
+        RecordingRuntimeService(
+            settings,
+            mode_tracker=_RECORDER_MODE_TRACKER,
+        ).reconcile(
             desired_recorder,
             force_reconfigure=True,
         )

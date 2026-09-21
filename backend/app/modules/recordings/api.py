@@ -710,6 +710,10 @@ def create_recording_trigger(
         request.app.state.recording_tasks.reconcile_camera(
             camera_id
         )
+        request.app.state.recording_tasks.reconcile_runtime(
+            camera_id,
+            force_reconfigure=True,
+        )
     except Exception as exc:
         raise ApiError(
             status_code=503,
@@ -802,6 +806,16 @@ def stop_recording_trigger(
         request.app.state.recording_tasks.reconcile_camera(
             camera_id
         )
+        request.app.state.recording_tasks.reconcile_runtime(
+            camera_id,
+            force_reconfigure=True,
+        )
+        if trigger.planned_end_at is not None:
+            request.app.state.recording_tasks.schedule_runtime(
+                camera_id,
+                eta=trigger.planned_end_at,
+                force_reconfigure=True,
+            )
     except Exception as exc:
         raise ApiError(
             status_code=503,
