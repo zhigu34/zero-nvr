@@ -3,7 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -72,11 +72,12 @@ def seed_completed_export(app) -> uuid.UUID:
         output.parent.mkdir(parents=True, exist_ok=True)
         output.write_bytes(b"shared-video")
 
+        now = datetime.now(UTC)
         job = ExportJob(
             camera_id=camera.id,
             requested_by=None,
-            requested_start_at=datetime(2026, 9, 20, 0, 0, tzinfo=UTC),
-            requested_end_at=datetime(2026, 9, 20, 0, 1, tzinfo=UTC),
+            requested_start_at=now - timedelta(minutes=2),
+            requested_end_at=now - timedelta(minutes=1),
             requested_duration_ms=60_000,
             format="mp4",
             codec_mode="copy",
@@ -87,8 +88,8 @@ def seed_completed_export(app) -> uuid.UUID:
             actual_duration_ms=60_000,
             selected_segment_count=1,
             metadata_json={},
-            expires_at=datetime(2026, 9, 21, 0, 0, tzinfo=UTC),
-            completed_at=datetime(2026, 9, 20, 0, 2, tzinfo=UTC),
+            expires_at=now + timedelta(hours=24),
+            completed_at=now,
         )
         session.add(job)
         session.commit()
