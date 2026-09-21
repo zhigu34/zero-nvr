@@ -180,7 +180,7 @@ Acceptance:
 - [ ] PTZ overlay integrated with live view when authorized.
 - [x] saved LiveViewLayout / grid layouts.
 - [x] visibility/offscreen idle-session cleanup.
-- [ ] ZLM restart/session reconnect and current runtime-generation re-resolution.
+- [x] ZLM restart/session reconnect and current runtime-generation re-resolution.
 - [ ] Live Monitor complete UI.
 
 Acceptance:

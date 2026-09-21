@@ -59,10 +59,13 @@ const ptzHolding = ref(false)
 const pageVisible = ref(!document.hidden)
 const tileVisible = ref(true)
 const fullscreenActive = ref(false)
+const reconnecting = ref(false)
 
 let hls: Hls | null = null
 let generation = 0
 let tokenRefreshTimer: number | null = null
+let reconnectTimer: number | null = null
+let reconnectAttempt = 0
 let recordingErrorTimer: number | null = null
 let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
@@ -178,9 +181,37 @@ function scheduleTokenRefresh(expiresAt: string): void {
   }, refreshIn)
 }
 
+function clearReconnect(): void {
+  if (reconnectTimer !== null) {
+    window.clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  reconnecting.value = false
+}
+
+function scheduleReconnect(): void {
+  clearReconnect()
+  if (playbackSuspended.value) return
+
+  const delays = [1_000, 2_000, 4_000, 8_000, 15_000]
+  const delay = delays[
+    Math.min(reconnectAttempt, delays.length - 1)
+  ]
+  reconnectAttempt += 1
+  reconnecting.value = true
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null
+    reconnecting.value = false
+    if (!playbackSuspended.value) {
+      void loadStream()
+    }
+  }, delay)
+}
+
 function destroyPlayer(): void {
   generation += 1
   clearTokenRefresh()
+  clearReconnect()
   hls?.destroy()
   hls = null
   playing.value = false
@@ -233,6 +264,20 @@ async function attachStream(stream: CameraLiveStream): Promise<void> {
     backBufferLength: 12,
     maxBufferLength: 18,
     liveSyncDurationCount: 2
+  })
+  hls.on(Hls.Events.ERROR, (_event, data) => {
+    if (
+      !data.fatal ||
+      playbackSuspended.value
+    ) {
+      return
+    }
+    error.value =
+      "Live stream was interrupted. Reconnecting automatically."
+    descriptor.value = null
+    loading.value = false
+    destroyPlayer()
+    scheduleReconnect()
   })
   hls.loadSource(source)
   hls.attachMedia(element)
@@ -292,6 +337,7 @@ async function loadStream(): Promise<void> {
     return
   }
 
+  clearReconnect()
   const currentGeneration = ++generation
   clearTokenRefresh()
   hls?.destroy()
@@ -328,6 +374,7 @@ async function loadStream(): Promise<void> {
       return
     }
     error.value = errorMessage(caught)
+    scheduleReconnect()
   } finally {
     if (generation === currentGeneration) {
       loading.value = false
@@ -353,10 +400,35 @@ async function enterFullscreen(): Promise<void> {
   await tile.value?.requestFullscreen?.()
 }
 
-function handleVideoError(): void {
-  if (!loading.value) {
-    error.value = "Live stream playback failed."
+function handlePlaying(): void {
+  playing.value = true
+  reconnectAttempt = 0
+  clearReconnect()
+  error.value = null
+}
+
+function retryStream(): void {
+  reconnectAttempt = 0
+  destroyPlayer()
+  descriptor.value = null
+  error.value = null
+  if (!playbackSuspended.value) {
+    void loadStream()
   }
+}
+
+function handleVideoError(): void {
+  if (
+    loading.value ||
+    playbackSuspended.value
+  ) {
+    return
+  }
+  error.value =
+    "Live stream playback failed. Reconnecting automatically."
+  descriptor.value = null
+  destroyPlayer()
+  scheduleReconnect()
 }
 
 onMounted(() => {
@@ -407,6 +479,7 @@ onMounted(() => {
 watch(
   () => [props.camera.id, requestedQuality.value],
   () => {
+    reconnectAttempt = 0
     destroyPlayer()
     descriptor.value = null
     recordingTrigger.value = null
@@ -422,6 +495,7 @@ watch(playbackSuspended, (suspended, wasSuspended) => {
   if (suspended) {
     suspendPlayback()
   } else if (wasSuspended) {
+    reconnectAttempt = 0
     void loadStream()
   }
 })
@@ -463,7 +537,7 @@ onBeforeUnmount(() => {
       autoplay
       playsinline
       :muted="muted"
-      @playing="playing = true"
+      @playing="handlePlaying"
       @waiting="playing = false"
       @error="handleVideoError"
     />
@@ -485,7 +559,9 @@ onBeforeUnmount(() => {
       <strong>
         {{
           error
-            ? "Stream unavailable"
+            ? reconnecting
+              ? "Reconnecting…"
+              : "Stream unavailable"
             : playbackSuspended
               ? "Live view paused"
               : "Connecting…"
@@ -505,10 +581,10 @@ onBeforeUnmount(() => {
         v-if="error && !playbackSuspended"
         class="media-button media-button--text"
         type="button"
-        @click.stop="loadStream"
+        @click.stop="retryStream"
       >
         <UiIcon name="refresh" :size="14" />
-        Retry
+        Retry now
       </button>
     </div>
 
