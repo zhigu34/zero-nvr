@@ -41,6 +41,8 @@ const layoutSlots = ref<LiveLayoutSlots>(4)
 const focusedCameraId = ref<string | null>(null)
 const cameraPanelOpen = ref(true)
 const search = ref("")
+const cameraFilter = ref<"all" | "selected">("all")
+const draggingCameraId = ref<string | null>(null)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const fullscreen = ref(false)
@@ -63,10 +65,17 @@ const enabledCameras = computed(() =>
 )
 
 const filteredCameras = computed(() => {
-  const needle = search.value.trim().toLowerCase()
-  if (!needle) return cameras.value
+  const source =
+    cameraFilter.value === "selected"
+      ? cameras.value.filter((camera) =>
+          selectedIds.value.includes(camera.id)
+        )
+      : cameras.value
 
-  return cameras.value.filter((camera) =>
+  const needle = search.value.trim().toLowerCase()
+  if (!needle) return source
+
+  return source.filter((camera) =>
     [camera.name, camera.location, camera.adapter_type]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(needle))
@@ -97,6 +106,15 @@ const emptySlots = computed(() =>
   focusedCameraId.value
     ? 0
     : Math.max(0, layoutSlots.value - visibleCameras.value.length)
+)
+
+const visibleCameraCount = computed(() =>
+  focusedCameraId.value
+    ? visibleCameras.value.length
+    : Math.min(
+        selectedCameras.value.length,
+        layoutSlots.value
+      )
 )
 
 const gridColumns = computed(() => {
@@ -390,6 +408,86 @@ function toggleCamera(camera: CameraSummary): void {
   selectedIds.value = [camera.id, ...selectedIds.value].slice(0, 16)
 }
 
+function fillGrid(): void {
+  const selected = selectedIds.value.filter((id) =>
+    enabledCameras.value.some((camera) => camera.id === id)
+  )
+  const selectedSet = new Set(selected)
+
+  for (const camera of enabledCameras.value) {
+    if (selected.length >= layoutSlots.value) break
+    if (selectedSet.has(camera.id)) continue
+    selected.push(camera.id)
+    selectedSet.add(camera.id)
+  }
+
+  selectedIds.value = selected.slice(0, 16)
+  focusedCameraId.value = null
+}
+
+function clearGrid(): void {
+  selectedIds.value = []
+  focusedCameraId.value = null
+}
+
+function cameraSlotNumber(cameraId: string): number | null {
+  const index = selectedIds.value.indexOf(cameraId)
+  return index >= 0 ? index + 1 : null
+}
+
+function handleCameraDragStart(
+  camera: CameraSummary,
+  event: DragEvent
+): void {
+  if (
+    !camera.enabled ||
+    !selectedIds.value.includes(camera.id)
+  ) {
+    event.preventDefault()
+    return
+  }
+
+  draggingCameraId.value = camera.id
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = "move"
+    event.dataTransfer.setData("text/plain", camera.id)
+  }
+}
+
+function handleCameraDragEnd(): void {
+  draggingCameraId.value = null
+}
+
+function dropCameraBefore(targetCameraId: string): void {
+  const sourceCameraId = draggingCameraId.value
+  if (
+    !sourceCameraId ||
+    sourceCameraId === targetCameraId
+  ) {
+    draggingCameraId.value = null
+    return
+  }
+
+  const next = [...selectedIds.value]
+  const sourceIndex = next.indexOf(sourceCameraId)
+  const targetIndex = next.indexOf(targetCameraId)
+  if (sourceIndex < 0 || targetIndex < 0) {
+    draggingCameraId.value = null
+    return
+  }
+
+  next.splice(sourceIndex, 1)
+  const adjustedTarget = next.indexOf(targetCameraId)
+  next.splice(adjustedTarget, 0, sourceCameraId)
+  selectedIds.value = next
+  draggingCameraId.value = null
+}
+
+function openCameraPicker(): void {
+  cameraPanelOpen.value = true
+  cameraFilter.value = "all"
+}
+
 function focusCamera(cameraId: string): void {
   if (focusedCameraId.value === cameraId) {
     focusedCameraId.value = null
@@ -586,7 +684,10 @@ onBeforeUnmount(() => {
       <div class="live-camera-panel__header">
         <div>
           <strong>Cameras</strong>
-          <span>{{ enabledCameras.length }} enabled</span>
+          <span>
+            {{ selectedCameras.length }} selected ·
+            {{ enabledCameras.length }} enabled
+          </span>
         </div>
         <button
           class="icon-button topbar-icon-button"
@@ -610,6 +711,43 @@ onBeforeUnmount(() => {
         />
       </label>
 
+      <div class="live-camera-panel__filters">
+        <div class="live-camera-filter" aria-label="Camera filter">
+          <button
+            type="button"
+            :class="{ 'live-camera-filter__active': cameraFilter === 'all' }"
+            @click="cameraFilter = 'all'"
+          >
+            All
+            <span>{{ cameras.length }}</span>
+          </button>
+          <button
+            type="button"
+            :class="{ 'live-camera-filter__active': cameraFilter === 'selected' }"
+            @click="cameraFilter = 'selected'"
+          >
+            Selected
+            <span>{{ selectedCameras.length }}</span>
+          </button>
+        </div>
+        <div class="live-camera-panel__quick-actions">
+          <button
+            type="button"
+            :disabled="!enabledCameras.length"
+            @click="fillGrid"
+          >
+            Fill {{ layoutSlots }}
+          </button>
+          <button
+            type="button"
+            :disabled="!selectedCameras.length"
+            @click="clearGrid"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
       <div v-if="error" class="live-panel-error">
         {{ error }}
       </div>
@@ -621,11 +759,18 @@ onBeforeUnmount(() => {
           class="live-camera-row"
           :class="{
             'live-camera-row--selected':
-              selectedIds.includes(camera.id)
+              selectedIds.includes(camera.id),
+            'live-camera-row--dragging':
+              draggingCameraId === camera.id
           }"
           type="button"
           :disabled="!camera.enabled"
+          :draggable="camera.enabled && selectedIds.includes(camera.id)"
           @click="toggleCamera(camera)"
+          @dragstart="handleCameraDragStart(camera, $event)"
+          @dragend="handleCameraDragEnd"
+          @dragover.prevent
+          @drop.prevent="dropCameraBefore(camera.id)"
         >
           <span
             class="live-camera-row__status"
@@ -639,12 +784,20 @@ onBeforeUnmount(() => {
               {{ camera.location || camera.adapter_type || "Camera" }}
             </small>
           </span>
-          <span class="live-camera-row__check">
-            <UiIcon
-              v-if="selectedIds.includes(camera.id)"
-              name="check"
-              :size="14"
-            />
+          <span
+            class="live-camera-row__check"
+            :title="
+              cameraSlotNumber(camera.id)
+                ? `Grid slot ${cameraSlotNumber(camera.id)}`
+                : undefined
+            "
+          >
+            <span
+              v-if="cameraSlotNumber(camera.id)"
+              class="live-camera-row__slot"
+            >
+              {{ cameraSlotNumber(camera.id) }}
+            </span>
           </span>
         </button>
 
@@ -652,7 +805,11 @@ onBeforeUnmount(() => {
           v-if="!filteredCameras.length && !loading"
           class="live-camera-list__empty"
         >
-          No cameras found.
+          {{
+            cameraFilter === "selected"
+              ? "No cameras selected."
+              : "No cameras found."
+          }}
         </div>
       </div>
     </aside>
@@ -672,6 +829,14 @@ onBeforeUnmount(() => {
 
           <span class="live-toolbar__title">
             {{ focusedCameraId ? "Camera focus" : "Live view" }}
+          </span>
+
+          <span class="live-toolbar__status">
+            <i />
+            {{ visibleCameraCount }} live
+            <template v-if="!focusedCameraId">
+              · {{ layoutSlots }}-view
+            </template>
           </span>
 
           <span
@@ -850,14 +1015,17 @@ onBeforeUnmount(() => {
           @focus="focusCamera"
         />
 
-        <div
+        <button
           v-for="slot in emptySlots"
           :key="`empty-${slot}`"
           class="live-empty-tile"
+          type="button"
+          title="Open camera picker"
+          @click="openCameraPicker"
         >
-          <UiIcon name="cameras" :size="24" />
-          <span>Select a camera</span>
-        </div>
+          <UiIcon name="plus" :size="22" />
+          <span>Add camera</span>
+        </button>
 
         <div
           v-if="!visibleCameras.length && emptySlots === 0"
@@ -865,7 +1033,15 @@ onBeforeUnmount(() => {
         >
           <UiIcon name="cameras" :size="30" />
           <strong>No camera selected</strong>
-          <span>Choose an enabled camera from the camera panel.</span>
+          <span>Choose an enabled camera to start monitoring.</span>
+          <button
+            class="media-button media-button--text"
+            type="button"
+            @click="openCameraPicker"
+          >
+            <UiIcon name="plus" :size="14" />
+            Select cameras
+          </button>
         </div>
       </div>
     </div>

@@ -178,7 +178,7 @@ Acceptance:
 - [x] saved LiveViewLayout / grid layouts.
 - [x] visibility/offscreen idle-session cleanup.
 - [x] ZLM restart/session reconnect and current runtime-generation re-resolution.
-- [ ] Live Monitor complete UI.
+- [x] Live Monitor complete UI.
 
 Acceptance:
 
