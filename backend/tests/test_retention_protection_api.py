@@ -265,6 +265,26 @@ def test_recording_protection_permissions_scope_and_delete_race(
         assert created.status_code == 201
         protection_id = created.json()["id"]
 
+        updated_start = start + timedelta(minutes=1)
+        updated_end = end + timedelta(minutes=5)
+        updated_expiry = datetime.now(UTC) + timedelta(days=30)
+        updated = client.put(
+            f"/api/v1/recording-protections/{protection_id}",
+            json={
+                "started_at": updated_start.isoformat(),
+                "ended_at": updated_end.isoformat(),
+                "reason": "incident review updated",
+                "expires_at": updated_expiry.isoformat(),
+            },
+        )
+        assert updated.status_code == 200
+        assert updated.json()["reason"] == "incident review updated"
+        returned_start = datetime.fromisoformat(
+            updated.json()["started_at"].replace("Z", "+00:00")
+        )
+        assert returned_start == updated_start
+        assert updated.json()["expires_at"] is not None
+
         listed = client.get(
             f"/api/v1/cameras/{front_id}/recording-protections"
         )
@@ -272,6 +292,7 @@ def test_recording_protection_permissions_scope_and_delete_race(
         assert [item["id"] for item in listed.json()] == [
             protection_id
         ]
+        assert listed.json()[0]["reason"] == "incident review updated"
 
         with app.state.database.session() as session:
             operator_role = session.scalar(
@@ -343,6 +364,17 @@ def test_recording_protection_permissions_scope_and_delete_race(
             },
         )
         assert viewer_denied.status_code == 403
+
+        viewer_update_denied = client.put(
+            f"/api/v1/recording-protections/{protection_id}",
+            json={
+                "started_at": start.isoformat(),
+                "ended_at": end.isoformat(),
+                "reason": "viewer cannot edit protection",
+                "expires_at": None,
+            },
+        )
+        assert viewer_update_denied.status_code == 403
 
         hidden = client.get(
             f"/api/v1/cameras/{back_id}/recording-protections"
@@ -463,5 +495,6 @@ def test_recording_protection_permissions_scope_and_delete_race(
         )
     assert {
         "recording_protection.create",
+        "recording_protection.update",
         "recording_protection.delete",
     } <= actions

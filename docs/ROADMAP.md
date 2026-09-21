@@ -219,7 +219,7 @@ Acceptance:
 - [ ] normal age-based retention worker.
 - [ ] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [ ] priority-based emergency purge with structured logs.
-- [ ] RecordingProtection range create/update/delete and UI.
+- [x] RecordingProtection range create/update/delete and UI.
 - [ ] safe local purge only after verified remote readiness where applicable.
 - [ ] disk capacity guard.
 - [ ] basic timeline.

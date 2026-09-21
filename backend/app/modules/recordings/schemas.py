@@ -205,6 +205,13 @@ class RecordingProtectionCreate(BaseModel):
     expires_at: datetime | None = None
 
 
+class RecordingProtectionUpdate(BaseModel):
+    started_at: datetime
+    ended_at: datetime
+    reason: str = Field(min_length=1, max_length=1024)
+    expires_at: datetime | None = None
+
+
 class RecordingProtectionView(BaseModel):
     id: uuid.UUID
     camera_id: uuid.UUID

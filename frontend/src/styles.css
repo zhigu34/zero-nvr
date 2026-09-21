@@ -2344,6 +2344,11 @@ strong {
   background: #d49a45;
 }
 
+
+.legend-dot--protected {
+  background: #d7b34f;
+}
+
 .playback-timeline {
   position: relative;
   height: 86px;
@@ -2392,6 +2397,7 @@ strong {
 
 .timeline-gap-range,
 .timeline-recording-range,
+.timeline-protection-range,
 .timeline-event-marker,
 .playback-playhead {
   position: absolute;
@@ -2451,6 +2457,43 @@ strong {
 .timeline-recording-range--purged {
   background: #5c626b;
 }
+
+.timeline-protection-range {
+  right: auto;
+  bottom: 2px;
+  z-index: 3;
+  height: 5px;
+  min-width: 2px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(215, 179, 79, 0.9);
+  cursor: pointer;
+}
+
+.timeline-protection-range:hover {
+  height: 7px;
+  background: #e1c25f;
+}
+
+
+.timeline-protection-range--readonly {
+  cursor: default;
+  opacity: 0.78;
+}
+
+.timeline-protection-range--readonly:hover {
+  height: 5px;
+  background: rgba(215, 179, 79, 0.9);
+}
+
+.timeline-protection-range span {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 
 .timeline-event-marker {
   top: 4px;

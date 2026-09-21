@@ -49,6 +49,7 @@ from .schemas import (
     RecordingPolicyPut,
     RecordingLocationView,
     RecordingProtectionCreate,
+    RecordingProtectionUpdate,
     RecordingProtectionView,
     RecordingPolicyView,
     RecordingRuntimeView,
@@ -549,6 +550,65 @@ def list_recording_protections(
             camera_id=camera_id,
         )
     ]
+
+
+@router.put(
+    "/recording-protections/{protection_id}",
+    response_model=RecordingProtectionView,
+)
+def update_recording_protection(
+    protection_id: uuid.UUID,
+    body: RecordingProtectionUpdate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.protect")
+    ),
+    session: Session = Depends(get_db_session),
+) -> RecordingProtectionView:
+    protection = RecordingProtectionService.get(
+        session,
+        protection_id,
+    )
+    scope = get_effective_camera_scope(
+        context,
+        session,
+    )
+    if not scope.allows(protection.camera_id):
+        session.commit()
+        raise ApiError(
+            status_code=404,
+            code="recording_protection_not_found",
+            message="Recording protection was not found.",
+        )
+
+    before = _protection_audit_snapshot(protection)
+    try:
+        protection = RecordingProtectionService.update(
+            session,
+            protection=protection,
+            started_at=body.started_at,
+            ended_at=body.ended_at,
+            reason=body.reason,
+            expires_at=body.expires_at,
+        )
+        after = _protection_audit_snapshot(protection)
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="recording_protection.update",
+            resource_type="recording_protection",
+            resource_id=protection.id,
+            camera_id=protection.camera_id,
+            before=before,
+            after=after,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return _protection_view(protection)
 
 
 @router.delete(

@@ -31,6 +31,7 @@ import {
   createRecordingProtection,
   deleteRecordingProtection,
   listRecordingProtections,
+  updateRecordingProtection,
   type RecordingProtection
 } from "../api/recordings"
 import {
@@ -75,8 +76,9 @@ const actionPanelOpen = ref(false)
 const actionMode = ref<"protect" | "export">("export")
 const actionStart = ref("")
 const actionEnd = ref("")
+const editingProtectionId = ref<string | null>(null)
 const protectionReason = ref("Important footage")
-const protectionExpiryDays = ref(0)
+const protectionExpiresAt = ref("")
 const exportCodecMode = ref<"auto" | "copy" | "h264">("auto")
 const exportGapPolicy = ref<"skip" | "fail">("skip")
 const actionSaving = ref(false)
@@ -154,6 +156,23 @@ const cameraProtections = computed(() =>
     .filter((item) => item.camera_id === activeCameraId.value)
     .slice(0, 8)
 )
+
+const timelineProtections = computed(() => {
+  const now = Date.now()
+  return protections.value.filter((item) => {
+    if (item.camera_id !== activeCameraId.value) return false
+    if (
+      item.expires_at &&
+      new Date(item.expires_at).getTime() <= now
+    ) {
+      return false
+    }
+    return (
+      new Date(item.ended_at).getTime() > timelineStartMs.value &&
+      new Date(item.started_at).getTime() < timelineEndMs.value
+    )
+  })
+})
 
 const cameraExports = computed(() =>
   exportJobs.value
@@ -259,6 +278,30 @@ function rangeStyle(
     left: `${clampPercent(left)}%`,
     width: `${Math.max(0.15, Math.min(100, width))}%`
   }
+}
+
+function protectionStyle(
+  item: RecordingProtection
+): Record<string, string> {
+  const start = new Date(item.started_at).getTime()
+  const end = new Date(item.ended_at).getTime()
+  const left =
+    ((start - timelineStartMs.value) / timelineDurationMs.value) * 100
+  const width =
+    ((end - start) / timelineDurationMs.value) * 100
+  return {
+    left: `${clampPercent(left)}%`,
+    width: `${Math.max(0.15, Math.min(100, width))}%`
+  }
+}
+
+function protectionTitle(item: RecordingProtection): string {
+  const expiry = item.expires_at
+    ? ` · expires ${formatTimestamp(new Date(item.expires_at))}`
+    : ""
+  return `${item.reason} · protected ${formatTimestamp(
+    new Date(item.started_at)
+  )} → ${formatTimestamp(new Date(item.ended_at))}${expiry}`
 }
 
 function eventStyle(item: TimelineEvent): Record<string, string> {
@@ -517,6 +560,7 @@ function jumpTo(value: string | null): void {
 
 function openActionPanel(mode: "protect" | "export"): void {
   actionMode.value = mode
+  editingProtectionId.value = null
   const center = currentAt.value.getTime()
   actionStart.value = toLocalDateTimeInput(
     new Date(center - 30_000)
@@ -525,9 +569,32 @@ function openActionPanel(mode: "protect" | "export"): void {
     new Date(center + 30_000)
   )
   protectionReason.value = "Important footage"
-  protectionExpiryDays.value = 0
+  protectionExpiresAt.value = ""
   exportCodecMode.value = "auto"
   exportGapPolicy.value = "skip"
+  actionPanelOpen.value = true
+}
+
+function openProtectionFromTimeline(
+  item: RecordingProtection
+): void {
+  if (!auth.hasPermission("recording.protect")) return
+  editProtection(item)
+}
+
+function editProtection(item: RecordingProtection): void {
+  actionMode.value = "protect"
+  editingProtectionId.value = item.id
+  actionStart.value = toLocalDateTimeInput(
+    new Date(item.started_at)
+  )
+  actionEnd.value = toLocalDateTimeInput(
+    new Date(item.ended_at)
+  )
+  protectionReason.value = item.reason
+  protectionExpiresAt.value = item.expires_at
+    ? toLocalDateTimeInput(new Date(item.expires_at))
+    : ""
   actionPanelOpen.value = true
 }
 
@@ -551,20 +618,30 @@ async function saveProtection(): Promise<void> {
   error.value = null
   try {
     const [start, end] = actionRange()
-    const expiresAt =
-      protectionExpiryDays.value > 0
-        ? new Date(
-            Date.now() +
-              protectionExpiryDays.value * 24 * 60 * 60 * 1000
-          ).toISOString()
-        : null
-    await createRecordingProtection(cameraId, {
+    const expiresAt = protectionExpiresAt.value
+      ? fromLocalDateTimeInput(
+          protectionExpiresAt.value
+        ).toISOString()
+      : null
+    const body = {
       started_at: start.toISOString(),
       ended_at: end.toISOString(),
       reason: protectionReason.value.trim(),
       expires_at: expiresAt
-    })
+    }
+    if (editingProtectionId.value) {
+      await updateRecordingProtection(
+        editingProtectionId.value,
+        body
+      )
+    } else {
+      await createRecordingProtection(
+        cameraId,
+        body
+      )
+    }
     await loadPlaybackActions()
+    editingProtectionId.value = null
     actionPanelOpen.value = false
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -629,11 +706,22 @@ async function saveExport(): Promise<void> {
 async function removeProtection(
   item: RecordingProtection
 ): Promise<void> {
+  if (
+    !window.confirm(
+      `Remove protection “${item.reason}”? The recording becomes eligible for normal retention again.`
+    )
+  ) {
+    return
+  }
   try {
     await deleteRecordingProtection(item.id)
     protections.value = protections.value.filter(
       (current) => current.id !== item.id
     )
+    if (editingProtectionId.value === item.id) {
+      editingProtectionId.value = null
+      actionPanelOpen.value = false
+    }
   } catch (caught) {
     error.value = errorMessage(caught)
   }
@@ -1092,6 +1180,11 @@ onBeforeUnmount(() => {
           <span><i class="legend-dot legend-dot--local" /> Local</span>
           <span><i class="legend-dot legend-dot--remote" /> Remote</span>
           <span><i class="legend-dot legend-dot--event" /> Event</span>
+          <span
+            v-if="auth.hasPermission('recording.protect')"
+          >
+            <i class="legend-dot legend-dot--protected" /> Protected
+          </span>
           <span v-if="loadingTimeline">Updating…</span>
         </div>
 
@@ -1138,6 +1231,23 @@ onBeforeUnmount(() => {
             />
 
             <button
+              v-for="item in timelineProtections"
+              :key="`protection-${item.id}`"
+              class="timeline-protection-range"
+              :class="{
+                'timeline-protection-range--readonly':
+                  !auth.hasPermission('recording.protect')
+              }"
+              :style="protectionStyle(item)"
+              type="button"
+              :title="protectionTitle(item)"
+              tabindex="-1"
+              @click.stop="openProtectionFromTimeline(item)"
+            >
+              <span />
+            </button>
+
+            <button
               v-for="item in timeline?.events || []"
               :key="item.id"
               class="timeline-event-marker"
@@ -1169,7 +1279,9 @@ onBeforeUnmount(() => {
             <strong>
               {{
                 actionMode === "protect"
-                  ? "Protect recording"
+                  ? editingProtectionId
+                    ? "Edit protection"
+                    : "Protect recording"
                   : "Export clip"
               }}
             </strong>
@@ -1222,14 +1334,13 @@ onBeforeUnmount(() => {
               />
             </label>
             <label>
-              <span>Expire after</span>
-              <select v-model.number="protectionExpiryDays">
-                <option :value="0">Never</option>
-                <option :value="7">7 days</option>
-                <option :value="30">30 days</option>
-                <option :value="90">90 days</option>
-                <option :value="365">1 year</option>
-              </select>
+              <span>Expires at</span>
+              <input
+                v-model="protectionExpiresAt"
+                type="datetime-local"
+                step="60"
+              />
+              <small>Leave blank to protect indefinitely.</small>
             </label>
           </template>
 
@@ -1268,7 +1379,9 @@ onBeforeUnmount(() => {
                 actionSaving
                   ? "Saving…"
                   : actionMode === "protect"
-                    ? "Protect range"
+                    ? editingProtectionId
+                      ? "Save protection"
+                      : "Protect range"
                     : "Create export"
               }}
             </button>
@@ -1291,7 +1404,18 @@ onBeforeUnmount(() => {
                 →
                 {{ formatTimestamp(new Date(item.ended_at)) }}
               </span>
+              <span v-if="item.expires_at">
+                Expires {{ formatTimestamp(new Date(item.expires_at)) }}
+              </span>
             </div>
+            <button
+              class="icon-button"
+              type="button"
+              title="Edit protection"
+              @click="editProtection(item)"
+            >
+              <UiIcon name="shield" :size="13" />
+            </button>
             <button
               class="icon-button icon-button--danger"
               type="button"
@@ -1560,6 +1684,13 @@ onBeforeUnmount(() => {
   font-size: 8px;
   font-weight: 650;
   text-transform: uppercase;
+}
+
+
+.playback-action-form label > small {
+  color: var(--text-muted);
+  font-size: 7px;
+  line-height: 1.35;
 }
 
 .playback-action-form input,

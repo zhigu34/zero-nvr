@@ -114,6 +114,25 @@ export function createRecordingProtection(
   )
 }
 
+export function updateRecordingProtection(
+  protectionId: string,
+  body: {
+    started_at: string
+    ended_at: string
+    reason: string
+    expires_at: string | null
+  }
+): Promise<RecordingProtection> {
+  return apiRequest<RecordingProtection>(
+    `/recording-protections/${encodeURIComponent(protectionId)}`,
+    {
+      method: "PUT",
+      json: body
+    }
+  )
+}
+
+
 export function deleteRecordingProtection(
   protectionId: string
 ): Promise<void> {

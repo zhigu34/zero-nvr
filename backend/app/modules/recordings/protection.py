@@ -163,6 +163,91 @@ class RecordingProtectionService:
         session.flush()
         return protection
 
+    @classmethod
+    def update(
+        cls,
+        session: Session,
+        *,
+        protection: RecordingProtection,
+        started_at: datetime,
+        ended_at: datetime,
+        reason: str,
+        expires_at: datetime | None,
+    ) -> RecordingProtection:
+        start = cls._utc(
+            started_at,
+            field_name="started_at",
+        )
+        end = cls._utc(
+            ended_at,
+            field_name="ended_at",
+        )
+        if end <= start:
+            raise ApiError(
+                status_code=400,
+                code="recording_protection_range_invalid",
+                message="Protection end must be after start.",
+            )
+
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ApiError(
+                status_code=400,
+                code="recording_protection_reason_required",
+                message="Protection reason is required.",
+            )
+        if len(normalized_reason) > 1024:
+            raise ApiError(
+                status_code=400,
+                code="recording_protection_reason_too_long",
+                message="Protection reason is too long.",
+            )
+
+        expiry = (
+            cls._utc(
+                expires_at,
+                field_name="expires_at",
+            )
+            if expires_at is not None
+            else None
+        )
+        if expiry is not None and expiry <= datetime.now(UTC):
+            raise ApiError(
+                status_code=400,
+                code="recording_protection_expiry_invalid",
+                message="Protection expiry must be in the future.",
+            )
+
+        deletion_in_progress = session.scalar(
+            select(RecordingLocation.id)
+            .join(
+                RecordingSegment,
+                RecordingSegment.id
+                == RecordingLocation.recording_segment_id,
+            )
+            .where(
+                RecordingLocation.state == "DELETING",
+                RecordingSegment.camera_id == protection.camera_id,
+                RecordingSegment.started_at < end,
+                RecordingSegment.ended_at > start,
+            )
+            .limit(1)
+        )
+        if deletion_in_progress is not None:
+            raise ApiError(
+                status_code=409,
+                code="recording_deletion_in_progress",
+                message="A recording in this range is already being deleted.",
+            )
+
+        protection.started_at = start
+        protection.ended_at = end
+        protection.reason = normalized_reason
+        protection.expires_at = expiry
+        session.flush()
+        return protection
+
+
     @staticmethod
     def delete(
         session: Session,
