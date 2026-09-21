@@ -120,7 +120,7 @@ current code/tests.
 - [x] Backend project bootstrap.
 - [x] Frontend project bootstrap.
 - [x] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
-- [ ] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
+- [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [ ] PostgreSQL optional bundled/external production profile.
 - [ ] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
 - [ ] SQLite and PostgreSQL production integration-test harnesses.
