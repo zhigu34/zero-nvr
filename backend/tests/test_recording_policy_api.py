@@ -57,6 +57,7 @@ def make_app(tmp_path: Path):
         database_url=f"sqlite:///{tmp_path / 'policy-api.db'}",
         data_dir=tmp_path / "data",
         cache_dir=tmp_path / "cache",
+        recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
         session_cookie_secure=False,
