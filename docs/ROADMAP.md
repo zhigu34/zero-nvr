@@ -95,6 +95,10 @@ real camera while the remaining V1 work continues.
 - [x] validate the rendered Compose model before pull/build/start.
 - [x] successful install prints the effective Web UI address and published
   media ports.
+- [x] automated clean-install orchestration smoke: start from no `.env`,
+  generate bootstrap secrets, create host paths, validate ports/Compose,
+  render ZLM config, migrate/start/check, and print effective access ports
+  using an isolated fake-Docker harness in Deployment CI.
 - [x] complete the Camera Recording Settings UI so recording mode, schedule,
   segment duration, event pre/post-roll, storage target, and retention policy
   can be configured without direct API calls.

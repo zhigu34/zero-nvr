@@ -170,6 +170,14 @@ Implemented deployment-test hardening:
 - a successful install prints the Web UI address plus the effective ZLM HTTP,
   RTSP, and WebRTC published ports.
 
+Deployment CI also runs `scripts/test-clean-install.sh` in an isolated
+temporary deployment tree with no pre-existing `.env`. The harness uses a
+fake Docker CLI so it can exercise first-install orchestration deterministically
+without starting real containers. It verifies env/secret creation, host-path
+creation, port/Compose preflight, ZLM rendering, migration/start/check ordering,
+and the final access summary. This automated smoke does not replace the
+remaining real clean-host installation and real-camera acceptance test.
+
 The intended install sequence for the deployment-test gate is therefore:
 
 ~~~text
