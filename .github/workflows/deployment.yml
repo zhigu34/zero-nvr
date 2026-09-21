@@ -142,3 +142,103 @@ jobs:
           grep -Fxq \
             "on_stream_changed=http://zero-nvr:8000/internal/hooks/zlm/stream-changed" \
             deploy/zlm/config.ini
+
+
+  clean-install:
+    needs: validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assert clean first-install state
+        shell: bash
+        run: |
+          test ! -e .env
+          test ! -e data
+
+      - name: Run real Core clean install
+        shell: bash
+        run: |
+          ./deploy.sh install | tee /tmp/zero-nvr-clean-install.log
+
+      - name: Validate running Core
+        shell: bash
+        run: |
+          test -f .env
+          test "$(stat -c '%a' .env)" = "600"
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          values = {}
+          for line in Path(".env").read_text().splitlines():
+              if "=" not in line:
+                  continue
+              key, value = line.split("=", 1)
+              values[key] = value
+
+          for key in (
+              "ZERO_NVR_SECRET_KEY",
+              "ZERO_NVR_ZLM_API_SECRET",
+              "ZERO_NVR_ZLM_HOOK_SECRET",
+          ):
+              assert len(values.get(key, "")) >= 32, key
+
+          assert values.get("ZERO_NVR_ZLM_WEBRTC_PORT") == "8001"
+          PY
+
+          curl -fsS http://127.0.0.1:8000/health
+
+          docker compose \
+            --env-file .env \
+            -f docker-compose.yml \
+            ps --status running --services \
+            | sort > /tmp/zero-nvr-running-services
+
+          grep -Fxq "zero-nvr" /tmp/zero-nvr-running-services
+          grep -Fxq "zero-nvr-worker" /tmp/zero-nvr-running-services
+          grep -Fxq "zlmediakit" /tmp/zero-nvr-running-services
+
+          docker compose \
+            --env-file .env \
+            -f docker-compose.yml \
+            exec -T zero-nvr \
+            python -m app.cli check-schema
+
+          grep -Fq \
+            "zero-nvr installed successfully" \
+            /tmp/zero-nvr-clean-install.log
+          grep -Fq \
+            "http://localhost:8000" \
+            /tmp/zero-nvr-clean-install.log
+          grep -Fq \
+            "ZLM WebRTC: 0.0.0.0:8001/tcp+udp" \
+            /tmp/zero-nvr-clean-install.log
+
+      - name: Show clean-install diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          if [[ -f .env ]]; then
+            docker compose \
+              --env-file .env \
+              -f docker-compose.yml \
+              ps || true
+            docker compose \
+              --env-file .env \
+              -f docker-compose.yml \
+              logs --no-color --tail=200 || true
+          fi
+
+      - name: Clean real install
+        if: always()
+        shell: bash
+        run: |
+          if [[ -f .env ]]; then
+            docker compose \
+              --env-file .env \
+              -f docker-compose.yml \
+              down -v --remove-orphans || true
+          fi

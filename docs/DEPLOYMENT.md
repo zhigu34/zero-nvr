@@ -178,6 +178,14 @@ creation, port/Compose preflight, ZLM rendering, migration/start/check ordering,
 and the final access summary. This automated smoke does not replace the
 remaining real clean-host installation and real-camera acceptance test.
 
+A second `clean-install` Deployment CI job runs after the static/deployment
+validation job on a fresh Ubuntu runner and invokes the real `./deploy.sh
+install` against Docker. It verifies the generated `.env`, bootstrap secrets,
+default WebRTC port, running API/worker/ZLMediaKit services, API health, schema
+compatibility, and install summary, then tears the stack and volumes down.
+This CI host is a real Docker clean-install check, but it still does not replace
+the final target-hardware and real-camera acceptance run.
+
 The intended install sequence for the deployment-test gate is therefore:
 
 ~~~text

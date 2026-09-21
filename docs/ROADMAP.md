@@ -102,7 +102,9 @@ real camera while the remaining V1 work continues.
 - [x] complete the Camera Recording Settings UI so recording mode, schedule,
   segment duration, event pre/post-roll, storage target, and retention policy
   can be configured without direct API calls.
-- [ ] execute a clean-host Core install smoke test.
+- [ ] execute a clean-host Core install smoke test. Deployment CI now
+  includes a real Docker Core install job on a fresh Ubuntu runner; mark this
+  complete after the job has passed.
 - [ ] execute one-real-camera live -> record -> finalized hook -> timeline ->
   playback -> restart/reconciliation smoke test.
 
