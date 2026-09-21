@@ -526,7 +526,6 @@ def test_same_path_with_changed_size_is_conflict(
         database.close()
 
 
-
 def test_finalized_segment_can_cross_utc_midnight_without_force_split(
     tmp_path: Path,
 ) -> None:
