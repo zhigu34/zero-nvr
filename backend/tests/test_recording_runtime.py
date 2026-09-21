@@ -4,6 +4,10 @@ import uuid
 from pathlib import Path
 
 from app.core.config import Settings
+from app.core.db import Base, Database
+from app.modules.cameras.service import CameraService
+from app.modules.recordings.models import RecordingPolicy
+from app.modules.storage.models import StorageTarget
 from app.modules.recordings.runtime import (
     DesiredRecorder,
     RecorderModeTracker,
@@ -228,3 +232,122 @@ def test_offline_stream_is_already_off_without_camera_pull(
     assert FakeZlm.calls == [
         ("online", "zero-nvr", "profile-test")
     ]
+
+
+
+def test_explicit_policy_target_overrides_system_default_for_zlm_path(
+    tmp_path: Path,
+) -> None:
+    reset()
+    cfg = Settings(
+        secret_key=(
+            "runtime-routing-test-secret-key-"
+            "32-bytes-minimum"
+        ),
+        database_url=(
+            f"sqlite:///{tmp_path / 'runtime-routing.db'}"
+        ),
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        prebuffer_dir=tmp_path / "prebuffer",
+        prebuffer_require_tmpfs=False,
+    )
+    database = Database(cfg)
+    database.initialize_runtime()
+    Base.metadata.create_all(database.engine)
+
+    default_root = tmp_path / "default-recordings"
+    explicit_root = tmp_path / "camera-recordings"
+    default_root.mkdir(parents=True)
+    explicit_root.mkdir(parents=True)
+
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                cfg
+            ).create_manual_rtsp_camera(
+                session,
+                name="Explicit Target Camera",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://camera.local/explicit"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+
+            default_target = StorageTarget(
+                name="System Default",
+                type="local",
+                role="recording",
+                enabled=True,
+                config_json={
+                    "path": str(default_root),
+                    "default_recording": True,
+                },
+            )
+            explicit_target = StorageTarget(
+                name="Camera Target",
+                type="local",
+                role="recording",
+                enabled=True,
+                config_json={
+                    "path": str(explicit_root),
+                    "default_recording": False,
+                },
+            )
+            session.add_all(
+                [default_target, explicit_target]
+            )
+            session.flush()
+
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera.id,
+                    baseline_mode="continuous",
+                    storage_target_id=explicit_target.id,
+                    segment_target_seconds=300,
+                    enabled=True,
+                )
+            )
+            session.commit()
+            camera_id = camera.id
+
+        with database.session() as session:
+            item = RecordingRuntimeService.desired(
+                session,
+                settings=cfg,
+                camera_id=camera_id,
+            )
+            assert item is not None
+            assert item.mode == "persistent"
+            assert item.target_root == str(
+                explicit_root.resolve()
+            )
+
+        service = RecordingRuntimeService(
+            cfg,
+            zlm_factory=FakeZlm,
+            mode_tracker=RecorderModeTracker(),
+        )
+        result = service.reconcile(item)
+
+        assert result.observed_recording is True
+        assert any(
+            call[0] == "start"
+            and call[3] == str(
+                explicit_root.resolve()
+            )
+            for call in FakeZlm.calls
+        )
+        assert not any(
+            call[0] == "start"
+            and call[3] == str(
+                default_root.resolve()
+            )
+            for call in FakeZlm.calls
+        )
+    finally:
+        database.close()
