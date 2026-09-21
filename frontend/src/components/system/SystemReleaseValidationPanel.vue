@@ -703,7 +703,7 @@ onMounted(() => {
 
 .release-validation-targets .is-active {
   border-color: var(--border-strong);
-  background: var(--surface-selected);
+  background: var(--surface-active);
   color: var(--text-primary);
 }
 
