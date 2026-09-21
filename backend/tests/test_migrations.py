@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+import pytest
 
 from alembic import command
 from alembic.config import Config
@@ -68,6 +71,37 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
     command.upgrade(config, "head")
 
     engine = create_engine(database_url)
+    try:
+        tables = set(inspect(engine).get_table_names())
+        assert EXPECTED_FOUNDATION_TABLES <= tables
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.skipif(
+    not os.getenv("ZERO_NVR_TEST_POSTGRES_URL"),
+    reason="PostgreSQL CI service is unavailable",
+)
+def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
+    database_url = os.environ["ZERO_NVR_TEST_POSTGRES_URL"]
+    monkeypatch.setenv("ZERO_NVR_DATABASE_URL", database_url)
+
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+
+    runtime_url = database_url
+    if runtime_url.startswith("postgresql://"):
+        runtime_url = (
+            "postgresql+psycopg://"
+            + runtime_url.removeprefix("postgresql://")
+        )
+    elif runtime_url.startswith("postgres://"):
+        runtime_url = (
+            "postgresql+psycopg://"
+            + runtime_url.removeprefix("postgres://")
+        )
+
+    engine = create_engine(runtime_url)
     try:
         tables = set(inspect(engine).get_table_names())
         assert EXPECTED_FOUNDATION_TABLES <= tables
