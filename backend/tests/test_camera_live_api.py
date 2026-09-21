@@ -113,6 +113,8 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert "/hls.m3u8?" in low_body["hls_url"]
         assert "zn_exp=" in low_body["hls_url"]
         assert "zn_sig=" in low_body["hls_url"]
+        assert "zn_sid=" in low_body["hls_url"]
+        assert low_body["media_session_id"]
         assert low_body["expires_at"]
 
         high = client.get(
@@ -122,6 +124,10 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         high_body = high.json()
         assert high_body["purpose"] == "LIVE_HIGH"
         assert high_body["profile_id"] != low_body["profile_id"]
+        assert (
+            high_body["media_session_id"]
+            != low_body["media_session_id"]
+        )
 
         serialized = json.dumps([low_body, high_body])
         assert "rtsp://" not in serialized
@@ -323,7 +329,12 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         ).status_code == 201
 
         unauthenticated = client.post(
-            "/api/v1/cameras/00000000-0000-0000-0000-000000000001/live/whep",
+            (
+                "/api/v1/cameras/"
+                "00000000-0000-0000-0000-000000000001"
+                "/live/whep?media_session_id="
+                "11111111-1111-1111-1111-111111111111"
+            ),
             headers={"content-type": "application/sdp"},
             content="v=0\r\n",
         )
@@ -356,9 +367,20 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         assert created.status_code == 201
         camera_id = created.json()["id"]
 
+        descriptor = client.get(
+            f"/api/v1/cameras/{camera_id}/live?quality=high"
+        )
+        assert descriptor.status_code == 200
+        media_session_id = descriptor.json()[
+            "media_session_id"
+        ]
+
         offer = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
         whep = client.post(
-            f"/api/v1/cameras/{camera_id}/live/whep?quality=high",
+            (
+                f"/api/v1/cameras/{camera_id}/live/whep"
+                f"?quality=high&media_session_id={media_session_id}"
+            ),
             headers={
                 "content-type": "application/sdp",
                 "accept": "application/sdp",
@@ -386,14 +408,20 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         assert isinstance(params, dict)
         assert "zn_exp" in params
         assert "zn_sig" in params
+        assert params["zn_sid"] == media_session_id
 
         serialized = json.dumps(captured)
         assert "camera-secret" not in serialized
         assert "camera-token" not in serialized
         assert "rtsp://" not in serialized
 
-        deleted = client.delete(location)
-        assert deleted.status_code == 204
+        revoked = client.delete(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/live/session/{media_session_id}"
+            )
+        )
+        assert revoked.status_code == 204
         assert captured["deleted"] == (
             "session-123",
             "cleanup-token",
@@ -511,16 +539,29 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
         assert created.status_code == 201
         camera_id = created.json()["id"]
 
+        descriptor = client.get(
+            f"/api/v1/cameras/{camera_id}/live?quality=high"
+        )
+        assert descriptor.status_code == 200
+        media_session_id = descriptor.json()[
+            "media_session_id"
+        ]
+
         compatibility = client.post(
             (
                 f"/api/v1/cameras/{camera_id}"
                 "/live/compatibility?quality=high"
+                f"&media_session_id={media_session_id}"
             )
         )
         assert compatibility.status_code == 201
         body = compatibility.json()
         assert body["codec"] == "h264"
         assert body["transports"] == ["hls"]
+        assert (
+            body["media_session_id"]
+            == media_session_id
+        )
         assert (
             body["compatibility"]
             == "h264_transcode"
@@ -545,6 +586,8 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
         assert source_url.startswith(
             "rtsp://zlmediakit:554/zero-nvr/profile-"
         )
+        assert "zn_sid=" in source_url
+        assert "zn_sig=" in source_url
         assert "camera-secret" not in source_url
         assert "camera-token" not in source_url
         assert "10.0.0.10" not in source_url
@@ -553,7 +596,7 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
             (
                 f"/api/v1/cameras/{camera_id}"
                 f"/live/compatibility/{lease_id}"
-                "/keepalive"
+                f"/keepalive?media_session_id={media_session_id}"
             )
         )
         assert keepalive.status_code == 204
@@ -569,6 +612,7 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
             (
                 f"/api/v1/cameras/{camera_id}"
                 f"/live/compatibility/{lease_id}"
+                f"?media_session_id={media_session_id}"
             )
         )
         assert released.status_code == 204

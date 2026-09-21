@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import time
+import uuid
 from datetime import UTC, datetime
 from urllib.parse import parse_qs, parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -14,6 +15,7 @@ class ZlmMediaAccess:
 
     signature_param = "zn_sig"
     expiry_param = "zn_exp"
+    session_param = "zn_sid"
     max_ttl_seconds = 24 * 60 * 60
     live_ttl_seconds = 30 * 60
     playback_ttl_seconds = 5 * 60
@@ -22,9 +24,20 @@ class ZlmMediaAccess:
         self.settings = settings
 
     @staticmethod
-    def _message(*, app: str, stream: str, expires_at: int) -> bytes:
+    def _message(
+        *,
+        app: str,
+        stream: str,
+        expires_at: int,
+        session_id: uuid.UUID | None = None,
+    ) -> bytes:
+        if session_id is None:
+            return (
+                f"zlm-play-v1\n{app}\n{stream}\n{expires_at}"
+            ).encode("utf-8")
         return (
-            f"zlm-play-v1\n{app}\n{stream}\n{expires_at}"
+            "zlm-play-v2\n"
+            f"{app}\n{stream}\n{expires_at}\n{session_id}"
         ).encode("utf-8")
 
     @staticmethod
@@ -34,6 +47,7 @@ class ZlmMediaAccess:
         app: str,
         stream: str,
         expires_at: int,
+        session_id: uuid.UUID | None = None,
     ) -> str:
         return hmac.new(
             key,
@@ -41,6 +55,7 @@ class ZlmMediaAccess:
                 app=app,
                 stream=stream,
                 expires_at=expires_at,
+                session_id=session_id,
             ),
             hashlib.sha256,
         ).hexdigest()
@@ -52,6 +67,7 @@ class ZlmMediaAccess:
         stream: str,
         ttl_seconds: int,
         now_epoch: int | None = None,
+        session_id: uuid.UUID | None = None,
     ) -> tuple[dict[str, str], datetime]:
         if ttl_seconds <= 0 or ttl_seconds > self.max_ttl_seconds:
             raise ValueError("invalid ZLM media token TTL")
@@ -64,12 +80,18 @@ class ZlmMediaAccess:
             app=app,
             stream=stream,
             expires_at=expires_at,
+            session_id=session_id,
         )
+        issued = {
+            self.expiry_param: str(expires_at),
+            self.signature_param: signature,
+        }
+        if session_id is not None:
+            issued[self.session_param] = str(
+                session_id
+            )
         return (
-            {
-                self.expiry_param: str(expires_at),
-                self.signature_param: signature,
-            },
+            issued,
             datetime.fromtimestamp(expires_at, tz=UTC),
         )
 
@@ -81,12 +103,14 @@ class ZlmMediaAccess:
         stream: str,
         ttl_seconds: int,
         now_epoch: int | None = None,
+        session_id: uuid.UUID | None = None,
     ) -> tuple[str, datetime]:
         issued, expires_at = self.issue_params(
             app=app,
             stream=stream,
             ttl_seconds=ttl_seconds,
             now_epoch=now_epoch,
+            session_id=session_id,
         )
 
         parsed = urlsplit(url)
@@ -96,7 +120,11 @@ class ZlmMediaAccess:
                 parsed.query,
                 keep_blank_values=True,
             )
-            if name not in {self.expiry_param, self.signature_param}
+            if name not in {
+                self.expiry_param,
+                self.signature_param,
+                self.session_param,
+            }
         ]
         query.extend(issued.items())
         signed = urlunsplit(
@@ -124,8 +152,20 @@ class ZlmMediaAccess:
         )
         expiry_values = query.get(self.expiry_param, [])
         signature_values = query.get(self.signature_param, [])
+        session_values = query.get(self.session_param, [])
         if len(expiry_values) != 1 or len(signature_values) != 1:
             return False
+        if len(session_values) > 1:
+            return False
+
+        session_id: uuid.UUID | None = None
+        if session_values:
+            try:
+                session_id = uuid.UUID(
+                    session_values[0]
+                )
+            except (TypeError, ValueError):
+                return False
 
         try:
             expires_at = int(expiry_values[0])
@@ -147,7 +187,28 @@ class ZlmMediaAccess:
                 app=app,
                 stream=stream,
                 expires_at=expires_at,
+                session_id=session_id,
             )
             if hmac.compare_digest(supplied, expected):
                 return True
         return False
+
+
+    def session_id_from_params(
+        self,
+        params: str,
+    ) -> uuid.UUID | None:
+        query = parse_qs(
+            params.lstrip("?"),
+            keep_blank_values=True,
+        )
+        values = query.get(
+            self.session_param,
+            [],
+        )
+        if len(values) != 1:
+            return None
+        try:
+            return uuid.UUID(values[0])
+        except (TypeError, ValueError):
+            return None

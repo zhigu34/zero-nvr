@@ -100,12 +100,24 @@ def zlm_play(
     }:
         return {"code": -1, "msg": "unauthorized"}
 
-    if not ZlmMediaAccess(
+    access = ZlmMediaAccess(
         request.app.state.settings
-    ).verify(
+    )
+    if not access.verify(
         app=body.app,
         stream=body.stream,
         params=body.params,
+    ):
+        return {"code": -1, "msg": "unauthorized"}
+
+    media_session_id = access.session_id_from_params(
+        body.params
+    )
+    if (
+        media_session_id is not None
+        and not request.app.state.media_sessions.active(
+            media_session_id
+        )
     ):
         return {"code": -1, "msg": "unauthorized"}
 

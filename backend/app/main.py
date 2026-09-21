@@ -20,6 +20,7 @@ from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
 from app.modules.auth.rate_limit import AuthRateLimiter
 from app.modules.cameras.live_transcode import LiveTranscodeManager
+from app.modules.cameras.media_sessions import MediaSessionRegistry
 from app.modules.backups.dispatcher import BackupTaskDispatcher
 from app.modules.notifications.dispatcher import NotificationTaskDispatcher
 from app.modules.exports.dispatcher import ExportTaskDispatcher
@@ -41,6 +42,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     recorder_modes = RecorderModeTracker()
     prebuffer_fragments = PrebufferFragmentTracker()
     live_transcodes = LiveTranscodeManager(resolved_settings)
+    media_sessions = MediaSessionRegistry()
     recording_tasks = RecordingTaskDispatcher(resolved_settings)
     backup_tasks = BackupTaskDispatcher()
     export_tasks = ExportTaskDispatcher()
@@ -80,6 +82,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
         frigate_mqtt.stop()
+        media_sessions.stop()
         live_transcodes.stop()
         database.close()
         logger.info("zero-nvr API stopped")
@@ -111,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.recorder_modes = recorder_modes
     app.state.prebuffer_fragments = prebuffer_fragments
     app.state.live_transcodes = live_transcodes
+    app.state.media_sessions = media_sessions
     app.state.recording_tasks = recording_tasks
     app.state.backup_tasks = backup_tasks
     app.state.export_tasks = export_tasks

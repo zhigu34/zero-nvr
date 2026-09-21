@@ -551,3 +551,60 @@ def test_play_hook_allows_signed_compatibility_derivative(
 
     assert allowed.status_code == 200
     assert allowed.json()["code"] == 0
+
+
+
+def test_play_hook_rejects_revoked_live_media_session(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    media_session_id = (
+        app.state.media_sessions.issue(
+            owner_user_id=uuid.uuid4(),
+            camera_id=uuid.uuid4(),
+            ttl_seconds=300,
+        )
+    )
+    signer = ZlmMediaAccess(
+        app.state.settings
+    )
+    signed_url, _expires_at = signer.sign_url(
+        (
+            "http://media.local/"
+            "zero-nvr/profile-live/hls.m3u8"
+        ),
+        app="zero-nvr",
+        stream="profile-live",
+        ttl_seconds=300,
+        session_id=media_session_id,
+    )
+    from urllib.parse import urlsplit
+
+    params = "?" + urlsplit(
+        signed_url
+    ).query
+    payload = {
+        "mediaServerId": HOOK_SECRET,
+        "app": "zero-nvr",
+        "stream": "profile-live",
+        "params": params,
+    }
+
+    with TestClient(app) as client:
+        allowed = client.post(
+            "/internal/hooks/zlm/play",
+            json=payload,
+        )
+        assert allowed.status_code == 200
+        assert allowed.json()["code"] == 0
+
+        assert app.state.media_sessions.revoke(
+            media_session_id
+        )
+
+        denied = client.post(
+            "/internal/hooks/zlm/play",
+            json=payload,
+        )
+        assert denied.status_code == 200
+        assert denied.json()["code"] != 0

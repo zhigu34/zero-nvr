@@ -24,6 +24,7 @@ import {
   getCameraLiveStream,
   keepCameraCompatibilityLease,
   releaseCameraCompatibilityLease,
+  revokeCameraMediaSession,
   type CameraLiveStream,
   type LiveQuality
 } from "../../api/live"
@@ -95,6 +96,7 @@ const telemetry = ref<LiveTelemetry>({
 let hls: Hls | null = null
 let rtcPeer: RTCPeerConnection | null = null
 let whepLocation: string | null = null
+let activeMediaSessionId: string | null = null
 let compatibilityLeaseId: string | null = null
 let compatibilityKeepaliveTimer: number | null = null
 let generation = 0
@@ -403,11 +405,24 @@ function releaseCompatibilityLease(): void {
   }
 
   const leaseId = compatibilityLeaseId
+  const mediaSessionId = activeMediaSessionId
   compatibilityLeaseId = null
-  if (leaseId) {
+  if (leaseId && mediaSessionId) {
     void releaseCameraCompatibilityLease(
       props.camera.id,
-      leaseId
+      leaseId,
+      mediaSessionId
+    ).catch(() => undefined)
+  }
+}
+
+function releaseMediaSession(): void {
+  const sessionId = activeMediaSessionId
+  activeMediaSessionId = null
+  if (sessionId) {
+    void revokeCameraMediaSession(
+      props.camera.id,
+      sessionId
     ).catch(() => undefined)
   }
 }
@@ -432,9 +447,12 @@ function activateCompatibilityLease(
       ) {
         return
       }
+      const mediaSessionId = activeMediaSessionId
+      if (!mediaSessionId) return
       void keepCameraCompatibilityLease(
         props.camera.id,
-        leaseId
+        leaseId,
+        mediaSessionId
       ).catch(() => {
         if (
           compatibilityLeaseId !== leaseId ||
@@ -479,6 +497,7 @@ function destroyPlayer(): void {
   hls = null
   releaseWebRtcSession()
   releaseCompatibilityLease()
+  releaseMediaSession()
   activeTransport.value = null
   playing.value = false
 
@@ -599,9 +618,15 @@ async function attachWebRtc(
       throw new Error("WebRTC offer SDP is unavailable.")
     }
 
+    const mediaSessionId = activeMediaSessionId
+    if (!mediaSessionId) {
+      throw new Error("Live media session is unavailable.")
+    }
+
     const whep = await createCameraWhepSession(
       props.camera.id,
       requestedQuality.value,
+      mediaSessionId,
       offerSdp
     )
     if (rtcPeer !== peer) {
@@ -696,9 +721,14 @@ async function attachPreferredStream(
     return stream
   }
 
+  const mediaSessionId = activeMediaSessionId
+  if (!mediaSessionId) {
+    throw new Error("Live media session is unavailable.")
+  }
   const compatible = await getCameraCompatibleLiveStream(
     props.camera.id,
-    requestedQuality.value
+    requestedQuality.value,
+    mediaSessionId
   )
   activateCompatibilityLease(compatible)
   await attachHls(compatible)
@@ -759,6 +789,9 @@ async function loadStream(): Promise<void> {
   }
 
   clearReconnect()
+  releaseWebRtcSession()
+  releaseCompatibilityLease()
+  releaseMediaSession()
   const currentGeneration = ++generation
   streamStartedAt = performance.now()
   telemetry.value = {
@@ -787,8 +820,13 @@ async function loadStream(): Promise<void> {
       generation !== currentGeneration ||
       playbackSuspended.value
     ) {
+      void revokeCameraMediaSession(
+        props.camera.id,
+        stream.media_session_id
+      ).catch(() => undefined)
       return
     }
+    activeMediaSessionId = stream.media_session_id
     const playableStream = await attachPreferredStream(stream)
     descriptor.value = playableStream
     if (
@@ -805,6 +843,9 @@ async function loadStream(): Promise<void> {
       return
     }
     error.value = errorMessage(caught)
+    releaseWebRtcSession()
+    releaseCompatibilityLease()
+    releaseMediaSession()
     scheduleReconnect()
   } finally {
     if (generation === currentGeneration) {

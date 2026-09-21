@@ -9,6 +9,7 @@ export interface CameraLiveStream {
   transport: "hls"
   transports: Array<"webrtc" | "hls">
   hls_url: string
+  media_session_id: string
   expires_at: string
   codec: string | null
   width: number | null
@@ -33,9 +34,13 @@ export function getCameraLiveStream(
 
 export function getCameraCompatibleLiveStream(
   cameraId: string,
-  quality: LiveQuality
+  quality: LiveQuality,
+  mediaSessionId: string
 ): Promise<CameraLiveStream> {
-  const params = new URLSearchParams({ quality })
+  const params = new URLSearchParams({
+    quality,
+    media_session_id: mediaSessionId
+  })
   return apiRequest<CameraLiveStream>(
     `/cameras/${encodeURIComponent(cameraId)}/live/compatibility?${params}`,
     { method: "POST" }
@@ -44,20 +49,28 @@ export function getCameraCompatibleLiveStream(
 
 export function keepCameraCompatibilityLease(
   cameraId: string,
-  leaseId: string
+  leaseId: string,
+  mediaSessionId: string
 ): Promise<void> {
+  const params = new URLSearchParams({
+    media_session_id: mediaSessionId
+  })
   return apiRequest<void>(
-    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}/keepalive`,
+    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}/keepalive?${params}`,
     { method: "POST" }
   )
 }
 
 export function releaseCameraCompatibilityLease(
   cameraId: string,
-  leaseId: string
+  leaseId: string,
+  mediaSessionId: string
 ): Promise<void> {
+  const params = new URLSearchParams({
+    media_session_id: mediaSessionId
+  })
   return apiRequest<void>(
-    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}`,
+    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}?${params}`,
     { method: "DELETE" }
   )
 }
@@ -71,9 +84,13 @@ export interface CameraWhepSession {
 export async function createCameraWhepSession(
   cameraId: string,
   quality: LiveQuality,
+  mediaSessionId: string,
   offerSdp: string
 ): Promise<CameraWhepSession> {
-  const params = new URLSearchParams({ quality })
+  const params = new URLSearchParams({
+    quality,
+    media_session_id: mediaSessionId
+  })
   const response = await fetch(
     `/api/v1/cameras/${encodeURIComponent(cameraId)}/live/whep?${params}`,
     {
@@ -122,6 +139,17 @@ export async function deleteCameraWhepSession(
       `WebRTC session cleanup failed with status ${response.status}.`
     )
   }
+}
+
+
+export function revokeCameraMediaSession(
+  cameraId: string,
+  mediaSessionId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/session/${encodeURIComponent(mediaSessionId)}`,
+    { method: "DELETE" }
+  )
 }
 
 

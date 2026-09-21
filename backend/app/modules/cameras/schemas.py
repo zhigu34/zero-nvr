@@ -224,6 +224,7 @@ class CameraLiveStreamView(BaseModel):
         ]
     )
     hls_url: str
+    media_session_id: uuid.UUID
     expires_at: datetime
     codec: str | None
     width: int | None

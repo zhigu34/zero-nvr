@@ -1316,6 +1316,7 @@ def _whep_cleanup_ticket(
     *,
     camera_id: uuid.UUID,
     user_id: uuid.UUID,
+    media_session_id: uuid.UUID,
     session_id: str,
     session_token: str,
 ) -> str:
@@ -1325,6 +1326,9 @@ def _whep_cleanup_ticket(
         {
             "camera_id": str(camera_id),
             "user_id": str(user_id),
+            "media_session_id": str(
+                media_session_id
+            ),
             "session_id": session_id,
             "session_token": session_token,
         }
@@ -1337,7 +1341,7 @@ def _parse_whep_cleanup_ticket(
     ticket: str,
     camera_id: uuid.UUID,
     user_id: uuid.UUID,
-) -> tuple[str, str]:
+) -> tuple[str, str, uuid.UUID]:
     try:
         payload = _whep_ticket_serializer(
             request
@@ -1384,6 +1388,22 @@ def _parse_whep_cleanup_ticket(
     session_token = payload.get(
         "session_token"
     )
+    raw_media_session_id = payload.get(
+        "media_session_id"
+    )
+    try:
+        media_session_id = uuid.UUID(
+            str(raw_media_session_id)
+        )
+    except (TypeError, ValueError) as exc:
+        raise ApiError(
+            status_code=404,
+            code="camera_whep_session_not_found",
+            message=(
+                "WebRTC live session was not "
+                "found or has expired."
+            ),
+        ) from exc
     if (
         not isinstance(session_id, str)
         or not session_id
@@ -1398,7 +1418,11 @@ def _parse_whep_cleanup_ticket(
                 "found or has expired."
             ),
         )
-    return session_id, session_token
+    return (
+        session_id,
+        session_token,
+        media_session_id,
+    )
 
 
 def _whep_candidate_udp(
@@ -1434,6 +1458,29 @@ def _whep_candidate_udp(
     )
 
 
+def _require_live_media_session(
+    request: Request,
+    *,
+    media_session_id: uuid.UUID,
+    camera_id: uuid.UUID,
+    user_id: uuid.UUID,
+) -> None:
+    if request.app.state.media_sessions.authorize(
+        media_session_id,
+        owner_user_id=user_id,
+        camera_id=camera_id,
+    ):
+        return
+    raise ApiError(
+        status_code=404,
+        code="media_session_not_found",
+        message=(
+            "Live media session was not found "
+            "or has expired."
+        ),
+    )
+
+
 @router.get(
     "/cameras/{camera_id}/live",
     response_model=CameraLiveStreamView,
@@ -1446,7 +1493,7 @@ def get_camera_live_stream(
         "high",
         "low",
     ] = Query(default="auto"),
-    _context: AuthContext = Depends(
+    context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
     session: Session = Depends(
@@ -1459,23 +1506,41 @@ def get_camera_live_stream(
         request=request,
         session=session,
     )
-    hls_url, expires_at = ZlmMediaAccess(
-        request.app.state.settings
-    ).sign_url(
-        selection.runtime.public_hls_url(
-            selection.reference
-        ),
-        app=selection.reference.app,
-        stream=selection.reference.stream,
-        ttl_seconds=(
-            ZlmMediaAccess.live_ttl_seconds
-        ),
+    media_session_id = (
+        request.app.state.media_sessions.issue(
+            owner_user_id=context.user.id,
+            camera_id=selection.camera.id,
+            ttl_seconds=(
+                ZlmMediaAccess.live_ttl_seconds
+            ),
+        )
     )
+    try:
+        hls_url, expires_at = ZlmMediaAccess(
+            request.app.state.settings
+        ).sign_url(
+            selection.runtime.public_hls_url(
+                selection.reference
+            ),
+            app=selection.reference.app,
+            stream=selection.reference.stream,
+            ttl_seconds=(
+                ZlmMediaAccess.live_ttl_seconds
+            ),
+            session_id=media_session_id,
+        )
+    except Exception:
+        request.app.state.media_sessions.revoke(
+            media_session_id
+        )
+        raise
+
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
         purpose=selection.purpose,
         hls_url=hls_url,
+        media_session_id=media_session_id,
         expires_at=expires_at,
         codec=selection.profile.codec,
         width=selection.profile.width,
@@ -1492,6 +1557,7 @@ def get_camera_live_stream(
 async def create_camera_whep_session(
     camera_id: uuid.UUID,
     request: Request,
+    media_session_id: uuid.UUID = Query(),
     quality: Literal[
         "auto",
         "high",
@@ -1504,6 +1570,12 @@ async def create_camera_whep_session(
         get_db_session
     ),
 ) -> Response:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
     content_type = request.headers.get(
         "content-type",
         "",
@@ -1555,6 +1627,7 @@ async def create_camera_whep_session(
             ttl_seconds=(
                 ZlmMediaAccess.live_ttl_seconds
             ),
+            session_id=media_session_id,
         )
     )
 
@@ -1588,10 +1661,43 @@ async def create_camera_whep_session(
             details={},
         ) from exc
 
+    cleanup_key = f"whep:{whep.session_id}"
+    cleanup_settings = (
+        request.app.state.settings
+    )
+
+    def cleanup_whep() -> None:
+        try:
+            with ZlmAdapter(
+                cleanup_settings
+            ) as cleanup_zlm:
+                cleanup_zlm.delete_webrtc(
+                    session_id=whep.session_id,
+                    session_token=whep.session_token,
+                )
+        except ZlmIntegrationError:
+            pass
+
+    if not request.app.state.media_sessions.register_cleanup(
+        media_session_id,
+        key=cleanup_key,
+        cleanup=cleanup_whep,
+    ):
+        cleanup_whep()
+        raise ApiError(
+            status_code=404,
+            code="media_session_not_found",
+            message=(
+                "Live media session was not "
+                "found or has expired."
+            ),
+        )
+
     ticket = _whep_cleanup_ticket(
         request,
         camera_id=camera_id,
         user_id=context.user.id,
+        media_session_id=media_session_id,
         session_id=whep.session_id,
         session_token=whep.session_token,
     )
@@ -1622,7 +1728,11 @@ def delete_camera_whep_session(
         require_camera_permission("camera.view")
     ),
 ) -> Response:
-    session_id, session_token = (
+    (
+        session_id,
+        session_token,
+        media_session_id,
+    ) = (
         _parse_whep_cleanup_ticket(
             request,
             ticket=ticket,
@@ -1645,6 +1755,10 @@ def delete_camera_whep_session(
             message=str(exc),
             details={},
         ) from exc
+    request.app.state.media_sessions.unregister_cleanup(
+        media_session_id,
+        key=f"whep:{session_id}",
+    )
     return Response(status_code=204)
 
 
@@ -1656,6 +1770,7 @@ def delete_camera_whep_session(
 def create_camera_live_compatibility(
     camera_id: uuid.UUID,
     request: Request,
+    media_session_id: uuid.UUID = Query(),
     quality: Literal[
         "auto",
         "high",
@@ -1668,22 +1783,40 @@ def create_camera_live_compatibility(
         get_db_session
     ),
 ) -> CameraLiveStreamView:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
     selection = _select_live_stream(
         camera_id=camera_id,
         quality=quality,
         request=request,
         session=session,
     )
+    access = ZlmMediaAccess(
+        request.app.state.settings
+    )
+    source_url, _source_expires_at = (
+        access.sign_url(
+            selection.runtime.internal_rtsp_url(
+                selection.reference
+            ),
+            app=selection.reference.app,
+            stream=selection.reference.stream,
+            ttl_seconds=(
+                ZlmMediaAccess.live_ttl_seconds
+            ),
+            session_id=media_session_id,
+        )
+    )
     try:
         lease = request.app.state.live_transcodes.acquire(
             camera_id=selection.camera.id,
             owner_user_id=context.user.id,
             profile_id=selection.profile.id,
-            source_url=(
-                selection.runtime.internal_rtsp_url(
-                    selection.reference
-                )
-            ),
+            source_url=source_url,
             has_audio=selection.profile.has_audio,
         )
     except LiveTranscodeError as exc:
@@ -1694,24 +1827,62 @@ def create_camera_live_compatibility(
             details={},
         ) from exc
 
-    hls_url, expires_at = ZlmMediaAccess(
-        request.app.state.settings
-    ).sign_url(
-        selection.runtime.public_hls_url(
-            lease.reference
-        ),
-        app=lease.reference.app,
-        stream=lease.reference.stream,
-        ttl_seconds=(
-            ZlmMediaAccess.live_ttl_seconds
-        ),
+    cleanup_key = (
+        f"compat:{lease.lease_id}"
     )
+    live_transcodes = (
+        request.app.state.live_transcodes
+    )
+
+    def cleanup_compat() -> None:
+        live_transcodes.release(
+            lease.lease_id,
+            camera_id=selection.camera.id,
+            owner_user_id=context.user.id,
+        )
+
+    if not request.app.state.media_sessions.register_cleanup(
+        media_session_id,
+        key=cleanup_key,
+        cleanup=cleanup_compat,
+    ):
+        cleanup_compat()
+        raise ApiError(
+            status_code=404,
+            code="media_session_not_found",
+            message=(
+                "Live media session was not "
+                "found or has expired."
+            ),
+        )
+
+    try:
+        hls_url, expires_at = access.sign_url(
+            selection.runtime.public_hls_url(
+                lease.reference
+            ),
+            app=lease.reference.app,
+            stream=lease.reference.stream,
+            ttl_seconds=(
+                ZlmMediaAccess.live_ttl_seconds
+            ),
+            session_id=media_session_id,
+        )
+    except Exception:
+        request.app.state.media_sessions.unregister_cleanup(
+            media_session_id,
+            key=cleanup_key,
+        )
+        cleanup_compat()
+        raise
+
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
         purpose=selection.purpose,
         transports=["hls"],
         hls_url=hls_url,
+        media_session_id=media_session_id,
         expires_at=expires_at,
         codec="h264",
         width=selection.profile.width,
@@ -1734,10 +1905,17 @@ def keep_camera_live_compatibility(
     camera_id: uuid.UUID,
     lease_id: uuid.UUID,
     request: Request,
+    media_session_id: uuid.UUID = Query(),
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
 ) -> Response:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
     if not request.app.state.live_transcodes.touch(
         lease_id,
         camera_id=camera_id,
@@ -1762,14 +1940,45 @@ def release_camera_live_compatibility(
     camera_id: uuid.UUID,
     lease_id: uuid.UUID,
     request: Request,
+    media_session_id: uuid.UUID = Query(),
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
 ) -> Response:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
+    request.app.state.media_sessions.unregister_cleanup(
+        media_session_id,
+        key=f"compat:{lease_id}",
+    )
     request.app.state.live_transcodes.release(
         lease_id,
         camera_id=camera_id,
         owner_user_id=context.user.id,
+    )
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/cameras/{camera_id}/live/session/{media_session_id}",
+    status_code=204,
+)
+def revoke_camera_live_session(
+    camera_id: uuid.UUID,
+    media_session_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> Response:
+    request.app.state.media_sessions.revoke(
+        media_session_id,
+        owner_user_id=context.user.id,
+        camera_id=camera_id,
     )
     return Response(status_code=204)
 
