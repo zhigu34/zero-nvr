@@ -314,7 +314,6 @@ def test_replace_streams_deletes_proxy_keys_before_readding(
         database.close()
 
 
-
 def test_media_runtime_does_not_implement_rtsp_reconnect_backoff() -> None:
     source = (
         Path(__file__).resolve().parents[1]
