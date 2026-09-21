@@ -514,3 +514,40 @@ def test_play_hook_requires_valid_short_lived_media_grant(
         )
         assert wrong_stream.status_code == 200
         assert wrong_stream.json()["code"] != 0
+
+
+
+def test_play_hook_allows_signed_compatibility_derivative(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    signer = ZlmMediaAccess(
+        app.state.settings
+    )
+    signed_url, _expires_at = signer.sign_url(
+        (
+            "http://media.local/"
+            "zero-nvr-compat/h264-test/hls.m3u8"
+        ),
+        app="zero-nvr-compat",
+        stream="h264-test",
+        ttl_seconds=300,
+    )
+    from urllib.parse import urlsplit
+
+    params = "?" + urlsplit(
+        signed_url
+    ).query
+    with TestClient(app) as client:
+        allowed = client.post(
+            "/internal/hooks/zlm/play",
+            json={
+                "mediaServerId": HOOK_SECRET,
+                "app": "zero-nvr-compat",
+                "stream": "h264-test",
+                "params": params,
+            },
+        )
+
+    assert allowed.status_code == 200
+    assert allowed.json()["code"] == 0

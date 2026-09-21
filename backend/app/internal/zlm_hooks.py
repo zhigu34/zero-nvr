@@ -93,7 +93,11 @@ def zlm_play(
 ) -> dict[str, object]:
     _authenticate_hook(request, body.media_server_id)
 
-    if body.app not in {"zero-nvr", "zero-nvr-vod"}:
+    if body.app not in {
+        "zero-nvr",
+        "zero-nvr-vod",
+        "zero-nvr-compat",
+    }:
         return {"code": -1, "msg": "unauthorized"}
 
     if not ZlmMediaAccess(

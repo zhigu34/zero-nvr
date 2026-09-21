@@ -165,10 +165,10 @@ Acceptance:
 - [x] grid live_preview policy and focus/fullscreen live_main promotion/demotion.
 - [x] viewport/network-aware auto quality with hysteresis.
 - [x] live-session telemetry: bitrate/loss/RTT/jitter/first-frame/reconnect/relay.
-- [ ] H.265/H.264 browser compatibility resolution independent from recording profile.
-- [ ] TranscodeManager for on-demand H.265/incompatible-H.264 -> browser-compatible H.264.
-- [ ] shared transcode derivatives with refcount/idle TTL.
-- [ ] hardware-acceleration capability probe and CPU fallback/resource limits.
+- [x] H.265/H.264 browser compatibility resolution independent from recording profile.
+- [x] TranscodeManager for on-demand H.265/incompatible-H.264 -> browser-compatible H.264.
+- [x] shared transcode derivatives with refcount/idle TTL.
+- [x] hardware-acceleration capability probe and CPU fallback/resource limits.
 - [ ] coturn STUN/TURN deployment and health.
 - [ ] short-lived authenticated TURN credentials.
 - [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.

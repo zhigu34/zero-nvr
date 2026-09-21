@@ -20,7 +20,10 @@ import {
   cameraSnapshotUrl,
   createCameraWhepSession,
   deleteCameraWhepSession,
+  getCameraCompatibleLiveStream,
   getCameraLiveStream,
+  keepCameraCompatibilityLease,
+  releaseCameraCompatibilityLease,
   type CameraLiveStream,
   type LiveQuality
 } from "../../api/live"
@@ -92,6 +95,8 @@ const telemetry = ref<LiveTelemetry>({
 let hls: Hls | null = null
 let rtcPeer: RTCPeerConnection | null = null
 let whepLocation: string | null = null
+let compatibilityLeaseId: string | null = null
+let compatibilityKeepaliveTimer: number | null = null
 let generation = 0
 let tokenRefreshTimer: number | null = null
 let reconnectTimer: number | null = null
@@ -389,6 +394,66 @@ function startStatsTimer(
   }, 2000)
 }
 
+function releaseCompatibilityLease(): void {
+  if (compatibilityKeepaliveTimer !== null) {
+    window.clearInterval(
+      compatibilityKeepaliveTimer
+    )
+    compatibilityKeepaliveTimer = null
+  }
+
+  const leaseId = compatibilityLeaseId
+  compatibilityLeaseId = null
+  if (leaseId) {
+    void releaseCameraCompatibilityLease(
+      props.camera.id,
+      leaseId
+    ).catch(() => undefined)
+  }
+}
+
+function activateCompatibilityLease(
+  stream: CameraLiveStream
+): void {
+  releaseCompatibilityLease()
+  const leaseId = stream.compatibility_lease_id
+  if (!leaseId) {
+    throw new Error(
+      "Compatibility stream did not return a lease."
+    )
+  }
+
+  compatibilityLeaseId = leaseId
+  compatibilityKeepaliveTimer = window.setInterval(
+    () => {
+      if (
+        compatibilityLeaseId !== leaseId ||
+        playbackSuspended.value
+      ) {
+        return
+      }
+      void keepCameraCompatibilityLease(
+        props.camera.id,
+        leaseId
+      ).catch(() => {
+        if (
+          compatibilityLeaseId !== leaseId ||
+          playbackSuspended.value
+        ) {
+          return
+        }
+        error.value =
+          "Compatibility stream lease expired. Reconnecting automatically."
+        descriptor.value = null
+        loading.value = false
+        destroyPlayer()
+        scheduleReconnect()
+      })
+    },
+    10_000
+  )
+}
+
 function releaseWebRtcSession(): void {
   clearStatsTimer()
   const peer = rtcPeer
@@ -413,6 +478,7 @@ function destroyPlayer(): void {
   hls?.destroy()
   hls = null
   releaseWebRtcSession()
+  releaseCompatibilityLease()
   activeTransport.value = null
   playing.value = false
 
@@ -610,7 +676,7 @@ async function attachHls(
 
 async function attachPreferredStream(
   stream: CameraLiveStream
-): Promise<void> {
+): Promise<CameraLiveStream> {
   const transports = resolveLivePlaybackTransports(
     stream,
     detectLivePlaybackCapabilities(video.value)
@@ -619,7 +685,7 @@ async function attachPreferredStream(
   if (transports.includes("webrtc")) {
     try {
       await attachWebRtc(stream)
-      return
+      return stream
     } catch {
       // WHEP is preferred but never blocks a compatible HLS fallback.
     }
@@ -627,13 +693,16 @@ async function attachPreferredStream(
 
   if (transports.includes("hls")) {
     await attachHls(stream)
-    return
+    return stream
   }
 
-  const codec = stream.codec || "camera codec"
-  throw new Error(
-    `This browser cannot decode ${codec} through the available live transports. Compatibility transcode is required.`
+  const compatible = await getCameraCompatibleLiveStream(
+    props.camera.id,
+    requestedQuality.value
   )
+  activateCompatibilityLease(compatible)
+  await attachHls(compatible)
+  return compatible
 }
 
 async function loadRecordingState(): Promise<void> {
@@ -720,8 +789,8 @@ async function loadStream(): Promise<void> {
     ) {
       return
     }
-    descriptor.value = stream
-    await attachPreferredStream(stream)
+    const playableStream = await attachPreferredStream(stream)
+    descriptor.value = playableStream
     if (
       generation === currentGeneration &&
       !playbackSuspended.value
@@ -1009,6 +1078,13 @@ onBeforeUnmount(() => {
           class="live-quality-badge"
         >
           {{ activeTransport === "webrtc" ? "RTC" : "HLS" }}
+        </span>
+        <span
+          v-if="descriptor?.compatibility === 'h264_transcode'"
+          class="live-quality-badge"
+          :title="`Compatibility transcode · ${descriptor.compatibility_acceleration || 'cpu'}`"
+        >
+          H264
         </span>
       </div>
     </header>

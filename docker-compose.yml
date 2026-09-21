@@ -16,6 +16,7 @@ x-zero-nvr-common: &zero-nvr-common
     ZERO_NVR_DEPLOYMENT_CONFIG_DIR: /config/deployment
     ZERO_NVR_ZLM_BASE_URL: http://zlmediakit
     ZERO_NVR_ZLM_RTSP_BASE_URL: rtsp://zlmediakit:554
+    ZERO_NVR_ZLM_RTMP_BASE_URL: rtmp://zlmediakit:1935
   volumes:
     - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}:/var/lib/zero-nvr
     - ${ZERO_NVR_CACHE_PATH:-./data/cache}:/var/cache/zero-nvr

@@ -230,6 +230,15 @@ class CameraLiveStreamView(BaseModel):
     height: int | None
     fps: float | None
     has_audio: bool
+    compatibility: Literal[
+        "h264_transcode"
+    ] | None = None
+    compatibility_lease_id: uuid.UUID | None = None
+    compatibility_acceleration: Literal[
+        "cpu",
+        "nvenc",
+        "vaapi",
+    ] | None = None
 
 
 

@@ -35,6 +35,7 @@ from app.modules.recordings.triggers import RecordingTriggerService
 
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
+from .live_transcode import LiveTranscodeError
 from .media_runtime import CameraMediaRuntimeService, ZlmStreamReference
 from .onvif_onboarding import OnvifOnboardingService
 from .ptz import CameraPtzService
@@ -1644,6 +1645,132 @@ def delete_camera_whep_session(
             message=str(exc),
             details={},
         ) from exc
+    return Response(status_code=204)
+
+
+@router.post(
+    "/cameras/{camera_id}/live/compatibility",
+    response_model=CameraLiveStreamView,
+    status_code=201,
+)
+def create_camera_live_compatibility(
+    camera_id: uuid.UUID,
+    request: Request,
+    quality: Literal[
+        "auto",
+        "high",
+        "low",
+    ] = Query(default="auto"),
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> CameraLiveStreamView:
+    selection = _select_live_stream(
+        camera_id=camera_id,
+        quality=quality,
+        request=request,
+        session=session,
+    )
+    try:
+        lease = request.app.state.live_transcodes.acquire(
+            camera_id=selection.camera.id,
+            owner_user_id=context.user.id,
+            profile_id=selection.profile.id,
+            source_url=(
+                selection.runtime.internal_rtsp_url(
+                    selection.reference
+                )
+            ),
+            has_audio=selection.profile.has_audio,
+        )
+    except LiveTranscodeError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    hls_url, expires_at = ZlmMediaAccess(
+        request.app.state.settings
+    ).sign_url(
+        selection.runtime.public_hls_url(
+            lease.reference
+        ),
+        app=lease.reference.app,
+        stream=lease.reference.stream,
+        ttl_seconds=(
+            ZlmMediaAccess.live_ttl_seconds
+        ),
+    )
+    return CameraLiveStreamView(
+        camera_id=selection.camera.id,
+        profile_id=selection.profile.id,
+        purpose=selection.purpose,
+        transports=["hls"],
+        hls_url=hls_url,
+        expires_at=expires_at,
+        codec="h264",
+        width=selection.profile.width,
+        height=selection.profile.height,
+        fps=selection.profile.fps,
+        has_audio=selection.profile.has_audio,
+        compatibility="h264_transcode",
+        compatibility_lease_id=lease.lease_id,
+        compatibility_acceleration=(
+            lease.acceleration
+        ),
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/live/compatibility/{lease_id}/keepalive",
+    status_code=204,
+)
+def keep_camera_live_compatibility(
+    camera_id: uuid.UUID,
+    lease_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> Response:
+    if not request.app.state.live_transcodes.touch(
+        lease_id,
+        camera_id=camera_id,
+        owner_user_id=context.user.id,
+    ):
+        raise ApiError(
+            status_code=404,
+            code="live_transcode_lease_not_found",
+            message=(
+                "Compatibility transcode lease "
+                "was not found."
+            ),
+        )
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/cameras/{camera_id}/live/compatibility/{lease_id}",
+    status_code=204,
+)
+def release_camera_live_compatibility(
+    camera_id: uuid.UUID,
+    lease_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> Response:
+    request.app.state.live_transcodes.release(
+        lease_id,
+        camera_id=camera_id,
+        owner_user_id=context.user.id,
+    )
     return Response(status_code=204)
 
 

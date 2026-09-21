@@ -15,6 +15,9 @@ export interface CameraLiveStream {
   height: number | null
   fps: number | null
   has_audio: boolean
+  compatibility?: "h264_transcode" | null
+  compatibility_lease_id?: string | null
+  compatibility_acceleration?: "cpu" | "nvenc" | "vaapi" | null
 }
 
 export function getCameraLiveStream(
@@ -24,6 +27,38 @@ export function getCameraLiveStream(
   const params = new URLSearchParams({ quality })
   return apiRequest<CameraLiveStream>(
     `/cameras/${encodeURIComponent(cameraId)}/live?${params}`
+  )
+}
+
+
+export function getCameraCompatibleLiveStream(
+  cameraId: string,
+  quality: LiveQuality
+): Promise<CameraLiveStream> {
+  const params = new URLSearchParams({ quality })
+  return apiRequest<CameraLiveStream>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility?${params}`,
+    { method: "POST" }
+  )
+}
+
+export function keepCameraCompatibilityLease(
+  cameraId: string,
+  leaseId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}/keepalive`,
+    { method: "POST" }
+  )
+}
+
+export function releaseCameraCompatibilityLease(
+  cameraId: string,
+  leaseId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/compatibility/${encodeURIComponent(leaseId)}`,
+    { method: "DELETE" }
   )
 }
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -9,6 +10,8 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
 from app.integrations.zlm import ZlmWhepSession
+from app.modules.cameras.live_transcode import LiveTranscodeLease
+from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 
 
@@ -395,3 +398,184 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
             "session-123",
             "cleanup-token",
         )
+
+
+
+def test_compatibility_transcode_uses_internal_stream_and_lease(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    captured: dict[str, object] = {}
+    lease_id = uuid.UUID(
+        "11111111-2222-3333-4444-555555555555"
+    )
+
+    def fake_ensure(self, desired):
+        return [item.reference for item in desired]
+
+    class FakeTranscodes:
+        def acquire(
+            self,
+            *,
+            camera_id,
+            owner_user_id,
+            profile_id,
+            source_url: str,
+            has_audio: bool,
+        ):
+            captured["camera_id"] = str(camera_id)
+            captured["owner_user_id"] = str(owner_user_id)
+            captured["profile_id"] = str(profile_id)
+            captured["source_url"] = source_url
+            captured["has_audio"] = has_audio
+            return LiveTranscodeLease(
+                lease_id=lease_id,
+                reference=ZlmStreamReference(
+                    camera_id=camera_id,
+                    profile_id=profile_id,
+                    app="zero-nvr-compat",
+                    stream=f"h264-{profile_id.hex}",
+                ),
+                acceleration="cpu",
+            )
+
+        def touch(
+            self,
+            value,
+            *,
+            camera_id,
+            owner_user_id,
+        ) -> bool:
+            captured["touched"] = (
+                str(value),
+                str(camera_id),
+                str(owner_user_id),
+            )
+            return True
+
+        def release(
+            self,
+            value,
+            *,
+            camera_id=None,
+            owner_user_id=None,
+        ) -> bool:
+            captured["released"] = (
+                str(value),
+                str(camera_id),
+                str(owner_user_id),
+            )
+            return True
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    app.state.live_transcodes = FakeTranscodes()
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Front Door",
+                "location": "Entrance",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://alice:camera-secret@10.0.0.10/main"
+                        "?token=camera-token"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+
+        compatibility = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                "/live/compatibility?quality=high"
+            )
+        )
+        assert compatibility.status_code == 201
+        body = compatibility.json()
+        assert body["codec"] == "h264"
+        assert body["transports"] == ["hls"]
+        assert (
+            body["compatibility"]
+            == "h264_transcode"
+        )
+        assert (
+            body["compatibility_lease_id"]
+            == str(lease_id)
+        )
+        assert (
+            body["compatibility_acceleration"]
+            == "cpu"
+        )
+        assert body["hls_url"].startswith(
+            "/zlm/zero-nvr-compat/h264-"
+        )
+        assert "zn_exp=" in body["hls_url"]
+        assert "zn_sig=" in body["hls_url"]
+
+        source_url = str(
+            captured["source_url"]
+        )
+        assert source_url.startswith(
+            "rtsp://zlmediakit:554/zero-nvr/profile-"
+        )
+        assert "camera-secret" not in source_url
+        assert "camera-token" not in source_url
+        assert "10.0.0.10" not in source_url
+
+        keepalive = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/live/compatibility/{lease_id}"
+                "/keepalive"
+            )
+        )
+        assert keepalive.status_code == 204
+        assert captured["touched"][0:2] == (
+            str(lease_id),
+            camera_id,
+        )
+        assert captured["touched"][2] == captured[
+            "owner_user_id"
+        ]
+
+        released = client.delete(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/live/compatibility/{lease_id}"
+            )
+        )
+        assert released.status_code == 204
+        assert captured["released"][0:2] == (
+            str(lease_id),
+            camera_id,
+        )
+        assert captured["released"][2] == captured[
+            "owner_user_id"
+        ]

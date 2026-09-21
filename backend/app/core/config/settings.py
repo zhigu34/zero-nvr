@@ -51,6 +51,7 @@ class Settings(BaseSettings):
 
     zlm_base_url: str = "http://zlmediakit"
     zlm_rtsp_base_url: str = "rtsp://zlmediakit:554"
+    zlm_rtmp_base_url: str = "rtmp://zlmediakit:1935"
     zlm_public_base_url: str = "/zlm"
     zlm_webrtc_port: int = 8000
     zlm_webrtc_extern_ip: str | None = None
@@ -68,6 +69,12 @@ class Settings(BaseSettings):
     ffmpeg_binary: str = "ffmpeg"
     ffprobe_binary: str = "ffprobe"
     ffmpeg_timeout_seconds: float = 3600.0
+    live_transcode_max_derivatives: int = 2
+    live_transcode_idle_ttl_seconds: int = 20
+    live_transcode_lease_ttl_seconds: int = 30
+    live_transcode_startup_timeout_seconds: float = 10.0
+    live_transcode_cpu_threads: int = 2
+    live_transcode_video_bitrate_kbps: int = 4000
 
     restic_binary: str = "restic"
     restic_timeout_seconds: float = 3600.0
@@ -236,6 +243,78 @@ class Settings(BaseSettings):
             )
         return value
 
+    @field_validator("live_transcode_max_derivatives")
+    @classmethod
+    def validate_live_transcode_max_derivatives(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 1 or value > 8:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_MAX_DERIVATIVES must be between 1 and 8"
+            )
+        return value
+
+    @field_validator("live_transcode_idle_ttl_seconds")
+    @classmethod
+    def validate_live_transcode_idle_ttl(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 5 or value > 300:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_IDLE_TTL_SECONDS must be between 5 and 300"
+            )
+        return value
+
+    @field_validator("live_transcode_lease_ttl_seconds")
+    @classmethod
+    def validate_live_transcode_lease_ttl(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 15 or value > 300:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_LEASE_TTL_SECONDS must be between 15 and 300"
+            )
+        return value
+
+    @field_validator("live_transcode_startup_timeout_seconds")
+    @classmethod
+    def validate_live_transcode_startup_timeout(
+        cls,
+        value: float,
+    ) -> float:
+        if value < 1 or value > 30:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_STARTUP_TIMEOUT_SECONDS must be between 1 and 30"
+            )
+        return value
+
+    @field_validator("live_transcode_cpu_threads")
+    @classmethod
+    def validate_live_transcode_cpu_threads(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 1 or value > 8:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_CPU_THREADS must be between 1 and 8"
+            )
+        return value
+
+    @field_validator("live_transcode_video_bitrate_kbps")
+    @classmethod
+    def validate_live_transcode_video_bitrate(
+        cls,
+        value: int,
+    ) -> int:
+        if value < 512 or value > 20000:
+            raise ValueError(
+                "ZERO_NVR_LIVE_TRANSCODE_VIDEO_BITRATE_KBPS must be between 512 and 20000"
+            )
+        return value
+
     @field_validator("rclone_timeout_seconds")
     @classmethod
     def validate_rclone_timeout(cls, value: float) -> float:
@@ -264,6 +343,20 @@ class Settings(BaseSettings):
         if "@" in normalized:
             raise ValueError(
                 "ZERO_NVR_ZLM_RTSP_BASE_URL must not contain credentials"
+            )
+        return normalized
+
+    @field_validator("zlm_rtmp_base_url")
+    @classmethod
+    def validate_zlm_rtmp_base_url(cls, value: str) -> str:
+        normalized = value.rstrip("/")
+        if not normalized.startswith("rtmp://"):
+            raise ValueError(
+                "ZERO_NVR_ZLM_RTMP_BASE_URL must use rtmp://"
+            )
+        if "@" in normalized:
+            raise ValueError(
+                "ZERO_NVR_ZLM_RTMP_BASE_URL must not contain credentials"
             )
         return normalized
 
