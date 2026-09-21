@@ -83,16 +83,17 @@ real camera while the remaining V1 work continues.
 
 - [x] `deploy.sh install` creates `.env` from `.env.example` when absent.
 - [x] first install generates the Core application/ZLM bootstrap secrets.
-- [ ] remove the Core default host-port collision between zero-nvr API
-  `8000/tcp` and ZLMediaKit WebRTC `8000/tcp+udp`.
-- [ ] add install/feature host-port preflight before Compose mutation.
-- [ ] interactive TTY install: explain conflicts, suggest an available port,
+- [x] remove the Core default host-port collision between zero-nvr API
+  `8000/tcp` and ZLMediaKit WebRTC; WebRTC now defaults to
+  `8001/tcp+udp`.
+- [x] add install/feature host-port preflight before Compose mutation.
+- [x] interactive TTY install: explain conflicts, suggest an available port,
   accept operator input, validate it, and persist the selected value to
   `.env`.
-- [ ] non-interactive/CI install: fail fast on conflicts with the exact env key
+- [x] non-interactive/CI install: fail fast on conflicts with the exact env key
   and port; never block waiting for input.
-- [ ] validate the rendered Compose model before pull/build/start.
-- [ ] successful install prints the effective Web UI address and published
+- [x] validate the rendered Compose model before pull/build/start.
+- [x] successful install prints the effective Web UI address and published
   media ports.
 - [ ] complete the Camera Recording Settings UI so recording mode, schedule,
   segment duration, event pre/post-roll, storage target, and retention policy

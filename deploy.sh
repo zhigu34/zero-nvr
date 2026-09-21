@@ -6,6 +6,7 @@ SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
 . "$SCRIPT_DIR/feature-profiles.sh"
+. "$SCRIPT_DIR/port-preflight.sh"
 
 cd "$ROOT_DIR"
 
@@ -110,6 +111,84 @@ preflight() {
   docker info >/dev/null
 }
 
+validate_compose_model() {
+  compose config --quiet
+}
+
+core_port_preflight() {
+  local old_http new_http public_base profile profiles
+
+  port_preflight_reset
+  ensure_port_setting     ZERO_NVR_API_PORT 8000     0.0.0.0 tcp zero-nvr "zero-nvr Web/API"
+
+  old_http="$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")"
+  ensure_port_setting     ZERO_NVR_ZLM_HTTP_PORT 8080     "$(env_get ZERO_NVR_ZLM_HTTP_BIND "0.0.0.0")"     tcp zlmediakit "ZLMediaKit HTTP"
+  new_http="$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")"
+  if [[ "$new_http" != "$old_http" ]]; then
+    public_base="$(env_get ZERO_NVR_ZLM_PUBLIC_BASE_URL "")"
+    case "$public_base" in
+      "http://localhost:$old_http")
+        set_env_value           ZERO_NVR_ZLM_PUBLIC_BASE_URL           "http://localhost:$new_http"
+        echo "saved: ZERO_NVR_ZLM_PUBLIC_BASE_URL=http://localhost:$new_http"
+        ;;
+      "http://127.0.0.1:$old_http")
+        set_env_value           ZERO_NVR_ZLM_PUBLIC_BASE_URL           "http://127.0.0.1:$new_http"
+        echo "saved: ZERO_NVR_ZLM_PUBLIC_BASE_URL=http://127.0.0.1:$new_http"
+        ;;
+    esac
+  fi
+
+  ensure_port_setting     ZERO_NVR_ZLM_RTSP_PORT 8554     "$(env_get ZERO_NVR_ZLM_RTSP_BIND "127.0.0.1")"     tcp zlmediakit "ZLMediaKit RTSP"
+  ensure_port_setting     ZERO_NVR_ZLM_WEBRTC_PORT 8001     0.0.0.0 tcp,udp zlmediakit "ZLMediaKit WebRTC"
+
+  profiles="$(env_get COMPOSE_PROFILES "")"
+  for profile in frigate mqtt openlist turn; do
+    if profile_is_enabled "$profiles" "$profile"; then
+      feature_port_preflight "$profile"
+    fi
+  done
+}
+
+feature_port_preflight() {
+  local profile="$1"
+  case "$profile" in
+    frigate)
+      ensure_port_setting         ZERO_NVR_FRIGATE_PORT 8971         "$(env_get ZERO_NVR_FRIGATE_BIND "127.0.0.1")"         tcp frigate "Frigate management"
+      ;;
+    mqtt)
+      ensure_port_setting         ZERO_NVR_MQTT_PORT 1883         "$(env_get ZERO_NVR_MQTT_BIND "127.0.0.1")"         tcp mosquitto "MQTT broker"
+      ;;
+    openlist)
+      ensure_port_setting         ZERO_NVR_OPENLIST_PORT 5244         "$(env_get ZERO_NVR_OPENLIST_BIND "127.0.0.1")"         tcp openlist "OpenList management"
+      ;;
+    turn)
+      ensure_port_setting         ZERO_NVR_TURN_PORT 3478         "$(env_get ZERO_NVR_TURN_BIND "0.0.0.0")"         tcp,udp coturn "TURN listener"
+      ensure_udp_range_setting         ZERO_NVR_TURN_RELAY_MIN_PORT         ZERO_NVR_TURN_RELAY_MAX_PORT         49160 49200         "$(env_get ZERO_NVR_TURN_BIND "0.0.0.0")"         coturn "TURN relay range"
+      ;;
+    postgres)
+      ;;
+    *)
+      echo "error: unsupported feature profile for port preflight: $profile" >&2
+      return 2
+      ;;
+  esac
+}
+
+print_install_summary() {
+  echo
+  echo "zero-nvr installed successfully"
+  echo
+  echo "Web UI:"
+  echo "  http://localhost:$(env_get ZERO_NVR_API_PORT "8000")"
+  echo
+  echo "Published media ports:"
+  echo "  ZLM HTTP:   $(env_get ZERO_NVR_ZLM_HTTP_BIND "0.0.0.0"):$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")/tcp"
+  echo "  ZLM RTSP:   $(env_get ZERO_NVR_ZLM_RTSP_BIND "127.0.0.1"):$(env_get ZERO_NVR_ZLM_RTSP_PORT "8554")/tcp"
+  echo "  ZLM WebRTC: 0.0.0.0:$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")/tcp+udp"
+  echo
+  echo "Open the Web UI to complete first-run administrator setup."
+}
+
 prepare_zlm() {
   local image
   image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
@@ -126,12 +205,15 @@ install_stack() {
   preflight
   ensure_env
   ensure_host_dirs
+  core_port_preflight
+  validate_compose_model
   prepare_zlm
   build_backend
   "$SCRIPT_DIR/migrate.sh"
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
   record_installed_revision
+  print_install_summary
 }
 
 update_stack() {
@@ -465,8 +547,16 @@ feature_enable() {
   ensure_env
   ensure_host_dirs
   original_profiles="$(env_get COMPOSE_PROFILES "")"
+  core_port_preflight
+  if ! profile_is_enabled "$original_profiles" "$profile"; then
+    feature_port_preflight "$profile"
+  fi
   feature_prepare "$profile"
   feature_set_profile enable "$profile"
+  if ! validate_compose_model; then
+    set_env_value COMPOSE_PROFILES "$original_profiles"
+    return 1
+  fi
 
   if ! compose pull "$service"; then
     set_env_value COMPOSE_PROFILES "$original_profiles"
@@ -553,7 +643,9 @@ feature_restart() {
 
   preflight
   ensure_host_dirs
+  core_port_preflight
   feature_prepare "$profile"
+  validate_compose_model
   compose up -d --force-recreate --wait --wait-timeout 180 "$service"
   if [[ "$profile" == "turn" ]]; then
     set_env_value ZERO_NVR_TURN_ENABLED "true"

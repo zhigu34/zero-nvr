@@ -83,6 +83,7 @@ jobs:
           bash scripts/test-benchmark.sh
           bash scripts/test-soak.sh
           bash scripts/test-release-validation.sh
+          bash scripts/test-port-preflight.sh
 
       - name: Validate Compose model
         shell: bash

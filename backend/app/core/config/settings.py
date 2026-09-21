@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     zlm_rtsp_base_url: str = "rtsp://zlmediakit:554"
     zlm_rtmp_base_url: str = "rtmp://zlmediakit:1935"
     zlm_public_base_url: str = "/zlm"
-    zlm_webrtc_port: int = 8000
+    zlm_webrtc_port: int = 8001
     zlm_webrtc_extern_ip: str | None = None
     zlm_api_secret: SecretStr | None = None
     zlm_hook_secret: SecretStr | None = None

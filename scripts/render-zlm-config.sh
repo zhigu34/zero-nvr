@@ -10,7 +10,7 @@ require_command docker
 api_secret="$(env_get ZERO_NVR_ZLM_API_SECRET)"
 hook_secret="$(env_get ZERO_NVR_ZLM_HOOK_SECRET)"
 image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
-webrtc_port="$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8000")"
+webrtc_port="$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")"
 webrtc_extern_ip="$(env_get ZERO_NVR_ZLM_WEBRTC_EXTERN_IP "")"
 
 if [[ ! "$webrtc_port" =~ ^[1-9][0-9]*$ ]] \

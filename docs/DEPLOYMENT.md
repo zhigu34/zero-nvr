@@ -149,22 +149,26 @@ Current implemented behavior:
 - runs the post-start deployment check;
 - records the installed Git revision when available.
 
-Deployment-test blocker before the first recommended clean-host install:
+Implemented deployment-test hardening:
 
-- preflight must validate every host-published Core port before Compose mutation;
-- Core defaults must not conflict with each other. In particular, the current
-  API default `8000/tcp` and ZLMediaKit WebRTC default `8000/tcp+udp`
-  must not both bind the same host TCP port;
+- Core defaults no longer collide: zero-nvr Web/API uses `8000/tcp` and
+  ZLMediaKit WebRTC defaults to `8001/tcp+udp`;
+- install validates configured host-published Core ports before image
+  pull/build/start;
+- enabled optional profiles are included in install-time port preflight;
+- `feature enable` / `feature restart` validate the relevant optional
+  service ports, including the TURN UDP relay range;
 - when an interactive TTY is available and a requested port is occupied,
-  `deploy.sh install` should explain the conflicting setting, suggest an
-  available port, accept operator input, validate it, and persist the selected
-  value into `.env`;
-- in non-interactive/CI execution, a port conflict must fail fast with the
-  exact environment key and requested port rather than waiting for input;
-- optional-profile ports are checked when that feature is enabled, not during
-  an ordinary Core-only install;
-- after a successful install, the script should print the final Web UI address
-  and the effective published media ports.
+  deploy.sh explains the conflict, suggests an available port, accepts
+  operator input, validates it, and persists the selected value into `.env`;
+- when no interactive TTY is available, conflicts fail fast with the exact
+  environment key/value and a suggested replacement rather than blocking;
+- host-port probing covers TCP and UDP, preferring Python socket bind probes
+  with an `ss` fallback;
+- the rendered Compose model is validated before install pull/build/start and
+  before enabling a managed feature;
+- a successful install prints the Web UI address plus the effective ZLM HTTP,
+  RTSP, and WebRTC published ports.
 
 The intended install sequence for the deployment-test gate is therefore:
 
