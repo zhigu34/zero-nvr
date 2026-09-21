@@ -163,6 +163,51 @@ class RecordingCatalogService:
         session.flush()
         return segment
 
+    @staticmethod
+    def mark_source_loss_tail(
+        session: Session,
+        *,
+        previous_segment_id: uuid.UUID | None,
+        segment_id: uuid.UUID,
+    ) -> None:
+        """Move source-loss completion evidence to the latest known tail.
+
+        Closed-generation hooks can arrive after reconnect and may arrive out
+        of order. The continuity tracker decides whether *segment_id* is newer
+        than the previously remembered segment. Once it is, completion reason
+        follows that newest finalized media file without changing its timing
+        projection or stretching coverage to the later unregister timestamp.
+        """
+
+        current = session.get(
+            RecordingSegment,
+            segment_id,
+        )
+        if current is None:
+            return
+
+        if (
+            previous_segment_id is not None
+            and previous_segment_id
+            != segment_id
+        ):
+            previous = session.get(
+                RecordingSegment,
+                previous_segment_id,
+            )
+            if (
+                previous is not None
+                and (
+                    previous.completion_reason
+                    or ""
+                ).lower()
+                == "source_lost"
+            ):
+                previous.completion_reason = "NORMAL"
+
+        current.completion_reason = "source_lost"
+        session.flush()
+
     @classmethod
     def ingest_finalized(
         cls,

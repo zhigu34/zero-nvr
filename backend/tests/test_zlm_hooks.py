@@ -21,6 +21,42 @@ from app.modules.storage.models import RecordingLocation, StorageTarget
 HOOK_SECRET = "h" * 40
 
 
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.reconciled: list[dict[str, object]] = []
+        self.prebuffer_reconciled = []
+        self.fragments = []
+
+    def reconcile_runtime(
+        self,
+        camera_id,
+        *,
+        restart_streams: bool = False,
+        force_reconfigure: bool = False,
+    ) -> None:
+        self.reconciled.append(
+            {
+                "camera_id": camera_id,
+                "restart_streams": restart_streams,
+                "force_reconfigure": force_reconfigure,
+            }
+        )
+
+    def reconcile_camera(
+        self,
+        camera_id,
+    ) -> None:
+        self.prebuffer_reconciled.append(
+            camera_id
+        )
+
+    def finalized_prebuffer_fragment(
+        self,
+        fragment,
+    ) -> None:
+        self.fragments.append(fragment)
+
+
 def dt(epoch: float) -> datetime:
     return datetime.fromtimestamp(epoch, tz=UTC)
 
@@ -41,6 +77,7 @@ def make_app(tmp_path: Path, *, hook_secret: str | None = HOOK_SECRET):
     settings.prebuffer_dir.mkdir(parents=True, exist_ok=True)
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
+    app.state.recording_tasks = FakeRecordingTasks()
     return app
 
 
@@ -281,7 +318,8 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
     monkeypatch,
 ) -> None:
     app = make_app(tmp_path)
-    _camera_id, stream = seed_recording_camera(app)
+    camera_id_text, stream = seed_recording_camera(app)
+    camera_id = uuid.UUID(camera_id_text)
 
     boundaries = iter([
         dt(2000),  # old register
@@ -374,14 +412,53 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
         assert by_start[2002].ended_at == dt(2009)
         assert by_start[2002].timing_status == "FINAL"
 
-        # late old tail stays provisional: unregister is a continuity boundary,
-        # not exact canonical end-time proof.
+        # The physically finalized old-generation tail is identified as the
+        # source-loss segment, but timing stays provisional because unregister
+        # can lag the last decodable frame and is not used to stretch coverage.
         assert by_start[2009].timing_status == "PROVISIONAL"
+        assert (
+            by_start[2009].completion_reason
+            == "source_lost"
+        )
+        assert (
+            by_start[2002].completion_reason
+            != "source_lost"
+        )
 
-        # new-1 normalized only by new-2.
+        # new-1 normalized only by new-2, and post-reconnect media begins from
+        # the new continuity generation rather than the old segment cadence.
         assert by_start[2014].ended_at == dt(2021)
         assert by_start[2014].timing_status == "FINAL"
+        assert by_start[2014].started_at >= dt(2012)
         assert by_start[2021].timing_status == "PROVISIONAL"
+        assert (
+            by_start[2021].completion_reason
+            != "source_lost"
+        )
+
+    reconciled = (
+        app.state.recording_tasks.reconciled
+    )
+    assert [
+        item["camera_id"]
+        for item in reconciled
+    ] == [
+        camera_id,
+        camera_id,
+    ]
+    assert all(
+        item["restart_streams"] is False
+        and item["force_reconfigure"] is False
+        for item in reconciled
+    )
+    assert (
+        app.state.recording_tasks
+        .prebuffer_reconciled
+        == [
+            camera_id,
+            camera_id,
+        ]
+    )
 
 
 
@@ -413,6 +490,13 @@ def test_prebuffer_hook_enqueues_without_canonical_segment(
             queued.append(fragment)
 
         def reconcile_camera(self, _camera_id):
+            return None
+
+        def reconcile_runtime(
+            self,
+            _camera_id,
+            **_kwargs,
+        ):
             return None
 
     app.state.recording_tasks = FakeDispatcher()

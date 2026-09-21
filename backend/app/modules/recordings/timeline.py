@@ -125,8 +125,33 @@ class PlaybackTimelineService:
         if policy.baseline_mode == "disabled":
             return "not_scheduled"
 
-        # Schedule evaluation and persisted source/runtime outage evidence refine
-        # this later. Do not guess "source_lost" without actual evidence.
+        previous = session.scalar(
+            select(RecordingSegment)
+            .where(
+                RecordingSegment.camera_id
+                == camera_id,
+                RecordingSegment.ended_at
+                <= start_at,
+            )
+            .order_by(
+                RecordingSegment.ended_at
+                .desc(),
+                RecordingSegment.id.desc(),
+            )
+            .limit(1)
+        )
+        if (
+            previous is not None
+            and (
+                previous.completion_reason
+                or ""
+            ).lower()
+            == "source_lost"
+        ):
+            return "source_lost"
+
+        # Schedule evaluation and other persisted runtime evidence refine this
+        # later. Do not guess an outage reason without actual segment evidence.
         return "unknown"
 
     @classmethod

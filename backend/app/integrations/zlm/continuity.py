@@ -17,6 +17,7 @@ class ZlmStreamIdentity:
 class ZlmContinuityResolution:
     continuity_id: uuid.UUID
     previous_segment_id: uuid.UUID | None = None
+    opened_at: datetime | None = None
     closed_at: datetime | None = None
 
 
@@ -25,6 +26,7 @@ class _ContinuityState:
     continuity_id: uuid.UUID
     registered_at: datetime
     last_segment_id: uuid.UUID | None = None
+    last_segment_started_at: datetime | None = None
     closed_at: datetime | None = None
 
 
@@ -86,6 +88,9 @@ class ZlmContinuityTracker:
                 continuity_id=active.continuity_id,
                 registered_at=active.registered_at,
                 last_segment_id=active.last_segment_id,
+                last_segment_started_at=(
+                    active.last_segment_started_at
+                ),
                 closed_at=closed_at,
             )
             self._closed[identity] = closed
@@ -106,6 +111,7 @@ class ZlmContinuityTracker:
             return ZlmContinuityResolution(
                 continuity_id=state.continuity_id,
                 previous_segment_id=state.last_segment_id,
+                opened_at=state.registered_at,
                 closed_at=state.closed_at,
             )
 
@@ -124,6 +130,7 @@ class ZlmContinuityTracker:
             return ZlmContinuityResolution(
                 continuity_id=state.continuity_id,
                 previous_segment_id=state.last_segment_id,
+                opened_at=state.registered_at,
             )
 
     def current(
@@ -167,6 +174,7 @@ class ZlmContinuityTracker:
                 return ZlmContinuityResolution(
                     continuity_id=closed.continuity_id,
                     previous_segment_id=closed.last_segment_id,
+                    opened_at=closed.registered_at,
                     closed_at=closed.closed_at,
                 )
 
@@ -174,6 +182,7 @@ class ZlmContinuityTracker:
                 return ZlmContinuityResolution(
                     continuity_id=active.continuity_id,
                     previous_segment_id=active.last_segment_id,
+                    opened_at=active.registered_at,
                 )
 
             return None
@@ -187,6 +196,7 @@ class ZlmContinuityTracker:
         stream: str,
         continuity_id: uuid.UUID,
         segment_id: uuid.UUID,
+        started_at: datetime | None = None,
     ) -> bool:
         """Remember one finalized catalog segment in a proven generation.
 
@@ -202,10 +212,22 @@ class ZlmContinuityTracker:
                 active is not None
                 and active.continuity_id == continuity_id
             ):
+                if (
+                    started_at is not None
+                    and active.last_segment_started_at
+                    is not None
+                    and started_at
+                    < active.last_segment_started_at
+                ):
+                    return False
                 self._active[identity] = _ContinuityState(
                     continuity_id=active.continuity_id,
                     registered_at=active.registered_at,
                     last_segment_id=segment_id,
+                    last_segment_started_at=(
+                        started_at
+                        or active.last_segment_started_at
+                    ),
                     closed_at=active.closed_at,
                 )
                 return True
@@ -215,10 +237,22 @@ class ZlmContinuityTracker:
                 closed is not None
                 and closed.continuity_id == continuity_id
             ):
+                if (
+                    started_at is not None
+                    and closed.last_segment_started_at
+                    is not None
+                    and started_at
+                    < closed.last_segment_started_at
+                ):
+                    return False
                 self._closed[identity] = _ContinuityState(
                     continuity_id=closed.continuity_id,
                     registered_at=closed.registered_at,
                     last_segment_id=segment_id,
+                    last_segment_started_at=(
+                        started_at
+                        or closed.last_segment_started_at
+                    ),
                     closed_at=closed.closed_at,
                 )
                 return True

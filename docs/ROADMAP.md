@@ -213,9 +213,9 @@ Acceptance:
   - [ ] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
 - [x] safe administrator target change/migration without losing historical RecordingLocations.
 - [ ] cross-day segments without midnight force-split.
-- [ ] source-loss segment finalize with completion_reason = source_lost.
-- [ ] post-reconnect new segment clock anchored at actual recovery time.
-- [ ] preserve policy/active RecordingTriggers across source outage and reconcile desired recorder state after ZLM recovery.
+- [x] source-loss finalized media tail is identified with `completion_reason = source_lost` without stretching media timing to the later unregister callback.
+- [x] post-reconnect segments start in a new continuity generation and are never normalized against a pre-disconnect segment.
+- [x] preserve RecordingPolicy/active RecordingTriggers across source outage and reconcile recorder plus prebuffer promotion state after ZLM recovery.
 - [ ] SystemEvent/health transition persistence sufficient to explain source-loss gaps when evidence exists.
 - [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.

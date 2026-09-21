@@ -13,7 +13,10 @@ from app.core.db import get_db_session
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.integrations.zlm import ZlmMediaAccess
-from app.modules.cameras.models import CameraStreamProfile
+from app.modules.cameras.models import (
+    CameraStreamBinding,
+    CameraStreamProfile,
+)
 from app.modules.recordings.catalog import (
     FinalizedRecordingEvidence,
     RecordingCatalogService,
@@ -128,6 +131,7 @@ def zlm_play(
 def zlm_stream_changed(
     body: ZlmStreamChangedHook,
     request: Request,
+    session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
     _authenticate_hook(request, body.media_server_id)
 
@@ -146,6 +150,70 @@ def zlm_stream_changed(
             stream=body.stream,
             at=boundary_at,
         )
+
+        # ZLM owns reconnect. Once the managed RECORD source is registered
+        # again, re-apply the still-persisted RecordingPolicy/Trigger intent
+        # through the normal runtime reconciler. This is intentionally
+        # idempotent and does not introduce a second RTSP reconnect loop.
+        camera_id = None
+        try:
+            profile_id = (
+                RecordingCatalogService
+                .profile_id_from_stream(
+                    body.stream
+                )
+            )
+            binding = session.scalar(
+                select(
+                    CameraStreamBinding
+                ).where(
+                    CameraStreamBinding
+                    .stream_profile_id
+                    == profile_id,
+                    CameraStreamBinding
+                    .purpose
+                    == "RECORD",
+                )
+            )
+            if binding is not None:
+                camera_id = binding.camera_id
+            session.commit()
+        except Exception:
+            session.rollback()
+            request.app.state.logger.warning(
+                "recording recovery lookup failed after ZLM source registration",
+                extra={
+                    "stream": body.stream,
+                },
+            )
+
+        if camera_id is not None:
+            dispatcher = (
+                request.app.state.recording_tasks
+            )
+            for operation, callback in (
+                (
+                    "runtime",
+                    dispatcher.reconcile_runtime,
+                ),
+                (
+                    "prebuffer",
+                    dispatcher.reconcile_camera,
+                ),
+            ):
+                try:
+                    callback(camera_id)
+                except Exception:
+                    request.app.state.logger.warning(
+                        "recording recovery reconcile enqueue failed after ZLM source registration",
+                        extra={
+                            "camera_id": str(
+                                camera_id
+                            ),
+                            "stream": body.stream,
+                            "operation": operation,
+                        },
+                    )
         return _ack()
 
     tracker.unregistered(
@@ -155,9 +223,11 @@ def zlm_stream_changed(
         at=boundary_at,
     )
 
-    # Source unregister proves only that a continuity generation ended. It does
-    # not by itself prove an exact canonical segment boundary. The last segment
-    # therefore remains PROVISIONAL until explicit-stop or recovery evidence.
+    # Source unregister proves that the continuity generation ended, but the
+    # callback may arrive later than the last decodable frame. Do not stretch a
+    # catalog segment to this wall-clock time. A finalized MP4 hook that is
+    # attributable to this closed generation marks the newest known tail with
+    # completion_reason=source_lost while preserving actual hook duration.
     return _ack()
 
 
@@ -260,13 +330,35 @@ def zlm_record_mp4(
         )
 
         if resolution is not None and result.segment is not None:
-            request.app.state.zlm_continuity.remember_segment(
-                vhost=body.vhost,
-                app=body.app,
-                stream=body.stream,
-                continuity_id=resolution.continuity_id,
-                segment_id=result.segment.id,
+            remembered = (
+                request.app.state.zlm_continuity
+                .remember_segment(
+                    vhost=body.vhost,
+                    app=body.app,
+                    stream=body.stream,
+                    continuity_id=(
+                        resolution.continuity_id
+                    ),
+                    segment_id=result.segment.id,
+                    started_at=(
+                        result.segment.started_at
+                    ),
+                )
             )
+            if (
+                remembered
+                and resolution.closed_at
+                is not None
+            ):
+                RecordingCatalogService.mark_source_loss_tail(
+                    session,
+                    previous_segment_id=(
+                        resolution.previous_segment_id
+                    ),
+                    segment_id=(
+                        result.segment.id
+                    ),
+                )
 
         session.commit()
     except Exception:

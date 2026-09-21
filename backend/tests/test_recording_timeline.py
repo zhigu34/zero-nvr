@@ -155,5 +155,44 @@ def test_timeline_merges_physical_segments_into_wall_clock_ranges(
         assert timeline.gaps[0].start_at == base + timedelta(minutes=12)
         assert timeline.gaps[0].end_at == base + timedelta(minutes=15)
         assert timeline.gaps[0].reason == "unknown"
+
+        with database.session() as session:
+            last_segment = session.scalar(
+                select(RecordingSegment)
+                .where(
+                    RecordingSegment.camera_id
+                    == camera_id
+                )
+                .order_by(
+                    RecordingSegment.ended_at.desc()
+                )
+                .limit(1)
+            )
+            assert last_segment is not None
+            last_segment.completion_reason = (
+                "source_lost"
+            )
+            session.commit()
+
+        with database.session() as session:
+            source_loss_timeline = (
+                PlaybackTimelineService.build(
+                    session,
+                    camera_id=camera_id,
+                    start_at=base,
+                    end_at=(
+                        base
+                        + timedelta(minutes=15)
+                    ),
+                )
+            )
+
+        assert len(
+            source_loss_timeline.gaps
+        ) == 1
+        assert (
+            source_loss_timeline.gaps[0].reason
+            == "source_lost"
+        )
     finally:
         database.close()

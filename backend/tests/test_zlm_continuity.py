@@ -31,6 +31,7 @@ def test_late_old_hook_keeps_old_generation_segment_memory() -> None:
         stream=STREAM,
         continuity_id=old_generation,
         segment_id=old_segment,
+        started_at=at(1),
     )
 
     closed = tracker.unregistered(
@@ -56,6 +57,7 @@ def test_late_old_hook_keeps_old_generation_segment_memory() -> None:
         stream=STREAM,
         continuity_id=new_generation,
         segment_id=new_segment,
+        started_at=at(13),
     )
 
     late_old = tracker.resolve_record(
@@ -67,6 +69,7 @@ def test_late_old_hook_keeps_old_generation_segment_memory() -> None:
     assert late_old is not None
     assert late_old.continuity_id == old_generation
     assert late_old.previous_segment_id == old_segment
+    assert late_old.opened_at == at(0)
     assert late_old.closed_at == at(10)
 
     current = tracker.resolve_record(
@@ -78,6 +81,7 @@ def test_late_old_hook_keeps_old_generation_segment_memory() -> None:
     assert current is not None
     assert current.continuity_id == new_generation
     assert current.previous_segment_id == new_segment
+    assert current.opened_at == at(12)
     assert current.closed_at is None
 
 
@@ -184,3 +188,51 @@ def test_unknown_generation_cannot_replace_active_segment_memory() -> None:
     )
     assert resolved is not None
     assert resolved.previous_segment_id == real_segment
+
+
+
+def test_out_of_order_closed_hook_cannot_move_tail_backwards() -> None:
+    tracker = ZlmContinuityTracker()
+    generation = tracker.registered(
+        vhost=VHOST,
+        app=APP,
+        stream=STREAM,
+        at=at(0),
+    )
+
+    newest = uuid.uuid4()
+    assert tracker.remember_segment(
+        vhost=VHOST,
+        app=APP,
+        stream=STREAM,
+        continuity_id=generation,
+        segment_id=newest,
+        started_at=at(8),
+    )
+    tracker.unregistered(
+        vhost=VHOST,
+        app=APP,
+        stream=STREAM,
+        at=at(10),
+    )
+
+    older = uuid.uuid4()
+    assert tracker.remember_segment(
+        vhost=VHOST,
+        app=APP,
+        stream=STREAM,
+        continuity_id=generation,
+        segment_id=older,
+        started_at=at(5),
+    ) is False
+
+    resolved = tracker.resolve_record(
+        vhost=VHOST,
+        app=APP,
+        stream=STREAM,
+        started_at=at(9),
+    )
+    assert resolved is not None
+    assert resolved.previous_segment_id == newest
+    assert resolved.opened_at == at(0)
+    assert resolved.closed_at == at(10)
