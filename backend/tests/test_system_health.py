@@ -121,6 +121,12 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
             == "recording_reconciliation_pending"
         )
         assert body["components"]["database"]["status"] == "OK"
+        database_details = body["components"]["database"]["details"]
+        assert database_details["backend"] == "sqlite"
+        assert database_details["journal_mode"] == "wal"
+        assert database_details["busy_timeout_ms"] == 5000
+        assert database_details["wal_autocheckpoint_pages"] == 1000
+        assert database_details["write_pressure"] == "normal"
         assert body["components"]["worker"]["status"] == "OK"
         assert body["components"]["zlmediakit"]["status"] == "OK"
         assert body["components"]["storage"]["status"] == "OK"
@@ -143,6 +149,47 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
 
         assert client.get("/health").status_code == 200
 
+
+
+def test_database_health_degrades_on_sqlite_write_pressure(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    database = app.state.database
+    try:
+        monkeypatch.setattr(
+            database,
+            "sqlite_runtime_health",
+            lambda: SimpleNamespace(
+                journal_mode="wal",
+                busy_timeout_ms=5000,
+                wal_autocheckpoint_pages=1000,
+                page_size_bytes=4096,
+                wal_pages=8000,
+                checkpointed_pages=5000,
+                backlog_pages=3000,
+                wal_bytes=32 * 1024 * 1024,
+                checkpoint_busy=False,
+                write_pressure="high",
+            ),
+        )
+        component = SystemHealthService(
+            app.state.settings,
+            database,
+        )._database()
+        assert component.status == "DEGRADED"
+        assert (
+            component.message
+            == "sqlite_write_pressure_high"
+        )
+        assert (
+            component.details["write_pressure"]
+            == "high"
+        )
+        assert component.details["backlog_pages"] == 3000
+    finally:
+        database.close()
 
 
 def test_health_surfaces_recording_reconciliation_state(
