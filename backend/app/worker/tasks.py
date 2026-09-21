@@ -754,6 +754,9 @@ def _run_recording_catalog_reconciliation(
                 ),
                 "changes": result.changes,
                 "recovered": result.recovered,
+                "recovered_partials": (
+                    result.recovered_partials
+                ),
                 "relinked": result.relinked,
                 "missing": result.missing,
                 "ambiguous": (

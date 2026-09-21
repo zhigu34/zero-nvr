@@ -55,6 +55,7 @@ class RecordingReconciliationResult:
     full: bool
     scanned_files: int
     recovered: int
+    recovered_partials: int
     relinked: int
     missing: int
     ambiguous: int
@@ -65,6 +66,7 @@ class RecordingReconciliationResult:
     def changes(self) -> int:
         return (
             self.recovered
+            + self.recovered_partials
             + self.relinked
             + self.missing
         )
@@ -81,6 +83,7 @@ class RecordingCatalogReconciliationService:
     recent_overlap = timedelta(minutes=10)
     initial_lookback = timedelta(hours=24)
     settle_seconds = 30
+    partial_settle_seconds = 90
 
     def __init__(
         self,
@@ -511,6 +514,139 @@ class RecordingCatalogReconciliationService:
 
         return missing, errors
 
+    @classmethod
+    def _partial_destination(
+        cls,
+        *,
+        root: Path,
+        path: Path,
+    ) -> Path | None:
+        """Map one stale ZLM hidden fMP4 to its finalized canonical filename."""
+
+        if (
+            not path.name.startswith(".")
+            or len(path.name) <= 1
+        ):
+            return None
+
+        destination = path.with_name(
+            path.name[1:]
+        )
+        if cls._identity(
+            root=root,
+            path=destination,
+        ) is None:
+            return None
+        return destination
+
+    def _recover_partial_file(
+        self,
+        database: Database,
+        *,
+        target_id: uuid.UUID,
+        root: Path,
+        path: Path,
+        now: datetime,
+    ) -> tuple[str, bool]:
+        """Finalize a stale, readable hidden fMP4 without rewriting media bytes.
+
+        ZLM writes an in-progress segment under a hidden filename and normally
+        exposes it by renaming on finalize. After an abnormal termination the
+        fMP4 bytes can remain readable but hidden. We only reproduce that final
+        name transition after the file has settled and ffprobe proves surviving
+        media. Hard-link + unlink provides a no-clobber same-filesystem rename:
+        an existing canonical filename is preserved rather than overwritten.
+        """
+
+        destination = self._partial_destination(
+            root=root,
+            path=path,
+        )
+        if destination is None:
+            return (
+                "ambiguous",
+                False,
+            )
+        if destination.exists():
+            return (
+                "ambiguous",
+                False,
+            )
+
+        try:
+            size_bytes = path.stat().st_size
+            if size_bytes <= 0:
+                return (
+                    "error",
+                    False,
+                )
+            self._probe(path)
+        except (
+            OSError,
+            RuntimeError,
+        ):
+            return (
+                "error",
+                False,
+            )
+
+        try:
+            os.link(
+                path,
+                destination,
+                follow_symlinks=False,
+            )
+        except FileExistsError:
+            return (
+                "ambiguous",
+                False,
+            )
+        except OSError:
+            return (
+                "error",
+                False,
+            )
+
+        try:
+            path.unlink()
+        except OSError:
+            try:
+                destination.unlink(
+                    missing_ok=True
+                )
+            except OSError:
+                pass
+            return (
+                "error",
+                False,
+            )
+
+        object_path = (
+            destination
+            .relative_to(root)
+            .as_posix()
+        )
+        outcome, changed = self._recover_file(
+            database,
+            target_id=target_id,
+            root=root,
+            path=destination,
+            object_path=object_path,
+            now=now,
+            completion_reason=(
+                "RECOVERY_INTERRUPTED"
+            ),
+        )
+        if outcome == "recovered":
+            return (
+                "partial_recovered",
+                changed,
+            )
+        return (
+            outcome,
+            changed,
+        )
+
     def _recover_file(
         self,
         database: Database,
@@ -520,6 +656,7 @@ class RecordingCatalogReconciliationService:
         path: Path,
         object_path: str,
         now: datetime,
+        completion_reason: str = "RECOVERY",
     ) -> tuple[str, bool]:
         with database.session() as session:
             existing = session.scalar(
@@ -677,7 +814,7 @@ class RecordingCatalogReconciliationService:
                 ),
                 integrity_status="OK",
                 completion_reason=(
-                    "RECOVERY"
+                    completion_reason
                 ),
                 created_at=now,
             )
@@ -730,6 +867,9 @@ class RecordingCatalogReconciliationService:
                 ),
                 "recovered": (
                     result.recovered
+                ),
+                "recovered_partials": (
+                    result.recovered_partials
                 ),
                 "relinked": (
                     result.relinked
@@ -831,12 +971,17 @@ class RecordingCatalogReconciliationService:
 
         scanned = 0
         recovered = 0
+        recovered_partials = 0
         relinked = 0
         ambiguous = 0
         unsettled = 0
         settle_before = (
             started_at.timestamp()
             - self.settle_seconds
+        )
+        partial_settle_before = (
+            started_at.timestamp()
+            - self.partial_settle_seconds
         )
 
         for target_id, root in targets:
@@ -847,12 +992,7 @@ class RecordingCatalogReconciliationService:
                 "*.mp4"
             ):
                 try:
-                    if (
-                        not path.is_file()
-                        or path.name.startswith(
-                            "."
-                        )
-                    ):
+                    if not path.is_file():
                         continue
                     resolved = (
                         path.resolve()
@@ -876,33 +1016,56 @@ class RecordingCatalogReconciliationService:
                     < since.timestamp()
                 ):
                     continue
+                is_partial = (
+                    resolved.name.startswith(
+                        "."
+                    )
+                )
+                settled_before = (
+                    partial_settle_before
+                    if is_partial
+                    else settle_before
+                )
                 if (
                     stat.st_mtime
-                    > settle_before
+                    > settled_before
                 ):
                     unsettled += 1
                     continue
 
                 scanned += 1
-                object_path = (
-                    resolved.relative_to(
-                        root
-                    ).as_posix()
-                )
-                outcome, changed = (
-                    self._recover_file(
-                        database,
-                        target_id=target_id,
-                        root=root,
-                        path=resolved,
-                        object_path=(
-                            object_path
-                        ),
-                        now=started_at,
+                if is_partial:
+                    outcome, changed = (
+                        self._recover_partial_file(
+                            database,
+                            target_id=target_id,
+                            root=root,
+                            path=resolved,
+                            now=started_at,
+                        )
                     )
-                )
+                else:
+                    object_path = (
+                        resolved.relative_to(
+                            root
+                        ).as_posix()
+                    )
+                    outcome, changed = (
+                        self._recover_file(
+                            database,
+                            target_id=target_id,
+                            root=root,
+                            path=resolved,
+                            object_path=(
+                                object_path
+                            ),
+                            now=started_at,
+                        )
+                    )
                 if outcome == "recovered":
                     recovered += 1
+                elif outcome == "partial_recovered":
+                    recovered_partials += 1
                 elif outcome == "relinked":
                     relinked += 1
                 elif outcome == "ambiguous":
@@ -925,6 +1088,9 @@ class RecordingCatalogReconciliationService:
                     scanned
                 ),
                 recovered=recovered,
+                recovered_partials=(
+                    recovered_partials
+                ),
                 relinked=relinked,
                 missing=missing,
                 ambiguous=ambiguous,

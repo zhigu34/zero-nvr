@@ -119,6 +119,8 @@ def orphan(
     *,
     second: int,
     size: int = 4096,
+    hidden: bool = False,
+    age_seconds: int = 300,
 ) -> Path:
     date = "2026-09-20"
     directory = (
@@ -132,19 +134,21 @@ def orphan(
         parents=True,
         exist_ok=True,
     )
-    path = (
-        directory
-        / (
-            "2026-09-20-12-00-"
-            f"{second:02d}-0.mp4"
-        )
+    filename = (
+        "2026-09-20-12-00-"
+        f"{second:02d}-0.mp4"
     )
+    if hidden:
+        filename = f".{filename}"
+    path = directory / filename
     path.write_bytes(
         b"x" * size
     )
     old = (
         datetime.now(UTC)
-        - timedelta(minutes=5)
+        - timedelta(
+            seconds=age_seconds
+        )
     ).timestamp()
     os.utime(
         path,
@@ -276,6 +280,131 @@ def test_reconciliation_recovers_proven_orphan_and_is_idempotent(
                     RecordingSegment
                 )
             ) == 1
+            session.commit()
+    finally:
+        database.close()
+
+
+def test_reconciliation_recovers_settled_interrupted_fmp4_without_rewrite(
+    tmp_path: Path,
+) -> None:
+    settings, database, root = (
+        make_database(tmp_path)
+    )
+    try:
+        (
+            _camera_id,
+            profile_id,
+            target_id,
+        ) = seed_camera(
+            settings,
+            database,
+            root,
+        )
+        partial = orphan(
+            root,
+            profile_id,
+            second=40,
+            hidden=True,
+        )
+        original = partial.read_bytes()
+        destination = partial.with_name(
+            partial.name[1:]
+        )
+
+        result = (
+            RecordingCatalogReconciliationService(
+                settings,
+                probe=probe,
+            ).reconcile(
+                database,
+                full=True,
+            )
+        )
+
+        assert result.recovered == 0
+        assert result.recovered_partials == 1
+        assert not partial.exists()
+        assert destination.read_bytes() == original
+
+        with database.session() as session:
+            location = session.scalar(
+                select(
+                    RecordingLocation
+                ).where(
+                    RecordingLocation.storage_target_id
+                    == target_id,
+                    RecordingLocation.object_path
+                    == destination.relative_to(
+                        root
+                    ).as_posix(),
+                )
+            )
+            assert location is not None
+            assert location.state == "AVAILABLE"
+            segment = session.get(
+                RecordingSegment,
+                location.recording_segment_id,
+            )
+            assert segment is not None
+            assert (
+                segment.completion_reason
+                == "RECOVERY_INTERRUPTED"
+            )
+            assert segment.integrity_status == "OK"
+            session.commit()
+    finally:
+        database.close()
+
+
+def test_reconciliation_never_finalizes_unsettled_hidden_fmp4(
+    tmp_path: Path,
+) -> None:
+    settings, database, root = (
+        make_database(tmp_path)
+    )
+    try:
+        (
+            _camera_id,
+            profile_id,
+            _target_id,
+        ) = seed_camera(
+            settings,
+            database,
+            root,
+        )
+        partial = orphan(
+            root,
+            profile_id,
+            second=50,
+            hidden=True,
+            age_seconds=0,
+        )
+        destination = partial.with_name(
+            partial.name[1:]
+        )
+
+        result = (
+            RecordingCatalogReconciliationService(
+                settings,
+                probe=probe,
+            ).reconcile(
+                database,
+                full=True,
+            )
+        )
+
+        assert result.recovered_partials == 0
+        assert result.skipped_unsettled == 1
+        assert partial.is_file()
+        assert not destination.exists()
+        with database.session() as session:
+            assert session.scalar(
+                select(func.count())
+                .select_from(
+                    RecordingSegment
+                )
+            ) == 0
             session.commit()
     finally:
         database.close()
