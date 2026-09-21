@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -1586,21 +1587,27 @@ def test_local_delete_emits_structured_result_log(
             ),
         )
 
-        caplog.set_level(
-            "INFO",
-            logger=(
-                "zero_nvr.storage.retention"
-            ),
+        logger = logging.getLogger(
+            "zero_nvr.storage.retention"
         )
-        result = (
-            LocalRetentionDeletionService
-            .execute(
-                database,
-                location_id=location_id,
-                now=now,
+        previous_level = logger.level
+        logger.setLevel(logging.INFO)
+        logger.addHandler(caplog.handler)
+        try:
+            result = (
+                LocalRetentionDeletionService
+                .execute(
+                    database,
+                    location_id=location_id,
+                    now=now,
+                )
             )
-        )
-        assert result.deleted is True
+            assert result.deleted is True
+        finally:
+            logger.removeHandler(
+                caplog.handler
+            )
+            logger.setLevel(previous_level)
 
         records = [
             item
