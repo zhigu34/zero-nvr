@@ -180,6 +180,7 @@ async function selectReadinessTarget(target: 8 | 16): Promise<void> {
     return
   }
   readinessTarget.value = target
+  readiness.value = null
   loading.value = true
   error.value = null
   try {
@@ -476,12 +477,20 @@ onMounted(() => {
           <span
             class="status-pill"
             :class="
-              readiness?.passed
-                ? 'status-pill--ok'
-                : 'status-pill--error'
+              !readiness
+                ? 'status-pill--muted'
+                : readiness.passed
+                  ? 'status-pill--ok'
+                  : 'status-pill--error'
             "
           >
-            {{ readiness?.passed ? "READY" : "NOT READY" }}
+            {{
+              !readiness
+                ? "UNKNOWN"
+                : readiness.passed
+                  ? "READY"
+                  : "NOT READY"
+            }}
           </span>
         </div>
       </div>
