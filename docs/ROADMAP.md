@@ -252,7 +252,7 @@ Acceptance:
   - [x] local recording failure/capacity pressure never implicitly falls back to cloud hot recording.
   - [ ] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
 - [x] safe administrator target change/migration without losing historical RecordingLocations.
-- [ ] cross-day segments without midnight force-split.
+- [x] cross-day segments without midnight force-split.
 - [x] source-loss finalized media tail is identified with `completion_reason = source_lost` without stretching media timing to the later unregister callback.
 - [x] post-reconnect segments start in a new continuity generation and are never normalized against a pre-disconnect segment.
 - [x] preserve RecordingPolicy/active RecordingTriggers across source outage and reconcile recorder plus prebuffer promotion state after ZLM recovery.

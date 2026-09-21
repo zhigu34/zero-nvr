@@ -527,6 +527,93 @@ def test_same_path_with_changed_size_is_conflict(
 
 
 
+def test_finalized_segment_can_cross_utc_midnight_without_force_split(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        _camera_id, profile_id, _target_id = seed(
+            settings,
+            database,
+        )
+        first_start = datetime(
+            2026,
+            9,
+            21,
+            23,
+            59,
+            55,
+            tzinfo=UTC,
+        )
+
+        with database.session() as session:
+            first = RecordingCatalogService.ingest_finalized(
+                session,
+                evidence=evidence(
+                    profile_id=profile_id,
+                    start=first_start.timestamp(),
+                    duration=10,
+                    file_name="cross-midnight-1.mp4",
+                ),
+            )
+            assert first.segment is not None
+            first_id = first.segment.id
+            session.commit()
+
+        with database.session() as session:
+            second = RecordingCatalogService.ingest_finalized(
+                session,
+                evidence=evidence(
+                    profile_id=profile_id,
+                    start=(
+                        first_start
+                        + timedelta(seconds=10)
+                    ).timestamp(),
+                    duration=10,
+                    file_name="cross-midnight-2.mp4",
+                ),
+                previous_segment_id=first_id,
+            )
+            assert second.segment is not None
+            session.commit()
+
+        with database.session() as session:
+            stored = session.get(
+                RecordingSegment,
+                first_id,
+            )
+            assert stored is not None
+            assert stored.timing_status == "FINAL"
+            assert stored.started_at == first_start
+            assert stored.ended_at == datetime(
+                2026,
+                9,
+                22,
+                0,
+                0,
+                5,
+                tzinfo=UTC,
+            )
+            assert stored.duration_ms == 10_000
+            assert (
+                stored.started_at.date()
+                != stored.ended_at.date()
+            )
+
+            assert session.scalar(
+                select(func.count()).select_from(
+                    RecordingSegment
+                )
+            ) == 2
+            assert session.scalar(
+                select(func.count()).select_from(
+                    RecordingLocation
+                )
+            ) == 2
+    finally:
+        database.close()
+
+
 def test_recording_segment_times_are_utc_and_timeline_indexes_exist(
     tmp_path: Path,
 ) -> None:
