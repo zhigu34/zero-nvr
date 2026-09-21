@@ -173,7 +173,7 @@ Acceptance:
 - [x] short-lived authenticated TURN credentials.
 - [x] direct/relayed ICE visibility and TURN bandwidth/session metrics.
 - [x] live audio negotiation and focused-camera audio behavior.
-- [ ] camera.talk permission and TalkSession API.
+- [x] camera.talk permission and TalkSession API.
 - [ ] TalkBackend abstraction for supported ONVIF/RTSP backchannels; vendor/GB28181 adapters remain optional extensions.
 - [ ] push-to-talk + full-duplex where supported; single-talker lease default.
 - [x] live snapshot action without exposing camera snapshot URL.

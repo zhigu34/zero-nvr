@@ -36,6 +36,7 @@ class CameraSummary(BaseModel):
     storage_label: str | None
     adapter_type: str | None
     ptz_capable: bool = False
+    talk_capable: bool = False
 
 
 class CameraGroupCreate(BaseModel):
@@ -187,6 +188,7 @@ class OnvifProfileView(BaseModel):
     gop_seconds: float | None
     audio_codec: str | None
     has_audio: bool
+    talk_backchannel_capable: bool = False
     stream_uri_available: bool
 
 
@@ -255,6 +257,36 @@ class CameraIceServersView(BaseModel):
     ice_servers: list[
         CameraIceServerView
     ] = Field(default_factory=list)
+
+
+class CameraTalkCapabilityView(BaseModel):
+    capable: bool
+    ready: bool
+    backend: str | None
+    modes: list[
+        Literal[
+            "push_to_talk",
+            "full_duplex",
+        ]
+    ] = Field(default_factory=list)
+
+
+class CameraTalkSessionCreate(BaseModel):
+    mode: Literal[
+        "push_to_talk",
+        "full_duplex",
+    ] = "push_to_talk"
+
+
+class CameraTalkSessionView(BaseModel):
+    id: uuid.UUID
+    camera_id: uuid.UUID
+    backend: str
+    mode: Literal[
+        "push_to_talk",
+        "full_duplex",
+    ]
+    descriptor: dict[str, object]
 
 
 class CameraPtzMove(BaseModel):

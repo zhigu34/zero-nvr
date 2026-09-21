@@ -9,6 +9,7 @@ export interface CameraSummary {
   storage_label: string | null
   adapter_type: string | null
   ptz_capable: boolean
+  talk_capable?: boolean
 }
 
 export interface CameraProbeTrack {
@@ -89,6 +90,7 @@ export interface OnvifProfile {
   gop_seconds: number | null
   audio_codec: string | null
   has_audio: boolean
+  talk_backchannel_capable: boolean
   stream_uri_available: boolean
 }
 
@@ -207,6 +209,65 @@ export interface CameraDetail extends CameraSummary {
   streams: CameraStreamProfile[]
   bindings: CameraStreamBinding[]
 }
+
+export interface CameraTalkCapability {
+  capable: boolean
+  ready: boolean
+  backend: string | null
+  modes: Array<
+    "push_to_talk" | "full_duplex"
+  >
+}
+
+export interface CameraTalkSession {
+  id: string
+  camera_id: string
+  backend: string
+  mode: "push_to_talk" | "full_duplex"
+  descriptor: Record<string, unknown>
+}
+
+export function getCameraTalkCapability(
+  cameraId: string
+): Promise<CameraTalkCapability> {
+  return apiRequest<CameraTalkCapability>(
+    `/cameras/${encodeURIComponent(cameraId)}/talk`
+  )
+}
+
+export function createCameraTalkSession(
+  cameraId: string,
+  mode: "push_to_talk" | "full_duplex" = "push_to_talk"
+): Promise<CameraTalkSession> {
+  return apiRequest<CameraTalkSession>(
+    `/cameras/${encodeURIComponent(cameraId)}/talk/session`,
+    {
+      method: "POST",
+      json: { mode }
+    }
+  )
+}
+
+export function keepCameraTalkSession(
+  cameraId: string,
+  talkSessionId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/cameras/${encodeURIComponent(cameraId)}/talk/session/${encodeURIComponent(talkSessionId)}/keepalive`,
+    { method: "POST" }
+  )
+}
+
+export function stopCameraTalkSession(
+  cameraId: string,
+  talkSessionId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/cameras/${encodeURIComponent(cameraId)}/talk/session/${encodeURIComponent(talkSessionId)}`,
+    { method: "DELETE" }
+  )
+}
+
 
 export function getCamera(cameraId: string): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(

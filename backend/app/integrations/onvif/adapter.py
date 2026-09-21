@@ -53,6 +53,7 @@ class OnvifProfileProbe:
     audio_codec: str | None
     has_audio: bool
     stream_uri_available: bool
+    talk_backchannel_capable: bool = False
     stream_uri: str | None = field(default=None, repr=False)
 
 
@@ -658,6 +659,18 @@ class OnvifAdapter:
         audio_encoder = _read(raw_profile, "AudioEncoderConfiguration")
         audio_codec = _text(_read(audio_encoder, "Encoding"))
         has_audio = audio_encoder is not None
+        audio_output = _read(
+            raw_profile,
+            "AudioOutputConfiguration",
+        )
+        audio_decoder = _read(
+            raw_profile,
+            "AudioDecoderConfiguration",
+        )
+        talk_backchannel_capable = (
+            audio_output is not None
+            and audio_decoder is not None
+        )
 
         stream_uri: str | None = None
         try:
@@ -688,6 +701,9 @@ class OnvifAdapter:
             audio_codec=audio_codec.lower() if audio_codec else None,
             has_audio=has_audio,
             stream_uri_available=stream_uri is not None,
+            talk_backchannel_capable=(
+                talk_backchannel_capable
+            ),
             stream_uri=stream_uri,
         )
 

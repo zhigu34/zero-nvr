@@ -40,6 +40,10 @@ from .turn import (
     TurnConfigurationError,
     TurnCredentialService,
 )
+from .talk import (
+    CameraTalkService,
+    TalkSessionError,
+)
 from .media_runtime import CameraMediaRuntimeService, ZlmStreamReference
 from .onvif_onboarding import OnvifOnboardingService
 from .ptz import CameraPtzService
@@ -69,6 +73,9 @@ from .schemas import (
     CameraStreamBindingsUpdate,
     CameraStreamProfileView,
     CameraSummary,
+    CameraTalkCapabilityView,
+    CameraTalkSessionCreate,
+    CameraTalkSessionView,
     CameraUpdate,
     DiscoveryCandidateView,
     DiscoverySessionView,
@@ -140,6 +147,9 @@ def _onvif_inspection_view(
                 gop_seconds=profile.gop_seconds,
                 audio_codec=profile.audio_codec,
                 has_audio=profile.has_audio,
+                talk_backchannel_capable=(
+                    profile.talk_backchannel_capable
+                ),
                 stream_uri_available=profile.stream_uri_available,
             )
             for profile in inspection.profiles
@@ -193,6 +203,7 @@ def _discovery_session_view(
 def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
     adapter_type = None
     ptz_capable = False
+    talk_capable = False
     if camera.device_id is not None:
         device = session.get(Device, camera.device_id)
         if device is not None:
@@ -200,6 +211,12 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
             ptz_capable = (
                 camera.retired_at is None
                 and CameraPtzService.is_capable(
+                    session,
+                    camera,
+                )
+            )
+            talk_capable = (
+                CameraTalkService.is_capable(
                     session,
                     camera,
                 )
@@ -214,6 +231,7 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         storage_label=camera.storage_label,
         adapter_type=adapter_type,
         ptz_capable=ptz_capable,
+        talk_capable=talk_capable,
     )
 
 
@@ -2142,6 +2160,219 @@ def get_camera_snapshot(
         },
     )
 
+
+
+@router.get(
+    "/cameras/{camera_id}/talk",
+    response_model=CameraTalkCapabilityView,
+)
+def get_camera_talk_capability(
+    camera_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> CameraTalkCapabilityView:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    talk = CameraTalkService(
+        request.app.state.settings
+    )
+    capable = talk.is_capable(
+        session,
+        camera,
+    )
+    backend = request.app.state.talk_backend
+    ready = False
+    if capable and backend.available():
+        try:
+            connection = talk.connection(
+                session,
+                camera,
+            )
+            ready = backend.supports(
+                connection
+            )
+        except ApiError:
+            ready = False
+
+    return CameraTalkCapabilityView(
+        capable=capable,
+        ready=ready,
+        backend=(
+            backend.name
+            if ready
+            else None
+        ),
+        modes=(
+            list(backend.modes)
+            if ready
+            else []
+        ),
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/talk/session",
+    response_model=CameraTalkSessionView,
+    status_code=201,
+)
+def create_camera_talk_session(
+    camera_id: uuid.UUID,
+    body: CameraTalkSessionCreate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission(
+            "camera.talk"
+        )
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> CameraTalkSessionView:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    if not camera.enabled:
+        raise ApiError(
+            status_code=409,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+
+    talk = CameraTalkService(
+        request.app.state.settings
+    )
+    connection = talk.connection(
+        session,
+        camera,
+    )
+    backend = request.app.state.talk_backend
+    if (
+        not backend.available()
+        or not backend.supports(
+            connection
+        )
+    ):
+        raise ApiError(
+            status_code=409,
+            code=(
+                "camera_talk_backend_"
+                "unavailable"
+            ),
+            message=(
+                "Camera talk transport is "
+                "not available."
+            ),
+        )
+
+    try:
+        lease = (
+            request.app.state
+            .talk_sessions.start(
+                camera_id=camera.id,
+                owner_user_id=(
+                    context.user.id
+                ),
+                connection=connection,
+                backend=backend,
+                mode=body.mode,
+                ttl_seconds=30,
+            )
+        )
+    except TalkSessionError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+        ) from exc
+
+    return CameraTalkSessionView(
+        id=lease.id,
+        camera_id=lease.camera_id,
+        backend=lease.backend,
+        mode=lease.mode,
+        descriptor=lease.descriptor,
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/talk/session/"
+    "{talk_session_id}/keepalive",
+    status_code=204,
+)
+def keep_camera_talk_session(
+    camera_id: uuid.UUID,
+    talk_session_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission(
+            "camera.talk"
+        )
+    ),
+) -> Response:
+    if not (
+        request.app.state
+        .talk_sessions.touch(
+            talk_session_id,
+            camera_id=camera_id,
+            owner_user_id=(
+                context.user.id
+            ),
+            ttl_seconds=30,
+        )
+    ):
+        raise ApiError(
+            status_code=404,
+            code="camera_talk_session_not_found",
+            message=(
+                "Talk session was not found "
+                "or has expired."
+            ),
+        )
+    return Response(status_code=204)
+
+
+@router.delete(
+    "/cameras/{camera_id}/talk/session/"
+    "{talk_session_id}",
+    status_code=204,
+)
+def stop_camera_talk_session(
+    camera_id: uuid.UUID,
+    talk_session_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission(
+            "camera.talk"
+        )
+    ),
+) -> Response:
+    if not (
+        request.app.state
+        .talk_sessions.stop(
+            talk_session_id,
+            camera_id=camera_id,
+            owner_user_id=(
+                context.user.id
+            ),
+        )
+    ):
+        raise ApiError(
+            status_code=404,
+            code="camera_talk_session_not_found",
+            message=(
+                "Talk session was not found "
+                "or has expired."
+            ),
+        )
+    return Response(status_code=204)
 
 
 @router.post(
