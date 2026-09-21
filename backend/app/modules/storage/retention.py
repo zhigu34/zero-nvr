@@ -15,10 +15,13 @@ from app.modules.cameras.models import (
     CameraGroup,
     CameraGroupMember,
 )
+from app.modules.events.models import Event
+from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import (
     RecordingPolicy,
     RecordingProtection,
     RecordingSegment,
+    RecordingTrigger,
     RetentionPolicy,
 )
 
@@ -37,6 +40,13 @@ class RetentionDecision:
     reason: str
     archive_target_id: uuid.UUID | None = None
     pressure_override: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class _RetentionHorizon:
+    retention_class: str
+    deadline: datetime | None
+    active_event: bool = False
 
 
 class RetentionPlanner:
@@ -184,16 +194,148 @@ class RetentionPlanner:
             return "event"
         return "ordinary"
 
-    @staticmethod
-    def _keep_days(
+    @classmethod
+    def _retention_horizon(
+        cls,
+        session: Session,
+        *,
+        segment: RecordingSegment,
         policy: RetentionPolicy,
-        retention_class: str,
-    ) -> int:
-        if retention_class == "manual":
-            return policy.manual_keep_days
-        if retention_class == "event":
-            return policy.event_keep_days
-        return policy.ordinary_keep_days
+    ) -> _RetentionHorizon:
+        """Derive the longest required retention from durable and live facts.
+
+        Segment reason flags remain the compact historical facts captured at
+        ingest time. Overlapping provider Events and RecordingTriggers are also
+        consulted so continuous media that contains an event inherits event
+        retention even when no duplicate event recording was created.
+        """
+
+        reasons = {
+            str(item).lower()
+            for item in (
+                segment.recording_reasons_json
+                or []
+            )
+        }
+        classes = {"ordinary"}
+        if "event" in reasons:
+            classes.add("event")
+        if "manual" in reasons:
+            classes.add("manual")
+
+        event_anchor = (
+            segment.ended_at.astimezone(UTC)
+        )
+        active_event = False
+
+        triggers = list(
+            session.scalars(
+                select(RecordingTrigger).where(
+                    RecordingTrigger.camera_id
+                    == segment.camera_id,
+                    RecordingTrigger.state.notin_(
+                        ["CANCELLED", "FAILED"]
+                    ),
+                    RecordingTrigger.planned_start_at
+                    < segment.ended_at,
+                    or_(
+                        RecordingTrigger.planned_end_at
+                        .is_(None),
+                        RecordingTrigger.planned_end_at
+                        > segment.started_at,
+                    ),
+                )
+            )
+        )
+        for trigger in triggers:
+            classes.add("event")
+            if trigger.planned_end_at is None:
+                active_event = True
+                continue
+            event_anchor = max(
+                event_anchor,
+                trigger.planned_end_at
+                .astimezone(UTC),
+            )
+
+        events = list(
+            session.scalars(
+                select(Event).where(
+                    Event.camera_id
+                    == segment.camera_id,
+                    Event.source
+                    != SystemEventService.SOURCE,
+                    Event.started_at
+                    < segment.ended_at,
+                    or_(
+                        Event.ended_at.is_(None),
+                        Event.ended_at
+                        > segment.started_at,
+                    ),
+                )
+            )
+        )
+        for event in events:
+            classes.add("event")
+            if event.ended_at is None:
+                active_event = True
+                continue
+            event_anchor = max(
+                event_anchor,
+                event.ended_at.astimezone(UTC),
+            )
+
+        if active_event:
+            return _RetentionHorizon(
+                retention_class="event",
+                deadline=None,
+                active_event=True,
+            )
+
+        ended_at = segment.ended_at.astimezone(
+            UTC
+        )
+        deadlines: dict[str, datetime] = {
+            "ordinary": (
+                ended_at
+                + timedelta(
+                    days=policy.ordinary_keep_days
+                )
+            )
+        }
+        if "event" in classes:
+            deadlines["event"] = (
+                event_anchor
+                + timedelta(
+                    days=policy.event_keep_days
+                )
+            )
+        if "manual" in classes:
+            deadlines["manual"] = (
+                ended_at
+                + timedelta(
+                    days=policy.manual_keep_days
+                )
+            )
+
+        priority = {
+            "ordinary": 0,
+            "event": 1,
+            "manual": 2,
+        }
+        retention_class = max(
+            deadlines,
+            key=lambda item: (
+                deadlines[item],
+                priority[item],
+            ),
+        )
+        return _RetentionHorizon(
+            retention_class=retention_class,
+            deadline=deadlines[
+                retention_class
+            ],
+        )
 
     @staticmethod
     def _protected(
@@ -340,6 +482,21 @@ class RetentionPlanner:
                 reason="not_local_available",
             )
 
+        if segment.timing_status != "FINAL":
+            return RetentionDecision(
+                location_id=location.id,
+                segment_id=segment.id,
+                policy_id=None,
+                retention_class=(
+                    cls.retention_class(
+                        segment
+                    )
+                ),
+                deadline=None,
+                eligible_for_delete=False,
+                reason="segment_not_final",
+            )
+
         policy = cls.policy_for_camera(
             session,
             camera_id=segment.camera_id,
@@ -356,13 +513,15 @@ class RetentionPlanner:
                 reason="retention_policy_missing",
             )
 
-        keep_days = cls._keep_days(
-            policy,
-            retention_class,
+        horizon = cls._retention_horizon(
+            session,
+            segment=segment,
+            policy=policy,
         )
-        deadline = segment.ended_at.astimezone(UTC) + timedelta(
-            days=keep_days
+        retention_class = (
+            horizon.retention_class
         )
+        deadline = horizon.deadline
 
         if cls._protected(
             session,
@@ -379,6 +538,18 @@ class RetentionPlanner:
                 reason="protected",
             )
 
+        if horizon.active_event:
+            return RetentionDecision(
+                location_id=location.id,
+                segment_id=segment.id,
+                policy_id=policy.id,
+                retention_class=retention_class,
+                deadline=None,
+                eligible_for_delete=False,
+                reason="active_event",
+            )
+
+        assert deadline is not None
         pressure_override = (
             pressure
             and policy.mode == "BEST_EFFORT"

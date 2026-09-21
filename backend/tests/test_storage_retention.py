@@ -14,10 +14,12 @@ from app.modules.cameras.models import (
     CameraStreamProfile,
 )
 from app.modules.cameras.service import CameraService
+from app.modules.events.models import Event
 from app.modules.recordings.models import (
     RecordingPolicy,
     RecordingProtection,
     RecordingSegment,
+    RecordingTrigger,
     RetentionPolicy,
 )
 from app.modules.storage.models import (
@@ -516,6 +518,339 @@ def test_manual_and_event_use_longer_retention_classes(
             assert event.reason == "before_deadline"
             assert manual.retention_class == "manual"
             assert manual.reason == "before_deadline"
+    finally:
+        database.close()
+
+
+def test_overlapping_provider_event_extends_continuous_retention_horizon(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=1,
+            event_days=10,
+            manual_days=20,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            location_id,
+            _relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=5)
+            ),
+            reasons=["continuous"],
+            object_name=(
+                "provider-event-horizon"
+            ),
+        )
+
+        with database.session() as session:
+            segment = session.get(
+                RecordingSegment,
+                segment_id,
+            )
+            assert segment is not None
+            event_end = (
+                segment.ended_at
+                + timedelta(hours=2)
+            )
+            session.add(
+                Event(
+                    source="frigate",
+                    source_instance_id=(
+                        "retention-test"
+                    ),
+                    source_event_id=(
+                        "event-horizon"
+                    ),
+                    camera_id=camera_id,
+                    category="object",
+                    label="person",
+                    started_at=(
+                        segment.started_at
+                        + timedelta(seconds=1)
+                    ),
+                    ended_at=event_end,
+                    metadata_json={},
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            assert location is not None
+            decision = RetentionPlanner.evaluate(
+                session,
+                location=location,
+                now=now,
+            )
+            assert (
+                decision.retention_class
+                == "event"
+            )
+            assert decision.deadline == (
+                event_end
+                + timedelta(days=10)
+            )
+            assert (
+                decision.eligible_for_delete
+                is False
+            )
+            assert (
+                decision.reason
+                == "before_deadline"
+            )
+    finally:
+        database.close()
+
+
+def test_overlapping_recording_trigger_extends_event_horizon(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=0,
+            event_days=2,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            location_id,
+            _relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=3)
+            ),
+            reasons=["continuous"],
+            object_name=(
+                "trigger-event-horizon"
+            ),
+        )
+
+        with database.session() as session:
+            segment = session.get(
+                RecordingSegment,
+                segment_id,
+            )
+            assert segment is not None
+            trigger_end = (
+                now
+                - timedelta(days=1)
+            )
+            session.add(
+                RecordingTrigger(
+                    camera_id=camera_id,
+                    type="AI_OBJECT",
+                    source="test",
+                    source_event_id=(
+                        "trigger-horizon"
+                    ),
+                    requested_at=(
+                        segment.started_at
+                    ),
+                    pre_roll_seconds=0,
+                    post_roll_seconds=0,
+                    planned_start_at=(
+                        segment.started_at
+                    ),
+                    planned_end_at=trigger_end,
+                    state="ENDED",
+                    reason="person",
+                    correlation_id=(
+                        "retention-trigger"
+                    ),
+                    metadata_json={},
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            assert location is not None
+            decision = RetentionPlanner.evaluate(
+                session,
+                location=location,
+                now=now,
+            )
+            assert (
+                decision.retention_class
+                == "event"
+            )
+            assert decision.deadline == (
+                trigger_end
+                + timedelta(days=2)
+            )
+            assert (
+                decision.eligible_for_delete
+                is False
+            )
+            assert (
+                decision.reason
+                == "before_deadline"
+            )
+    finally:
+        database.close()
+
+
+def test_system_health_event_does_not_upgrade_media_retention(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            ordinary_days=1,
+            event_days=30,
+            require_archive=False,
+        )
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        (
+            segment_id,
+            location_id,
+            _relative,
+        ) = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=(
+                now
+                - timedelta(days=5)
+            ),
+            reasons=["continuous"],
+            object_name="system-event",
+        )
+
+        with database.session() as session:
+            segment = session.get(
+                RecordingSegment,
+                segment_id,
+            )
+            assert segment is not None
+            session.add(
+                Event(
+                    source="system",
+                    source_instance_id="zero-nvr",
+                    source_event_id=None,
+                    camera_id=camera_id,
+                    category=(
+                        "source_connectivity"
+                    ),
+                    label="source_lost",
+                    started_at=(
+                        segment.started_at
+                        + timedelta(seconds=1)
+                    ),
+                    ended_at=(
+                        segment.ended_at
+                        + timedelta(hours=1)
+                    ),
+                    metadata_json={},
+                )
+            )
+            session.commit()
+
+        with database.session() as session:
+            location = session.get(
+                RecordingLocation,
+                location_id,
+            )
+            assert location is not None
+            decision = RetentionPlanner.evaluate(
+                session,
+                location=location,
+                now=now,
+            )
+            assert (
+                decision.retention_class
+                == "ordinary"
+            )
+            assert (
+                decision.eligible_for_delete
+                is True
+            )
+            assert decision.reason == "eligible"
     finally:
         database.close()
 

@@ -218,7 +218,7 @@ Acceptance:
 - [x] preserve RecordingPolicy/active RecordingTriggers across source outage and reconcile recorder plus prebuffer promotion state after ZLM recovery.
 - [x] SystemEvent/health transition persistence sufficient to explain source-loss gaps when evidence exists.
 - [x] recorder recovery / orphan and partial-file reconciliation.
-- [ ] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
+- [x] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
 - [ ] normal age-based retention worker.
 - [x] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [ ] priority-based emergency purge with structured logs.
