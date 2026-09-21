@@ -42,7 +42,6 @@ def test_recovery_probe_is_confined_to_reconciliation() -> None:
     assert "recording recovery ffprobe failed" in source
 
 
-
 def test_native_recording_runtime_does_not_write_media_files() -> None:
     for relative in (
         "app/modules/recordings/runtime.py",
@@ -55,9 +54,9 @@ def test_native_recording_runtime_does_not_write_media_files() -> None:
             "shutil.copy",
             "copyfile(",
             "write_bytes(",
-            "open("wb",
+            'open("wb',
             "open('wb",
-            "open("ab",
+            'open("ab',
             "open('ab",
         ):
             assert term not in source, (
