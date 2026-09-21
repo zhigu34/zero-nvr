@@ -156,6 +156,15 @@ const backupForm = reactive({
 })
 
 const auditEvents = ref<AuditEvent[]>([])
+const auditNextCursor = ref<string | null>(null)
+const auditLoading = ref(false)
+const auditLoadingMore = ref(false)
+const auditFilters = reactive({
+  period: "7d" as "24h" | "7d" | "30d" | "all",
+  action: "",
+  resourceType: "",
+  result: ""
+})
 const generalForm = reactive({
   systemName: "",
   displayTimezone: "UTC",
@@ -501,13 +510,90 @@ async function loadBackups(): Promise<void> {
   }
 }
 
+function auditRange(): [Date | null, Date | null] {
+  if (auditFilters.period === "all") {
+    return [null, null]
+  }
+  const now = new Date()
+  const hours =
+    auditFilters.period === "24h"
+      ? 24
+      : auditFilters.period === "7d"
+        ? 24 * 7
+        : 24 * 30
+  return [
+    new Date(now.getTime() - hours * 60 * 60 * 1000),
+    now
+  ]
+}
+
 async function loadAudit(): Promise<void> {
   if (!auth.hasPermission("audit.view")) return
+  const [from, to] = auditRange()
+  auditLoading.value = true
+  error.value = null
   try {
-    auditEvents.value = (await listAuditEvents()).items
+    const page = await listAuditEvents({
+      action: auditFilters.action.trim() || null,
+      resourceType:
+        auditFilters.resourceType.trim() || null,
+      result: auditFilters.result || null,
+      from,
+      to,
+      limit: 100
+    })
+    auditEvents.value = page.items
+    auditNextCursor.value = page.next_cursor
   } catch (caught) {
     error.value = errorMessage(caught)
+  } finally {
+    auditLoading.value = false
   }
+}
+
+async function loadMoreAudit(): Promise<void> {
+  if (
+    !auditNextCursor.value ||
+    auditLoadingMore.value
+  ) {
+    return
+  }
+  const [from, to] = auditRange()
+  auditLoadingMore.value = true
+  error.value = null
+  try {
+    const page = await listAuditEvents({
+      action: auditFilters.action.trim() || null,
+      resourceType:
+        auditFilters.resourceType.trim() || null,
+      result: auditFilters.result || null,
+      from,
+      to,
+      cursor: auditNextCursor.value,
+      limit: 100
+    })
+    const known = new Set(
+      auditEvents.value.map((item) => item.id)
+    )
+    auditEvents.value.push(
+      ...page.items.filter(
+        (item) => !known.has(item.id)
+      )
+    )
+    auditNextCursor.value = page.next_cursor
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    auditLoadingMore.value = false
+  }
+}
+
+function resetAuditFilters(): void {
+  auditFilters.period = "7d"
+  auditFilters.action = ""
+  auditFilters.resourceType = ""
+  auditFilters.result = ""
+  void loadAudit()
 }
 
 async function loadTab(value: SystemTab): Promise<void> {
@@ -2123,15 +2209,98 @@ onBeforeUnmount(() => {
         <header class="system-page-header">
           <div>
             <strong>Audit</strong>
-            <span>Recent privileged actions and configuration changes.</span>
+            <span>Privileged actions and configuration changes.</span>
           </div>
-          <button class="button button--ghost" type="button" @click="loadAudit">
+          <button
+            class="button button--ghost"
+            type="button"
+            :disabled="auditLoading"
+            @click="loadAudit"
+          >
             <UiIcon name="refresh" :size="14" />
-            Refresh
+            {{ auditLoading ? "Refreshing…" : "Refresh" }}
           </button>
         </header>
 
-        <div class="audit-list">
+        <div class="audit-toolbar">
+          <label class="audit-filter">
+            <span>Period</span>
+            <select
+              v-model="auditFilters.period"
+              @change="loadAudit"
+            >
+              <option value="24h">Last 24 hours</option>
+              <option value="7d">Last 7 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="all">All time</option>
+            </select>
+          </label>
+
+          <label class="audit-filter">
+            <span>Action</span>
+            <input
+              v-model="auditFilters.action"
+              placeholder="camera.update"
+              @keydown.enter="loadAudit"
+            />
+          </label>
+
+          <label class="audit-filter">
+            <span>Resource</span>
+            <input
+              v-model="auditFilters.resourceType"
+              placeholder="camera"
+              @keydown.enter="loadAudit"
+            />
+          </label>
+
+          <label class="audit-filter">
+            <span>Result</span>
+            <select
+              v-model="auditFilters.result"
+              @change="loadAudit"
+            >
+              <option value="">All results</option>
+              <option value="success">Success</option>
+              <option value="failed">Failed</option>
+              <option value="denied">Denied</option>
+            </select>
+          </label>
+
+          <div class="audit-toolbar__actions">
+            <button
+              class="button button--ghost button--compact"
+              type="button"
+              @click="resetAuditFilters"
+            >
+              Clear
+            </button>
+            <button
+              class="button button--primary button--compact"
+              type="button"
+              :disabled="auditLoading"
+              @click="loadAudit"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+
+        <div
+          v-if="auditLoading && !auditEvents.length"
+          class="audit-empty"
+        >
+          Loading audit events…
+        </div>
+
+        <div
+          v-else-if="!auditEvents.length"
+          class="audit-empty"
+        >
+          No audit events match these filters.
+        </div>
+
+        <div v-else class="audit-list">
           <article v-for="item in auditEvents" :key="item.id">
             <span class="audit-list__icon">
               <UiIcon name="audit" :size="15" />
@@ -2141,6 +2310,7 @@ onBeforeUnmount(() => {
               <span>
                 {{ pretty(item.resource_type) }}
                 <template v-if="item.source_ip"> · {{ item.source_ip }}</template>
+                <template v-if="item.reason"> · {{ pretty(item.reason) }}</template>
               </span>
             </div>
             <span class="status-pill" :class="statusClass(item.result)">
@@ -2149,7 +2319,115 @@ onBeforeUnmount(() => {
             <time>{{ formatTime(item.occurred_at) }}</time>
           </article>
         </div>
+
+        <button
+          v-if="auditNextCursor"
+          class="audit-load-more"
+          type="button"
+          :disabled="auditLoadingMore"
+          @click="loadMoreAudit"
+        >
+          {{
+            auditLoadingMore
+              ? "Loading…"
+              : "Load more"
+          }}
+        </button>
       </template>
     </div>
   </section>
 </template>
+
+
+<style scoped>
+.audit-toolbar {
+  display: grid;
+  grid-template-columns:
+    minmax(110px, 0.7fr)
+    minmax(150px, 1fr)
+    minmax(140px, 1fr)
+    minmax(120px, 0.8fr)
+    auto;
+  gap: 7px;
+  align-items: end;
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.audit-filter {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.audit-filter > span {
+  color: var(--text-muted);
+  font-size: 7px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.audit-filter input,
+.audit-filter select {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 8px;
+}
+
+.audit-filter input:focus,
+.audit-filter select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.audit-toolbar__actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.audit-empty {
+  padding: 28px 12px;
+  color: var(--text-muted);
+  font-size: 9px;
+  text-align: center;
+}
+
+.audit-load-more {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 8px;
+  cursor: pointer;
+}
+
+.audit-load-more:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+@media (max-width: 980px) {
+  .audit-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .audit-toolbar__actions {
+    grid-column: 1 / -1;
+  }
+}
+</style>

@@ -699,8 +699,26 @@ export function verifyBackup(backupId: string): Promise<BackupSet> {
   )
 }
 
-export function listAuditEvents(): Promise<AuditPage> {
-  return apiRequest<AuditPage>("/audit?limit=100")
+export function listAuditEvents(query: {
+  action?: string | null
+  resourceType?: string | null
+  result?: string | null
+  from?: Date | null
+  to?: Date | null
+  cursor?: string | null
+  limit?: number
+} = {}): Promise<AuditPage> {
+  const params = new URLSearchParams()
+  if (query.action) params.set("action", query.action)
+  if (query.resourceType) {
+    params.set("resource_type", query.resourceType)
+  }
+  if (query.result) params.set("result", query.result)
+  if (query.from) params.set("from", query.from.toISOString())
+  if (query.to) params.set("to", query.to.toISOString())
+  if (query.cursor) params.set("cursor", query.cursor)
+  params.set("limit", String(query.limit ?? 100))
+  return apiRequest<AuditPage>(`/audit?${params}`)
 }
 
 
