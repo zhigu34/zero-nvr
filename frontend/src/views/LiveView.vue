@@ -680,6 +680,9 @@ onBeforeUnmount(() => {
           :camera="camera"
           :quality="streamQuality"
           :focused="focusedCameraId === camera.id"
+          :audio-enabled="
+            Boolean(focusedCameraId) || layoutSlots === 1
+          "
           @focus="focusCamera"
         />
 

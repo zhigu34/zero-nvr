@@ -39,6 +39,7 @@ const props = defineProps<{
   camera: CameraSummary
   quality: LiveQuality
   focused?: boolean
+  audioEnabled?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -317,7 +318,7 @@ async function attachWebRtc(
   rtcPeer = peer
 
   peer.addTransceiver("video", { direction: "recvonly" })
-  if (stream.has_audio) {
+  if (stream.has_audio && props.audioEnabled) {
     peer.addTransceiver("audio", { direction: "recvonly" })
   }
 
@@ -547,6 +548,7 @@ async function loadStream(): Promise<void> {
 }
 
 function toggleMute(): void {
+  if (!props.audioEnabled) return
   muted.value = !muted.value
   if (video.value) video.value.muted = muted.value
 }
@@ -641,7 +643,11 @@ onMounted(() => {
 })
 
 watch(
-  () => [props.camera.id, requestedQuality.value],
+  () => [
+    props.camera.id,
+    requestedQuality.value,
+    Boolean(props.audioEnabled)
+  ],
   () => {
     reconnectAttempt = 0
     destroyPlayer()
@@ -663,6 +669,17 @@ watch(playbackSuspended, (suspended, wasSuspended) => {
     void loadStream()
   }
 })
+
+watch(
+  () => props.audioEnabled,
+  (enabled) => {
+    if (enabled) return
+    muted.value = true
+    if (video.value) {
+      video.value.muted = true
+    }
+  }
+)
 
 onBeforeUnmount(() => {
   if (ptzHolding.value || ptzMovePromise) {
@@ -929,7 +946,7 @@ onBeforeUnmount(() => {
         </button>
 
         <button
-          v-if="descriptor?.has_audio"
+          v-if="descriptor?.has_audio && audioEnabled"
           class="media-button"
           type="button"
           :aria-label="muted ? 'Unmute camera' : 'Mute camera'"

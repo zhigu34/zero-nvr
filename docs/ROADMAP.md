@@ -172,12 +172,12 @@ Acceptance:
 - [ ] coturn STUN/TURN deployment and health.
 - [ ] short-lived authenticated TURN credentials.
 - [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.
-- [ ] live audio negotiation and focused-camera audio behavior.
+- [x] live audio negotiation and focused-camera audio behavior.
 - [ ] camera.talk permission and TalkSession API.
 - [ ] TalkBackend abstraction for supported ONVIF/RTSP backchannels; vendor/GB28181 adapters remain optional extensions.
 - [ ] push-to-talk + full-duplex where supported; single-talker lease default.
-- [ ] live snapshot action without exposing camera snapshot URL.
-- [ ] PTZ overlay integrated with live view when authorized.
+- [x] live snapshot action without exposing camera snapshot URL.
+- [x] PTZ overlay integrated with live view when authorized.
 - [x] saved LiveViewLayout / grid layouts.
 - [x] visibility/offscreen idle-session cleanup.
 - [x] ZLM restart/session reconnect and current runtime-generation re-resolution.
