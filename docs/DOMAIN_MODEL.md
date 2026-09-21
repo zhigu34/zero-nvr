@@ -513,9 +513,7 @@ It may be represented by a signed/opaque token plus in-memory state rather than 
 
 It never exposes camera credentials or a permanent bearer URL.
 
-Two-way talk, when supported, is another short-lived authorized runtime capability. V1 does not require a TalkSession table unless the eventual implementation needs durable concurrency/audit state.
-
-See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Compatibility, and Audio](specs/0020-live-view-media-session.md).
 
 ## LiveViewLayout
 
@@ -533,7 +531,7 @@ updated_at
 
 Layouts reference Camera IDs and presentation preferences, never permanent media URLs.
 
-See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, TURN, and Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Adaptive Quality, and TURN](specs/0020-live-view-media-session.md).
 
 ## RecordingPolicy
 
@@ -1329,9 +1327,9 @@ See [Spec 0019 — Device Runtime Lifecycle, Reconfiguration, and Capability Dri
 - Grid viewing prefers LIVE_LOW; focused/fullscreen may promote to LIVE_HIGH.
 - Recording source/profile remains independent from browser playback compatibility.
 - FFmpeg compatibility transcode is bounded/on-demand derived media only.
-- TURN and talk are optional capabilities; their failure never affects recording.
+- TURN is optional; its failure never affects recording.
 
-See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Compatibility, and Audio](specs/0020-live-view-media-session.md).
 
 ### AI-provider invariants
 

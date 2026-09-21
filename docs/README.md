@@ -111,7 +111,7 @@ poc/sqlite-load/
 
 - [Spec 0018 — Camera Onboarding](specs/0018-camera-onboarding-discovery-and-stream-selection.md)
 - [Spec 0019 — Device Runtime Lifecycle](specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
-- [Spec 0020 — Live View / Media Session / Compatibility](specs/0020-live-view-media-session-and-talk.md)
+- [Spec 0020 — Live View / Media Session / Compatibility](specs/0020-live-view-media-session.md)
 - [Spec 0021 — Detection Providers / AI Events / Frigate](specs/0021-detection-providers-ai-events-and-fusion.md)
 - [Home Assistant integration spec](specs/0002-home-assistant-integration.md)
 

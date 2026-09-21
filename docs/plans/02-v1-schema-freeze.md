@@ -929,7 +929,6 @@ CameraRuntimeStatus
 RuntimeGeneration
 MediaSession
 PlaybackSession
-TalkSession
 
 RecordingIntent
 RecordingSession

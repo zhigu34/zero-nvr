@@ -355,7 +355,7 @@ Live transcode can use detected platform acceleration such as VAAPI/QSV/NVENC/Vi
 
 TURN credentials are short-lived and derived/issued for authenticated MediaSessions rather than exposing permanent coturn credentials.
 
-See [Spec 0020](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020](specs/0020-live-view-media-session.md).
 
 
 ## Detection and AI providers

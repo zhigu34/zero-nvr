@@ -819,6 +819,6 @@ Discovery/onboarding state must not be reused as a permanent media runtime state
 
 ## Live playback role reference
 
-The `live_preview` and `live_main` roles discovered/selected here are consumed by the MediaSession/LivePlaybackResolver defined in [Spec 0020](0020-live-view-media-session-and-talk.md).
+The `live_preview` and `live_main` roles discovered/selected here are consumed by the MediaSession/LivePlaybackResolver defined in [Spec 0020](0020-live-view-media-session.md).
 
 Browser compatibility does not redefine the recording profile. If an H.264-compatible live source profile is unavailable, Spec 0020 may create a temporary/shared compatibility transcode derivative for live viewing.

@@ -267,8 +267,6 @@ POST   /api/v1/cameras/{id}/ptz/presets/{preset}/goto
 
 Only expose operations supported by the Camera capability.
 
-Two-way talk endpoints are optional and capability-gated; they do not block V1 core.
-
 ## Recording policy APIs
 
 ~~~text

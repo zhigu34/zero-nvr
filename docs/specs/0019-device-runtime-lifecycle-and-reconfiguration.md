@@ -147,7 +147,7 @@ Periodic/manual refresh may update:
 - codec/resolution/framerate metadata;
 - PTZ capability;
 - event capability;
-- audio/talk capability;
+- audio capability;
 - time/NTP capability.
 
 Rules:

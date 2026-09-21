@@ -93,8 +93,6 @@ Vendor-private adapters are enhancements, not the foundation of standard onboard
 - live snapshot;
 - audio where the camera/browser path supports it.
 
-Advanced two-way talk/vendor backchannel support should not delay the entire release when unsupported by the core device path.
-
 ### Recording
 
 - continuous recording;

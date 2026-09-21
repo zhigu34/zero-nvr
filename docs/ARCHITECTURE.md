@@ -360,9 +360,9 @@ H.265 recording remains independent from browser live compatibility. When the br
 
 TURN/coturn is optional for deployments that need remote WebRTC traversal. LAN-only V1 does not depend on it.
 
-Audio playback is capability-dependent. Two-way talk is also optional and uses mature ONVIF/RTSP/vendor backchannel support when implemented; talk failure never affects video or recording.
+Audio playback is capability-dependent and never affects recording when unavailable.
 
-See [Spec 0020 — Live View, Media Sessions, Compatibility, Audio, and Optional Talk](specs/0020-live-view-media-session-and-talk.md).
+See [Spec 0020 — Live View, Media Sessions, Compatibility, and Audio](specs/0020-live-view-media-session.md).
 
 ### Live view
 
