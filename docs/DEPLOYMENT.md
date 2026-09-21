@@ -1,6 +1,6 @@
 # Deployment Architecture
 
-Status: **V1 Design Freeze Candidate**
+Status: **V1 Architecture Frozen — implementation and deployment-test hardening in progress**
 
 This document defines the supported deployment model for zero-nvr.
 
@@ -134,13 +134,52 @@ restore
 
 ### install
 
-- validate Docker/Compose and filesystem prerequisites;
-- create or validate .env;
-- select enabled profiles;
-- create required directories/permissions;
-- pull only enabled images;
-- start stack;
-- perform health checks.
+Current implemented behavior:
+
+- validates Docker, Docker Compose, and Docker daemon availability;
+- creates `.env` automatically from `.env.example` when it does not exist;
+- sets `.env` permissions to `0600`;
+- generates `ZERO_NVR_SECRET_KEY`, `ZERO_NVR_ZLM_API_SECRET`, and
+  `ZERO_NVR_ZLM_HOOK_SECRET` when absent;
+- creates configured host data/cache/recording directories;
+- renders the managed ZLMediaKit configuration;
+- builds the zero-nvr image;
+- runs schema migration;
+- starts the Core stack with Compose health waiting;
+- runs the post-start deployment check;
+- records the installed Git revision when available.
+
+Deployment-test blocker before the first recommended clean-host install:
+
+- preflight must validate every host-published Core port before Compose mutation;
+- Core defaults must not conflict with each other. In particular, the current
+  API default `8000/tcp` and ZLMediaKit WebRTC default `8000/tcp+udp`
+  must not both bind the same host TCP port;
+- when an interactive TTY is available and a requested port is occupied,
+  `deploy.sh install` should explain the conflicting setting, suggest an
+  available port, accept operator input, validate it, and persist the selected
+  value into `.env`;
+- in non-interactive/CI execution, a port conflict must fail fast with the
+  exact environment key and requested port rather than waiting for input;
+- optional-profile ports are checked when that feature is enabled, not during
+  an ordinary Core-only install;
+- after a successful install, the script should print the final Web UI address
+  and the effective published media ports.
+
+The intended install sequence for the deployment-test gate is therefore:
+
+~~~text
+Docker/Compose preflight
+-> create/validate .env and bootstrap secrets
+-> validate host paths
+-> validate/resolve published ports
+-> validate Compose model
+-> pull/build
+-> migrate
+-> compose up --wait
+-> health/readiness check
+-> print effective access addresses
+~~~
 
 ### update
 

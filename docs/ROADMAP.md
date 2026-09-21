@@ -75,6 +75,38 @@ Resource targets are governed by [plans/04-v1-resource-budget.md](plans/04-v1-re
 - [x] Execute all design-freeze POCs on real Docker runners and record measured results/artifacts.
 - [x] Declare V1 Architecture Frozen after POC + schema + API/module gates pass.
 
+## Deployment-test gate
+
+This gate is intentionally smaller than the complete V1 release gate. Once it
+passes, zero-nvr should be deployed on a clean real host and exercised with a
+real camera while the remaining V1 work continues.
+
+- [x] `deploy.sh install` creates `.env` from `.env.example` when absent.
+- [x] first install generates the Core application/ZLM bootstrap secrets.
+- [ ] remove the Core default host-port collision between zero-nvr API
+  `8000/tcp` and ZLMediaKit WebRTC `8000/tcp+udp`.
+- [ ] add install/feature host-port preflight before Compose mutation.
+- [ ] interactive TTY install: explain conflicts, suggest an available port,
+  accept operator input, validate it, and persist the selected value to
+  `.env`.
+- [ ] non-interactive/CI install: fail fast on conflicts with the exact env key
+  and port; never block waiting for input.
+- [ ] validate the rendered Compose model before pull/build/start.
+- [ ] successful install prints the effective Web UI address and published
+  media ports.
+- [ ] complete the Camera Recording Settings UI so recording mode, schedule,
+  segment duration, event pre/post-roll, storage target, and retention policy
+  can be configured without direct API calls.
+- [ ] execute a clean-host Core install smoke test.
+- [ ] execute one-real-camera live -> record -> finalized hook -> timeline ->
+  playback -> restart/reconciliation smoke test.
+
+Roadmap synchronization note: Phase 1/2 contain historical unchecked items that
+are already partially or fully implemented. They must be reconciled against the
+repository before using checkbox counts as a completion metric; do not infer
+that an unchecked historical bootstrap item is absent without inspecting the
+current code/tests.
+
 ## Phase 1 — Platform foundation
 
 - [ ] Backend project bootstrap.
