@@ -372,6 +372,7 @@ def _probe_duration(path: Path) -> float:
 def reconcile_camera_runtime(
     camera_id: str,
     restart_streams: bool = False,
+    force_reconfigure: bool = False,
 ) -> str:
     """Reconcile one Camera's ZLM recorder and stream runtime.
 
@@ -438,7 +439,10 @@ def reconcile_camera_runtime(
             settings
         ).reconcile(
             desired_recorder,
-            force_reconfigure=restart_streams,
+            force_reconfigure=(
+                restart_streams
+                or force_reconfigure
+            ),
         )
 
         if not enabled:

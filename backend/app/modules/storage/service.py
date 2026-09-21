@@ -39,6 +39,16 @@ class StorageTargetTestResult:
 
 
 @dataclass(frozen=True, slots=True)
+class RecordingTargetSwitchResult:
+    source_target_id: uuid.UUID
+    destination_target_id: uuid.UUID
+    explicit_policies_updated: int
+    implicit_policies_rebound: int
+    default_moved: bool
+    affected_camera_ids: tuple[uuid.UUID, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ResolvedRcloneTarget:
     target_id: uuid.UUID
     remote: str
@@ -519,11 +529,35 @@ class StorageTargetService:
                     code="storage_target_config_invalid",
                     message="Storage target configuration is invalid.",
                 )
-            target.config_json = self.normalize_config(
+            normalized = self.normalize_config(
                 target_type=target.type,
                 role=target.role,
                 config=config,
             )
+            if (
+                target.type == "local"
+                and target.role == "recording"
+            ):
+                current_path = (
+                    target.config_json or {}
+                ).get("path")
+                next_path = normalized.get("path")
+                if (
+                    isinstance(current_path, str)
+                    and isinstance(next_path, str)
+                    and current_path != next_path
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="storage_target_path_immutable",
+                        message=(
+                            "Recording target paths cannot be changed in place. "
+                            "Create another local target and switch recording "
+                            "routing so historical RecordingLocations keep "
+                            "their original target identity."
+                        ),
+                    )
+            target.config_json = normalized
 
         self._ensure_default_recording_unique(
             session,
@@ -564,6 +598,194 @@ class StorageTargetService:
 
         session.flush()
         return target
+
+    def switch_recording_target(
+        self,
+        session: Session,
+        *,
+        source: StorageTarget,
+        destination: StorageTarget,
+    ) -> RecordingTargetSwitchResult:
+        if source.id == destination.id:
+            raise ApiError(
+                status_code=400,
+                code="storage_target_switch_same_target",
+                message="Source and destination storage targets must differ.",
+            )
+
+        for target, label in (
+            (source, "source"),
+            (destination, "destination"),
+        ):
+            if (
+                target.type != "local"
+                or target.role != "recording"
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="storage_target_switch_invalid",
+                    message=(
+                        f"The {label} target must be a local recording target."
+                    ),
+                )
+
+        if not destination.enabled:
+            raise ApiError(
+                status_code=409,
+                code="storage_target_destination_disabled",
+                message="Destination recording target must be enabled.",
+            )
+
+        source_config = dict(source.config_json or {})
+        destination_config = dict(
+            destination.config_json or {}
+        )
+        source_path = source_config.get("path")
+        destination_path = destination_config.get(
+            "path"
+        )
+        if (
+            not isinstance(source_path, str)
+            or not isinstance(destination_path, str)
+        ):
+            raise ApiError(
+                status_code=409,
+                code="storage_target_switch_invalid",
+                message="Recording target path configuration is invalid.",
+            )
+        if source_path == destination_path:
+            raise ApiError(
+                status_code=409,
+                code="storage_target_switch_same_path",
+                message=(
+                    "Source and destination recording targets must use "
+                    "different paths."
+                ),
+            )
+
+        LocalStorageCapacityService.ensure_write_capacity(
+            root=Path(destination_path),
+            config=destination_config,
+        )
+
+        explicit_policies = list(
+            session.scalars(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.storage_target_id
+                    == source.id
+                )
+            )
+        )
+        implicit_policies = list(
+            session.scalars(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.storage_target_id
+                    .is_(None)
+                )
+            )
+        )
+
+        enabled_local = list(
+            session.scalars(
+                select(StorageTarget).where(
+                    StorageTarget.type == "local",
+                    StorageTarget.role == "recording",
+                    StorageTarget.enabled.is_(True),
+                )
+            )
+        )
+        active_defaults = [
+            item
+            for item in enabled_local
+            if bool(
+                (item.config_json or {}).get(
+                    "default_recording"
+                )
+            )
+        ]
+        source_is_default = any(
+            item.id == source.id
+            for item in active_defaults
+        )
+        # If no enabled default exists, implicit policies are currently
+        # ambiguous once multiple local targets exist. An explicit switch
+        # operation is allowed to repair that state by making the selected
+        # destination the new default.
+        move_default = (
+            source_is_default
+            or (
+                not active_defaults
+                and bool(implicit_policies)
+            )
+        )
+
+        if (
+            not explicit_policies
+            and not move_default
+        ):
+            raise ApiError(
+                status_code=409,
+                code="storage_target_not_routed",
+                message=(
+                    "No recording policy currently routes writes through "
+                    "the selected source target."
+                ),
+            )
+
+        affected: set[uuid.UUID] = set()
+        for policy in explicit_policies:
+            policy.storage_target_id = (
+                destination.id
+            )
+            affected.add(policy.camera_id)
+
+        implicit_rebound = 0
+        if move_default:
+            source_config[
+                "default_recording"
+            ] = False
+            destination_config[
+                "default_recording"
+            ] = True
+            source.config_json = source_config
+            destination.config_json = (
+                destination_config
+            )
+            self._ensure_default_recording_unique(
+                session,
+                target_id=destination.id,
+                target_type=destination.type,
+                role=destination.role,
+                enabled=destination.enabled,
+                config=destination_config,
+            )
+            implicit_rebound = len(
+                implicit_policies
+            )
+            affected.update(
+                policy.camera_id
+                for policy in implicit_policies
+            )
+
+        session.flush()
+        return RecordingTargetSwitchResult(
+            source_target_id=source.id,
+            destination_target_id=destination.id,
+            explicit_policies_updated=len(
+                explicit_policies
+            ),
+            implicit_policies_rebound=(
+                implicit_rebound
+            ),
+            default_moved=move_default,
+            affected_camera_ids=tuple(
+                sorted(
+                    affected,
+                    key=str,
+                )
+            ),
+        )
+
 
     @staticmethod
     def delete(

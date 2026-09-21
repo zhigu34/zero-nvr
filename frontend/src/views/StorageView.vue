@@ -19,6 +19,7 @@ import {
   deleteStorageTarget,
   listRetentionPolicies,
   listStorageTargets,
+  switchRecordingTarget,
   testStorageTarget,
   updateRetentionPolicy,
   updateStorageTarget,
@@ -49,6 +50,10 @@ const policySaving = ref(false)
 const testingTargetId = ref<string | null>(null)
 const testResults = ref<Record<string, string>>({})
 
+const switchSource = ref<StorageTarget | null>(null)
+const switchDestinationId = ref("")
+const switchSaving = ref(false)
+
 const targetForm = reactive({
   type: "local" as TargetFormType,
   name: "",
@@ -76,15 +81,32 @@ const policyForm = reactive({
 })
 
 const localTargets = computed(() =>
-  targets.value.filter((item) => item.type === "local")
+  targets.value.filter(
+    (item) =>
+      item.type === "local" &&
+      item.role === "recording"
+  )
 )
 
 const archiveTargets = computed(() =>
-  targets.value.filter((item) => item.type === "rclone")
+  targets.value.filter(
+    (item) =>
+      item.type === "rclone" &&
+      item.role === "archive"
+  )
 )
 
 const enabledPolicyCount = computed(() =>
   policies.value.filter((item) => item.enabled).length
+)
+
+
+const switchDestinations = computed(() =>
+  localTargets.value.filter(
+    (item) =>
+      item.enabled &&
+      item.id !== switchSource.value?.id
+  )
 )
 
 function formatBytes(value: number | null): string {
@@ -191,6 +213,7 @@ function resetTargetForm(type: TargetFormType = "local"): void {
 
 function openTargetPanel(type: TargetFormType = "local"): void {
   editingTarget.value = null
+  switchSource.value = null
   resetTargetForm(type)
   targetPanelOpen.value = true
   policyPanelOpen.value = false
@@ -198,6 +221,7 @@ function openTargetPanel(type: TargetFormType = "local"): void {
 }
 
 function openEditTarget(target: StorageTarget): void {
+  switchSource.value = null
   editingTarget.value = target
   targetForm.type = target.type
   targetForm.name = target.name
@@ -243,6 +267,52 @@ function openEditTarget(target: StorageTarget): void {
   targetPanelOpen.value = true
   policyPanelOpen.value = false
   notice.value = null
+}
+
+function openSwitchPanel(target: StorageTarget): void {
+  switchSource.value = target
+  switchDestinationId.value =
+    switchDestinations.value[0]?.id ?? ""
+  targetPanelOpen.value = false
+  editingTarget.value = null
+  policyPanelOpen.value = false
+  notice.value = null
+  error.value = null
+}
+
+async function runRecordingTargetSwitch(): Promise<void> {
+  const source = switchSource.value
+  const destination = switchDestinations.value.find(
+    (item) => item.id === switchDestinationId.value
+  )
+  if (!source || !destination) return
+
+  if (
+    !window.confirm(
+      `Switch future recording writes from "${source.name}" to "${destination.name}"? Historical footage remains bound to "${source.name}" and is not moved.`
+    )
+  ) {
+    return
+  }
+
+  switchSaving.value = true
+  error.value = null
+  try {
+    const result = await switchRecordingTarget(
+      source.id,
+      destination.id
+    )
+    notice.value =
+      `Recording writes switched to ${destination.name}. ` +
+      `${result.affected_camera_ids.length} camera runtime(s) queued for recorder reconfiguration; historical footage remains on ${source.name}.`
+    switchSource.value = null
+    switchDestinationId.value = ""
+    await refresh()
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    switchSaving.value = false
+  }
 }
 
 async function saveTarget(): Promise<void> {
@@ -388,6 +458,7 @@ function resetPolicyForm(): void {
 }
 
 function openPolicyPanel(): void {
+  switchSource.value = null
   editingPolicy.value = null
   resetPolicyForm()
   policyPanelOpen.value = true
@@ -678,6 +749,26 @@ onBeforeUnmount(() => {
                   }}
                 </button>
                 <button
+                  v-if="
+                    target.type === 'local' &&
+                    target.role === 'recording'
+                  "
+                  class="button button--ghost button--compact"
+                  type="button"
+                  :disabled="
+                    !localTargets.some(
+                      (item) =>
+                        item.enabled &&
+                        item.id !== target.id
+                    )
+                  "
+                  title="Switch future recording writes to another local target"
+                  @click="openSwitchPanel(target)"
+                >
+                  <UiIcon name="next" :size="14" />
+                  Switch writes
+                </button>
+                <button
                   class="icon-button"
                   type="button"
                   title="Edit target"
@@ -815,6 +906,86 @@ onBeforeUnmount(() => {
       </div>
 
       <aside
+        v-if="switchSource"
+        class="storage-editor"
+      >
+        <header class="storage-editor__header">
+          <div>
+            <strong>Switch recording writes</strong>
+            <span>Safe local target routing change</span>
+          </div>
+          <button
+            class="icon-button"
+            type="button"
+            title="Close"
+            @click="switchSource = null; switchDestinationId = ''"
+          >
+            <UiIcon name="close" :size="16" />
+          </button>
+        </header>
+
+        <form
+          class="storage-editor__form"
+          @submit.prevent="runRecordingTargetSwitch"
+        >
+          <div class="storage-switch-summary">
+            <span>Current target</span>
+            <strong>{{ switchSource.name }}</strong>
+            <small>{{ targetDetail(switchSource) }}</small>
+          </div>
+
+          <label>
+            <span>New recording target</span>
+            <select
+              v-model="switchDestinationId"
+              required
+            >
+              <option value="" disabled>
+                Select a local target
+              </option>
+              <option
+                v-for="target in switchDestinations"
+                :key="target.id"
+                :value="target.id"
+              >
+                {{ target.name }} · {{ targetDetail(target) }}
+              </option>
+            </select>
+          </label>
+
+          <div class="storage-switch-note">
+            <UiIcon name="shield" :size="15" />
+            <span>
+              Only future write routing changes. Existing RecordingLocations
+              stay attached to the current target, so playback and retention
+              continue using their original path. The recorder is reconfigured
+              at the switch boundary without cloud hot-recording fallback.
+            </span>
+          </div>
+
+          <div class="storage-editor__actions">
+            <button
+              class="button button--ghost"
+              type="button"
+              @click="switchSource = null; switchDestinationId = ''"
+            >
+              Cancel
+            </button>
+            <button
+              class="button button--primary"
+              type="submit"
+              :disabled="
+                switchSaving ||
+                !switchDestinationId
+              "
+            >
+              {{ switchSaving ? "Switching…" : "Switch writes" }}
+            </button>
+          </div>
+        </form>
+      </aside>
+
+      <aside
         v-if="targetPanelOpen"
         class="storage-editor"
       >
@@ -866,8 +1037,14 @@ onBeforeUnmount(() => {
               <input
                 v-model="targetForm.path"
                 required
+                :readonly="Boolean(editingTarget)"
                 placeholder="/recordings"
               />
+              <small v-if="editingTarget">
+                The recording root is the StorageTarget identity. Create a
+                second local target and use Switch writes to change future
+                recording placement without breaking historical locations.
+              </small>
             </label>
             <div class="storage-watermarks-grid">
               <label>

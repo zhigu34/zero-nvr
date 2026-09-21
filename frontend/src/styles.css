@@ -3469,6 +3469,65 @@ strong {
   padding-top: 3px;
 }
 
+.storage-switch-summary {
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+
+.storage-switch-summary span,
+.storage-switch-summary strong,
+.storage-switch-summary small {
+  display: block;
+}
+
+.storage-switch-summary span {
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.storage-switch-summary strong {
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.storage-switch-summary small {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.storage-switch-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 9px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.storage-switch-note svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.storage-editor__form input[readonly] {
+  cursor: not-allowed;
+  opacity: 0.72;
+}
+
 .retention-days-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

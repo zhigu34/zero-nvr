@@ -32,6 +32,19 @@ class StorageTargetView(BaseModel):
     credentials_configured: bool
 
 
+class StorageTargetRecordingSwitchRequest(BaseModel):
+    destination_target_id: uuid.UUID
+
+
+class StorageTargetRecordingSwitchView(BaseModel):
+    source_target_id: uuid.UUID
+    destination_target_id: uuid.UUID
+    explicit_policies_updated: int
+    implicit_policies_rebound: int
+    default_moved: bool
+    affected_camera_ids: list[uuid.UUID]
+
+
 class StorageTargetTestView(BaseModel):
     ok: bool = True
     type: Literal["local", "rclone"]

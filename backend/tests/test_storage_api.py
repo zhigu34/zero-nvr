@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,9 +12,16 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
+from app.modules.cameras.service import CameraService
 from app.modules.auth.models import SecretRecord
-from app.modules.recordings.models import RecordingPolicy
-from app.modules.storage.models import StorageTarget
+from app.modules.recordings.models import (
+    RecordingPolicy,
+    RecordingSegment,
+)
+from app.modules.storage.models import (
+    RecordingLocation,
+    StorageTarget,
+)
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -24,6 +32,33 @@ url = https://example.invalid/dav
 user = archive
 pass = super-secret-rclone-password
 """
+
+
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.reconciled: list[
+            dict[str, object]
+        ] = []
+
+    def reconcile_runtime(
+        self,
+        camera_id: uuid.UUID,
+        *,
+        restart_streams: bool = False,
+        force_reconfigure: bool = False,
+    ) -> None:
+        self.reconciled.append(
+            {
+                "camera_id": camera_id,
+                "restart_streams": (
+                    restart_streams
+                ),
+                "force_reconfigure": (
+                    force_reconfigure
+                ),
+            }
+        )
+
 
 
 def make_app(tmp_path: Path):
@@ -274,3 +309,315 @@ def test_storage_target_delete_is_blocked_while_policy_references_it(
             deleted.json()["error"]["code"]
             == "storage_target_in_use"
         )
+
+
+
+def test_storage_target_switch_preserves_historical_locations(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    tasks = FakeRecordingTasks()
+    app.state.recording_tasks = tasks
+
+    source_root = tmp_path / "recordings-a"
+    destination_root = tmp_path / "recordings-b"
+    source_root.mkdir(parents=True)
+    destination_root.mkdir(parents=True)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        source_response = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Primary A",
+                "enabled": True,
+                "config": {
+                    "path": str(source_root),
+                    "default_recording": True,
+                },
+            },
+        )
+        assert source_response.status_code == 201
+        source_id = uuid.UUID(
+            source_response.json()["id"]
+        )
+
+        destination_response = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Primary B",
+                "enabled": True,
+                "config": {
+                    "path": str(destination_root),
+                    "default_recording": False,
+                },
+            },
+        )
+        assert destination_response.status_code == 201
+        destination_id = uuid.UUID(
+            destination_response.json()["id"]
+        )
+
+        with app.state.database.session() as session:
+            explicit_camera = (
+                CameraService(
+                    app.state.settings
+                ).create_manual_rtsp_camera(
+                    session,
+                    name="Front Door",
+                    location=None,
+                    storage_label=None,
+                    primary_name="Main",
+                    primary_url=(
+                        "rtsp://camera.local/front"
+                    ),
+                    secondary_name=None,
+                    secondary_url=None,
+                )
+            )
+            implicit_camera = (
+                CameraService(
+                    app.state.settings
+                ).create_manual_rtsp_camera(
+                    session,
+                    name="Garage",
+                    location=None,
+                    storage_label=None,
+                    primary_name="Main",
+                    primary_url=(
+                        "rtsp://camera.local/garage"
+                    ),
+                    secondary_name=None,
+                    secondary_url=None,
+                )
+            )
+            session.add_all(
+                [
+                    RecordingPolicy(
+                        camera_id=(
+                            explicit_camera.id
+                        ),
+                        baseline_mode="continuous",
+                        storage_target_id=(
+                            source_id
+                        ),
+                        enabled=True,
+                    ),
+                    RecordingPolicy(
+                        camera_id=(
+                            implicit_camera.id
+                        ),
+                        baseline_mode="continuous",
+                        storage_target_id=None,
+                        enabled=True,
+                    ),
+                ]
+            )
+            started_at = datetime(
+                2026,
+                9,
+                21,
+                12,
+                0,
+                tzinfo=UTC,
+            )
+            segment = RecordingSegment(
+                camera_id=explicit_camera.id,
+                stream_profile_id=None,
+                started_at=started_at,
+                ended_at=(
+                    started_at
+                    + timedelta(minutes=5)
+                ),
+                duration_ms=300_000,
+                timing_status="FINAL",
+                timing_source="HOOK_RAW",
+                recording_reasons_json=[
+                    "continuous"
+                ],
+                size_bytes=1024,
+                codec="h264",
+                container="mp4",
+                source_media_server_id="zlm",
+                source_app="live",
+                source_stream="front-main",
+                integrity_status="UNKNOWN",
+                completion_reason="normal",
+            )
+            session.add(segment)
+            session.flush()
+            historical_location = (
+                RecordingLocation(
+                    recording_segment_id=(
+                        segment.id
+                    ),
+                    storage_target_id=source_id,
+                    object_path=(
+                        "2026/09/21/front.mp4"
+                    ),
+                    state="AVAILABLE",
+                    size_bytes=1024,
+                )
+            )
+            session.add(historical_location)
+            session.commit()
+            explicit_camera_id = (
+                explicit_camera.id
+            )
+            implicit_camera_id = (
+                implicit_camera.id
+            )
+            historical_location_id = (
+                historical_location.id
+            )
+
+        path_change = client.patch(
+            (
+                "/api/v1/storage/targets/"
+                f"{source_id}"
+            ),
+            json={
+                "config": {
+                    "path": str(
+                        tmp_path / "unsafe-new-root"
+                    ),
+                    "default_recording": True,
+                }
+            },
+        )
+        assert path_change.status_code == 409
+        assert (
+            path_change.json()["error"]["code"]
+            == "storage_target_path_immutable"
+        )
+
+        switched = client.post(
+            (
+                "/api/v1/storage/targets/"
+                f"{source_id}/switch-recording"
+            ),
+            json={
+                "destination_target_id": (
+                    str(destination_id)
+                )
+            },
+        )
+        assert switched.status_code == 200
+        body = switched.json()
+        assert (
+            body["explicit_policies_updated"]
+            == 1
+        )
+        assert (
+            body["implicit_policies_rebound"]
+            == 1
+        )
+        assert body["default_moved"] is True
+        assert set(
+            body["affected_camera_ids"]
+        ) == {
+            str(explicit_camera_id),
+            str(implicit_camera_id),
+        }
+
+    with app.state.database.session() as session:
+        explicit_policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id
+                == explicit_camera_id
+            )
+        )
+        implicit_policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id
+                == implicit_camera_id
+            )
+        )
+        assert explicit_policy is not None
+        assert implicit_policy is not None
+        assert (
+            explicit_policy.storage_target_id
+            == destination_id
+        )
+        assert (
+            implicit_policy.storage_target_id
+            is None
+        )
+
+        source = session.get(
+            StorageTarget,
+            source_id,
+        )
+        destination = session.get(
+            StorageTarget,
+            destination_id,
+        )
+        assert source is not None
+        assert destination is not None
+        assert (
+            source.config_json[
+                "default_recording"
+            ]
+            is False
+        )
+        assert (
+            destination.config_json[
+                "default_recording"
+            ]
+            is True
+        )
+        assert source.config_json["path"] == str(
+            source_root.resolve()
+        )
+        assert (
+            destination.config_json["path"]
+            == str(destination_root.resolve())
+        )
+
+        location = session.get(
+            RecordingLocation,
+            historical_location_id,
+        )
+        assert location is not None
+        assert (
+            location.storage_target_id
+            == source_id
+        )
+        assert (
+            location.object_path
+            == "2026/09/21/front.mp4"
+        )
+
+        audit = session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action
+                == (
+                    "storage_target."
+                    "recording_route_switch"
+                )
+            )
+        )
+        assert audit is not None
+
+    assert {
+        item["camera_id"]
+        for item in tasks.reconciled
+    } == {
+        explicit_camera_id,
+        implicit_camera_id,
+    }
+    assert all(
+        item["force_reconfigure"]
+        is True
+        for item in tasks.reconciled
+    )
+    assert all(
+        item["restart_streams"]
+        is False
+        for item in tasks.reconciled
+    )

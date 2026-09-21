@@ -32,6 +32,15 @@ export interface StorageTargetTest {
   critical_percent: number | null
 }
 
+export interface StorageTargetRecordingSwitchResult {
+  source_target_id: string
+  destination_target_id: string
+  explicit_policies_updated: number
+  implicit_policies_rebound: number
+  default_moved: boolean
+  affected_camera_ids: string[]
+}
+
 export interface StorageTargetCreate {
   type: StorageTargetType
   role: StorageTargetRole
@@ -96,6 +105,23 @@ export function deleteStorageTarget(targetId: string): Promise<void> {
   return apiRequest<void>(
     `/storage/targets/${encodeURIComponent(targetId)}`,
     { method: "DELETE" }
+  )
+}
+
+export function switchRecordingTarget(
+  sourceTargetId: string,
+  destinationTargetId: string
+): Promise<StorageTargetRecordingSwitchResult> {
+  return apiRequest<StorageTargetRecordingSwitchResult>(
+    `/storage/targets/${encodeURIComponent(
+      sourceTargetId
+    )}/switch-recording`,
+    {
+      method: "POST",
+      json: {
+        destination_target_id: destinationTargetId
+      }
+    }
   )
 }
 

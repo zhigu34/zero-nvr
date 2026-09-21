@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.errors import ApiError
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
@@ -18,6 +19,8 @@ from .schemas import (
     RetentionPolicyUpdate,
     RetentionPolicyView,
     StorageTargetCreate,
+    StorageTargetRecordingSwitchRequest,
+    StorageTargetRecordingSwitchView,
     StorageTargetTestView,
     StorageTargetUpdate,
     StorageTargetView,
@@ -229,6 +232,136 @@ def update_storage_target(
         session.rollback()
         raise
     return _view(target)
+
+
+@router.post(
+    "/targets/{source_target_id}/switch-recording",
+    response_model=StorageTargetRecordingSwitchView,
+)
+def switch_recording_target(
+    source_target_id: uuid.UUID,
+    body: StorageTargetRecordingSwitchRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("storage.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> StorageTargetRecordingSwitchView:
+    service = StorageTargetService(
+        request.app.state.settings
+    )
+    source = service.get(
+        session,
+        source_target_id,
+    )
+    destination = service.get(
+        session,
+        body.destination_target_id,
+    )
+    before_source = _audit_snapshot(source)
+    before_destination = _audit_snapshot(
+        destination
+    )
+
+    try:
+        result = service.switch_recording_target(
+            session,
+            source=source,
+            destination=destination,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action=(
+                "storage_target."
+                "recording_route_switch"
+            ),
+            resource_type="storage_target",
+            resource_id=source.id,
+            before={
+                "source": before_source,
+                "destination": (
+                    before_destination
+                ),
+            },
+            after={
+                "source": _audit_snapshot(source),
+                "destination": (
+                    _audit_snapshot(destination)
+                ),
+                "explicit_policies_updated": (
+                    result.explicit_policies_updated
+                ),
+                "implicit_policies_rebound": (
+                    result.implicit_policies_rebound
+                ),
+                "default_moved": (
+                    result.default_moved
+                ),
+                "affected_camera_ids": [
+                    str(item)
+                    for item in (
+                        result.affected_camera_ids
+                    )
+                ],
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    failed_camera_ids: list[str] = []
+    for camera_id in result.affected_camera_ids:
+        try:
+            request.app.state.recording_tasks.reconcile_runtime(
+                camera_id,
+                force_reconfigure=True,
+            )
+        except Exception:
+            failed_camera_ids.append(
+                str(camera_id)
+            )
+
+    if failed_camera_ids:
+        raise ApiError(
+            status_code=503,
+            code=(
+                "recording_target_switch_"
+                "reconcile_failed"
+            ),
+            message=(
+                "Recording target routing was saved, "
+                "but one or more camera runtimes "
+                "could not be queued for reconfiguration."
+            ),
+            details={
+                "routing_persisted": True,
+                "failed_camera_ids": (
+                    failed_camera_ids
+                ),
+            },
+        )
+
+    return StorageTargetRecordingSwitchView(
+        source_target_id=(
+            result.source_target_id
+        ),
+        destination_target_id=(
+            result.destination_target_id
+        ),
+        explicit_policies_updated=(
+            result.explicit_policies_updated
+        ),
+        implicit_policies_rebound=(
+            result.implicit_policies_rebound
+        ),
+        default_moved=result.default_moved,
+        affected_camera_ids=list(
+            result.affected_camera_ids
+        ),
+    )
 
 
 @router.delete(
