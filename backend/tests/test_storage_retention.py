@@ -1535,7 +1535,6 @@ def test_pressure_actions_follow_safe_emergency_priority(
 
 def test_local_delete_emits_structured_result_log(
     tmp_path: Path,
-    caplog,
 ) -> None:
     settings, database = make_database(
         tmp_path
@@ -1587,12 +1586,30 @@ def test_local_delete_emits_structured_result_log(
             ),
         )
 
+        records: list[
+            logging.LogRecord
+        ] = []
+
+        class RecordHandler(
+            logging.Handler
+        ):
+            def emit(
+                self,
+                record: logging.LogRecord,
+            ) -> None:
+                records.append(record)
+
         logger = logging.getLogger(
             "zero_nvr.storage.retention"
         )
+        handler = RecordHandler()
         previous_level = logger.level
+        previous_disabled = logger.disabled
+        previous_propagate = logger.propagate
+        logger.disabled = False
+        logger.propagate = False
         logger.setLevel(logging.INFO)
-        logger.addHandler(caplog.handler)
+        logger.addHandler(handler)
         try:
             result = (
                 LocalRetentionDeletionService
@@ -1604,14 +1621,18 @@ def test_local_delete_emits_structured_result_log(
             )
             assert result.deleted is True
         finally:
-            logger.removeHandler(
-                caplog.handler
-            )
+            logger.removeHandler(handler)
             logger.setLevel(previous_level)
+            logger.disabled = (
+                previous_disabled
+            )
+            logger.propagate = (
+                previous_propagate
+            )
 
         records = [
             item
-            for item in caplog.records
+            for item in records
             if item.getMessage()
             == "retention_delete_completed"
         ]
