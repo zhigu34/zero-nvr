@@ -401,6 +401,18 @@ def test_schedule_policy_put_queues_only_next_boundary(
             json=payload,
         )
         assert response.status_code == 200
+        body = response.json()
+        assert body["baseline_mode"] == "schedule"
+        assert body["schedule_timezone"] == "UTC"
+        assert body["schedule"] == payload["schedule"]
+
+        fetched = client.get(
+            f"/api/v1/cameras/{camera_id}/recording-policy"
+        )
+        assert fetched.status_code == 200
+        fetched_body = fetched.json()
+        assert fetched_body["schedule_timezone"] == "UTC"
+        assert fetched_body["schedule"] == payload["schedule"]
 
     tasks = app.state.recording_tasks
     assert len(tasks.scheduled) == 1
