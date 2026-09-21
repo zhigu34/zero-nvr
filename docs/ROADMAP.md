@@ -159,7 +159,7 @@ Acceptance:
 - [ ] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
 - [ ] recovery reconciliation after ZLM/API/control-plane restart.
 - [ ] MediaSession API with short-lived scoped authorization/revocation.
-- [ ] Browser capability report and LivePlaybackResolver.
+- [x] Browser capability report and LivePlaybackResolver.
 - [x] WebRTC preferred transport with bounded fMP4/HLS fallback.
 - [x] camera/live authorization before media-session issuance.
 - [x] grid live_preview policy and focus/fullscreen live_main promotion/demotion.

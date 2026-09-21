@@ -30,6 +30,10 @@ import {
   stopRecordingTrigger,
   type RecordingTrigger
 } from "../../api/recordings"
+import {
+  detectLivePlaybackCapabilities,
+  resolveLivePlaybackTransports
+} from "../../live/playback"
 import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
 
@@ -607,19 +611,29 @@ async function attachHls(
 async function attachPreferredStream(
   stream: CameraLiveStream
 ): Promise<void> {
-  if (
-    stream.transports.includes("webrtc") &&
-    typeof RTCPeerConnection !== "undefined"
-  ) {
+  const transports = resolveLivePlaybackTransports(
+    stream,
+    detectLivePlaybackCapabilities(video.value)
+  )
+
+  if (transports.includes("webrtc")) {
     try {
       await attachWebRtc(stream)
       return
     } catch {
-      // WHEP is preferred but never blocks the HLS compatibility fallback.
+      // WHEP is preferred but never blocks a compatible HLS fallback.
     }
   }
 
-  await attachHls(stream)
+  if (transports.includes("hls")) {
+    await attachHls(stream)
+    return
+  }
+
+  const codec = stream.codec || "camera codec"
+  throw new Error(
+    `This browser cannot decode ${codec} through the available live transports. Compatibility transcode is required.`
+  )
 }
 
 async function loadRecordingState(): Promise<void> {
