@@ -48,7 +48,6 @@ def test_sqlite_synchronous_rejects_unknown_value() -> None:
         Settings(secret_key="x" * 32, sqlite_synchronous="FASTEST")
 
 
-
 def test_blank_turn_shared_secret_means_not_configured() -> None:
     settings = Settings(
         secret_key="x" * 32,
