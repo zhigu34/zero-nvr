@@ -2,7 +2,10 @@
 import { computed, onMounted, ref } from "vue"
 
 import {
+  getReleaseReadiness,
   getReleaseValidation,
+  type ReleaseReadiness,
+  type ReleaseReadinessCheck,
   type ReleaseValidation,
   type ReleaseValidationArtifact
 } from "../../api/system"
@@ -10,6 +13,8 @@ import { errorMessage } from "../../api/client"
 import UiIcon from "../ui/UiIcon.vue"
 
 const validation = ref<ReleaseValidation | null>(null)
+const readiness = ref<ReleaseReadiness | null>(null)
+const readinessTarget = ref<8 | 16>(8)
 const loading = ref(false)
 const error = ref<string | null>(null)
 const copiedCommand = ref<string | null>(null)
@@ -144,6 +149,48 @@ const soakFailures = computed(() => {
   return failures
 })
 
+const readinessCommand = computed(
+  () => `./deploy.sh release-check ${readinessTarget.value}`
+)
+
+function readinessName(name: ReleaseReadinessCheck["name"]): string {
+  if (name === "benchmark") return "Camera benchmark"
+  if (name === "soak") return "Recording soak"
+  return "Verified backup"
+}
+
+function readinessDetail(check: ReleaseReadinessCheck): string {
+  const profile = stringValue(check.details, "profile")
+  const timestamp =
+    stringValue(check.details, "generated_at") ||
+    stringValue(check.details, "completed_at")
+  if (profile && timestamp) {
+    return `${profile} · ${formatTime(timestamp)}`
+  }
+  if (timestamp) return formatTime(timestamp)
+  if (profile) return profile
+  return check.passed ? "Current" : check.code
+}
+
+async function selectReadinessTarget(target: 8 | 16): Promise<void> {
+  if (
+    readinessTarget.value === target &&
+    readiness.value?.expected_cameras === target
+  ) {
+    return
+  }
+  readinessTarget.value = target
+  loading.value = true
+  error.value = null
+  try {
+    readiness.value = await getReleaseReadiness(target)
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    loading.value = false
+  }
+}
+
 async function copyCommand(command: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(command)
@@ -162,7 +209,12 @@ async function refresh(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    validation.value = await getReleaseValidation()
+    const [nextValidation, nextReadiness] = await Promise.all([
+      getReleaseValidation(),
+      getReleaseReadiness(readinessTarget.value)
+    ])
+    validation.value = nextValidation
+    readiness.value = nextReadiness
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -389,44 +441,94 @@ onMounted(() => {
     </div>
 
     <section class="release-validation-gate">
-      <div>
-        <strong>Production gate</strong>
-        <span>
-          After benchmark, soak and a verified backup are current, run one
-          final read-only host check for the deployment class you intend to
-          support.
-        </span>
+      <div class="release-validation-gate__heading">
+        <div>
+          <strong>Production gate</strong>
+          <span>
+            Read-only release readiness combines the current benchmark,
+            recording soak and latest verified backup for the deployment
+            class you intend to support.
+          </span>
+        </div>
+
+        <div class="release-validation-gate__controls">
+          <div class="release-validation-targets">
+            <button
+              class="button button--ghost button--compact"
+              :class="{ 'is-active': readinessTarget === 8 }"
+              type="button"
+              :disabled="loading"
+              @click="selectReadinessTarget(8)"
+            >
+              8 cameras
+            </button>
+            <button
+              class="button button--ghost button--compact"
+              :class="{ 'is-active': readinessTarget === 16 }"
+              type="button"
+              :disabled="loading"
+              @click="selectReadinessTarget(16)"
+            >
+              16 cameras
+            </button>
+          </div>
+
+          <span
+            class="status-pill"
+            :class="
+              readiness?.passed
+                ? 'status-pill--ok'
+                : 'status-pill--error'
+            "
+          >
+            {{ readiness?.passed ? "READY" : "NOT READY" }}
+          </span>
+        </div>
       </div>
 
-      <div class="release-validation-gate__commands">
-        <div>
-          <code>./deploy.sh release-check 8</code>
-          <button
-            class="button button--ghost button--compact"
-            type="button"
-            @click="copyCommand('./deploy.sh release-check 8')"
+      <div
+        v-if="readiness"
+        class="release-validation-gate__checks"
+      >
+        <article
+          v-for="check in readiness.checks"
+          :key="check.name"
+          class="release-validation-gate__check"
+        >
+          <div>
+            <strong>{{ readinessName(check.name) }}</strong>
+            <span>{{ readinessDetail(check) }}</span>
+          </div>
+          <span
+            class="status-pill"
+            :class="
+              check.passed
+                ? 'status-pill--ok'
+                : 'status-pill--error'
+            "
           >
-            {{
-              copiedCommand === "./deploy.sh release-check 8"
-                ? "Copied"
-                : "Copy"
-            }}
-          </button>
-        </div>
+            {{ check.passed ? "PASS" : "BLOCKED" }}
+          </span>
+          <code v-if="!check.passed">{{ check.code }}</code>
+        </article>
+      </div>
+
+      <div class="release-validation-gate__command">
         <div>
-          <code>./deploy.sh release-check 16</code>
-          <button
-            class="button button--ghost button--compact"
-            type="button"
-            @click="copyCommand('./deploy.sh release-check 16')"
-          >
-            {{
-              copiedCommand === "./deploy.sh release-check 16"
-                ? "Copied"
-                : "Copy"
-            }}
-          </button>
+          <span>Final host verification</span>
+          <code>{{ readinessCommand }}</code>
         </div>
+        <button
+          class="button button--ghost button--compact"
+          type="button"
+          @click="copyCommand(readinessCommand)"
+        >
+          {{
+            copiedCommand === readinessCommand
+              ? "Copied"
+              : "Copy"
+          }}
+        </button>
       </div>
     </section>
 
@@ -557,25 +659,32 @@ onMounted(() => {
 
 .release-validation-gate {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.8fr);
-  gap: 12px;
-  align-items: center;
+  gap: 10px;
   padding: 10px 11px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   background: var(--surface-raised);
 }
 
-.release-validation-gate > div:first-child strong,
-.release-validation-gate > div:first-child span {
+.release-validation-gate__heading,
+.release-validation-gate__controls,
+.release-validation-gate__command {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.release-validation-gate__heading > div:first-child strong,
+.release-validation-gate__heading > div:first-child span {
   display: block;
 }
 
-.release-validation-gate > div:first-child strong {
+.release-validation-gate__heading > div:first-child strong {
   font-size: 10px;
 }
 
-.release-validation-gate > div:first-child span {
+.release-validation-gate__heading > div:first-child span {
   max-width: 680px;
   margin-top: 2px;
   color: var(--text-muted);
@@ -583,19 +692,78 @@ onMounted(() => {
   line-height: 1.45;
 }
 
-.release-validation-gate__commands {
-  display: grid;
-  gap: 5px;
+.release-validation-gate__controls {
+  flex: 0 0 auto;
 }
 
-.release-validation-gate__commands > div {
+.release-validation-targets {
+  display: flex;
+  gap: 4px;
+}
+
+.release-validation-targets .is-active {
+  border-color: var(--border-strong);
+  background: var(--surface-selected);
+  color: var(--text-primary);
+}
+
+.release-validation-gate__checks {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
 
-.release-validation-gate code {
+.release-validation-gate__check {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 5px 8px;
+  align-items: start;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+.release-validation-gate__check strong,
+.release-validation-gate__check span {
+  display: block;
+}
+
+.release-validation-gate__check strong {
+  font-size: 9px;
+}
+
+.release-validation-gate__check div > span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.release-validation-gate__check code {
+  grid-column: 1 / -1;
+  overflow-x: auto;
+  color: var(--text-secondary);
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.release-validation-gate__command {
+  padding-top: 2px;
+}
+
+.release-validation-gate__command > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+.release-validation-gate__command span {
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.release-validation-gate__command code {
   overflow-x: auto;
   padding: 6px 7px;
   border: 1px solid var(--border-subtle);
@@ -617,8 +785,17 @@ onMounted(() => {
 
 @media (max-width: 900px) {
   .release-validation-panel__grid,
-  .release-validation-gate {
+  .release-validation-gate__checks {
     grid-template-columns: 1fr;
+  }
+
+  .release-validation-gate__heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .release-validation-gate__controls {
+    width: 100%;
   }
 }
 </style>
