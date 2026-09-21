@@ -246,7 +246,7 @@ Acceptance:
 - [x] StorageTarget persistence and system default LOCAL_RECORDING target.
 - [x] optional per-camera/policy explicit storage_target_id routing.
 - [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
-- [ ] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
+- [x] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
 - [ ] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
   - [x] System Health reports per-target availability and warning/high/critical capacity state.
   - [x] local recording failure/capacity pressure never implicitly falls back to cloud hot recording.

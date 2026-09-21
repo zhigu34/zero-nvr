@@ -448,6 +448,57 @@ Conceptually:
 
 Remote-playback cache must be bounded and automatically cleaned. It is not part of the disaster backup.
 
+## Host-managed recording storage
+
+zero-nvr treats a local `StorageTarget` as an already-prepared host path. It
+does not create or administer RAID arrays, ZFS pools, Btrfs filesystems, LVM
+volume groups/logical volumes, mergerfs unions, NAS mounts, parity layouts, or
+filesystem redundancy.
+
+Prepare storage on the host first, then expose one stable mount point to
+zero-nvr as the local recording target. Typical supported host layouts include:
+
+- a plain ext4/XFS filesystem on one disk;
+- an mdadm/RAID volume mounted at a stable path;
+- a ZFS dataset from a host-managed pool;
+- a Btrfs filesystem/subvolume;
+- an LVM logical volume with a host-managed filesystem;
+- a mergerfs mount assembled and monitored by the host;
+- an NFS/SMB NAS share mounted by the host.
+
+The supported ownership boundary is:
+
+~~~text
+disks / HBA / RAID / ZFS / Btrfs / LVM / mergerfs / NFS / SMB
+    -> host operating system owns assembly, mount, redundancy, scrub,
+       replacement, degraded-state handling, and recovery
+
+stable writable mount point
+    -> zero-nvr StorageTarget owns recording placement, capacity thresholds,
+       retention, RecordingLocation identity, archive policy, and playback
+~~~
+
+For production recording targets:
+
+- use a stable absolute mount point and keep it unchanged after the
+  `StorageTarget` is created; move future writes with the supported target
+  switch workflow instead of editing the path in place;
+- ensure the mount is present and writable before starting zero-nvr;
+- configure host boot/mount dependencies so zero-nvr does not start recording
+  until required local/NAS storage is mounted;
+- do not rely on a bare mount-point directory remaining writable when the real
+  filesystem or NAS is absent, because that can redirect recordings onto the
+  host root filesystem;
+- monitor array/pool/NAS health with the host's native tooling in addition to
+  zero-nvr's per-target free-space/availability health;
+- keep application data/database and disposable cache separate from hot
+  recording storage unless the operator has deliberately designed the host
+  filesystem otherwise.
+
+zero-nvr intentionally does not expose disk formatting, pool creation, device
+replacement, resilver/rebuild, scrub, SMART administration, or mount/unmount
+controls in the Web UI. Those remain host/NAS responsibilities.
+
 ## Log and cache bounds
 
 The default Compose deployment must configure bounded container logging rather than relying on unlimited Docker json-file growth.
