@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import DateTime, text
 
 from app.core.config import Settings
 from app.core.db import (
@@ -14,6 +15,8 @@ from app.core.db import (
     expected_schema_heads,
     known_schema_revisions,
 )
+from app.core.db.types import UTCDateTime
+from app.main import create_app
 
 
 def make_database(
@@ -145,3 +148,79 @@ def test_schema_guard_distinguishes_old_and_unknown_revision(
         )
     finally:
         database.close()
+
+
+
+def test_all_canonical_datetime_columns_use_utc_datetime(
+    tmp_path: Path,
+) -> None:
+    # Building the application imports the complete canonical model graph.
+    app = create_app(
+        Settings(
+            secret_key=(
+                "utc-schema-guard-test-secret-key-"
+                "32-bytes-minimum"
+            ),
+            environment="test",
+            database_url=(
+                f"sqlite:///{tmp_path / 'utc-schema.db'}"
+            ),
+            data_dir=tmp_path / "data-utc",
+            cache_dir=tmp_path / "cache-utc",
+        )
+    )
+    try:
+        offenders: list[str] = []
+        for table in Base.metadata.sorted_tables:
+            for column in table.columns:
+                if isinstance(
+                    column.type,
+                    DateTime,
+                ) and not isinstance(
+                    column.type,
+                    UTCDateTime,
+                ):
+                    offenders.append(
+                        f"{table.name}.{column.name}"
+                    )
+
+        assert offenders == [], (
+            "Canonical datetime columns must use "
+            f"UTCDateTime: {offenders}"
+        )
+    finally:
+        app.state.database.close()
+
+
+def test_utc_datetime_normalizes_offsets_and_rejects_naive_values() -> None:
+    column_type = UTCDateTime()
+
+    plus_eight = datetime(
+        2026,
+        9,
+        22,
+        8,
+        30,
+        tzinfo=timezone(timedelta(hours=8)),
+    )
+    normalized = column_type.process_bind_param(
+        plus_eight,
+        dialect=None,  # type: ignore[arg-type]
+    )
+    assert normalized == datetime(
+        2026,
+        9,
+        22,
+        0,
+        30,
+        tzinfo=UTC,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="timezone-aware",
+    ):
+        column_type.process_bind_param(
+            datetime(2026, 9, 22, 0, 30),
+            dialect=None,  # type: ignore[arg-type]
+        )

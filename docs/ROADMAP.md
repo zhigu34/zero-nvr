@@ -241,7 +241,7 @@ Acceptance:
 - [x] segment persistence.
 - [x] UTC canonical recording timestamps and database timeline indexes.
 - [x] map ZLM-native finalized recording paths into RecordingLocation without making filenames authoritative identity.
-- [ ] keep all canonical DB timestamps UTC; UI/path display timezone is presentation/configuration, not recording truth.
+- [x] keep all canonical DB timestamps UTC; UI/path display timezone is presentation/configuration, not recording truth.
 - [x] respect ZLM's own temporary-file/finalize semantics; zero-nvr must not add a second local media writer.
 - [x] StorageTarget persistence and system default LOCAL_RECORDING target.
 - [x] optional per-camera/policy explicit storage_target_id routing.
