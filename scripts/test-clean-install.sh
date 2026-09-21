@@ -114,6 +114,15 @@ exit 1
 EOF
 chmod +x "$FAKE_BIN/docker"
 
+# Port probe behavior is covered independently by test-port-preflight.sh.
+# Keep this orchestration smoke deterministic by making host bind probes pass.
+cat > "$FAKE_BIN/python3" <<'EOF'
+#!/usr/bin/env bash
+cat >/dev/null
+exit 0
+EOF
+chmod +x "$FAKE_BIN/python3"
+
 (
   cd "$STAGE"
   PATH="$FAKE_BIN:$PATH" \
