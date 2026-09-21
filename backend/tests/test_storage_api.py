@@ -88,6 +88,9 @@ def test_storage_target_secret_is_encrypted_and_never_returned(
         )
         assert local.status_code == 201
         assert local.json()["credentials_configured"] is False
+        assert local.json()["config"]["warning_used_percent"] == 80
+        assert local.json()["config"]["high_used_percent"] == 85
+        assert local.json()["config"]["critical_used_percent"] == 95
 
         remote = client.post(
             "/api/v1/storage/targets",
@@ -127,6 +130,38 @@ def test_storage_target_secret_is_encrypted_and_never_returned(
         assert local_test.status_code == 200
         assert local_test.json()["detail"] == "read_write_ok"
         assert local_test.json()["free_bytes"] > 0
+        assert local_test.json()["total_bytes"] > 0
+        assert 0 <= local_test.json()["used_percent"] <= 100
+        assert local_test.json()["capacity_level"] in {
+            "normal",
+            "warning",
+            "high",
+            "critical",
+        }
+        assert local_test.json()["warning_percent"] == 80
+        assert local_test.json()["high_percent"] == 85
+        assert local_test.json()["critical_percent"] == 95
+
+        invalid_watermarks = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "local",
+                "role": "recording",
+                "name": "Bad Watermarks",
+                "enabled": True,
+                "config": {
+                    "path": str(tmp_path / "bad-watermarks"),
+                    "warning_used_percent": 90,
+                    "high_used_percent": 85,
+                    "critical_used_percent": 95,
+                },
+            },
+        )
+        assert invalid_watermarks.status_code == 400
+        assert (
+            invalid_watermarks.json()["error"]["code"]
+            == "storage_watermark_invalid"
+        )
 
         conflict = client.post(
             "/api/v1/storage/targets",

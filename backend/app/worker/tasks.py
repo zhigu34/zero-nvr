@@ -15,6 +15,7 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Database
+from app.core.errors import ApiError
 from app.integrations.frigate import FrigateHttpAdapter
 from app.modules.backups.execution import (
     BackupExecutionService,
@@ -47,13 +48,19 @@ from app.modules.recordings.prebuffer import (
 from app.modules.recordings.runtime import RecordingRuntimeService
 from app.modules.recordings.triggers import RecordingTriggerService
 from app.modules.storage.archive import ArchiveLifecycleService
+from app.modules.storage.capacity import (
+    LocalStorageCapacityService,
+)
 from app.modules.system.frigate import FrigateProviderSettingsService
 from app.modules.system.health import write_worker_heartbeat
 from app.modules.storage.retention import (
     LocalRetentionDeletionService,
     RetentionPlanner,
 )
-from app.modules.storage.models import RecordingLocation
+from app.modules.storage.models import (
+    RecordingLocation,
+    StorageTarget,
+)
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 
 from .queue import huey
@@ -134,6 +141,9 @@ def _promotion_target(
         target = RecordingStorageResolver.local_target_for_camera(
             session,
             camera_id=fragment.camera_id,
+        )
+        RecordingStorageResolver.ensure_write_capacity(
+            target
         )
         target_id = target.target.id
         target_root = target.root
@@ -394,6 +404,7 @@ def reconcile_camera_runtime(
                 session,
                 settings=settings,
                 camera_id=camera_uuid,
+                capacity_behavior="off",
             )
             enabled = camera.enabled
 
@@ -434,6 +445,104 @@ def reconcile_camera_runtime(
             media_runtime.stop_streams(references)
 
         return runtime_result.desired_mode
+    finally:
+        database.close()
+
+
+@huey.periodic_task(
+    crontab(minute="*/5")
+)
+def periodic_recording_capacity_guard(
+) -> dict[str, int]:
+    """Reconcile every enabled recording policy against current disk capacity.
+
+    Critical local targets drive persistent recorders to off. Once capacity
+    recovers, the same policy reconciliation restores the recorder without
+    mutating the persisted RecordingPolicy.
+    """
+    settings = Settings()
+    database = _database(settings)
+    try:
+        with database.session() as session:
+            camera_ids = list(
+                session.scalars(
+                    select(
+                        RecordingPolicy.camera_id
+                    )
+                    .where(
+                        RecordingPolicy.enabled
+                        .is_(True)
+                    )
+                    .order_by(
+                        RecordingPolicy.camera_id
+                    )
+                )
+            )
+            targets = list(
+                session.scalars(
+                    select(StorageTarget)
+                    .where(
+                        StorageTarget.type
+                        == "local",
+                        StorageTarget.role
+                        == "recording",
+                        StorageTarget.enabled
+                        .is_(True),
+                    )
+                )
+            )
+            session.commit()
+
+        pressure_detected = False
+        for target in targets:
+            config = (
+                target.config_json
+                or {}
+            )
+            raw_path = config.get("path")
+            if (
+                not isinstance(
+                    raw_path,
+                    str,
+                )
+                or not raw_path
+            ):
+                continue
+            try:
+                capacity = (
+                    LocalStorageCapacityService
+                    .inspect(
+                        root=Path(raw_path),
+                        config=config,
+                    )
+                )
+            except ApiError:
+                continue
+            if capacity.level in {
+                "high",
+                "critical",
+            }:
+                pressure_detected = True
+                break
+
+        queued = 0
+        for camera_id in camera_ids:
+            reconcile_camera_runtime(
+                str(camera_id)
+            )
+            queued += 1
+
+        if pressure_detected:
+            reconcile_retention(False)
+
+        return {
+            "cameras_queued": queued,
+            "pressure_reconcile_queued": (
+                1
+                if pressure_detected
+                else 0
+            ),
+        }
     finally:
         database.close()
 
@@ -549,6 +658,7 @@ def reconcile_recording_policy_boundary(
                 settings=settings,
                 camera_id=policy.camera_id,
                 at=now,
+                capacity_behavior="off",
             )
             if desired_recorder is None:
                 record_streams = []
@@ -759,9 +869,65 @@ def _run_retention_reconciliation(
     database = _database(settings)
     try:
         with database.session() as session:
+            pressure_target_ids: set[
+                uuid.UUID
+            ] = set()
+            if not pressure:
+                targets = list(
+                    session.scalars(
+                        select(StorageTarget)
+                        .where(
+                            StorageTarget.type
+                            == "local",
+                            StorageTarget.role
+                            == "recording",
+                            StorageTarget.enabled
+                            .is_(True),
+                        )
+                    )
+                )
+                for target in targets:
+                    config = (
+                        target.config_json
+                        or {}
+                    )
+                    raw_path = config.get(
+                        "path"
+                    )
+                    if (
+                        not isinstance(
+                            raw_path,
+                            str,
+                        )
+                        or not raw_path
+                    ):
+                        continue
+                    try:
+                        capacity = (
+                            LocalStorageCapacityService
+                            .inspect(
+                                root=Path(
+                                    raw_path
+                                ),
+                                config=config,
+                            )
+                        )
+                    except ApiError:
+                        continue
+                    if capacity.level in {
+                        "high",
+                        "critical",
+                    }:
+                        pressure_target_ids.add(
+                            target.id
+                        )
+
             decisions = RetentionPlanner.plan(
                 session,
                 pressure=pressure,
+                pressure_target_ids=(
+                    pressure_target_ids
+                ),
                 limit=500,
             )
             session.commit()
@@ -781,7 +947,11 @@ def _run_retention_reconciliation(
             if decision.eligible_for_delete:
                 delete_local_recording_location(
                     str(decision.location_id),
-                    pressure,
+                    (
+                        pressure
+                        or decision
+                        .pressure_override
+                    ),
                 )
                 deleted += 1
                 continue

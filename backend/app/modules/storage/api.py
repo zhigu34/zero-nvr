@@ -312,6 +312,13 @@ def test_storage_target(
         type=result.type,
         detail=result.detail,
         free_bytes=result.free_bytes,
+        total_bytes=result.total_bytes,
+        used_bytes=result.used_bytes,
+        used_percent=result.used_percent,
+        capacity_level=result.capacity_level,
+        warning_percent=result.warning_percent,
+        high_percent=result.high_percent,
+        critical_percent=result.critical_percent,
     )
 
 

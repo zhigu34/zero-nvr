@@ -18,6 +18,18 @@ export interface StorageTargetTest {
   type: StorageTargetType
   detail: string
   free_bytes: number | null
+  total_bytes: number | null
+  used_bytes: number | null
+  used_percent: number | null
+  capacity_level:
+    | "normal"
+    | "warning"
+    | "high"
+    | "critical"
+    | null
+  warning_percent: number | null
+  high_percent: number | null
+  critical_percent: number | null
 }
 
 export interface StorageTargetCreate {

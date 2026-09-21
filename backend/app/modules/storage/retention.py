@@ -441,6 +441,9 @@ class RetentionPlanner:
         *,
         now: datetime | None = None,
         pressure: bool = False,
+        pressure_target_ids: set[
+            uuid.UUID
+        ] | None = None,
         limit: int = 500,
     ) -> list[RetentionDecision]:
         if limit < 1 or limit > 5000:
@@ -475,12 +478,20 @@ class RetentionPlanner:
                 .limit(limit)
             )
         )
+        pressured = (
+            pressure_target_ids
+            or set()
+        )
         return [
             cls.evaluate(
                 session,
                 location=location,
                 now=now,
-                pressure=pressure,
+                pressure=(
+                    pressure
+                    or location.storage_target_id
+                    in pressured
+                ),
             )
             for location in locations
         ]

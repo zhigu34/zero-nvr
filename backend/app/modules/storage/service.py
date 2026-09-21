@@ -17,6 +17,7 @@ from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
 from app.modules.auth.models import SecretRecord
 from app.modules.recordings.models import RecordingPolicy
 
+from .capacity import LocalStorageCapacityService
 from .models import RecordingLocation, StorageTarget
 
 
@@ -28,6 +29,13 @@ class StorageTargetTestResult:
     type: str
     detail: str
     free_bytes: int | None = None
+    total_bytes: int | None = None
+    used_bytes: int | None = None
+    used_percent: float | None = None
+    capacity_level: str | None = None
+    warning_percent: int | None = None
+    high_percent: int | None = None
+    critical_percent: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,7 +253,14 @@ class StorageTargetService:
         role: str,
         config: dict[str, object],
     ) -> dict[str, object]:
-        if set(config) - {"path", "default_recording"}:
+        supported = {
+            "path",
+            "default_recording",
+            LocalStorageCapacityService.warning_key,
+            LocalStorageCapacityService.high_key,
+            LocalStorageCapacityService.critical_key,
+        }
+        if set(config) - supported:
             raise ApiError(
                 status_code=400,
                 code="storage_target_config_invalid",
@@ -272,9 +287,14 @@ class StorageTargetService:
                 code="storage_target_config_invalid",
                 message="Only a recording target can be the default recording target.",
             )
+        watermarks = (
+            LocalStorageCapacityService
+            .normalize_config(config)
+        )
         return {
             "path": str(path.resolve(strict=False)),
             "default_recording": default_recording,
+            **watermarks,
         }
 
     @staticmethod
@@ -684,10 +704,33 @@ class StorageTargetService:
                     code="storage_target_not_writable",
                     message="Local storage target is not writable.",
                 ) from exc
+            capacity = (
+                LocalStorageCapacityService
+                .inspect(
+                    root=root,
+                    config=config,
+                )
+            )
             return StorageTargetTestResult(
                 type="local",
                 detail="read_write_ok",
-                free_bytes=stats.f_bavail * stats.f_frsize,
+                free_bytes=capacity.free_bytes,
+                total_bytes=capacity.total_bytes,
+                used_bytes=capacity.used_bytes,
+                used_percent=capacity.used_percent,
+                capacity_level=capacity.level,
+                warning_percent=(
+                    capacity.watermarks
+                    .warning_percent
+                ),
+                high_percent=(
+                    capacity.watermarks
+                    .high_percent
+                ),
+                critical_percent=(
+                    capacity.watermarks
+                    .critical_percent
+                ),
             )
 
         if rclone_config is None:

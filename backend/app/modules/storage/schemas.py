@@ -37,6 +37,18 @@ class StorageTargetTestView(BaseModel):
     type: Literal["local", "rclone"]
     detail: str
     free_bytes: int | None = None
+    total_bytes: int | None = None
+    used_bytes: int | None = None
+    used_percent: float | None = None
+    capacity_level: Literal[
+        "normal",
+        "warning",
+        "high",
+        "critical",
+    ] | None = None
+    warning_percent: int | None = None
+    high_percent: int | None = None
+    critical_percent: int | None = None
 
 
 

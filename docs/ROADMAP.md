@@ -205,7 +205,7 @@ Acceptance:
 - [ ] respect ZLM's own temporary-file/finalize semantics; zero-nvr must not add a second local media writer.
 - [ ] StorageTarget persistence and system default LOCAL_RECORDING target.
 - [ ] optional per-camera/policy explicit storage_target_id routing.
-- [ ] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
+- [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
 - [ ] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
 - [ ] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
 - [ ] safe administrator target change/migration without losing historical RecordingLocations.
@@ -217,11 +217,11 @@ Acceptance:
 - [ ] recorder recovery / orphan and partial-file reconciliation.
 - [ ] RetentionPolicy + RecordingProtection persistence; retention horizon derived from policy/reasons/events.
 - [ ] normal age-based retention worker.
-- [ ] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
+- [x] configurable disk-pressure watermarks (initial guidance 80/85/95%) and retention response.
 - [ ] priority-based emergency purge with structured logs.
 - [x] RecordingProtection range create/update/delete and UI.
 - [ ] safe local purge only after verified remote readiness where applicable.
-- [ ] disk capacity guard.
+- [x] disk capacity guard.
 - [ ] basic timeline.
 
 Acceptance:

@@ -697,3 +697,124 @@ def test_local_delete_runs_only_after_planner_allows_it(
             assert location.last_error is None
     finally:
         database.close()
+
+
+
+def test_target_scoped_pressure_does_not_expire_other_storage(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            camera_id,
+            profile_id,
+            local_id,
+            _remote_id,
+        ) = seed_camera(
+            settings,
+            database,
+        )
+        add_explicit_retention(
+            database,
+            camera_id=camera_id,
+            mode="BEST_EFFORT",
+            ordinary_days=30,
+            require_archive=False,
+        )
+        second_root = (
+            tmp_path
+            / "recordings-secondary"
+        )
+        second_root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        with database.session() as session:
+            second = StorageTargetService(
+                settings
+            ).create(
+                session,
+                target_type="local",
+                role="recording",
+                name="Secondary Recording",
+                enabled=True,
+                config={
+                    "path": str(second_root),
+                    "default_recording": False,
+                },
+                rclone_config=None,
+            )
+            session.commit()
+            second_id = second.id
+
+        now = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        _, first_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=local_id,
+            ended_at=now - timedelta(days=1),
+            reasons=["continuous"],
+            object_name="pressure-primary",
+        )
+        _, second_location, _ = add_segment(
+            database,
+            camera_id=camera_id,
+            profile_id=profile_id,
+            local_target_id=second_id,
+            ended_at=now - timedelta(days=1),
+            reasons=["continuous"],
+            object_name="pressure-secondary",
+        )
+
+        with database.session() as session:
+            decisions = RetentionPlanner.plan(
+                session,
+                now=now,
+                pressure_target_ids={
+                    local_id
+                },
+                limit=100,
+            )
+            by_location = {
+                item.location_id: item
+                for item in decisions
+            }
+
+        first = by_location[
+            first_location
+        ]
+        second = by_location[
+            second_location
+        ]
+        assert (
+            first.eligible_for_delete
+            is True
+        )
+        assert (
+            first.pressure_override
+            is True
+        )
+        assert (
+            second.eligible_for_delete
+            is False
+        )
+        assert (
+            second.reason
+            == "before_deadline"
+        )
+        assert (
+            second.pressure_override
+            is False
+        )
+    finally:
+        database.close()

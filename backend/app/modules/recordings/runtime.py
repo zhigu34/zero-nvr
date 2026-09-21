@@ -104,6 +104,10 @@ class RecordingRuntimeService:
         settings: Settings,
         camera_id: uuid.UUID,
         at: datetime | None = None,
+        capacity_behavior: Literal[
+            "error",
+            "off",
+        ] = "error",
     ) -> DesiredRecorder | None:
         from .policy import RecordingPolicyService
 
@@ -169,9 +173,26 @@ class RecordingRuntimeService:
                 session,
                 camera_id=camera_id,
             )
-            mode: RecorderMode = "persistent"
-            root: str | None = str(target.root)
-            max_second = policy.segment_target_seconds
+            try:
+                RecordingStorageResolver.ensure_write_capacity(
+                    target
+                )
+            except ApiError as exc:
+                if (
+                    exc.code
+                    == "recording_storage_capacity_critical"
+                    and capacity_behavior
+                    == "off"
+                ):
+                    mode: RecorderMode = "off"
+                    root: str | None = None
+                    max_second = 0
+                else:
+                    raise
+            else:
+                mode = "persistent"
+                root = str(target.root)
+                max_second = policy.segment_target_seconds
         elif event_prebuffer:
             mode = "prebuffer"
             root = str(validate_prebuffer_root(settings))

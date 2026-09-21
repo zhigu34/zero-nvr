@@ -54,6 +54,9 @@ const targetForm = reactive({
   name: "",
   path: "/recordings",
   defaultRecording: false,
+  warningPercent: 80,
+  highPercent: 85,
+  criticalPercent: 95,
   remote: "",
   basePath: "zero-nvr",
   defaultArchive: false,
@@ -113,6 +116,23 @@ function targetDetail(target: StorageTarget): string {
   return `${remoteText}${baseText}`
 }
 
+function targetWatermarks(target: StorageTarget): string | null {
+  if (target.type !== "local") return null
+  const warning =
+    typeof target.config.warning_used_percent === "number"
+      ? target.config.warning_used_percent
+      : 80
+  const high =
+    typeof target.config.high_used_percent === "number"
+      ? target.config.high_used_percent
+      : 85
+  const critical =
+    typeof target.config.critical_used_percent === "number"
+      ? target.config.critical_used_percent
+      : 95
+  return `Watermarks ${warning}% / ${high}% / ${critical}%`
+}
+
 function targetIsDefault(target: StorageTarget): boolean {
   return target.type === "local"
     ? target.config.default_recording === true
@@ -160,6 +180,9 @@ function resetTargetForm(type: TargetFormType = "local"): void {
   targetForm.name = ""
   targetForm.path = "/recordings"
   targetForm.defaultRecording = false
+  targetForm.warningPercent = 80
+  targetForm.highPercent = 85
+  targetForm.criticalPercent = 95
   targetForm.remote = ""
   targetForm.basePath = "zero-nvr"
   targetForm.defaultArchive = false
@@ -187,6 +210,18 @@ function openEditTarget(target: StorageTarget): void {
         : "/recordings"
     targetForm.defaultRecording =
       target.config.default_recording === true
+    targetForm.warningPercent =
+      typeof target.config.warning_used_percent === "number"
+        ? target.config.warning_used_percent
+        : 80
+    targetForm.highPercent =
+      typeof target.config.high_used_percent === "number"
+        ? target.config.high_used_percent
+        : 85
+    targetForm.criticalPercent =
+      typeof target.config.critical_used_percent === "number"
+        ? target.config.critical_used_percent
+        : 95
     targetForm.remote = ""
     targetForm.basePath = "zero-nvr"
     targetForm.defaultArchive = false
@@ -223,7 +258,10 @@ async function saveTarget(): Promise<void> {
           name,
           config: {
             path: targetForm.path.trim(),
-            default_recording: targetForm.defaultRecording
+            default_recording: targetForm.defaultRecording,
+            warning_used_percent: Number(targetForm.warningPercent),
+            high_used_percent: Number(targetForm.highPercent),
+            critical_used_percent: Number(targetForm.criticalPercent)
           }
         })
       } else {
@@ -252,7 +290,10 @@ async function saveTarget(): Promise<void> {
         enabled: true,
         config: {
           path: targetForm.path.trim(),
-          default_recording: targetForm.defaultRecording
+          default_recording: targetForm.defaultRecording,
+          warning_used_percent: Number(targetForm.warningPercent),
+          high_used_percent: Number(targetForm.highPercent),
+          critical_used_percent: Number(targetForm.criticalPercent)
         }
       })
       notice.value = "Storage target created."
@@ -290,9 +331,14 @@ async function runTargetTest(target: StorageTarget): Promise<void> {
     testResults.value = {
       ...testResults.value,
       [target.id]:
-        result.free_bytes !== null
-          ? `Ready · ${formatBytes(result.free_bytes)} free`
-          : "Ready · read/write/delete verified"
+        result.used_percent !== null &&
+        result.capacity_level
+          ? `${result.capacity_level.toUpperCase()} · ${result.used_percent.toFixed(
+              1
+            )}% used · ${formatBytes(result.free_bytes)} free`
+          : result.free_bytes !== null
+            ? `Ready · ${formatBytes(result.free_bytes)} free`
+            : "Ready · read/write/delete verified"
     }
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -594,6 +640,12 @@ onBeforeUnmount(() => {
                   {{ targetDetail(target) }}
                 </span>
                 <span
+                  v-if="targetWatermarks(target)"
+                  class="storage-target-card__test"
+                >
+                  {{ targetWatermarks(target) }}
+                </span>
+                <span
                   v-if="testResults[target.id]"
                   class="storage-target-card__test"
                 >
@@ -817,6 +869,42 @@ onBeforeUnmount(() => {
                 placeholder="/recordings"
               />
             </label>
+            <div class="storage-watermarks-grid">
+              <label>
+                <span>Warning %</span>
+                <input
+                  v-model.number="targetForm.warningPercent"
+                  type="number"
+                  min="1"
+                  max="97"
+                  required
+                />
+              </label>
+              <label>
+                <span>High %</span>
+                <input
+                  v-model.number="targetForm.highPercent"
+                  type="number"
+                  min="2"
+                  max="98"
+                  required
+                />
+              </label>
+              <label>
+                <span>Critical %</span>
+                <input
+                  v-model.number="targetForm.criticalPercent"
+                  type="number"
+                  min="3"
+                  max="99"
+                  required
+                />
+              </label>
+            </div>
+            <small>
+              High/critical enables pressure retention; critical blocks new
+              recording writes until space is reclaimed.
+            </small>
             <label class="storage-check">
               <input
                 v-model="targetForm.defaultRecording"

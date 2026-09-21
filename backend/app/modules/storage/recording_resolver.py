@@ -10,6 +10,10 @@ from sqlalchemy.orm import Session
 from app.core.errors import ApiError
 from app.modules.recordings.models import RecordingPolicy
 
+from .capacity import (
+    LocalStorageCapacity,
+    LocalStorageCapacityService,
+)
 from .models import StorageTarget
 
 
@@ -105,6 +109,23 @@ class RecordingStorageResolver:
             target=target,
             root=root.resolve(strict=False),
         )
+
+    @staticmethod
+    def ensure_write_capacity(
+        target: LocalRecordingTarget,
+    ) -> LocalStorageCapacity:
+        return (
+            LocalStorageCapacityService
+            .ensure_write_capacity(
+                root=target.root,
+                config=(
+                    target.target
+                    .config_json
+                    or {}
+                ),
+            )
+        )
+
 
     @staticmethod
     def relative_object_path(

@@ -3431,6 +3431,23 @@ strong {
   gap: 7px !important;
 }
 
+
+.storage-watermarks-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.storage-watermarks-grid label {
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .storage-watermarks-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .storage-check input {
   width: 14px;
   height: 14px;
