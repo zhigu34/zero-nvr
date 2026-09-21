@@ -21,11 +21,17 @@ export interface AlertPage {
 }
 
 export function listAlerts(query: {
+  cameraId?: string | null
   state?: string | null
+  severity?: string | null
+  cursor?: string | null
   limit?: number
 } = {}): Promise<AlertPage> {
   const params = new URLSearchParams()
+  if (query.cameraId) params.set("camera_id", query.cameraId)
   if (query.state) params.set("state", query.state)
+  if (query.severity) params.set("severity", query.severity)
+  if (query.cursor) params.set("cursor", query.cursor)
   params.set("limit", String(query.limit ?? 20))
   return apiRequest<AlertPage>(`/alerts?${params}`)
 }
@@ -35,6 +41,15 @@ export function acknowledgeAlert(
 ): Promise<AlertItem> {
   return apiRequest<AlertItem>(
     `/alerts/${encodeURIComponent(alertId)}/acknowledge`,
+    { method: "POST" }
+  )
+}
+
+export function resolveAlert(
+  alertId: string
+): Promise<AlertItem> {
+  return apiRequest<AlertItem>(
+    `/alerts/${encodeURIComponent(alertId)}/resolve`,
     { method: "POST" }
   )
 }

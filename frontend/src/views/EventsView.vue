@@ -8,6 +8,12 @@ import {
 import { useRouter } from "vue-router"
 
 import {
+  acknowledgeAlert,
+  listAlerts,
+  resolveAlert,
+  type AlertItem
+} from "../api/alerts"
+import {
   listCameras,
   type CameraSummary
 } from "../api/cameras"
@@ -27,6 +33,7 @@ const auth = useAuthStore()
 
 const cameras = ref<CameraSummary[]>([])
 const events = ref<EventItem[]>([])
+const alerts = ref<AlertItem[]>([])
 const selectedEvent = ref<EventItem | null>(null)
 const nextCursor = ref<string | null>(null)
 const period = ref<Period>("24h")
@@ -35,11 +42,49 @@ const category = ref("")
 const label = ref("")
 const loading = ref(false)
 const loadingMore = ref(false)
+const alertActionId = ref<string | null>(null)
 const error = ref<string | null>(null)
 const snapshotFailures = ref(new Set<string>())
 
 const cameraMap = computed(() =>
   new Map(cameras.value.map((camera) => [camera.id, camera]))
+)
+
+const severityRank: Record<string, number> = {
+  critical: 0,
+  warning: 1,
+  info: 2
+}
+
+const activeAlerts = computed(() =>
+  alerts.value
+    .filter((item) => item.state !== "RESOLVED")
+    .sort((left, right) => {
+      const severity =
+        (severityRank[left.severity] ?? 9) -
+        (severityRank[right.severity] ?? 9)
+      if (severity) return severity
+      return (
+        new Date(right.created_at).getTime() -
+        new Date(left.created_at).getTime()
+      )
+    })
+)
+
+const alertsByEvent = computed(() => {
+  const grouped = new Map<string, AlertItem[]>()
+  for (const alert of alerts.value) {
+    const items = grouped.get(alert.event_id) ?? []
+    items.push(alert)
+    grouped.set(alert.event_id, items)
+  }
+  return grouped
+})
+
+const selectedEventAlerts = computed(() =>
+  selectedEvent.value
+    ? alertsByEvent.value.get(selectedEvent.value.id) ?? []
+    : []
 )
 
 const categories = computed(() =>
@@ -77,6 +122,27 @@ function periodRange(): [Date | null, Date | null] {
 function cameraName(item: EventItem): string {
   if (!item.camera_id) return "System"
   return cameraMap.value.get(item.camera_id)?.name ?? "Unknown camera"
+}
+
+function alertCameraName(item: AlertItem): string {
+  if (!item.camera_id) return "System"
+  return cameraMap.value.get(item.camera_id)?.name ?? "Unknown camera"
+}
+
+function eventActiveAlert(item: EventItem): AlertItem | null {
+  return (
+    alertsByEvent.value
+      .get(item.id)
+      ?.find((alert) => alert.state !== "RESOLVED") ??
+    null
+  )
+}
+
+function alertStateClass(item: AlertItem): string {
+  if (item.state === "RESOLVED") return "status-pill--muted"
+  if (item.severity === "critical") return "status-pill--error"
+  if (item.state === "ACKNOWLEDGED") return "status-pill--muted"
+  return "status-pill--warning"
 }
 
 function formatDate(value: string): string {
@@ -159,16 +225,23 @@ async function refresh(): Promise<void> {
   error.value = null
 
   try {
-    const page = await listEvents({
-      cameraId: cameraId.value || null,
-      from,
-      to,
-      category: category.value || null,
-      label: label.value.trim() || null,
-      limit: 48
-    })
-    events.value = page.items
-    nextCursor.value = page.next_cursor
+    const [eventPage, alertPage] = await Promise.all([
+      listEvents({
+        cameraId: cameraId.value || null,
+        from,
+        to,
+        category: category.value || null,
+        label: label.value.trim() || null,
+        limit: 48
+      }),
+      listAlerts({
+        cameraId: cameraId.value || null,
+        limit: 100
+      })
+    ])
+    events.value = eventPage.items
+    nextCursor.value = eventPage.next_cursor
+    alerts.value = alertPage.items
 
     if (
       selectedEvent.value &&
@@ -220,6 +293,64 @@ function resetFilters(): void {
 
 function selectEvent(item: EventItem): void {
   selectedEvent.value = item
+}
+
+function selectAlertEvent(item: AlertItem): void {
+  const event = events.value.find(
+    (candidate) => candidate.id === item.event_id
+  )
+  if (event) {
+    selectedEvent.value = event
+  }
+}
+
+function replaceAlert(updated: AlertItem): void {
+  const index = alerts.value.findIndex(
+    (item) => item.id === updated.id
+  )
+  if (index >= 0) {
+    alerts.value.splice(index, 1, updated)
+  } else {
+    alerts.value.unshift(updated)
+  }
+}
+
+async function acknowledge(item: AlertItem): Promise<void> {
+  if (
+    item.state !== "OPEN" ||
+    !auth.hasPermission("alert.acknowledge") ||
+    alertActionId.value
+  ) {
+    return
+  }
+  alertActionId.value = item.id
+  error.value = null
+  try {
+    replaceAlert(await acknowledgeAlert(item.id))
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    alertActionId.value = null
+  }
+}
+
+async function resolve(item: AlertItem): Promise<void> {
+  if (
+    item.state === "RESOLVED" ||
+    !auth.hasPermission("alert.manage") ||
+    alertActionId.value
+  ) {
+    return
+  }
+  alertActionId.value = item.id
+  error.value = null
+  try {
+    replaceAlert(await resolveAlert(item.id))
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    alertActionId.value = null
+  }
 }
 
 function snapshotFailed(eventId: string): void {
@@ -361,6 +492,75 @@ onBeforeUnmount(() => {
       <span>{{ error }}</span>
     </div>
 
+    <section
+      v-if="activeAlerts.length"
+      class="events-alerts"
+    >
+      <div class="events-alerts__heading">
+        <div>
+          <strong>Active alerts</strong>
+          <span>{{ activeAlerts.length }} require attention</span>
+        </div>
+      </div>
+
+      <div class="events-alerts__list">
+        <article
+          v-for="alert in activeAlerts.slice(0, 8)"
+          :key="alert.id"
+          class="events-alert-row"
+          :class="`events-alert-row--${alert.severity}`"
+        >
+          <button
+            class="events-alert-row__main"
+            type="button"
+            @click="selectAlertEvent(alert)"
+          >
+            <span
+              class="events-alert-row__severity"
+              :class="`events-alert-row__severity--${alert.severity}`"
+            />
+            <span class="events-alert-row__copy">
+              <strong>{{ alert.title }}</strong>
+              <small>
+                {{ alertCameraName(alert) }} ·
+                {{ formatTime(alert.created_at) }}
+              </small>
+            </span>
+            <span
+              class="status-pill"
+              :class="alertStateClass(alert)"
+            >
+              {{ alert.state }}
+            </span>
+          </button>
+
+          <div class="events-alert-row__actions">
+            <button
+              v-if="
+                alert.state === 'OPEN' &&
+                auth.hasPermission('alert.acknowledge')
+              "
+              class="button button--ghost button--compact"
+              type="button"
+              :disabled="alertActionId === alert.id"
+              @click="acknowledge(alert)"
+            >
+              Acknowledge
+            </button>
+            <button
+              v-if="auth.hasPermission('alert.manage')"
+              class="button button--ghost button--compact"
+              type="button"
+              :disabled="alertActionId === alert.id"
+              @click="resolve(alert)"
+            >
+              Resolve
+            </button>
+          </div>
+        </article>
+      </div>
+    </section>
+
     <div class="events-body">
       <div class="events-feed">
         <div v-if="loading && !events.length" class="events-empty">
@@ -410,6 +610,14 @@ onBeforeUnmount(() => {
                 class="event-card__confidence"
               >
                 {{ confidenceLabel(item.confidence) }}
+              </span>
+
+              <span
+                v-if="eventActiveAlert(item)"
+                class="event-card__alert"
+                :class="`event-card__alert--${eventActiveAlert(item)?.severity}`"
+              >
+                {{ eventActiveAlert(item)?.state }}
               </span>
             </div>
 
@@ -513,6 +721,55 @@ onBeforeUnmount(() => {
         </div>
 
         <div
+          v-if="selectedEventAlerts.length"
+          class="event-detail__section event-detail__alerts"
+        >
+          <h3>Alerts</h3>
+          <article
+            v-for="alert in selectedEventAlerts"
+            :key="alert.id"
+            class="event-detail-alert"
+          >
+            <div>
+              <strong>{{ alert.title }}</strong>
+              <span>{{ alert.message || pretty(alert.severity) }}</span>
+            </div>
+            <span
+              class="status-pill"
+              :class="alertStateClass(alert)"
+            >
+              {{ alert.state }}
+            </span>
+            <div class="event-detail-alert__actions">
+              <button
+                v-if="
+                  alert.state === 'OPEN' &&
+                  auth.hasPermission('alert.acknowledge')
+                "
+                class="button button--ghost button--compact"
+                type="button"
+                :disabled="alertActionId === alert.id"
+                @click="acknowledge(alert)"
+              >
+                Acknowledge
+              </button>
+              <button
+                v-if="
+                  alert.state !== 'RESOLVED' &&
+                  auth.hasPermission('alert.manage')
+                "
+                class="button button--ghost button--compact"
+                type="button"
+                :disabled="alertActionId === alert.id"
+                @click="resolve(alert)"
+              >
+                Resolve
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <div
           v-if="metadataRows(selectedEvent).length"
           class="event-detail__section"
         >
@@ -543,3 +800,190 @@ onBeforeUnmount(() => {
     </div>
   </section>
 </template>
+
+
+<style scoped>
+.events-alerts {
+  display: grid;
+  gap: 7px;
+  margin: 0 12px 10px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.events-alerts__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.events-alerts__heading strong,
+.events-alerts__heading span {
+  display: block;
+}
+
+.events-alerts__heading strong {
+  font-size: 10px;
+}
+
+.events-alerts__heading span {
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.events-alerts__list {
+  display: grid;
+  gap: 2px;
+}
+
+.events-alert-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+}
+
+.events-alert-row:hover {
+  background: var(--surface-hover);
+}
+
+.events-alert-row__main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.events-alert-row__severity {
+  width: 3px;
+  height: 28px;
+  flex: 0 0 auto;
+  border-radius: 99px;
+  background: var(--text-muted);
+}
+
+.events-alert-row__severity--critical {
+  background: var(--danger);
+}
+
+.events-alert-row__severity--warning {
+  background: var(--warning);
+}
+
+.events-alert-row__severity--info {
+  background: var(--accent);
+}
+
+.events-alert-row__copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.events-alert-row__copy strong,
+.events-alert-row__copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.events-alert-row__copy strong {
+  font-size: 9px;
+  font-weight: 600;
+}
+
+.events-alert-row__copy small {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.events-alert-row__actions {
+  display: flex;
+  gap: 4px;
+  padding-right: 5px;
+}
+
+.event-card__alert {
+  position: absolute;
+  top: 7px;
+  left: 7px;
+  padding: 3px 5px;
+  border-radius: 999px;
+  background: rgba(30, 34, 40, 0.86);
+  color: white;
+  font-size: 7px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.event-card__alert--critical {
+  background: color-mix(in srgb, var(--danger) 85%, transparent);
+}
+
+.event-card__alert--warning {
+  background: color-mix(in srgb, var(--warning) 85%, transparent);
+}
+
+.event-detail__alerts {
+  display: grid;
+  gap: 6px;
+}
+
+.event-detail-alert {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  padding: 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+.event-detail-alert > div:first-child {
+  min-width: 0;
+}
+
+.event-detail-alert strong,
+.event-detail-alert span {
+  display: block;
+}
+
+.event-detail-alert strong {
+  font-size: 9px;
+}
+
+.event-detail-alert > div:first-child > span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.4;
+}
+
+.event-detail-alert__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 5px;
+}
+
+@media (max-width: 900px) {
+  .events-alert-row {
+    align-items: flex-start;
+  }
+
+  .events-alert-row__actions {
+    flex-direction: column;
+  }
+}
+</style>
