@@ -171,7 +171,7 @@ Acceptance:
 - [x] hardware-acceleration capability probe and CPU fallback/resource limits.
 - [x] coturn STUN/TURN deployment and health.
 - [x] short-lived authenticated TURN credentials.
-- [ ] direct/relayed ICE visibility and TURN bandwidth/session metrics.
+- [x] direct/relayed ICE visibility and TURN bandwidth/session metrics.
 - [x] live audio negotiation and focused-camera audio behavior.
 - [ ] camera.talk permission and TalkSession API.
 - [ ] TalkBackend abstraction for supported ONVIF/RTSP backchannels; vendor/GB28181 adapters remain optional extensions.

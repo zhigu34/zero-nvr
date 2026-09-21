@@ -78,6 +78,11 @@ interface LiveTelemetry {
   rttMs: number | null
   jitterMs: number | null
   relay: boolean | null
+  localCandidateType: string | null
+  remoteCandidateType: string | null
+  candidateProtocol: string | null
+  relayProtocol: string | null
+  sessionSeconds: number | null
   firstFrameMs: number | null
   reconnects: number
 }
@@ -90,6 +95,11 @@ const telemetry = ref<LiveTelemetry>({
   rttMs: null,
   jitterMs: null,
   relay: null,
+  localCandidateType: null,
+  remoteCandidateType: null,
+  candidateProtocol: null,
+  relayProtocol: null,
+  sessionSeconds: null,
   firstFrameMs: null,
   reconnects: 0
 })
@@ -329,6 +339,10 @@ async function collectWebRtcStats(
 
     let rttMs: number | null = null
     let relay: boolean | null = null
+    let localCandidateType: string | null = null
+    let remoteCandidateType: string | null = null
+    let candidateProtocol: string | null = null
+    let relayProtocol: string | null = null
     let pair: Record<string, unknown> | null = null
 
     if (selectedPairId) {
@@ -362,17 +376,56 @@ async function collectWebRtcStats(
         typeof pair.localCandidateId === "string"
           ? pair.localCandidateId
           : null
+      const remoteCandidateId =
+        typeof pair.remoteCandidateId === "string"
+          ? pair.remoteCandidateId
+          : null
+
       if (localCandidateId) {
         const local = report.get(localCandidateId)
         if (local) {
           const candidate =
             local as unknown as Record<string, unknown>
           if (candidate.type === "local-candidate") {
-            relay = candidate.candidateType === "relay"
+            localCandidateType =
+              typeof candidate.candidateType === "string"
+                ? candidate.candidateType
+                : null
+            relay = localCandidateType === "relay"
+            candidateProtocol =
+              typeof candidate.protocol === "string"
+                ? candidate.protocol.toUpperCase()
+                : null
+            relayProtocol =
+              typeof candidate.relayProtocol === "string"
+                ? candidate.relayProtocol.toUpperCase()
+                : null
+          }
+        }
+      }
+
+      if (remoteCandidateId) {
+        const remote = report.get(remoteCandidateId)
+        if (remote) {
+          const candidate =
+            remote as unknown as Record<string, unknown>
+          if (candidate.type === "remote-candidate") {
+            remoteCandidateType =
+              typeof candidate.candidateType === "string"
+                ? candidate.candidateType
+                : null
           }
         }
       }
     }
+
+    const sessionSeconds =
+      streamStartedAt > 0
+        ? Math.max(
+            0,
+            (performance.now() - streamStartedAt) / 1000
+          )
+        : null
 
     telemetry.value = {
       ...telemetry.value,
@@ -380,7 +433,12 @@ async function collectWebRtcStats(
       packetLossPct,
       rttMs,
       jitterMs,
-      relay
+      relay,
+      localCandidateType,
+      remoteCandidateType,
+      candidateProtocol,
+      relayProtocol,
+      sessionSeconds
     }
   } catch {
     // Diagnostic sampling must never disturb live playback.
@@ -824,6 +882,11 @@ async function loadStream(): Promise<void> {
     rttMs: null,
     jitterMs: null,
     relay: null,
+    localCandidateType: null,
+    remoteCandidateType: null,
+    candidateProtocol: null,
+    relayProtocol: null,
+    sessionSeconds: null,
     firstFrameMs: null
   }
   clearTokenRefresh()
@@ -1253,8 +1316,35 @@ onBeforeUnmount(() => {
           <span v-if="telemetry.jitterMs !== null">
             {{ Math.round(telemetry.jitterMs) }} ms jitter
           </span>
-          <span v-if="telemetry.relay === true">Relay</span>
-          <span v-else-if="telemetry.relay === false">Direct</span>
+          <span v-if="telemetry.relay === true">
+            TURN relay{{
+              telemetry.relayProtocol
+                ? ` · ${telemetry.relayProtocol}`
+                : telemetry.candidateProtocol
+                  ? ` · ${telemetry.candidateProtocol}`
+                  : ""
+            }}
+          </span>
+          <span v-else-if="telemetry.relay === false">
+            Direct{{
+              telemetry.candidateProtocol
+                ? ` · ${telemetry.candidateProtocol}`
+                : ""
+            }}
+          </span>
+          <span
+            v-if="
+              telemetry.localCandidateType &&
+              telemetry.remoteCandidateType
+            "
+          >
+            {{ telemetry.localCandidateType }}→{{
+              telemetry.remoteCandidateType
+            }}
+          </span>
+          <span v-if="telemetry.sessionSeconds !== null">
+            {{ Math.round(telemetry.sessionSeconds) }}s session
+          </span>
         </template>
         <span
           v-if="focused && telemetry.firstFrameMs !== null"
