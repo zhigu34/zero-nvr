@@ -194,7 +194,7 @@ Acceptance:
 - [ ] ONVIF event-subscription lifecycle using mature client-library facilities.
 - [ ] multi-channel missing/return lifecycle without Camera identity loss.
 - [ ] capability-specific health projection: control / media / recording / events / PTZ / clock.
-- [ ] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
+- [x] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
 - [ ] consume ZLM registration/unregistration/recorder signals for observed media health.
 - [x] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
 - [ ] recovery reconciliation after ZLM/API/control-plane restart.

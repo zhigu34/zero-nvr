@@ -333,3 +333,33 @@ def test_media_runtime_does_not_implement_rtsp_reconnect_backoff() -> None:
         )
 
     assert "retry_count=-1" in source
+
+
+
+def test_persistent_camera_proxy_lifecycle_stays_in_media_runtime() -> None:
+    root = Path(__file__).resolve().parents[1]
+    media_runtime = (
+        root / "app/modules/cameras/media_runtime.py"
+    ).read_text(encoding="utf-8")
+
+    assert "add_stream_proxy(" in media_runtime
+    assert "delete_stream_proxy(" in media_runtime
+    assert "close_stream(" in media_runtime
+
+    for relative in (
+        "app/modules/cameras/api.py",
+        "app/modules/cameras/service.py",
+        "app/modules/cameras/onvif_onboarding.py",
+        "app/modules/cameras/discovery_service.py",
+    ):
+        source = (root / relative).read_text(
+            encoding="utf-8"
+        )
+        assert ".add_stream_proxy(" not in source, (
+            f"{relative} must delegate persistent camera proxy "
+            "creation to CameraMediaRuntimeService"
+        )
+        assert ".delete_stream_proxy(" not in source, (
+            f"{relative} must delegate persistent camera proxy "
+            "removal to CameraMediaRuntimeService"
+        )
