@@ -7,12 +7,12 @@ from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import RecordingPolicy
-from app.modules.storage.models import StorageTarget
 from app.modules.recordings.runtime import (
     DesiredRecorder,
     RecorderModeTracker,
     RecordingRuntimeService,
 )
+from app.modules.storage.models import StorageTarget
 
 
 class FakeZlm:
@@ -232,7 +232,6 @@ def test_offline_stream_is_already_off_without_camera_pull(
     assert FakeZlm.calls == [
         ("online", "zero-nvr", "profile-test")
     ]
-
 
 
 def test_explicit_policy_target_overrides_system_default_for_zlm_path(
