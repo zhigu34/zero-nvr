@@ -744,6 +744,9 @@ def _runtime_tuning_view(
         prebuffer_buffer_seconds=(
             value.prebuffer_buffer_seconds
         ),
+        turn_credential_ttl_seconds=(
+            value.turn_credential_ttl_seconds
+        ),
         playback_cache_max_bytes=(
             value.playback_cache_max_bytes
         ),
@@ -783,6 +786,9 @@ def _runtime_tuning_snapshot(
         ),
         "prebuffer_buffer_seconds": (
             value.prebuffer_buffer_seconds
+        ),
+        "turn_credential_ttl_seconds": (
+            value.turn_credential_ttl_seconds
         ),
         "playback_cache_max_bytes": (
             value.playback_cache_max_bytes

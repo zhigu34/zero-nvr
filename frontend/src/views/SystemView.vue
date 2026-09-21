@@ -173,6 +173,7 @@ const generalForm = reactive({
 const runtimeForm = reactive({
   prebufferFragmentSeconds: 5,
   prebufferBufferSeconds: 35,
+  turnCredentialTtlSeconds: 600,
   playbackCacheMiB: 4096,
   playbackCacheTtlSeconds: 21600,
   playbackRestoreLockTtlSeconds: 900,
@@ -556,6 +557,8 @@ async function loadBase(): Promise<void> {
       settingsValue.runtime.prebuffer_fragment_seconds
     runtimeForm.prebufferBufferSeconds =
       settingsValue.runtime.prebuffer_buffer_seconds
+    runtimeForm.turnCredentialTtlSeconds =
+      settingsValue.runtime.turn_credential_ttl_seconds
     runtimeForm.playbackCacheMiB =
       settingsValue.runtime.playback_cache_max_bytes /
       (1024 * 1024)
@@ -802,6 +805,8 @@ async function saveRuntime(): Promise<void> {
           Number(runtimeForm.prebufferFragmentSeconds),
         prebuffer_buffer_seconds:
           Number(runtimeForm.prebufferBufferSeconds),
+        turn_credential_ttl_seconds:
+          Number(runtimeForm.turnCredentialTtlSeconds),
         playback_cache_max_bytes: Math.round(
           runtimeForm.playbackCacheMiB * 1024 * 1024
         ),
@@ -1580,6 +1585,30 @@ onBeforeUnmount(() => {
                 The tmpfs capacity and mount path remain deployment settings
                 because Docker must establish them before zero-nvr starts.
               </small>
+            </div>
+
+            <div class="system-subsection">
+              <div class="system-subsection__heading">
+                <div>
+                  <strong>WebRTC TURN credentials</strong>
+                  <span>
+                    Controls only the lifetime of temporary TURN credentials.
+                    TURN hosts, ports, realm and shared secret remain deployment settings.
+                  </span>
+                </div>
+              </div>
+              <div class="system-form-row">
+                <label>
+                  <span>Credential TTL (seconds)</span>
+                  <input
+                    v-model.number="runtimeForm.turnCredentialTtlSeconds"
+                    type="number"
+                    min="60"
+                    max="3600"
+                    required
+                  />
+                </label>
+              </div>
             </div>
 
             <div class="system-form-row">

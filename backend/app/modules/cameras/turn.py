@@ -89,6 +89,7 @@ class TurnCredentialService:
         user_id: uuid.UUID,
         request_host: str | None,
         now_epoch: int | None = None,
+        credential_ttl_seconds: int | None = None,
     ) -> TurnCredentialBundle | None:
         if not self.settings.turn_enabled:
             return None
@@ -104,11 +105,16 @@ class TurnCredentialService:
             if now_epoch is None
             else now_epoch
         )
-        expires_epoch = (
-            now
-            + self.settings
-            .turn_credential_ttl_seconds
+        ttl_seconds = (
+            self.settings.turn_credential_ttl_seconds
+            if credential_ttl_seconds is None
+            else credential_ttl_seconds
         )
+        if ttl_seconds < 60 or ttl_seconds > 3600:
+            raise TurnConfigurationError(
+                "TURN credential TTL must be between 60 and 3600 seconds."
+            )
+        expires_epoch = now + ttl_seconds
         username = (
             f"{expires_epoch}:{user_id}"
         )

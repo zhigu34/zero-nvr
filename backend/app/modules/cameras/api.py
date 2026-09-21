@@ -32,6 +32,9 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.service import AuthContext
 from app.modules.recordings.triggers import RecordingTriggerService
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
 
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
@@ -1568,6 +1571,7 @@ def get_camera_live_ice_servers(
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
+    session: Session = Depends(get_db_session),
 ) -> CameraIceServersView:
     _require_live_media_session(
         request,
@@ -1579,12 +1583,22 @@ def get_camera_live_ice_servers(
         "Cache-Control"
     ] = "private, no-store"
     try:
+        runtime_tuning = (
+            RuntimeTuningSettingsService.get(
+                session,
+                settings=request.app.state.settings,
+            )
+        )
         bundle = TurnCredentialService(
             request.app.state.settings
         ).issue(
             user_id=context.user.id,
             request_host=(
                 request.url.hostname
+            ),
+            credential_ttl_seconds=(
+                runtime_tuning
+                .turn_credential_ttl_seconds
             ),
         )
     except TurnConfigurationError as exc:

@@ -129,3 +129,25 @@ def test_turn_uses_request_host_when_public_host_is_not_set() -> None:
             "?transport=tcp"
         ),
     ]
+
+
+
+def test_turn_runtime_ttl_override_takes_precedence() -> None:
+    user_id = uuid.uuid4()
+    bundle = TurnCredentialService(
+        make_settings(
+            turn_credential_ttl_seconds=600,
+        )
+    ).issue(
+        user_id=user_id,
+        request_host="ignored.example.test",
+        now_epoch=1_000,
+        credential_ttl_seconds=120,
+    )
+    assert bundle is not None
+    assert bundle.username == (
+        f"1120:{user_id}"
+    )
+    assert int(
+        bundle.expires_at.timestamp()
+    ) == 1120

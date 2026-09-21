@@ -710,6 +710,19 @@ def test_live_ice_servers_require_authorized_media_session(
             SecretStr("t" * 40)
         )
         app.state.settings.turn_credential_ttl_seconds = 600
+        monkeypatch.setattr(
+            "app.modules.cameras.turn.time.time",
+            lambda: 1_000,
+        )
+        tuning = client.patch(
+            "/api/v1/system/settings",
+            json={
+                "runtime": {
+                    "turn_credential_ttl_seconds": 120,
+                }
+            },
+        )
+        assert tuning.status_code == 200
 
         enabled = client.get(
             (
@@ -733,8 +746,13 @@ def test_live_ice_servers_require_authorized_media_session(
                 "?transport=tcp"
             ),
         ]
-        assert server["username"]
+        assert server["username"].startswith(
+            "1120:"
+        )
         assert server["credential"]
+        assert server["expires_at"].startswith(
+            "1970-01-01T00:18:40"
+        )
         assert "t" * 40 not in enabled.text
 
         missing = client.get(

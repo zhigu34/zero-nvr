@@ -199,6 +199,7 @@ class SystemSettingsService:
 class RuntimeTuningSettings:
     prebuffer_fragment_seconds: int
     prebuffer_buffer_seconds: int
+    turn_credential_ttl_seconds: int
     playback_cache_max_bytes: int
     playback_cache_ttl_seconds: int
     playback_restore_lock_ttl_seconds: int
@@ -283,6 +284,9 @@ class RuntimeTuningSettingsService:
             prebuffer_buffer_seconds=(
                 settings.prebuffer_buffer_seconds
             ),
+            turn_credential_ttl_seconds=(
+                settings.turn_credential_ttl_seconds
+            ),
             playback_cache_max_bytes=(
                 settings.playback_cache_max_bytes
             ),
@@ -328,6 +332,9 @@ class RuntimeTuningSettingsService:
             "prebuffer_buffer_seconds": (
                 defaults.prebuffer_buffer_seconds
             ),
+            "turn_credential_ttl_seconds": (
+                defaults.turn_credential_ttl_seconds
+            ),
             "playback_cache_max_bytes": defaults.playback_cache_max_bytes,
             "playback_cache_ttl_seconds": defaults.playback_cache_ttl_seconds,
             "playback_restore_lock_ttl_seconds": (
@@ -370,6 +377,13 @@ class RuntimeTuningSettingsService:
                 maximum=600,
                 code="runtime_prebuffer_buffer_seconds_invalid",
                 field="Prebuffer buffer seconds",
+            ),
+            "turn_credential_ttl_seconds": cls._bounded_int(
+                base["turn_credential_ttl_seconds"],
+                minimum=60,
+                maximum=3600,
+                code="runtime_turn_credential_ttl_invalid",
+                field="TURN credential TTL",
             ),
             "playback_cache_max_bytes": cls._bounded_int(
                 base["playback_cache_max_bytes"],
@@ -455,6 +469,9 @@ class RuntimeTuningSettingsService:
             ),
             prebuffer_buffer_seconds=int(
                 value["prebuffer_buffer_seconds"]
+            ),
+            turn_credential_ttl_seconds=int(
+                value["turn_credential_ttl_seconds"]
             ),
             playback_cache_max_bytes=int(value["playback_cache_max_bytes"]),
             playback_cache_ttl_seconds=int(value["playback_cache_ttl_seconds"]),

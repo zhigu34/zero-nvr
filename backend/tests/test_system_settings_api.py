@@ -66,6 +66,7 @@ def test_system_settings_are_bounded_persisted_and_audited(
         assert defaults.json()["runtime"] == {
             "prebuffer_fragment_seconds": 5,
             "prebuffer_buffer_seconds": 35,
+            "turn_credential_ttl_seconds": 600,
             "playback_cache_max_bytes": 4294967296,
             "playback_cache_ttl_seconds": 21600,
             "playback_restore_lock_ttl_seconds": 900,
@@ -107,6 +108,7 @@ def test_system_settings_are_bounded_persisted_and_audited(
                 "runtime": {
                     "prebuffer_fragment_seconds": 7,
                     "prebuffer_buffer_seconds": 45,
+                    "turn_credential_ttl_seconds": 120,
                     "playback_cache_max_bytes": 134217728,
                     "playback_cache_ttl_seconds": 3600,
                     "playback_restore_lock_ttl_seconds": 300,
@@ -123,6 +125,7 @@ def test_system_settings_are_bounded_persisted_and_audited(
         assert runtime.json()["runtime"] == {
             "prebuffer_fragment_seconds": 7,
             "prebuffer_buffer_seconds": 45,
+            "turn_credential_ttl_seconds": 120,
             "playback_cache_max_bytes": 134217728,
             "playback_cache_ttl_seconds": 3600,
             "playback_restore_lock_ttl_seconds": 300,
@@ -186,6 +189,12 @@ def test_system_settings_are_bounded_persisted_and_audited(
                 "prebuffer_buffer_seconds"
             ]
             == 45
+        )
+        assert (
+            runtime_row.value_json[
+                "turn_credential_ttl_seconds"
+            ]
+            == 120
         )
         assert (
             runtime_row.value_json[
