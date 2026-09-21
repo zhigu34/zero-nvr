@@ -7,6 +7,7 @@ from app.modules.auth.api import router as auth_router
 from app.modules.auth.oidc_api import router as oidc_router
 from app.modules.backups.api import router as backups_router
 from app.modules.cameras.api import router as cameras_router
+from app.modules.cameras.live_layouts import router as live_layouts_router
 from app.modules.events.api import router as events_router
 from app.modules.exports.api import router as exports_router
 from app.modules.notifications.api import router as notifications_router
@@ -22,6 +23,7 @@ router.include_router(backups_router, prefix="/backups", tags=["backups"])
 router.include_router(alerts_router, tags=["alerts"])
 router.include_router(auth_admin_router, tags=["users"])
 router.include_router(cameras_router, tags=["cameras"])
+router.include_router(live_layouts_router, tags=["cameras"])
 router.include_router(events_router, tags=["events"])
 router.include_router(exports_router, tags=["exports"])
 router.include_router(notifications_router, tags=["notifications"])

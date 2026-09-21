@@ -126,6 +126,10 @@ const icons: Record<string, string> = {
     '<path d="m15 18-6-6 6-6"/>',
   "chevron-down":
     '<path d="m6 9 6 6 6-6"/>',
+  save:
+    '<path d="M5 4h12l2 2v14H5Z"/><path d="M8 4v6h8V4M8 16h8"/>',
+  star:
+    '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
   minus:
     '<path d="M5 12h14"/>'
 }

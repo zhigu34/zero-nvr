@@ -11,25 +11,42 @@ import {
   type CameraSummary
 } from "../api/cameras"
 import { errorMessage } from "../api/client"
-import type { LiveQuality } from "../api/live"
+import {
+  createLiveViewLayout,
+  deleteLiveViewLayout,
+  listLiveViewLayouts,
+  updateLiveViewLayout,
+  type LiveLayoutSlots,
+  type LiveQuality,
+  type LiveViewLayout,
+  type LiveViewLayoutState
+} from "../api/live"
 import LiveCameraTile from "../components/live/LiveCameraTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
-type LayoutSlots = 1 | 4 | 9 | 16
-
 const auth = useAuthStore()
-const layoutOptions: LayoutSlots[] = [1, 4, 9, 16]
+const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const selectedIds = ref<string[]>([])
-const layoutSlots = ref<LayoutSlots>(4)
+const layoutSlots = ref<LiveLayoutSlots>(4)
 const focusedCameraId = ref<string | null>(null)
 const cameraPanelOpen = ref(true)
 const search = ref("")
 const loading = ref(false)
 const error = ref<string | null>(null)
 const fullscreen = ref(false)
+
+const savedLayouts = ref<LiveViewLayout[]>([])
+const activeLayoutId = ref<string | null>(null)
+const layoutBusy = ref(false)
+const layoutCreateOpen = ref(false)
+const layoutNameDraft = ref("")
+const layoutNotice = ref<string | null>(null)
+
+let layoutsInitialized = false
+let layoutNoticeTimer: number | null = null
 
 const enabledCameras = computed(() =>
   cameras.value.filter((camera) => camera.enabled)
@@ -83,11 +100,65 @@ const streamQuality = computed<LiveQuality>(() =>
   focusedCameraId.value || layoutSlots.value <= 4 ? "high" : "low"
 )
 
-function initializeSelection(): void {
-  const validIds = new Set(cameras.value.map((camera) => camera.id))
-  selectedIds.value = selectedIds.value.filter((id) => validIds.has(id))
+const activeLayout = computed(() =>
+  savedLayouts.value.find(
+    (layout) => layout.id === activeLayoutId.value
+  ) ?? null
+)
 
-  if (!selectedIds.value.length) {
+function currentLayoutState(): LiveViewLayoutState {
+  return {
+    slots: layoutSlots.value,
+    camera_ids: selectedIds.value.slice(0, 16),
+    camera_panel_open: cameraPanelOpen.value
+  }
+}
+
+function layoutStateEquals(
+  left: LiveViewLayoutState,
+  right: LiveViewLayoutState
+): boolean {
+  return (
+    left.slots === right.slots &&
+    left.camera_panel_open === right.camera_panel_open &&
+    left.camera_ids.length === right.camera_ids.length &&
+    left.camera_ids.every(
+      (cameraId, index) => cameraId === right.camera_ids[index]
+    )
+  )
+}
+
+const layoutDirty = computed(() => {
+  const layout = activeLayout.value
+  if (!layout) return false
+  return !layoutStateEquals(
+    currentLayoutState(),
+    layout.layout
+  )
+})
+
+function showLayoutNotice(message: string): void {
+  if (layoutNoticeTimer !== null) {
+    window.clearTimeout(layoutNoticeTimer)
+  }
+  layoutNotice.value = message
+  layoutNoticeTimer = window.setTimeout(() => {
+    layoutNotice.value = null
+    layoutNoticeTimer = null
+  }, 1800)
+}
+
+function initializeSelection(fillIfEmpty = true): void {
+  const validIds = new Set(
+    cameras.value
+      .filter((camera) => camera.enabled)
+      .map((camera) => camera.id)
+  )
+  selectedIds.value = selectedIds.value.filter(
+    (id) => validIds.has(id)
+  )
+
+  if (fillIfEmpty && !selectedIds.value.length) {
     selectedIds.value = enabledCameras.value
       .slice(0, Math.min(4, enabledCameras.value.length))
       .map((camera) => camera.id)
@@ -101,14 +172,54 @@ function initializeSelection(): void {
   }
 }
 
+function applyLayout(layout: LiveViewLayout): void {
+  const enabledIds = new Set(
+    enabledCameras.value.map((camera) => camera.id)
+  )
+  layoutSlots.value = layout.layout.slots
+  selectedIds.value = layout.layout.camera_ids.filter(
+    (cameraId) => enabledIds.has(cameraId)
+  )
+  cameraPanelOpen.value = layout.layout.camera_panel_open
+  focusedCameraId.value = null
+  activeLayoutId.value = layout.id
+}
+
 async function refresh(): Promise<void> {
   if (!auth.hasPermission("camera.view")) return
 
   loading.value = true
   error.value = null
   try {
-    cameras.value = await listCameras()
-    initializeSelection()
+    const [nextCameras, nextLayouts] = await Promise.all([
+      listCameras(),
+      listLiveViewLayouts()
+    ])
+    cameras.value = nextCameras
+    savedLayouts.value = nextLayouts
+
+    if (
+      activeLayoutId.value &&
+      !nextLayouts.some(
+        (layout) => layout.id === activeLayoutId.value
+      )
+    ) {
+      activeLayoutId.value = null
+    }
+
+    if (!layoutsInitialized) {
+      const defaultLayout = nextLayouts.find(
+        (layout) => layout.is_default
+      )
+      if (defaultLayout) {
+        applyLayout(defaultLayout)
+      } else {
+        initializeSelection(true)
+      }
+      layoutsInitialized = true
+    } else {
+      initializeSelection(activeLayoutId.value === null)
+    }
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -145,9 +256,130 @@ function focusCamera(cameraId: string): void {
   focusedCameraId.value = cameraId
 }
 
-function setLayout(slots: LayoutSlots): void {
+function setLayout(slots: LiveLayoutSlots): void {
   layoutSlots.value = slots
   focusedCameraId.value = null
+}
+
+function handleLayoutSelection(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  if (!value) {
+    activeLayoutId.value = null
+    return
+  }
+  const layout = savedLayouts.value.find(
+    (item) => item.id === value
+  )
+  if (layout) applyLayout(layout)
+}
+
+function beginLayoutCreate(): void {
+  layoutNameDraft.value = ""
+  layoutCreateOpen.value = true
+}
+
+function cancelLayoutCreate(): void {
+  layoutCreateOpen.value = false
+  layoutNameDraft.value = ""
+}
+
+async function createCurrentLayout(): Promise<void> {
+  const name = layoutNameDraft.value.trim()
+  if (!name || layoutBusy.value) return
+
+  layoutBusy.value = true
+  error.value = null
+  try {
+    const created = await createLiveViewLayout({
+      name,
+      is_default: savedLayouts.value.length === 0,
+      layout: currentLayoutState()
+    })
+    savedLayouts.value = await listLiveViewLayouts()
+    applyLayout(
+      savedLayouts.value.find(
+        (layout) => layout.id === created.id
+      ) ?? created
+    )
+    cancelLayoutCreate()
+    showLayoutNotice("Layout saved")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    layoutBusy.value = false
+  }
+}
+
+async function saveActiveLayout(): Promise<void> {
+  const layout = activeLayout.value
+  if (!layout || layoutBusy.value || !layoutDirty.value) return
+
+  layoutBusy.value = true
+  error.value = null
+  try {
+    const updated = await updateLiveViewLayout(
+      layout.id,
+      { layout: currentLayoutState() }
+    )
+    savedLayouts.value = savedLayouts.value.map((item) =>
+      item.id === updated.id ? updated : item
+    )
+    showLayoutNotice("Layout updated")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    layoutBusy.value = false
+  }
+}
+
+async function setActiveLayoutDefault(): Promise<void> {
+  const layout = activeLayout.value
+  if (!layout || layout.is_default || layoutBusy.value) return
+
+  layoutBusy.value = true
+  error.value = null
+  try {
+    const updated = await updateLiveViewLayout(
+      layout.id,
+      { is_default: true }
+    )
+    savedLayouts.value = savedLayouts.value.map((item) => ({
+      ...item,
+      is_default: item.id === updated.id
+    }))
+    showLayoutNotice("Default layout updated")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    layoutBusy.value = false
+  }
+}
+
+async function deleteActiveLayout(): Promise<void> {
+  const layout = activeLayout.value
+  if (!layout || layoutBusy.value) return
+  if (
+    !window.confirm(
+      `Delete the saved layout “${layout.name}”?`
+    )
+  ) {
+    return
+  }
+
+  layoutBusy.value = true
+  error.value = null
+  try {
+    await deleteLiveViewLayout(layout.id)
+    savedLayouts.value = savedLayouts.value.filter(
+      (item) => item.id !== layout.id
+    )
+    activeLayoutId.value = null
+    showLayoutNotice("Layout deleted")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    layoutBusy.value = false
+  }
 }
 
 async function toggleFullscreen(): Promise<void> {
@@ -183,6 +415,9 @@ onBeforeUnmount(() => {
   window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
   window.removeEventListener("keydown", handleKeydown)
   document.removeEventListener("fullscreenchange", handleFullscreenChange)
+  if (layoutNoticeTimer !== null) {
+    window.clearTimeout(layoutNoticeTimer)
+  }
 })
 </script>
 
@@ -289,9 +524,113 @@ onBeforeUnmount(() => {
           >
             {{ selectedCameras.length - layoutSlots }} hidden
           </span>
+
+          <span
+            v-if="layoutNotice"
+            class="live-toolbar__hint"
+          >
+            {{ layoutNotice }}
+          </span>
         </div>
 
         <div class="live-toolbar__actions">
+          <form
+            v-if="!focusedCameraId && layoutCreateOpen"
+            class="live-layout-create"
+            @submit.prevent="createCurrentLayout"
+          >
+            <input
+              v-model="layoutNameDraft"
+              type="text"
+              maxlength="128"
+              placeholder="Layout name"
+              aria-label="Layout name"
+              autofocus
+            />
+            <button
+              class="media-button"
+              type="submit"
+              title="Save new layout"
+              :disabled="layoutBusy || !layoutNameDraft.trim()"
+            >
+              <UiIcon name="check" :size="14" />
+            </button>
+            <button
+              class="media-button"
+              type="button"
+              title="Cancel"
+              @click="cancelLayoutCreate"
+            >
+              <UiIcon name="close" :size="14" />
+            </button>
+          </form>
+
+          <div
+            v-if="!focusedCameraId && !layoutCreateOpen"
+            class="live-saved-layouts"
+          >
+            <select
+              :value="activeLayoutId || ''"
+              aria-label="Saved live layouts"
+              @change="handleLayoutSelection"
+            >
+              <option value="">Current view</option>
+              <option
+                v-for="layout in savedLayouts"
+                :key="layout.id"
+                :value="layout.id"
+              >
+                {{ layout.is_default ? "★ " : "" }}{{ layout.name }}
+              </option>
+            </select>
+            <button
+              v-if="activeLayout"
+              class="media-button"
+              type="button"
+              title="Save changes to this layout"
+              :disabled="layoutBusy || !layoutDirty"
+              @click="saveActiveLayout"
+            >
+              <UiIcon name="save" :size="14" />
+            </button>
+            <button
+              class="media-button"
+              type="button"
+              title="Save current view as a new layout"
+              :disabled="layoutBusy"
+              @click="beginLayoutCreate"
+            >
+              <UiIcon name="plus" :size="14" />
+            </button>
+            <button
+              v-if="activeLayout"
+              class="media-button"
+              :class="{
+                'media-button--active': activeLayout.is_default
+              }"
+              type="button"
+              :title="
+                activeLayout.is_default
+                  ? 'Default layout'
+                  : 'Set as default layout'
+              "
+              :disabled="layoutBusy || activeLayout.is_default"
+              @click="setActiveLayoutDefault"
+            >
+              <UiIcon name="star" :size="14" />
+            </button>
+            <button
+              v-if="activeLayout"
+              class="media-button"
+              type="button"
+              title="Delete saved layout"
+              :disabled="layoutBusy"
+              @click="deleteActiveLayout"
+            >
+              <UiIcon name="trash" :size="14" />
+            </button>
+          </div>
+
           <button
             v-if="focusedCameraId"
             class="media-button media-button--text"

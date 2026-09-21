@@ -1638,6 +1638,66 @@ strong {
   border-radius: var(--radius-sm);
 }
 
+.live-saved-layouts,
+.live-layout-create {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--media-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(
+    in srgb,
+    var(--media-raised) 92%,
+    black
+  );
+}
+
+.live-saved-layouts select,
+.live-layout-create input {
+  min-height: 28px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--media-text);
+  font-size: 10px;
+}
+
+.live-saved-layouts select {
+  width: 142px;
+  padding: 0 6px;
+  color-scheme: dark;
+}
+
+.live-saved-layouts option {
+  background: var(--media-raised);
+  color: var(--media-text);
+}
+
+.live-layout-create input {
+  width: 132px;
+  padding: 0 7px;
+}
+
+.live-layout-create input::placeholder {
+  color: var(--media-muted);
+}
+
+.live-saved-layouts .media-button,
+.live-layout-create .media-button {
+  min-width: 27px;
+  min-height: 27px;
+  padding: 0 5px;
+}
+
+.live-saved-layouts .media-button:disabled,
+.live-layout-create .media-button:disabled {
+  cursor: default;
+  opacity: 0.38;
+}
+
+
 .live-toolbar__title {
   font-size: 11px;
   font-weight: 620;
@@ -1919,6 +1979,14 @@ strong {
   .live-toolbar__title,
   .live-toolbar__hint {
     display: none;
+  }
+
+  .live-saved-layouts select {
+    width: 104px;
+  }
+
+  .live-layout-create input {
+    width: 92px;
   }
 
   .live-grid {

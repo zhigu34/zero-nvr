@@ -429,3 +429,40 @@ class PrincipalCameraScopeEntry(UUIDPrimaryKeyMixin, Base):
         ForeignKey("camera_groups.id", ondelete="CASCADE"),
         nullable=True,
     )
+
+
+
+class LiveViewLayout(UUIDPrimaryKeyMixin, TimestampMixin, Base):
+    __tablename__ = "live_view_layouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "owner_user_id",
+            "name",
+            name="uq_live_view_layouts_owner_name",
+        ),
+        Index(
+            "uq_live_view_layouts_owner_default",
+            "owner_user_id",
+            unique=True,
+            sqlite_where=text("is_default"),
+            postgresql_where=text("is_default"),
+        ),
+    )
+
+    owner_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDType,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    is_default: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    layout_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+    )

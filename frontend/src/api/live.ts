@@ -30,3 +30,62 @@ export function getCameraLiveStream(
 export function cameraSnapshotUrl(cameraId: string): string {
   return `/api/v1/cameras/${encodeURIComponent(cameraId)}/snapshot`
 }
+
+
+export type LiveLayoutSlots = 1 | 4 | 9 | 16
+
+export interface LiveViewLayoutState {
+  slots: LiveLayoutSlots
+  camera_ids: string[]
+  camera_panel_open: boolean
+}
+
+export interface LiveViewLayout {
+  id: string
+  name: string
+  is_default: boolean
+  layout: LiveViewLayoutState
+  created_at: string
+  updated_at: string
+}
+
+export function listLiveViewLayouts(): Promise<LiveViewLayout[]> {
+  return apiRequest<LiveViewLayout[]>("/live-layouts")
+}
+
+export function createLiveViewLayout(input: {
+  name: string
+  is_default?: boolean
+  layout: LiveViewLayoutState
+}): Promise<LiveViewLayout> {
+  return apiRequest<LiveViewLayout>("/live-layouts", {
+    method: "POST",
+    json: input
+  })
+}
+
+export function updateLiveViewLayout(
+  layoutId: string,
+  changes: {
+    name?: string
+    is_default?: boolean
+    layout?: LiveViewLayoutState
+  }
+): Promise<LiveViewLayout> {
+  return apiRequest<LiveViewLayout>(
+    `/live-layouts/${encodeURIComponent(layoutId)}`,
+    {
+      method: "PATCH",
+      json: changes
+    }
+  )
+}
+
+export function deleteLiveViewLayout(
+  layoutId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/live-layouts/${encodeURIComponent(layoutId)}`,
+    { method: "DELETE" }
+  )
+}
