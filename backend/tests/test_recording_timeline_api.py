@@ -293,19 +293,23 @@ def test_timeline_api_normalizes_timezone_and_projects_ranges(
             + timedelta(minutes=5)
         )
 
-        assert body["gaps"] == [
-            {
-                "start_at": (
-                    base
-                    + timedelta(minutes=5)
-                ).isoformat(),
-                "end_at": (
-                    base
-                    + timedelta(minutes=10)
-                ).isoformat(),
-                "reason": "unknown",
-            }
-        ]
+        assert len(body["gaps"]) == 1
+        gap = body["gaps"][0]
+        assert (
+            datetime.fromisoformat(
+                gap["start_at"]
+            )
+            == base
+            + timedelta(minutes=5)
+        )
+        assert (
+            datetime.fromisoformat(
+                gap["end_at"]
+            )
+            == base
+            + timedelta(minutes=10)
+        )
+        assert gap["reason"] == "unknown"
 
         assert len(body["events"]) == 1
         marker = body["events"][0]
