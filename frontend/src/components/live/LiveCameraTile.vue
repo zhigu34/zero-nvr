@@ -63,8 +63,27 @@ const ptzHolding = ref(false)
 const pageVisible = ref(!document.hidden)
 const tileVisible = ref(true)
 const fullscreenActive = ref(false)
+interface LiveTelemetry {
+  bitrateKbps: number | null
+  packetLossPct: number | null
+  rttMs: number | null
+  jitterMs: number | null
+  relay: boolean | null
+  firstFrameMs: number | null
+  reconnects: number
+}
+
 const reconnecting = ref(false)
 const activeTransport = ref<"webrtc" | "hls" | null>(null)
+const telemetry = ref<LiveTelemetry>({
+  bitrateKbps: null,
+  packetLossPct: null,
+  rttMs: null,
+  jitterMs: null,
+  relay: null,
+  firstFrameMs: null,
+  reconnects: 0
+})
 
 let hls: Hls | null = null
 let rtcPeer: RTCPeerConnection | null = null
@@ -73,6 +92,10 @@ let generation = 0
 let tokenRefreshTimer: number | null = null
 let reconnectTimer: number | null = null
 let reconnectAttempt = 0
+let statsTimer: number | null = null
+let statsPreviousBytes = 0
+let statsPreviousAt = 0
+let streamStartedAt = 0
 let recordingErrorTimer: number | null = null
 let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
@@ -203,6 +226,7 @@ function scheduleReconnect(): void {
   clearReconnect()
   if (playbackSuspended.value) return
 
+  telemetry.value.reconnects += 1
   const delays = [1_000, 2_000, 4_000, 8_000, 15_000]
   const delay = delays[
     Math.min(reconnectAttempt, delays.length - 1)
@@ -218,7 +242,151 @@ function scheduleReconnect(): void {
   }, delay)
 }
 
+function clearStatsTimer(): void {
+  if (statsTimer !== null) {
+    window.clearInterval(statsTimer)
+    statsTimer = null
+  }
+  statsPreviousBytes = 0
+  statsPreviousAt = 0
+}
+
+async function collectWebRtcStats(
+  peer: RTCPeerConnection
+): Promise<void> {
+  if (rtcPeer !== peer) return
+
+  try {
+    const report = await peer.getStats()
+    if (rtcPeer !== peer) return
+
+    let bytesReceived = 0
+    let packetsReceived = 0
+    let packetsLost = 0
+    let jitterMs: number | null = null
+    let selectedPairId: string | null = null
+
+    report.forEach((raw) => {
+      const stat = raw as unknown as Record<string, unknown>
+      if (
+        stat.type === "inbound-rtp" &&
+        stat.isRemote !== true
+      ) {
+        if (typeof stat.bytesReceived === "number") {
+          bytesReceived += stat.bytesReceived
+        }
+        if (typeof stat.packetsReceived === "number") {
+          packetsReceived += stat.packetsReceived
+        }
+        if (typeof stat.packetsLost === "number") {
+          packetsLost += Math.max(0, stat.packetsLost)
+        }
+        if (typeof stat.jitter === "number") {
+          const value = stat.jitter * 1000
+          jitterMs = jitterMs === null
+            ? value
+            : Math.max(jitterMs, value)
+        }
+      }
+      if (
+        stat.type === "transport" &&
+        typeof stat.selectedCandidatePairId === "string"
+      ) {
+        selectedPairId = stat.selectedCandidatePairId
+      }
+    })
+
+    const now = performance.now()
+    let bitrateKbps: number | null = null
+    if (
+      statsPreviousAt > 0 &&
+      now > statsPreviousAt &&
+      bytesReceived >= statsPreviousBytes
+    ) {
+      bitrateKbps =
+        ((bytesReceived - statsPreviousBytes) * 8) /
+        (now - statsPreviousAt)
+    }
+    statsPreviousBytes = bytesReceived
+    statsPreviousAt = now
+
+    const totalPackets = packetsReceived + packetsLost
+    const packetLossPct = totalPackets > 0
+      ? (packetsLost / totalPackets) * 100
+      : null
+
+    let rttMs: number | null = null
+    let relay: boolean | null = null
+    let pair: Record<string, unknown> | null = null
+
+    if (selectedPairId) {
+      const selected = report.get(selectedPairId)
+      if (selected) {
+        pair = selected as unknown as Record<string, unknown>
+      }
+    }
+
+    if (!pair) {
+      report.forEach((raw) => {
+        if (pair) return
+        const stat = raw as unknown as Record<string, unknown>
+        if (
+          stat.type === "candidate-pair" &&
+          stat.state === "succeeded" &&
+          stat.nominated === true
+        ) {
+          pair = stat
+        }
+      })
+    }
+
+    if (pair) {
+      if (
+        typeof pair.currentRoundTripTime === "number"
+      ) {
+        rttMs = pair.currentRoundTripTime * 1000
+      }
+      const localCandidateId =
+        typeof pair.localCandidateId === "string"
+          ? pair.localCandidateId
+          : null
+      if (localCandidateId) {
+        const local = report.get(localCandidateId)
+        if (local) {
+          const candidate =
+            local as unknown as Record<string, unknown>
+          if (candidate.type === "local-candidate") {
+            relay = candidate.candidateType === "relay"
+          }
+        }
+      }
+    }
+
+    telemetry.value = {
+      ...telemetry.value,
+      bitrateKbps,
+      packetLossPct,
+      rttMs,
+      jitterMs,
+      relay
+    }
+  } catch {
+    // Diagnostic sampling must never disturb live playback.
+  }
+}
+
+function startStatsTimer(
+  peer: RTCPeerConnection
+): void {
+  clearStatsTimer()
+  void collectWebRtcStats(peer)
+  statsTimer = window.setInterval(() => {
+    void collectWebRtcStats(peer)
+  }, 2000)
+}
+
 function releaseWebRtcSession(): void {
+  clearStatsTimer()
   const peer = rtcPeer
   const location = whepLocation
   rtcPeer = null
@@ -379,6 +547,7 @@ async function attachWebRtc(
       sdp: whep.answerSdp
     })
     activeTransport.value = "webrtc"
+    startStatsTimer(peer)
     await element.play().catch(() => undefined)
   } catch (caught) {
     if (rtcPeer === peer) {
@@ -508,6 +677,16 @@ async function loadStream(): Promise<void> {
 
   clearReconnect()
   const currentGeneration = ++generation
+  streamStartedAt = performance.now()
+  telemetry.value = {
+    ...telemetry.value,
+    bitrateKbps: null,
+    packetLossPct: null,
+    rttMs: null,
+    jitterMs: null,
+    relay: null,
+    firstFrameMs: null
+  }
   clearTokenRefresh()
   hls?.destroy()
   hls = null
@@ -575,6 +754,15 @@ function handlePlaying(): void {
   reconnectAttempt = 0
   clearReconnect()
   error.value = null
+  if (
+    telemetry.value.firstFrameMs === null &&
+    streamStartedAt > 0
+  ) {
+    telemetry.value.firstFrameMs = Math.max(
+      0,
+      performance.now() - streamStartedAt
+    )
+  }
 }
 
 function retryStream(): void {
@@ -897,6 +1085,34 @@ onBeforeUnmount(() => {
         </span>
         <span v-if="descriptor?.fps">
           {{ Math.round(descriptor.fps) }} FPS
+        </span>
+        <template v-if="focused && activeTransport === 'webrtc'">
+          <span v-if="telemetry.bitrateKbps !== null">
+            {{ Math.round(telemetry.bitrateKbps) }} kb/s
+          </span>
+          <span v-if="telemetry.rttMs !== null">
+            {{ Math.round(telemetry.rttMs) }} ms RTT
+          </span>
+          <span v-if="telemetry.packetLossPct !== null">
+            {{ telemetry.packetLossPct.toFixed(1) }}% loss
+          </span>
+          <span v-if="telemetry.jitterMs !== null">
+            {{ Math.round(telemetry.jitterMs) }} ms jitter
+          </span>
+          <span v-if="telemetry.relay === true">Relay</span>
+          <span v-else-if="telemetry.relay === false">Direct</span>
+        </template>
+        <span
+          v-if="focused && telemetry.firstFrameMs !== null"
+        >
+          {{ Math.round(telemetry.firstFrameMs) }} ms first frame
+        </span>
+        <span
+          v-if="focused && telemetry.reconnects"
+        >
+          {{ telemetry.reconnects }} reconnect{{
+            telemetry.reconnects === 1 ? "" : "s"
+          }}
         </span>
       </div>
 
