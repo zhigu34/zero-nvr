@@ -737,8 +737,36 @@ export interface ReleaseValidation {
   soak: ReleaseValidationArtifact
 }
 
+export interface ReleaseReadinessCheck {
+  name: "benchmark" | "soak" | "verified_backup"
+  passed: boolean
+  code: string
+  details: Record<string, unknown>
+}
+
+export interface ReleaseReadiness {
+  expected_cameras: 8 | 16
+  checked_at: string
+  max_age_hours: number
+  passed: boolean
+  checks: ReleaseReadinessCheck[]
+}
+
 export function getReleaseValidation(): Promise<ReleaseValidation> {
   return apiRequest<ReleaseValidation>(
     "/system/release-validation"
+  )
+}
+
+export function getReleaseReadiness(
+  expectedCameras: 8 | 16,
+  maxAgeHours = 168
+): Promise<ReleaseReadiness> {
+  const params = new URLSearchParams({
+    expected_cameras: String(expectedCameras),
+    max_age_hours: String(maxAgeHours)
+  })
+  return apiRequest<ReleaseReadiness>(
+    `/system/release-readiness?${params}`
   )
 }
