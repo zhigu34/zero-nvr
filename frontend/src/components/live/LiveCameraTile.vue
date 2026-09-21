@@ -40,6 +40,7 @@ const props = defineProps<{
   quality: LiveQuality
   focused?: boolean
   audioEnabled?: boolean
+  allowHighQuality?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -82,7 +83,10 @@ const playbackSuspended = computed(
 )
 
 const requestedQuality = computed<LiveQuality>(() =>
-  fullscreenActive.value ? "high" : props.quality
+  fullscreenActive.value &&
+  props.allowHighQuality !== false
+    ? "high"
+    : props.quality
 )
 
 const manualRecordingActive = computed(() => {

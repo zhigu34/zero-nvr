@@ -163,7 +163,7 @@ Acceptance:
 - [x] WebRTC preferred transport with bounded fMP4/HLS fallback.
 - [x] camera/live authorization before media-session issuance.
 - [x] grid live_preview policy and focus/fullscreen live_main promotion/demotion.
-- [ ] viewport/network-aware auto quality with hysteresis.
+- [x] viewport/network-aware auto quality with hysteresis.
 - [ ] live-session telemetry: bitrate/loss/RTT/jitter/first-frame/reconnect/relay.
 - [ ] H.265/H.264 browser compatibility resolution independent from recording profile.
 - [ ] TranscodeManager for on-demand H.265/incompatible-H.264 -> browser-compatible H.264.

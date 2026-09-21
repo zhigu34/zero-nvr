@@ -25,6 +25,13 @@ import LiveCameraTile from "../components/live/LiveCameraTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
+interface NetworkInformationLike extends EventTarget {
+  saveData?: boolean
+  effectiveType?: string
+  downlink?: number
+  rtt?: number
+}
+
 const auth = useAuthStore()
 const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
@@ -37,6 +44,7 @@ const search = ref("")
 const loading = ref(false)
 const error = ref<string | null>(null)
 const fullscreen = ref(false)
+const networkConstrained = ref(false)
 
 const savedLayouts = ref<LiveViewLayout[]>([])
 const activeLayoutId = ref<string | null>(null)
@@ -47,6 +55,8 @@ const layoutNotice = ref<string | null>(null)
 
 let layoutsInitialized = false
 let layoutNoticeTimer: number | null = null
+let networkDowngradeTimer: number | null = null
+let networkUpgradeTimer: number | null = null
 
 const enabledCameras = computed(() =>
   cameras.value.filter((camera) => camera.enabled)
@@ -96,8 +106,15 @@ const gridColumns = computed(() => {
   return 4
 })
 
-const streamQuality = computed<LiveQuality>(() =>
-  focusedCameraId.value || layoutSlots.value === 1 ? "high" : "low"
+const streamQuality = computed<LiveQuality>(() => {
+  if (networkConstrained.value) return "low"
+  return focusedCameraId.value || layoutSlots.value === 1
+    ? "high"
+    : "low"
+})
+
+const highQualityAllowed = computed(
+  () => !networkConstrained.value
 )
 
 const activeLayout = computed(() =>
@@ -146,6 +163,135 @@ function showLayoutNotice(message: string): void {
     layoutNotice.value = null
     layoutNoticeTimer = null
   }, 1800)
+}
+
+function networkInformation(): NetworkInformationLike | null {
+  const candidate = (
+    navigator as Navigator & {
+      connection?: NetworkInformationLike
+      mozConnection?: NetworkInformationLike
+      webkitConnection?: NetworkInformationLike
+    }
+  )
+  return (
+    candidate.connection ??
+    candidate.mozConnection ??
+    candidate.webkitConnection ??
+    null
+  )
+}
+
+function clearNetworkTimers(): void {
+  if (networkDowngradeTimer !== null) {
+    window.clearTimeout(networkDowngradeTimer)
+    networkDowngradeTimer = null
+  }
+  if (networkUpgradeTimer !== null) {
+    window.clearTimeout(networkUpgradeTimer)
+    networkUpgradeTimer = null
+  }
+}
+
+function networkLooksConstrained(
+  info: NetworkInformationLike
+): boolean {
+  return Boolean(
+    info.saveData ||
+    info.effectiveType === "slow-2g" ||
+    info.effectiveType === "2g" ||
+    (
+      typeof info.downlink === "number" &&
+      info.downlink > 0 &&
+      info.downlink < 2
+    ) ||
+    (
+      typeof info.rtt === "number" &&
+      info.rtt > 500
+    )
+  )
+}
+
+function networkLooksRecovered(
+  info: NetworkInformationLike
+): boolean {
+  if (info.saveData) return false
+  if (
+    info.effectiveType === "slow-2g" ||
+    info.effectiveType === "2g"
+  ) {
+    return false
+  }
+  if (
+    typeof info.downlink === "number" &&
+    info.downlink > 0 &&
+    info.downlink < 4
+  ) {
+    return false
+  }
+  if (
+    typeof info.rtt === "number" &&
+    info.rtt > 300
+  ) {
+    return false
+  }
+  return true
+}
+
+function evaluateNetworkQuality(
+  immediate = false
+): void {
+  const info = networkInformation()
+  if (!info) return
+
+  if (networkLooksConstrained(info)) {
+    if (networkUpgradeTimer !== null) {
+      window.clearTimeout(networkUpgradeTimer)
+      networkUpgradeTimer = null
+    }
+    if (networkConstrained.value) return
+    if (networkDowngradeTimer !== null) return
+
+    const apply = () => {
+      networkDowngradeTimer = null
+      networkConstrained.value = true
+    }
+    if (immediate) {
+      apply()
+    } else {
+      networkDowngradeTimer = window.setTimeout(
+        apply,
+        1500
+      )
+    }
+    return
+  }
+
+  if (networkDowngradeTimer !== null) {
+    window.clearTimeout(networkDowngradeTimer)
+    networkDowngradeTimer = null
+  }
+  if (
+    !networkConstrained.value ||
+    !networkLooksRecovered(info) ||
+    networkUpgradeTimer !== null
+  ) {
+    return
+  }
+
+  networkUpgradeTimer = window.setTimeout(() => {
+    networkUpgradeTimer = null
+    const latest = networkInformation()
+    if (
+      latest &&
+      networkLooksRecovered(latest)
+    ) {
+      networkConstrained.value = false
+    }
+  }, 8000)
+}
+
+function handleNetworkChange(): void {
+  evaluateNetworkQuality(false)
 }
 
 function initializeSelection(fillIfEmpty = true): void {
@@ -406,12 +552,22 @@ function handleRefreshEvent(): void {
 
 onMounted(() => {
   void refresh()
+  evaluateNetworkQuality(true)
+  networkInformation()?.addEventListener(
+    "change",
+    handleNetworkChange
+  )
   window.addEventListener("zero-nvr:refresh", handleRefreshEvent)
   window.addEventListener("keydown", handleKeydown)
   document.addEventListener("fullscreenchange", handleFullscreenChange)
 })
 
 onBeforeUnmount(() => {
+  networkInformation()?.removeEventListener(
+    "change",
+    handleNetworkChange
+  )
+  clearNetworkTimers()
   window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
   window.removeEventListener("keydown", handleKeydown)
   document.removeEventListener("fullscreenchange", handleFullscreenChange)
@@ -530,6 +686,13 @@ onBeforeUnmount(() => {
             class="live-toolbar__hint"
           >
             {{ layoutNotice }}
+          </span>
+
+          <span
+            v-if="networkConstrained"
+            class="live-toolbar__hint"
+          >
+            Network saving · preview quality
           </span>
         </div>
 
@@ -679,6 +842,7 @@ onBeforeUnmount(() => {
           :key="camera.id"
           :camera="camera"
           :quality="streamQuality"
+          :allow-high-quality="highQualityAllowed"
           :focused="focusedCameraId === camera.id"
           :audio-enabled="
             Boolean(focusedCameraId) || layoutSlots === 1
