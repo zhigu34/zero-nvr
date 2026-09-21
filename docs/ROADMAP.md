@@ -199,7 +199,7 @@ Acceptance:
 - [x] explicit schedule_timezone handling for wall-clock schedules.
 - [ ] Recording Settings UI for recording mode, nominal segment duration, and pre/post-roll; exact EVENT_ONLY pre-roll implementation follows the accepted POC result.
 - [x] segment persistence.
-- [ ] UTC canonical recording timestamps and database timeline indexes.
+- [x] UTC canonical recording timestamps and database timeline indexes.
 - [ ] map ZLM-native finalized recording paths into RecordingLocation without making filenames authoritative identity.
 - [ ] keep all canonical DB timestamps UTC; UI/path display timezone is presentation/configuration, not recording truth.
 - [ ] respect ZLM's own temporary-file/finalize semantics; zero-nvr must not add a second local media writer.

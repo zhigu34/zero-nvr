@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
 from app.core.config import Settings
 from app.core.db import Base, Database
@@ -466,5 +466,106 @@ def test_same_path_with_changed_size_is_conflict(
                     ),
                 )
             assert captured.value.code == "recording_location_conflict"
+    finally:
+        database.close()
+
+
+
+def test_recording_segment_times_are_utc_and_timeline_indexes_exist(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        camera_id, profile_id, _target_id = seed(
+            settings,
+            database,
+        )
+        offset = timezone(timedelta(hours=8))
+        started = datetime(
+            2026,
+            9,
+            21,
+            18,
+            0,
+            tzinfo=offset,
+        )
+        ended = started + timedelta(minutes=5)
+
+        with database.session() as session:
+            segment = RecordingSegment(
+                camera_id=camera_id,
+                stream_profile_id=profile_id,
+                started_at=started,
+                ended_at=ended,
+                duration_ms=300_000,
+                timing_status="FINAL",
+                timing_source="RECOVERY",
+                recording_reasons_json=[
+                    "continuous"
+                ],
+                size_bytes=1_000,
+                codec="h264",
+                container="fmp4",
+                source_media_server_id="default",
+                source_app="zero-nvr",
+                source_stream=(
+                    f"profile-{profile_id.hex}"
+                ),
+                integrity_status="OK",
+                completion_reason="NORMAL",
+            )
+            session.add(segment)
+            session.commit()
+            segment_id = segment.id
+
+        with database.session() as session:
+            stored = session.get(
+                RecordingSegment,
+                segment_id,
+            )
+            assert stored is not None
+            assert stored.started_at == datetime(
+                2026,
+                9,
+                21,
+                10,
+                0,
+                tzinfo=UTC,
+            )
+            assert stored.ended_at == datetime(
+                2026,
+                9,
+                21,
+                10,
+                5,
+                tzinfo=UTC,
+            )
+            assert stored.started_at.tzinfo == UTC
+            assert stored.ended_at.tzinfo == UTC
+
+        indexes = {
+            item["name"]: tuple(
+                item["column_names"]
+            )
+            for item in inspect(
+                database.engine
+            ).get_indexes(
+                "recording_segments"
+            )
+        }
+        assert indexes[
+            "ix_recording_segments_camera_started"
+        ] == (
+            "camera_id",
+            "started_at",
+        )
+        assert indexes[
+            "ix_recording_segments_camera_ended_started_id"
+        ] == (
+            "camera_id",
+            "ended_at",
+            "started_at",
+            "id",
+        )
     finally:
         database.close()
