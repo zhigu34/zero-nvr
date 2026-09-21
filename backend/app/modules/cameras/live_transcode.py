@@ -527,7 +527,7 @@ class LiveTranscodeManager:
                 )
             if (
                 len(self._derivatives)
-                < self.settings
+                < self._tuning()
                 .live_transcode_max_derivatives
             ):
                 return
