@@ -179,8 +179,8 @@ Acceptance:
 - [x] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
 - [x] ONVIF profile/capability discovery first, ZLM actual-stream verification second, ffprobe only as fallback/recovery inspection.
 - [x] CameraStreamProfile persistence and stream diagnostics.
-- [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
-- [ ] deterministic default profile binding with user override.
+- [x] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
+- [x] deterministic default profile binding with user override.
 - [ ] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
 - [ ] monitor/manage_ntp/ignore device-time mode where supported.
 - [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
