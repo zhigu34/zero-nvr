@@ -460,7 +460,9 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
         assert item["status"] == "OK"
         assert item["date_time_type"] == "NTP"
         assert item["offset_ms"] == 1250
+        assert item["uncertainty_ms"] == 90
         assert item["rtt_ms"] == 180
+        assert item["quality"] == "good"
         assert "onvif-secret" not in str(body)
         assert "onvif-admin" not in str(body)
 
