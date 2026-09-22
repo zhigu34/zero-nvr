@@ -78,7 +78,14 @@ def test_turn_shared_secret_accepts_configured_value() -> None:
     )
 
 
-def test_secret_key_file_bootstrap(tmp_path: Path) -> None:
+def test_secret_key_file_bootstrap(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.delenv(
+        "ZERO_NVR_SECRET_KEY",
+        raising=False,
+    )
     key_file = tmp_path / "zero-nvr-secret-key"
     key_file.write_text(
         ("f" * 40) + "\n",
@@ -116,7 +123,12 @@ def test_secret_key_file_rejects_direct_key_conflict(
 
 def test_secret_key_file_must_be_readable(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
+    monkeypatch.delenv(
+        "ZERO_NVR_SECRET_KEY",
+        raising=False,
+    )
     with pytest.raises(
         ValidationError,
         match="could not be read",
