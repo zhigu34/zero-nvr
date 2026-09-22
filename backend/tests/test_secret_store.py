@@ -244,3 +244,104 @@ def test_secret_store_persists_across_process_recreation(
             )
     finally:
         reopened_engine.dispose()
+
+
+def test_secret_store_rotates_persisted_records_to_primary_key() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SecretRecord.__table__.create(engine)
+    owner_id = uuid.uuid4()
+
+    try:
+        old_store = SecretStore(
+            Settings(secret_key=OLD_KEY)
+        )
+        with Session(engine) as session:
+            secret_ref = old_store.create_json(
+                session,
+                kind="rotation_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+                value={"password": "rotate-me"},
+            )
+            session.commit()
+
+        rotating_store = SecretStore(
+            Settings(
+                secret_key=NEW_KEY,
+                secret_key_previous=[OLD_KEY],
+            )
+        )
+        with Session(engine) as session:
+            result = rotating_store.rotate_records(
+                session
+            )
+            session.commit()
+
+        assert result.total_records == 1
+        assert result.rotated_records == 1
+        assert result.current_records == 0
+        assert (
+            result.primary_key_id
+            == rotating_store.primary_key_id
+        )
+
+        new_only_store = SecretStore(
+            Settings(secret_key=NEW_KEY)
+        )
+        with Session(engine) as session:
+            assert new_only_store.read_json(
+                session,
+                secret_ref,
+                kind="rotation_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            ) == {"password": "rotate-me"}
+            metadata = new_only_store.metadata(
+                session,
+                secret_ref,
+            )
+            assert not metadata.needs_rotation
+    finally:
+        engine.dispose()
+
+
+def test_secret_store_rotation_fails_before_mutation_without_old_key() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SecretRecord.__table__.create(engine)
+    owner_id = uuid.uuid4()
+
+    try:
+        old_store = SecretStore(
+            Settings(secret_key=OLD_KEY)
+        )
+        with Session(engine) as session:
+            secret_ref = old_store.create_json(
+                session,
+                kind="rotation_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+                value={"password": "still-old"},
+            )
+            session.commit()
+
+        new_only_store = SecretStore(
+            Settings(secret_key=NEW_KEY)
+        )
+        with Session(engine) as session:
+            with pytest.raises(
+                KeyError,
+                match="key is unavailable",
+            ):
+                new_only_store.rotate_records(session)
+            session.rollback()
+
+        with Session(engine) as session:
+            assert old_store.read_json(
+                session,
+                secret_ref,
+                kind="rotation_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            ) == {"password": "still-old"}
+    finally:
+        engine.dispose()
