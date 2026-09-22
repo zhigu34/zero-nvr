@@ -314,6 +314,84 @@ def test_replace_streams_deletes_proxy_keys_before_readding(
         database.close()
 
 
+def test_replace_online_streams_only_restarts_active_profiles(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=PRIMARY_URL,
+                secondary_name="Sub",
+                secondary_url=SECONDARY_URL,
+            )
+            session.commit()
+            camera_id = camera.id
+
+        FakeZlm.instances = []
+        runtime = CameraMediaRuntimeService(
+            settings,
+            zlm_factory=FakeZlm,
+        )
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            desired = runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+            session.commit()
+
+        assert len(desired) == 2
+        active = desired[0]
+        inactive = desired[1]
+        FakeZlm.online_streams = {
+            active.stream
+        }
+
+        replaced = (
+            runtime.replace_online_streams(
+                [active, inactive]
+            )
+        )
+        zlm = FakeZlm.instances[-1]
+
+        assert set(
+            zlm.online_checks
+        ) == {
+            active.stream,
+            inactive.stream,
+        }
+        assert zlm.delete_calls == [
+            active.reference.proxy_key
+        ]
+        assert [
+            item["stream"]
+            for item in zlm.add_calls
+        ] == [
+            active.stream
+        ]
+        assert [
+            item.profile_id
+            for item in replaced
+        ] == [
+            active.profile_id
+        ]
+    finally:
+        database.close()
+
+
 def test_media_runtime_does_not_implement_rtsp_reconnect_backoff() -> None:
     source = (
         Path(__file__).resolve().parents[1]
