@@ -110,6 +110,7 @@ def test_backup_policy_api_redacts_secrets_updates_and_queues_run(
         updated = client.patch(
             f"/api/v1/backups/policies/{policy_id}",
             json={
+                "credentials_action": "replace",
                 "credentials": {
                     "password": "new-restic-secret-password",
                     "environment": {
@@ -146,6 +147,7 @@ def test_backup_policy_api_redacts_secrets_updates_and_queues_run(
         password_only = client.patch(
             f"/api/v1/backups/policies/{policy_id}",
             json={
+                "credentials_action": "replace",
                 "credentials": {
                     "password": "rotated-restic-password",
                 }
