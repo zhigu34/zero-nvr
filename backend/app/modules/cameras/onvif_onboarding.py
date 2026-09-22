@@ -518,6 +518,9 @@ class OnvifOnboardingService:
                 except KeyError:
                     pass
 
+        for camera in cameras:
+            camera.config_revision += 1
+
         self._mark_discovery_candidate_imported(
             session,
             candidate_id=discovery_candidate_id,
