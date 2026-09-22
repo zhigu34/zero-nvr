@@ -312,6 +312,25 @@ The command edits only `COMPOSE_PROFILES` plus feature-specific bootstrap secret
 
 Managed PostgreSQL startup does not silently switch an existing SQLite deployment to PostgreSQL. Database-engine migration remains a separate, explicit workflow. When the active `ZERO_NVR_DATABASE_URL` points at the managed Compose `postgres` service, `feature disable postgres` refuses to stop that service until the active database is switched away, preventing an operator action from disconnecting the running control plane from its database.
 
+### database engine migration
+
+SQLite -> PostgreSQL remains an explicit guarded operation:
+
+```bash
+./deploy.sh database migrate postgres
+```
+
+PostgreSQL -> SQLite is intentionally stricter:
+
+```bash
+./deploy.sh database migrate sqlite
+./deploy.sh database migrate sqlite --confirm-sqlite-workload
+```
+
+The first command runs the reverse-migration preflight and refuses cutover until workload suitability is explicitly confirmed. The preflight reports the active Alembic schema heads, actual PostgreSQL database size, free/required space on the zero-nvr data filesystem, and the previous hour of representative high-write database activity (recording segments, events, alerts, and audit events). Hard blockers such as an incompatible schema or insufficient target disk space cannot be bypassed by workload confirmation.
+
+`--confirm-sqlite-workload` means the operator has reviewed those measured results and representative SQLite benchmark/soak evidence for the intended host. zero-nvr does not reject the reverse migration from a guessed camera-count limit. After preflight passes, the normal verified backup -> quiesce -> consistent source snapshot -> transfer -> cutover -> health-check workflow applies, and the previous PostgreSQL URL remains recorded for the rollback grace period.
+
 Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
 
 ### benchmark
