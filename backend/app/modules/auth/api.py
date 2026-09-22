@@ -117,6 +117,10 @@ def _auth_user(context: AuthContext) -> AuthUser:
         username=context.user.username,
         display_name=context.user.display_name,
         email=context.user.email,
+        email_verified=(
+            context.user.email_verified_at
+            is not None
+        ),
         roles=list(context.roles),
         permissions=sorted(context.permissions),
     )
@@ -155,6 +159,9 @@ def create_initial_administrator(
         username=user.username,
         display_name=user.display_name,
         email=user.email,
+        email_verified=(
+            user.email_verified_at is not None
+        ),
         roles=list(roles),
         permissions=sorted(permissions),
     )
