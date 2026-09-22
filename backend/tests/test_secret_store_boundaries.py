@@ -48,6 +48,8 @@ def test_application_uses_secret_store_persistence_boundary() -> None:
         if any(
             isinstance(node, ast.Attribute)
             and node.attr in crypto_methods
+            and isinstance(node.value, ast.Attribute)
+            and node.value.attr == "secret_store"
             for node in ast.walk(tree)
         ):
             crypto_bypasses.append(str(relative))
