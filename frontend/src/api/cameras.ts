@@ -176,6 +176,25 @@ export function importOnvif(
 }
 
 
+export interface CameraClockProjection {
+  camera_id: string
+  device_id: string | null
+  health:
+    | "unknown"
+    | "healthy"
+    | "warning"
+    | "critical"
+    | "unsupported"
+  quality: "unknown" | "good" | "degraded" | "poor"
+  measured_at: string | null
+  offset_ms: number | null
+  uncertainty_ms: number | null
+  rtt_ms: number | null
+  device_timezone: string | null
+  device_time_source: string | null
+  error_code: string | null
+}
+
 export interface CameraStreamProfile {
   id: string
   name: string
@@ -219,6 +238,14 @@ export interface CameraDetail extends CameraSummary {
 export function getCamera(cameraId: string): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(
     `/cameras/${encodeURIComponent(cameraId)}`
+  )
+}
+
+export function getCameraClock(
+  cameraId: string
+): Promise<CameraClockProjection> {
+  return apiRequest<CameraClockProjection>(
+    `/cameras/${encodeURIComponent(cameraId)}/clock`
   )
 }
 
