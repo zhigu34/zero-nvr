@@ -652,7 +652,15 @@ onMounted(() => {
             <td>
               {{ user.roles.map((item) => item.name).join(", ") || "No roles" }}
             </td>
-            <td>{{ user.email || "—" }}</td>
+            <td>
+              <template v-if="user.email">
+                {{ user.email }}
+                <small>
+                  {{ user.email_verified ? "Verified" : "Unverified" }}
+                </small>
+              </template>
+              <template v-else>—</template>
+            </td>
             <td>
               <span
                 class="status-pill"
