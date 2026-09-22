@@ -86,6 +86,10 @@ class RecordingTaskDispatcher:
         *,
         restart_streams: bool = False,
         force_reconfigure: bool = False,
+        restart_profile_ids: tuple[
+            uuid.UUID,
+            ...,
+        ] = (),
     ) -> None:
         from app.worker.tasks import reconcile_camera_runtime
 
@@ -93,6 +97,11 @@ class RecordingTaskDispatcher:
             str(camera_id),
             restart_streams,
             force_reconfigure,
+            tuple(
+                str(profile_id)
+                for profile_id
+                in restart_profile_ids
+            ),
         )
 
     @staticmethod
