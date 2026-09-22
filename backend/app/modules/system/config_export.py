@@ -457,8 +457,13 @@ class ConfigurationExportService:
                 "kind": item.kind,
                 "enabled": item.enabled,
                 "config": item.config_json or {},
-                "url_configured": bool(
-                    item.secret_ref
+                "url_configured": (
+                    item.kind == "apprise"
+                    and bool(item.secret_ref)
+                ),
+                "credentials_configured": (
+                    item.kind == "smtp"
+                    and bool(item.secret_ref)
                 ),
             }
             for item in session.scalars(
