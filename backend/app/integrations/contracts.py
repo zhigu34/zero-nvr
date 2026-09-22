@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Protocol, Self, runtime_checkable
 
 
@@ -18,22 +19,44 @@ class DeviceAdapter(Protocol):
 
     async def read_system_clock(
         self,
-        **kwargs: Any,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
     ) -> Any: ...
 
     async def configure_ntp(
         self,
-        **kwargs: Any,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        servers: tuple[str, ...],
     ) -> None: ...
 
     async def ptz_move(
         self,
-        **kwargs: Any,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        preferred_profile_tokens: tuple[str, ...] = (),
+        pan: float = 0.0,
+        tilt: float = 0.0,
+        zoom: float = 0.0,
     ) -> None: ...
 
     async def ptz_stop(
         self,
-        **kwargs: Any,
+        *,
+        host: str,
+        port: int,
+        username: str,
+        password: str,
+        preferred_profile_tokens: tuple[str, ...] = (),
     ) -> None: ...
 
 
@@ -51,12 +74,20 @@ class MediaPlane(Protocol):
         *,
         app: str,
         stream: str,
-        schema: str | None = None,
+        schema: str = "rtsp",
     ) -> bool: ...
 
     def add_stream_proxy(
         self,
-        **kwargs: Any,
+        *,
+        app: str,
+        stream: str,
+        source_url: str,
+        enable_mp4: bool = False,
+        enable_hls: bool = False,
+        mp4_save_path: str | None = None,
+        mp4_max_second: int | None = None,
+        retry_count: int = -1,
     ) -> str: ...
 
     def delete_stream_proxy(
@@ -66,28 +97,51 @@ class MediaPlane(Protocol):
 
     def close_stream(
         self,
-        **kwargs: Any,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+        force: bool = True,
     ) -> bool: ...
 
     def snapshot(
         self,
-        **kwargs: Any,
-    ) -> bytes: ...
+        *,
+        source_url: str,
+        timeout_seconds: int = 10,
+        expire_seconds: int = 3,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> tuple[bytes, str]: ...
 
     def whep_play(
         self,
-        **kwargs: Any,
+        *,
+        app: str,
+        stream: str,
+        offer_sdp: str,
+        playback_params: dict[str, str],
+        preferred_tcp: bool = False,
+        candidate_udp: str | None = None,
+        candidate_tcp: str | None = None,
+        max_sdp_bytes: int = 256 * 1024,
     ) -> Any: ...
 
     def delete_webrtc(
         self,
-        **kwargs: Any,
+        *,
+        session_id: str,
+        session_token: str,
     ) -> None: ...
 
     def load_mp4_file(
         self,
-        **kwargs: Any,
-    ) -> Any: ...
+        *,
+        app: str,
+        stream: str,
+        file_path: str,
+        seek_ms: int = 0,
+        speed: float = 1.0,
+    ) -> bool: ...
 
     def probe_rtsp_source(
         self,
@@ -139,13 +193,19 @@ class RecordingBackend(Protocol):
 class StorageBackend(Protocol):
     def copy_to_remote(
         self,
-        **kwargs: Any,
-    ) -> None: ...
+        *,
+        source: Path,
+        destination: str,
+        expected_size: int,
+    ) -> Any: ...
 
     def copy_to_local(
         self,
-        **kwargs: Any,
-    ) -> None: ...
+        *,
+        source: str,
+        destination: Path,
+        expected_size: int | None = None,
+    ) -> Any: ...
 
     def stat(
         self,
@@ -195,14 +255,21 @@ class DetectionProvider(Protocol):
 
     def events(
         self,
-        **kwargs: Any,
+        *,
+        after: float | None = None,
+        before: float | None = None,
+        cameras: list[str] | None = None,
+        limit: int = 100,
+        offset: int = 0,
     ) -> list[dict[str, Any]]: ...
 
     def snapshot(
         self,
-        camera: str,
-        **kwargs: Any,
-    ) -> bytes: ...
+        event_id: str,
+        *,
+        clean: bool = False,
+        max_bytes: int = 10 * 1024 * 1024,
+    ) -> tuple[bytes, str]: ...
 
 
 @runtime_checkable
