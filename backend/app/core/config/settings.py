@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     zlm_webrtc_port: int = 8001
     zlm_webrtc_extern_ip: str | None = None
     zlm_api_secret: SecretStr | None = None
+    zlm_api_secret_file: Path | None = None
     zlm_hook_secret: SecretStr | None = None
+    zlm_hook_secret_file: Path | None = None
     zlm_timeout_seconds: float = 8.0
     zlm_probe_timeout_seconds: float = 12.0
 
@@ -66,6 +68,7 @@ class Settings(BaseSettings):
     turn_public_host: str | None = None
     turn_port: int = 3478
     turn_shared_secret: SecretStr | None = None
+    turn_shared_secret_file: Path | None = None
     turn_credential_ttl_seconds: int = 10 * 60
     turn_realm: str = "zero-nvr"
 
@@ -95,47 +98,73 @@ class Settings(BaseSettings):
 
     @model_validator(mode="before")
     @classmethod
-    def load_secret_key_file(
+    def load_protected_secret_files(
         cls,
         values: object,
     ) -> object:
         if not isinstance(values, dict):
             return values
 
-        raw_key = values.get("secret_key")
-        key_file = values.get("secret_key_file")
-        has_key = False
-        if isinstance(raw_key, SecretStr):
-            has_key = bool(
-                raw_key.get_secret_value()
-            )
-        elif raw_key is not None:
-            has_key = bool(str(raw_key))
-
-        if key_file is None or not str(key_file).strip():
-            return values
-        if has_key:
-            raise ValueError(
-                "configure only one of ZERO_NVR_SECRET_KEY "
-                "or ZERO_NVR_SECRET_KEY_FILE"
-            )
-
-        path = Path(str(key_file))
-        try:
-            file_value = path.read_text(
-                encoding="utf-8"
-            ).rstrip("\r\n")
-        except OSError as exc:
-            raise ValueError(
-                "ZERO_NVR_SECRET_KEY_FILE could not be read"
-            ) from exc
-        if not file_value:
-            raise ValueError(
-                "ZERO_NVR_SECRET_KEY_FILE is empty"
-            )
-
         updated = dict(values)
-        updated["secret_key"] = file_value
+        for value_name, file_name, env_name in (
+            (
+                "secret_key",
+                "secret_key_file",
+                "ZERO_NVR_SECRET_KEY",
+            ),
+            (
+                "zlm_api_secret",
+                "zlm_api_secret_file",
+                "ZERO_NVR_ZLM_API_SECRET",
+            ),
+            (
+                "zlm_hook_secret",
+                "zlm_hook_secret_file",
+                "ZERO_NVR_ZLM_HOOK_SECRET",
+            ),
+            (
+                "turn_shared_secret",
+                "turn_shared_secret_file",
+                "ZERO_NVR_TURN_SHARED_SECRET",
+            ),
+        ):
+            raw_value = updated.get(value_name)
+            file_value = updated.get(file_name)
+
+            has_value = False
+            if isinstance(raw_value, SecretStr):
+                has_value = bool(
+                    raw_value.get_secret_value()
+                )
+            elif raw_value is not None:
+                has_value = bool(str(raw_value))
+
+            if (
+                file_value is None
+                or not str(file_value).strip()
+            ):
+                continue
+            if has_value:
+                raise ValueError(
+                    f"configure only one of {env_name} "
+                    f"or {env_name}_FILE"
+                )
+
+            path = Path(str(file_value))
+            try:
+                protected_value = path.read_text(
+                    encoding="utf-8"
+                ).rstrip("\r\n")
+            except OSError as exc:
+                raise ValueError(
+                    f"{env_name}_FILE could not be read"
+                ) from exc
+            if not protected_value:
+                raise ValueError(
+                    f"{env_name}_FILE is empty"
+                )
+            updated[value_name] = protected_value
+
         return updated
 
     @field_validator("secret_key")
@@ -159,9 +188,12 @@ class Settings(BaseSettings):
                 )
         return values
 
-    @field_validator("zlm_hook_secret")
+    @field_validator(
+        "zlm_api_secret",
+        "zlm_hook_secret",
+    )
     @classmethod
-    def validate_zlm_hook_secret(
+    def validate_zlm_secret(
         cls,
         value: SecretStr | None,
     ) -> SecretStr | None:
@@ -169,7 +201,7 @@ class Settings(BaseSettings):
             return None
         if len(value.get_secret_value().encode("utf-8")) < 32:
             raise ValueError(
-                "ZERO_NVR_ZLM_HOOK_SECRET must be at least 32 bytes"
+                "ZLM API/hook secret must be at least 32 bytes"
             )
         return value
 
