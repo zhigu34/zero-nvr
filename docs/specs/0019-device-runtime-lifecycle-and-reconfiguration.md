@@ -111,6 +111,15 @@ save candidate secret/config
 
 Where safe, keep the previous working configuration until the candidate passes validation.
 
+Revalidation is diff-driven after the candidate passes:
+
+- unchanged endpoint/credential/profile source facts do not rotate SecretRecord references or restart media runtime;
+- an endpoint-only change does not restart ZLM when the resolved RTSP source remains unchanged;
+- a changed bound stream URI restarts only that profile's proxy;
+- a credential change restarts only bound profiles whose resolved RTSP source depends on the device credential;
+- a changed RECORD profile also forces recorder reconfiguration; unrelated live profiles are not restarted;
+- an inactive non-recording live profile is not started merely because its configuration was refreshed.
+
 Do not implement a custom reconnect engine; after the endpoint/source is applied, ZLM owns reconnect behavior.
 
 ## Stream profile change
