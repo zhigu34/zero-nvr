@@ -125,10 +125,15 @@ class AuthService:
 
         try:
             roles = self._ensure_builtin_roles(session)
+            normalized_email = (
+                email.strip().lower()
+                if email
+                else None
+            )
             user = User(
                 username=username,
                 display_name=display_name,
-                email=email,
+                email=normalized_email,
                 password_hash=self.passwords.hash(password),
                 enabled=True,
             )
