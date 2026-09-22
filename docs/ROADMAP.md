@@ -174,9 +174,9 @@ Acceptance:
 
 - [x] Add ZLMediaKit service.
 - [x] Implement MediaPlane contract.
-- [ ] Device / DeviceEndpoint / DeviceCredential persistence.
-- [ ] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
-- [ ] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
+- [x] Device / DeviceEndpoint / DeviceCredential persistence.
+- [x] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
+- [x] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
 - [ ] ONVIF profile/capability discovery first, ZLM actual-stream verification second, ffprobe only as fallback/recovery inspection.
 - [ ] CameraStreamProfile persistence and stream diagnostics.
 - [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
