@@ -569,11 +569,17 @@ export function deleteNotificationTarget(
 }
 
 export function testNotificationTarget(
-  targetId: string
+  targetId: string,
+  recipient?: string
 ): Promise<{ ok: true }> {
   return apiRequest<{ ok: true }>(
     `/notification-targets/${encodeURIComponent(targetId)}/test`,
-    { method: "POST" }
+    {
+      method: "POST",
+      ...(recipient
+        ? { json: { recipient } }
+        : {})
+    }
   )
 }
 
