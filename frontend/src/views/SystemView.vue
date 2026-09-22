@@ -71,6 +71,7 @@ type SystemTab =
   | "overview"
   | "validation"
   | "general"
+  | "time"
   | "users"
   | "tokens"
   | "oidc"
@@ -166,9 +167,12 @@ const auditFilters = reactive({
   result: ""
 })
 const generalForm = reactive({
-  systemName: "",
-  displayTimezone: "UTC",
-  ntpServers: ""
+  systemName: ""
+})
+const timeForm = reactive({
+  recordingTimezone: "UTC",
+  ntpMode: "dhcp" as "manual" | "dhcp",
+  ntpServers: [""] as string[]
 })
 const runtimeForm = reactive({
   prebufferFragmentSeconds: 5,
@@ -185,6 +189,8 @@ const runtimeForm = reactive({
   liveTranscodeVideoBitrateKbps: 4000
 })
 const generalSaving = ref(false)
+const timeSaving = ref(false)
+const ntpApplying = ref(false)
 const runtimeSaving = ref(false)
 const ntpApplyResult = ref<CameraNtpApplyResult | null>(null)
 const cameraClockHealth = ref<CameraClockHealth | null>(null)
@@ -205,6 +211,12 @@ const navigation = computed(() => {
       visible: auth.hasPermission("system.view")
     },
     { id: "general", label: "General", icon: "system", visible: true },
+    {
+      id: "time",
+      label: "Time",
+      icon: "activity",
+      visible: auth.hasPermission("system.view")
+    },
     {
       id: "users",
       label: "Users",
@@ -549,10 +561,14 @@ async function loadBase(): Promise<void> {
     updateInfo.value = updateValue
 
     generalForm.systemName = settingsValue.general.system_name
-    generalForm.displayTimezone =
-      settingsValue.general.display_timezone
-    generalForm.ntpServers =
-      settingsValue.general.camera_ntp_servers.join("\n")
+    timeForm.recordingTimezone =
+      settingsValue.time.recording_timezone
+    timeForm.ntpMode =
+      settingsValue.time.managed_camera_ntp_mode
+    timeForm.ntpServers =
+      settingsValue.time.managed_camera_ntp_servers.length
+        ? [...settingsValue.time.managed_camera_ntp_servers]
+        : [""]
     runtimeForm.prebufferFragmentSeconds =
       settingsValue.runtime.prebuffer_fragment_seconds
     runtimeForm.prebufferBufferSeconds =
@@ -755,42 +771,122 @@ async function saveGeneral(): Promise<void> {
   generalSaving.value = true
   error.value = null
   try {
-    const updated = await patchSystemSettings({
+    settings.value = await patchSystemSettings({
       general: {
-        system_name: generalForm.systemName.trim(),
-        display_timezone: generalForm.displayTimezone.trim(),
-        camera_ntp_servers: generalForm.ntpServers
-          .split(/\r?\n|,/)
-          .map((item) => item.trim())
-          .filter(Boolean)
+        system_name: generalForm.systemName.trim()
+      }
+    })
+    notice.value = "General settings saved."
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    generalSaving.value = false
+  }
+}
+
+function normalizedTimeNtpServers(): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of timeForm.ntpServers) {
+    const value = raw.trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    result.push(value)
+  }
+  return result
+}
+
+function addTimeNtpServer(): void {
+  if (timeForm.ntpServers.length >= 4) return
+  timeForm.ntpServers.push("")
+}
+
+function removeTimeNtpServer(index: number): void {
+  timeForm.ntpServers.splice(index, 1)
+  if (!timeForm.ntpServers.length) {
+    timeForm.ntpServers.push("")
+  }
+}
+
+function moveTimeNtpServer(
+  index: number,
+  direction: -1 | 1
+): void {
+  const target = index + direction
+  if (
+    target < 0 ||
+    target >= timeForm.ntpServers.length
+  ) {
+    return
+  }
+  const [item] = timeForm.ntpServers.splice(
+    index,
+    1
+  )
+  timeForm.ntpServers.splice(target, 0, item)
+}
+
+async function saveTime(
+  applyToCameras = false
+): Promise<void> {
+  if (!auth.hasPermission("system.manage")) return
+
+  const servers = normalizedTimeNtpServers()
+  if (
+    timeForm.ntpMode === "manual" &&
+    !servers.length
+  ) {
+    error.value =
+      "Manual NTP mode requires at least one NTP server."
+    return
+  }
+
+  timeSaving.value = true
+  ntpApplying.value = applyToCameras
+  error.value = null
+  ntpApplyResult.value = null
+  try {
+    const updated = await patchSystemSettings({
+      time: {
+        recording_timezone:
+          timeForm.recordingTimezone.trim(),
+        managed_camera_ntp_mode:
+          timeForm.ntpMode,
+        managed_camera_ntp_servers: servers
       }
     })
     settings.value = updated
-    ntpApplyResult.value = null
-    try {
-      const applied = await applyCameraNtpSettings()
-      ntpApplyResult.value = applied
-      if (applied.total_devices === 0) {
-        notice.value =
-          "General settings saved. No enabled ONVIF devices were found for NTP configuration."
-      } else if (applied.failed === 0) {
-        notice.value =
-          `General settings saved. NTP applied to ${applied.updated} ONVIF device(s).`
-      } else {
-        notice.value =
-          `General settings saved. NTP applied to ${applied.updated}/${applied.total_devices} ONVIF device(s).`
-      }
-    } catch (caught) {
-      error.value =
-        `General settings were saved, but camera NTP apply failed: ${errorMessage(caught)}`
+    timeForm.ntpServers =
+      updated.time.managed_camera_ntp_servers.length
+        ? [...updated.time.managed_camera_ntp_servers]
+        : [""]
+
+    if (!applyToCameras) {
+      notice.value =
+        "Time settings saved. Camera clocks were not changed."
+      return
     }
-    if (ntpApplyResult.value?.updated) {
+
+    const applied = await applyCameraNtpSettings()
+    ntpApplyResult.value = applied
+    if (applied.total_devices === 0) {
+      notice.value =
+        "Time settings saved. No enabled ONVIF devices were found to configure."
+    } else if (applied.failed === 0) {
+      notice.value =
+        `Time settings saved and applied to ${applied.updated} ONVIF device(s).`
+    } else {
+      notice.value =
+        `Time settings saved. NTP applied to ${applied.updated}/${applied.total_devices} ONVIF device(s).`
+    }
+    if (applied.updated) {
       await checkCameraClocks()
     }
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
-    generalSaving.value = false
+    timeSaving.value = false
+    ntpApplying.value = false
   }
 }
 
@@ -1113,7 +1209,7 @@ async function saveBackupPolicy(): Promise<void> {
   backupSaving.value = true
   error.value = null
   const timezone =
-    settings.value?.general.display_timezone || "UTC"
+    settings.value?.time.recording_timezone || "UTC"
   try {
     const schedule = backupForm.scheduled
       ? {
