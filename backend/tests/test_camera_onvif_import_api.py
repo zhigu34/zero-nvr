@@ -96,7 +96,11 @@ def fake_zlm_adapter(
 class FakeRecordingTasks:
     def __init__(self) -> None:
         self.runtime_reconciles: list[
-            tuple[uuid.UUID, bool]
+            tuple[
+                uuid.UUID,
+                bool,
+                tuple[uuid.UUID, ...],
+            ]
         ] = []
 
     def reconcile_runtime(
@@ -104,9 +108,17 @@ class FakeRecordingTasks:
         camera_id: uuid.UUID,
         *,
         restart_streams: bool = False,
+        restart_profile_ids: tuple[
+            uuid.UUID,
+            ...,
+        ] = (),
     ) -> None:
         self.runtime_reconciles.append(
-            (camera_id, restart_streams)
+            (
+                camera_id,
+                restart_streams,
+                restart_profile_ids,
+            )
         )
 
 
@@ -388,6 +400,10 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
                 "192.168.70.20:554/channel/b/main"
             ),
         }
+        assert (
+            app.state.recording_tasks.runtime_reconciles
+            == []
+        )
 
     with app.state.database.session() as session:
         assert session.scalar(
@@ -802,13 +818,16 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
             )
         )
         assert credential is not None
-        assert credential.secret_ref != old_credential_ref
+        assert (
+            credential.secret_ref
+            == old_credential_ref
+        )
         assert (
             session.get(
                 SecretRecord,
                 old_credential_ref,
             )
-            is None
+            is not None
         )
 
         current_profiles = list(
@@ -828,11 +847,14 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
                 profile.adapter_profile_key
             ]
             assert profile.stream_uri_ref is not None
-            assert profile.stream_uri_ref != old_ref
+            assert (
+                profile.stream_uri_ref
+                == old_ref
+            )
             assert session.get(
                 SecretRecord,
                 old_ref,
-            ) is None
+            ) is not None
 
         main_profile = session.scalar(
             select(CameraStreamProfile).where(
@@ -863,11 +885,31 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
         assert len(audits) == 1
         assert audits[0].metadata_json["reconfigured"] is True
 
-    assert set(
-        app.state.recording_tasks.runtime_reconciles
-    ) == {
-        (uuid.UUID(camera_id), True)
+    reconciles = {
+        camera_id: set(
+            profile_ids
+        )
+        for (
+            camera_id,
+            restart_streams,
+            profile_ids,
+        )
+        in app.state.recording_tasks.runtime_reconciles
+        if not restart_streams
+    }
+    assert set(reconciles) == {
+        uuid.UUID(camera_id)
         for camera_id in camera_ids
+    }
+    assert {
+        profile_id
+        for profile_ids
+        in reconciles.values()
+        for profile_id in profile_ids
+    } == {
+        uuid.UUID(profile_id)
+        for profile_id
+        in profile_ids.values()
     }
 
 
