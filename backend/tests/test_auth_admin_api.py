@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import uuid
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Base
+from app.core.db.types import utc_now
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
+from app.modules.auth.models import User
 
 
 COOKIE = "zero_nvr_session"
@@ -45,6 +48,73 @@ def login(client: TestClient, username: str, password: str) -> str:
 def use_token(client: TestClient, token: str) -> None:
     client.cookies.clear()
     client.cookies.set(COOKIE, token)
+
+
+def test_user_email_verification_state_resets_on_change(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup = client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "email": "Admin@Example.COM",
+                "password": ADMIN_PASSWORD,
+            },
+        )
+        assert setup.status_code == 201
+        assert setup.json()["email"] == "admin@example.com"
+        assert setup.json()["email_verified"] is False
+
+        login(client, "admin", ADMIN_PASSWORD)
+        roles = client.get("/api/v1/roles")
+        assert roles.status_code == 200
+        viewer_role_id = next(
+            item["id"]
+            for item in roles.json()
+            if item["name"] == "Viewer"
+        )
+
+        created = client.post(
+            "/api/v1/users",
+            json={
+                "username": "email-user",
+                "display_name": "Email User",
+                "email": "User@Example.COM",
+                "password": VIEWER_PASSWORD,
+                "role_ids": [viewer_role_id],
+            },
+        )
+        assert created.status_code == 201
+        user_id = created.json()["id"]
+        assert created.json()["email"] == "user@example.com"
+        assert created.json()["email_verified"] is False
+
+        with app.state.database.session() as session:
+            user = session.get(User, uuid.UUID(user_id))
+            assert user is not None
+            user.email_verified_at = utc_now()
+            session.commit()
+
+        loaded = client.get(f"/api/v1/users/{user_id}")
+        assert loaded.status_code == 200
+        assert loaded.json()["email_verified"] is True
+
+        updated = client.patch(
+            f"/api/v1/users/{user_id}",
+            json={"email": "New.User@Example.COM"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["email"] == "new.user@example.com"
+        assert updated.json()["email_verified"] is False
+
+        with app.state.database.session() as session:
+            user = session.get(User, uuid.UUID(user_id))
+            assert user is not None
+            assert user.email_verified_at is None
 
 
 def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
