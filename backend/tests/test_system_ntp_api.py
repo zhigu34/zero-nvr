@@ -41,13 +41,42 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
 ) -> None:
     app = make_app(tmp_path)
     calls = []
+    read_calls = []
+    clock_mode = {
+        "value": "NTP",
+    }
 
     async def fake_configure(self, **kwargs):
         calls.append(kwargs)
 
+    async def fake_clock(self, **kwargs):
+        read_calls.append(kwargs)
+
+        class Reading:
+            date_time_type = (
+                clock_mode["value"]
+            )
+            timezone = "UTC0"
+            utc_datetime = datetime(
+                2026,
+                9,
+                22,
+                12,
+                0,
+                tzinfo=UTC,
+            )
+            offset_ms = 350.0
+            rtt_ms = 120.0
+
+        return Reading()
+
     monkeypatch.setattr(
         "app.modules.system.api.OnvifAdapter.configure_ntp",
         fake_configure,
+    )
+    monkeypatch.setattr(
+        "app.modules.system.api.OnvifAdapter.read_system_clock",
+        fake_clock,
     )
 
     with TestClient(app) as client:
@@ -76,13 +105,38 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
             )
             session.add(device)
             session.flush()
+            managed_camera = Camera(
+                device_id=device.id,
+                channel_key="front-door",
+                name="Front Door Camera",
+                enabled=True,
+                time_sync_mode="manage_ntp",
+            )
+            session.add(
+                managed_camera
+            )
+            session.flush()
+            managed_camera_id = (
+                managed_camera.id
+            )
+
+            monitor_device = Device(
+                name="Monitor Only Device",
+                adapter_type="onvif",
+                enabled=True,
+                capabilities_json={},
+            )
+            session.add(
+                monitor_device
+            )
+            session.flush()
             session.add(
                 Camera(
-                    device_id=device.id,
-                    channel_key="front-door",
-                    name="Front Door Camera",
+                    device_id=monitor_device.id,
+                    channel_key="monitor-only",
+                    name="Monitor Only Camera",
                     enabled=True,
-                    time_sync_mode="manage_ntp",
+                    time_sync_mode="monitor",
                 )
             )
 
@@ -154,8 +208,27 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
         assert body["updated"] == 1
         assert body["failed"] == 0
         assert body["results"][0]["status"] == "UPDATED"
+        assert (
+            body["results"][0]["verified"]
+            is True
+        )
+        assert (
+            body["results"][0][
+                "date_time_type"
+            ]
+            == "NTP"
+        )
+        assert (
+            body["results"][0]["offset_ms"]
+            == 350
+        )
+        assert (
+            body["results"][0]["rtt_ms"]
+            == 120
+        )
 
         assert len(calls) == 1
+        assert len(read_calls) == 1
         assert calls[0]["host"] == "192.168.10.40"
         assert calls[0]["username"] == "onvif-admin"
         assert calls[0]["password"] == "onvif-secret"
@@ -193,7 +266,65 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
         )
         assert dhcp.status_code == 200
         assert dhcp.json()["mode"] == "dhcp"
+        assert (
+            dhcp.json()["results"][0][
+                "verified"
+            ]
+            is True
+        )
         assert calls[-1]["servers"] == ()
+        assert len(calls) == 2
+        assert len(read_calls) == 2
+
+        clock_mode["value"] = "Manual"
+        mismatch = client.post(
+            "/api/v1/system/settings/camera-ntp/apply"
+        )
+        assert mismatch.status_code == 200
+        mismatch_body = mismatch.json()
+        assert mismatch_body["updated"] == 0
+        assert mismatch_body["failed"] == 1
+        assert (
+            mismatch_body["results"][0][
+                "status"
+            ]
+            == "FAILED"
+        )
+        assert (
+            mismatch_body["results"][0][
+                "verified"
+            ]
+            is False
+        )
+        assert (
+            mismatch_body["results"][0][
+                "error_code"
+            ]
+            == "camera_ntp_verify_mode_mismatch"
+        )
+        assert len(calls) == 3
+        assert len(read_calls) == 3
+
+        projection = client.get(
+            (
+                f"/api/v1/cameras/"
+                f"{managed_camera_id}/clock"
+            )
+        )
+        assert projection.status_code == 200
+        current = projection.json()
+        assert (
+            current["sync_mode"]
+            == "manage_ntp"
+        )
+        assert (
+            current["error_code"]
+            == "camera_ntp_verify_mode_mismatch"
+        )
+        assert (
+            current["device_time_source"]
+            == "Manual"
+        )
 
 
 
