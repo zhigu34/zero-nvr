@@ -202,6 +202,94 @@ def test_alert_evaluation_is_idempotent_cooldown_and_protects_recording(
         database.close()
 
 
+def test_camera_maintenance_suppresses_new_alerts(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        camera_id = seed_camera(
+            settings,
+            database,
+        )
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            camera.maintenance = True
+            AlertPolicyService.create(
+                session,
+                name="Maintenance suppression",
+                enabled=True,
+                severity="warning",
+                match={
+                    "camera_ids": [
+                        str(camera_id)
+                    ],
+                    "categories": ["object"],
+                },
+                actions={},
+                cooldown_seconds=0,
+            )
+            session.commit()
+
+        started = datetime(
+            2026,
+            9,
+            20,
+            12,
+            30,
+            tzinfo=UTC,
+        )
+        with database.session() as session:
+            event = (
+                EventService.upsert_provider_event(
+                    session,
+                    item=EventIngest(
+                        source="frigate",
+                        source_instance_id=(
+                            "frigate-a"
+                        ),
+                        source_event_id=(
+                            "maintenance-event"
+                        ),
+                        camera_id=camera_id,
+                        category="object",
+                        label="person",
+                        started_at=started,
+                        ended_at=(
+                            started
+                            + timedelta(
+                                seconds=5
+                            )
+                        ),
+                    ),
+                ).event
+            )
+            result = (
+                AlertEvaluationService.evaluate_event(
+                    session,
+                    event=event,
+                )
+            )
+            assert result.alerts == ()
+            assert (
+                result.delivery_ids
+                == ()
+            )
+            session.commit()
+
+        with database.session() as session:
+            assert session.scalar(
+                select(func.count())
+                .select_from(Alert)
+            ) == 0
+    finally:
+        database.close()
+
+
 def test_min_duration_waits_for_event_end_update(tmp_path: Path) -> None:
     settings, database = make_database(tmp_path)
     try:
