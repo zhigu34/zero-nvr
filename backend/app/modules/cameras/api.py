@@ -631,9 +631,14 @@ async def import_onvif_camera(
 
     service = OnvifOnboardingService(request.app.state.settings)
     verification_profiles = service.verification_profiles(
-        inspection,
-        body.profile_tokens,
+        session,
+        inspection=inspection,
+        selected_tokens=body.profile_tokens,
     )
+    # Close the read-only identity/topology transaction before temporary
+    # media-plane network probes. Persistence starts only after all probes pass.
+    session.commit()
+
     password = body.password.get_secret_value()
     active_profile_token: str | None = None
     try:
