@@ -40,19 +40,81 @@ class OnvifOnboardingService:
     @classmethod
     def verification_profiles(
         cls,
+        session: Session,
+        *,
         inspection: OnvifInspection,
         selected_tokens: list[str] | None,
     ) -> list[OnvifProfileProbe]:
         """Return the ONVIF profiles that must pass media verification.
 
-        ONVIF remains the authority for profile/capability discovery. The
-        returned RTSP profiles are then verified through the media plane before
-        any onboarding persistence occurs.
+        New imports verify the user-selected profile set. Reconfiguration keeps
+        the existing Camera/profile topology, so every persisted profile must
+        be present and media-verifiable before any credential/URI replacement.
         """
-        return cls._usable_profiles(
-            inspection,
-            selected_tokens,
+        existing = cls._existing_device(
+            session,
+            inspection=inspection,
         )
+        if existing is None:
+            return cls._usable_profiles(
+                inspection,
+                selected_tokens,
+            )
+
+        required_tokens = set(
+            session.scalars(
+                select(
+                    CameraStreamProfile.adapter_profile_key
+                )
+                .join(
+                    Camera,
+                    Camera.id
+                    == CameraStreamProfile.camera_id,
+                )
+                .where(
+                    Camera.device_id
+                    == existing.id
+                )
+            )
+        )
+        if not required_tokens:
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_topology_invalid",
+                message="Imported ONVIF device has no stream profiles.",
+            )
+
+        by_token = {
+            profile.token: profile
+            for profile in inspection.profiles
+        }
+        verified: list[OnvifProfileProbe] = []
+        for token in sorted(
+            required_tokens
+        ):
+            profile = by_token.get(
+                token
+            )
+            if (
+                profile is None
+                or not profile.stream_uri_available
+                or not profile.stream_uri
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code="onvif_device_topology_changed",
+                    message=(
+                        "An imported ONVIF profile is no longer "
+                        "available for media verification."
+                    ),
+                    details={
+                        "profile_token": token,
+                    },
+                )
+            verified.append(
+                profile
+            )
+        return verified
 
     @staticmethod
     def verification_stream_uri(
