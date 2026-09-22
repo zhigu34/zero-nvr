@@ -251,10 +251,17 @@ class CameraClockHealthResultView(BaseModel):
     device_id: uuid.UUID
     name: str
     status: Literal["OK", "DEGRADED", "ERROR"]
+    quality: Literal[
+        "unknown",
+        "good",
+        "degraded",
+        "poor",
+    ] = "unknown"
     date_time_type: str | None = None
     timezone: str | None = None
     camera_utc_at: datetime | None = None
     offset_ms: int | None = None
+    uncertainty_ms: int | None = None
     rtt_ms: int | None = None
     error_code: str | None = None
 
