@@ -4021,6 +4021,81 @@ strong {
   color: var(--text-secondary);
 }
 
+.host-clock-health {
+  display: grid;
+  max-width: 760px;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+}
+
+.host-clock-health__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.host-clock-health__main strong,
+.host-clock-health__main span {
+  display: block;
+}
+
+.host-clock-health__main strong {
+  font-size: 10px;
+}
+
+.host-clock-health__main div > span {
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+}
+
+.host-clock-health dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.host-clock-health dl > div {
+  min-width: 0;
+  padding: 7px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-subtle);
+}
+
+.host-clock-health dt,
+.host-clock-health dd {
+  margin: 0;
+}
+
+.host-clock-health dt {
+  color: var(--text-muted);
+  font-size: 7px;
+  text-transform: uppercase;
+}
+
+.host-clock-health dd {
+  overflow: hidden;
+  margin-top: 3px;
+  color: var(--text-secondary);
+  font-size: 8px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-clock-health p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
 .system-ntp-result,
 .camera-clock-health {
   max-width: 760px;
@@ -4149,6 +4224,10 @@ strong {
 }
 
 @media (max-width: 720px) {
+  .host-clock-health dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .time-ntp-list__heading {
     align-items: stretch;
     flex-direction: column;
