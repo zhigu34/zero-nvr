@@ -25,6 +25,9 @@ from app.modules.cameras.clock_projection import (
 )
 from app.modules.cameras.live_transcode import LiveTranscodeManager
 from app.modules.cameras.media_sessions import MediaSessionRegistry
+from app.modules.cameras.runtime_reconciler import (
+    RuntimeReconciler,
+)
 from app.modules.backups.dispatcher import BackupTaskDispatcher
 from app.modules.notifications.dispatcher import NotificationTaskDispatcher
 from app.modules.exports.dispatcher import ExportTaskDispatcher
@@ -57,6 +60,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         resolved_settings,
         database=database,
     )
+    runtime_reconciler = RuntimeReconciler(
+        database,
+        reconcile_camera=(
+            recording_tasks.reconcile_runtime
+        ),
+    )
     backup_tasks = BackupTaskDispatcher()
     export_tasks = ExportTaskDispatcher()
     notification_tasks = NotificationTaskDispatcher()
@@ -81,6 +90,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ):
             assert_database_schema_current(
                 database
+            )
+            queued = (
+                runtime_reconciler.enqueue_all()
+            )
+            logger.info(
+                "runtime reconciliation queued",
+                extra={
+                    "camera_count": queued,
+                },
             )
         frigate_mqtt.start()
 
@@ -132,6 +150,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.live_transcodes = live_transcodes
     app.state.media_sessions = media_sessions
     app.state.recording_tasks = recording_tasks
+    app.state.runtime_reconciler = runtime_reconciler
     app.state.backup_tasks = backup_tasks
     app.state.export_tasks = export_tasks
     app.state.notification_tasks = notification_tasks
