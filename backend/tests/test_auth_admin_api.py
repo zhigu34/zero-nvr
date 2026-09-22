@@ -303,6 +303,7 @@ def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
             "/api/v1/oidc/providers/authentik",
             json={
                 "name": "Authentik SSO",
+                "client_secret_action": "replace",
                 "client_secret": "replacement-secret-value",
                 "email_linking": True,
             },
