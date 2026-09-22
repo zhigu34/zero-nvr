@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from urllib.parse import quote, urlsplit, urlunsplit
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -54,6 +54,44 @@ class CameraService:
                 message="Camera was not found.",
             )
         return camera
+
+    @staticmethod
+    def bump_config_revision(
+        camera: Camera,
+    ) -> int:
+        camera.config_revision += 1
+        return camera.config_revision
+
+    @staticmethod
+    def fence_config_revision(
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        expected_revision: int,
+    ) -> None:
+        result = session.execute(
+            update(Camera)
+            .where(
+                Camera.id == camera_id,
+                Camera.config_revision
+                == expected_revision,
+            )
+            .values(
+                config_revision=(
+                    Camera.config_revision
+                )
+            )
+        )
+        if result.rowcount != 1:
+            session.rollback()
+            raise ApiError(
+                status_code=409,
+                code="camera_configuration_changed",
+                message=(
+                    "Camera configuration changed while the "
+                    "adapter operation was running."
+                ),
+            )
 
     @staticmethod
     def validate_rtsp_url(value: str) -> tuple[str, int]:
@@ -376,6 +414,11 @@ class CameraService:
                         ),
                     )
 
+        runtime_changed = (
+            "time_sync_mode" in changes
+            and changes["time_sync_mode"]
+            != camera.time_sync_mode
+        )
         for field in (
             "name",
             "location",
@@ -388,6 +431,10 @@ class CameraService:
                     field,
                     changes[field],
                 )
+        if runtime_changed:
+            CameraService.bump_config_revision(
+                camera
+            )
         session.flush()
         return camera
 
@@ -404,7 +451,11 @@ class CameraService:
                 code="camera_retired",
                 message="Retired camera must be restored before it can be enabled.",
             )
-        camera.enabled = enabled
+        if camera.enabled != enabled:
+            camera.enabled = enabled
+            CameraService.bump_config_revision(
+                camera
+            )
         session.flush()
         return camera
 
@@ -415,6 +466,10 @@ class CameraService:
         camera: Camera,
         retired: bool,
     ) -> Camera:
+        before = (
+            camera.retired_at,
+            camera.enabled,
+        )
         if retired:
             if camera.retired_at is None:
                 camera.retired_at = utc_now()
@@ -424,6 +479,13 @@ class CameraService:
             # Restore to inventory only. Explicit enable is a separate action
             # so restoring a camera can never unexpectedly start media pulls.
             camera.enabled = False
+        if before != (
+            camera.retired_at,
+            camera.enabled,
+        ):
+            CameraService.bump_config_revision(
+                camera
+            )
         session.flush()
         return camera
 
@@ -465,6 +527,20 @@ class CameraService:
                 status_code=400,
                 code="invalid_stream_profile",
                 message="A selected stream profile does not belong to this camera.",
+            )
+
+        current = sorted(
+            (
+                item.purpose,
+                item.stream_profile_id,
+                item.selection_mode,
+            )
+            for item in camera.stream_bindings
+        )
+        desired = sorted(bindings)
+        if current != desired:
+            CameraService.bump_config_revision(
+                camera
             )
 
         session.execute(
