@@ -678,7 +678,7 @@ async def import_onvif_camera(
             device,
             cameras,
             reconfigured,
-            restart_camera_ids,
+            restart_profiles_by_camera,
         ) = service.import_device(
             session,
             inspection=inspection,
@@ -711,13 +711,25 @@ async def import_onvif_camera(
                     for camera in cameras
                 ),
                 "reconfigured": reconfigured,
-                "runtime_restart_camera_ids": [
-                    str(camera_id)
-                    for camera_id in sorted(
-                        restart_camera_ids,
-                        key=str,
+                "runtime_restart_profiles": {
+                    str(camera_id): [
+                        str(profile_id)
+                        for profile_id
+                        in sorted(
+                            profile_ids,
+                            key=str,
+                        )
+                    ]
+                    for (
+                        camera_id,
+                        profile_ids,
+                    ) in sorted(
+                        restart_profiles_by_camera.items(),
+                        key=lambda item: str(
+                            item[0]
+                        ),
                     )
-                ],
+                },
             },
         )
         session.commit()
@@ -725,15 +737,25 @@ async def import_onvif_camera(
         session.rollback()
         raise
 
-    if restart_camera_ids:
+    if restart_profiles_by_camera:
         try:
-            for camera_id in sorted(
-                restart_camera_ids,
-                key=str,
+            for (
+                camera_id,
+                profile_ids,
+            ) in sorted(
+                restart_profiles_by_camera.items(),
+                key=lambda item: str(
+                    item[0]
+                ),
             ):
                 request.app.state.recording_tasks.reconcile_runtime(
                     camera_id,
-                    restart_streams=True,
+                    restart_profile_ids=tuple(
+                        sorted(
+                            profile_ids,
+                            key=str,
+                        )
+                    ),
                 )
         except Exception as exc:
             raise ApiError(
