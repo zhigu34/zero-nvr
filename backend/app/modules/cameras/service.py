@@ -424,6 +424,7 @@ class CameraService:
             "name",
             "location",
             "storage_label",
+            "maintenance",
             "time_sync_mode",
         ):
             if field in changes:
