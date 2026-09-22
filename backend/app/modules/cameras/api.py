@@ -1467,26 +1467,39 @@ def replace_camera_stream_bindings(
                 for item in body.bindings
             ],
         )
-        append_audit_event(
-            session,
-            request=request,
-            actor_id=context.user.id,
-            action="camera.stream_bindings.update",
-            resource_type="camera",
-            resource_id=camera.id,
-            camera_id=camera.id,
-            before={"bindings": before},
-            after={
-                "bindings": [
-                    {
-                        "purpose": item.purpose,
-                        "stream_profile_id": str(item.stream_profile_id),
-                        "selection_mode": item.selection_mode,
-                    }
-                    for item in bindings
-                ]
-            },
+        after = sorted(
+            [
+                {
+                    "purpose": item.purpose,
+                    "stream_profile_id": str(
+                        item.stream_profile_id
+                    ),
+                    "selection_mode": (
+                        item.selection_mode
+                    ),
+                }
+                for item in bindings
+            ],
+            key=lambda item: item[
+                "purpose"
+            ],
         )
+        if before != after:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action=(
+                    "camera.stream_bindings.update"
+                ),
+                resource_type="camera",
+                resource_id=camera.id,
+                camera_id=camera.id,
+                before={"bindings": before},
+                after={
+                    "bindings": after,
+                },
+            )
         session.commit()
     except Exception:
         session.rollback()
