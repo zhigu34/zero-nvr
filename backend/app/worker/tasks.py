@@ -379,6 +379,10 @@ def reconcile_camera_runtime(
     camera_id: str,
     restart_streams: bool = False,
     force_reconfigure: bool = False,
+    restart_profile_ids: tuple[
+        str,
+        ...,
+    ] = (),
 ) -> str:
     """Reconcile one Camera's ZLM recorder and stream runtime.
 
@@ -391,6 +395,11 @@ def reconcile_camera_runtime(
     settings = Settings()
     database = _database(settings)
     camera_uuid = uuid.UUID(camera_id)
+    targeted_profile_ids = {
+        uuid.UUID(profile_id)
+        for profile_id
+        in restart_profile_ids
+    }
 
     try:
         media_runtime = CameraMediaRuntimeService(settings)
@@ -432,10 +441,54 @@ def reconcile_camera_runtime(
                     )
             session.commit()
 
+        targeted_streams = [
+            item
+            for item in desired_streams
+            if item.profile_id
+            in targeted_profile_ids
+        ]
+        record_profile_id = (
+            desired_recorder.profile_id
+            if (
+                desired_recorder is not None
+                and desired_recorder.mode
+                != "off"
+            )
+            else None
+        )
+        targeted_record_streams = [
+            item
+            for item in targeted_streams
+            if item.profile_id
+            == record_profile_id
+        ]
+        targeted_live_streams = [
+            item
+            for item in targeted_streams
+            if item.profile_id
+            != record_profile_id
+        ]
+
         if restart_streams and enabled:
             media_runtime.replace_streams(
                 desired_streams
             )
+        elif enabled and targeted_streams:
+            if targeted_record_streams:
+                media_runtime.replace_streams(
+                    targeted_record_streams
+                )
+            if targeted_live_streams:
+                media_runtime.replace_online_streams(
+                    targeted_live_streams
+                )
+            if (
+                record_streams
+                and not targeted_record_streams
+            ):
+                media_runtime.ensure_streams(
+                    record_streams
+                )
         elif record_streams:
             media_runtime.ensure_streams(
                 record_streams
@@ -449,6 +502,9 @@ def reconcile_camera_runtime(
             force_reconfigure=(
                 restart_streams
                 or force_reconfigure
+                or bool(
+                    targeted_record_streams
+                )
             ),
         )
 
