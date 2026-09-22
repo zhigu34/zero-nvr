@@ -29,7 +29,7 @@ from app.modules.cameras.models import (
 from app.modules.cameras.service import CameraService
 from app.modules.notifications.models import NotificationTarget
 from app.modules.notifications.service import NotificationTargetService
-from app.modules.recordings.models import RetentionPolicy
+from app.modules.recordings.models import RecordingPolicy, RetentionPolicy
 from app.modules.recordings.policy import RecordingPolicyService
 from app.modules.storage.models import StorageTarget
 from app.modules.storage.retention_admin import RetentionPolicyAdminService
@@ -2779,66 +2779,88 @@ class ConfigurationImportService:
                 )
                 continue
 
+            policy_values = {
+                "baseline_mode": str(
+                    item[
+                        "baseline_mode"
+                    ]
+                ),
+                "schedule_json": dict(
+                    item.get(
+                        "schedule"
+                    )
+                    or {}
+                ),
+                "schedule_timezone": (
+                    item.get(
+                        "schedule_timezone"
+                    )
+                ),
+                "event_recording_enabled": bool(
+                    item[
+                        "event_recording_enabled"
+                    ]
+                ),
+                "event_filter_json": dict(
+                    item.get(
+                        "event_filter"
+                    )
+                    or {}
+                ),
+                "segment_target_seconds": int(
+                    item[
+                        "segment_target_seconds"
+                    ]
+                ),
+                "pre_roll_seconds": int(
+                    item[
+                        "pre_roll_seconds"
+                    ]
+                ),
+                "post_roll_seconds": int(
+                    item[
+                        "post_roll_seconds"
+                    ]
+                ),
+                "storage_target_id": (
+                    target_storage
+                ),
+                "retention_policy_id": (
+                    target_retention
+                ),
+                "enabled": bool(
+                    item["enabled"]
+                ),
+            }
+            existing_policy = session.scalar(
+                select(
+                    RecordingPolicy
+                ).where(
+                    RecordingPolicy.camera_id
+                    == target_camera
+                )
+            )
+            policy_changed = (
+                existing_policy is None
+                or any(
+                    getattr(
+                        existing_policy,
+                        key,
+                    )
+                    != value
+                    for key, value
+                    in policy_values.items()
+                )
+            )
             RecordingPolicyService.put(
                 session,
                 camera_id=target_camera,
-                values={
-                    "baseline_mode": str(
-                        item[
-                            "baseline_mode"
-                        ]
-                    ),
-                    "schedule_json": dict(
-                        item.get(
-                            "schedule"
-                        )
-                        or {}
-                    ),
-                    "schedule_timezone": (
-                        item.get(
-                            "schedule_timezone"
-                        )
-                    ),
-                    "event_recording_enabled": bool(
-                        item[
-                            "event_recording_enabled"
-                        ]
-                    ),
-                    "event_filter_json": dict(
-                        item.get(
-                            "event_filter"
-                        )
-                        or {}
-                    ),
-                    "segment_target_seconds": int(
-                        item[
-                            "segment_target_seconds"
-                        ]
-                    ),
-                    "pre_roll_seconds": int(
-                        item[
-                            "pre_roll_seconds"
-                        ]
-                    ),
-                    "post_roll_seconds": int(
-                        item[
-                            "post_roll_seconds"
-                        ]
-                    ),
-                    "storage_target_id": (
-                        target_storage
-                    ),
-                    "retention_policy_id": (
-                        target_retention
-                    ),
-                    "enabled": bool(
-                        item["enabled"]
-                    ),
-                },
+                values=policy_values,
             )
-            reconcile.add(
-                target_camera
-            )
+            if policy_changed:
+                reconcile.add(
+                    target_camera
+                )
             applied.append(
                 cls._apply_item(
                     section="recording",
@@ -2846,7 +2868,11 @@ class ConfigurationImportService:
                         "recording_policy"
                     ),
                     item=item,
-                    action="updated",
+                    action=(
+                        "updated"
+                        if policy_changed
+                        else "matched"
+                    ),
                     target_id=target_camera,
                 )
             )
