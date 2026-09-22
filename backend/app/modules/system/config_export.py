@@ -29,7 +29,7 @@ from app.modules.storage.models import StorageTarget
 
 from .frigate import FRIGATE_NAMESPACE
 from .models import SystemSetting
-from .settings import SystemSettingsService
+from .settings import SystemSettingsService, TimeSystemSettingsService
 
 
 def _uuid(value: uuid.UUID | None) -> str | None:
@@ -55,11 +55,39 @@ class ConfigurationExportService:
             session,
             settings=settings,
         )
+        time_settings = (
+            TimeSystemSettingsService.get(
+                session
+            )
+        )
         return {
             "system_name": value.system_name,
-            "display_timezone": value.display_timezone,
+            # Compatibility aliases retained in configuration
+            # format v1; the canonical values live in "time".
+            "display_timezone": (
+                time_settings.recording_timezone
+            ),
             "camera_ntp_servers": list(
-                value.camera_ntp_servers
+                time_settings.managed_camera_ntp_servers
+            ),
+        }
+
+    @staticmethod
+    def _time_settings(
+        session: Session,
+    ) -> dict[str, object]:
+        value = TimeSystemSettingsService.get(
+            session
+        )
+        return {
+            "recording_timezone": (
+                value.recording_timezone
+            ),
+            "managed_camera_ntp_mode": (
+                value.managed_camera_ntp_mode
+            ),
+            "managed_camera_ntp_servers": list(
+                value.managed_camera_ntp_servers
             ),
         }
 
@@ -636,6 +664,9 @@ class ConfigurationExportService:
                 "general": cls._general(
                     session,
                     settings,
+                ),
+                "time": cls._time_settings(
+                    session
                 ),
                 "roles": cls._roles(
                     session
