@@ -12,6 +12,19 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 [[ "$(feature_service_name mqtt)" == "mosquitto" ]]
 [[ "$(feature_service_name openlist)" == "openlist" ]]
 
+database_url_uses_managed_postgres   "postgresql+psycopg://zero_nvr:secret@postgres:5432/zero_nvr"
+database_url_uses_managed_postgres   "postgresql://zero_nvr:secret@postgres/zero_nvr"
+if database_url_uses_managed_postgres   "postgresql+psycopg://zero_nvr:secret@db.example.test:5432/zero_nvr"
+then
+  echo "external PostgreSQL unexpectedly classified as managed" >&2
+  exit 1
+fi
+if database_url_uses_managed_postgres   "sqlite:////var/lib/zero-nvr/zero-nvr.db"
+then
+  echo "SQLite unexpectedly classified as managed PostgreSQL" >&2
+  exit 1
+fi
+
 enabled="$(profiles_enable "frigate,mqtt" openlist)"
 [[ "$enabled" == "frigate,mqtt,openlist" ]]
 [[ "$(profiles_enable "$enabled" mqtt)" == "$enabled" ]]
