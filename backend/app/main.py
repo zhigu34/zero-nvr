@@ -4,6 +4,7 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.v1 import router as api_v1_router
@@ -154,6 +155,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.get("/health")
     def liveness() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/ready")
+    def readiness():
+        try:
+            database.ping()
+        except Exception:
+            return JSONResponse(
+                status_code=503,
+                content={"status": "unavailable"},
+            )
         return {"status": "ok"}
 
     app.include_router(api_v1_router)
