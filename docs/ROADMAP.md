@@ -128,7 +128,7 @@ current code/tests.
 - [x] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
 - [x] ordinary configuration + SecretStore abstraction.
 - [x] SecretRecord persistence using mature authenticated encryption.
-- [ ] stable ZERO_NVR_SECRET_KEY / *_FILE bootstrap with simple versioned keyring rotation.
+- [x] stable ZERO_NVR_SECRET_KEY / *_FILE bootstrap with simple versioned keyring rotation.
 - [ ] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
 - [ ] secret redaction for logs/errors/traces/AuditEvent.
 - [ ] explicit keep/replace/clear credential update semantics.
