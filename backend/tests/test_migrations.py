@@ -110,18 +110,6 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             ]
             is True
         )
-        notification_columns = {
-            item["name"]: item
-            for item in inspector.get_columns(
-                "notification_targets"
-            )
-        }
-        assert (
-            notification_columns["secret_ref"][
-                "nullable"
-            ]
-            is True
-        )
     finally:
         engine.dispose()
 
@@ -163,6 +151,18 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
         assert (
             EXPECTED_SECRET_RECORD_COLUMNS
             <= secret_columns
+        )
+        notification_columns = {
+            item["name"]: item
+            for item in inspector.get_columns(
+                "notification_targets"
+            )
+        }
+        assert (
+            notification_columns["secret_ref"][
+                "nullable"
+            ]
+            is True
         )
     finally:
         engine.dispose()
