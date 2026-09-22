@@ -85,7 +85,7 @@ def test_managed_frigate_uses_only_zlm_ai_detect_stream_and_never_records(
                     mqtt_username="frigate-user",
                     mqtt_password="mqtt-super-secret",
                 ),
-                replace_credentials=True,
+                credentials_action="replace",
             )
             session.flush()
 
