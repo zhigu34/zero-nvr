@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Callable
 from urllib.parse import quote
 
 from sqlalchemy import select
@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
+from app.integrations.contracts import MediaPlane
 from app.integrations.zlm import ZlmAdapter
 
 from .models import Camera, CameraStreamProfile
@@ -63,7 +64,7 @@ class CameraMediaRuntimeService:
         self,
         settings: Settings,
         *,
-        zlm_factory: Callable[[Settings], Any] = ZlmAdapter,
+        zlm_factory: Callable[[Settings], MediaPlane] = ZlmAdapter,
     ) -> None:
         self.settings = settings
         self._zlm_factory = zlm_factory
