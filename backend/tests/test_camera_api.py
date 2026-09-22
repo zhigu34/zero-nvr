@@ -127,6 +127,21 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
 
         first_json = first.json()
         second_json = second.json()
+        assert (
+            first_json["time_sync_mode"]
+            == "ignore"
+        )
+        unsupported_time = client.patch(
+            f"/api/v1/cameras/{first_json['id']}",
+            json={
+                "time_sync_mode": "manage_ntp",
+            },
+        )
+        assert unsupported_time.status_code == 400
+        assert (
+            unsupported_time.json()["error"]["code"]
+            == "camera_time_sync_unsupported"
+        )
         first_id = uuid.UUID(first_json["id"])
         second_id = uuid.UUID(second_json["id"])
 
