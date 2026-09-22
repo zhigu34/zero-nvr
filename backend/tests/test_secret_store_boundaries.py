@@ -15,7 +15,15 @@ ALLOWED = {
 
 
 def test_application_uses_secret_store_persistence_boundary() -> None:
-    offenders: list[str] = []
+    record_imports: list[str] = []
+    crypto_bypasses: list[str] = []
+    crypto_methods = {
+        "encrypt_bytes",
+        "decrypt_bytes",
+        "encrypt_json",
+        "decrypt_json",
+        "rotate",
+    }
 
     for path in APP_ROOT.rglob("*.py"):
         relative = path.relative_to(APP_ROOT)
@@ -27,21 +35,31 @@ def test_application_uses_secret_store_persistence_boundary() -> None:
             filename=str(path),
         )
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom):
-                continue
-            if node.module != "app.modules.auth.models":
-                continue
-            if any(
-                alias.name == "SecretRecord"
-                for alias in node.names
-            ):
-                offenders.append(
-                    str(relative)
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "app.modules.auth.models"
+                and any(
+                    alias.name == "SecretRecord"
+                    for alias in node.names
                 )
+            ):
+                record_imports.append(str(relative))
                 break
 
-    assert offenders == [], (
+        if any(
+            isinstance(node, ast.Attribute)
+            and node.attr in crypto_methods
+            for node in ast.walk(tree)
+        ):
+            crypto_bypasses.append(str(relative))
+
+    assert record_imports == [], (
         "Application code must use the SecretStore persistence "
         "boundary instead of importing SecretRecord directly: "
-        + ", ".join(sorted(offenders))
+        + ", ".join(sorted(record_imports))
+    )
+    assert crypto_bypasses == [], (
+        "Application code must use SecretStore CRUD instead of "
+        "calling its crypto primitives directly: "
+        + ", ".join(sorted(crypto_bypasses))
     )
