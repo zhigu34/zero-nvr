@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
-from app.modules.auth.models import Role, User
+from app.modules.auth.models import Role, User, UserSession
 from app.modules.system.models import SystemSetting
 
 
@@ -99,6 +99,11 @@ def test_initial_setup_login_me_and_logout(tmp_path: Path) -> None:
         assert after_logout.json()["error"]["code"] == "authentication_required"
 
     with app.state.database.session() as session:
+        persisted_session = session.scalar(
+            select(UserSession)
+        )
+        assert persisted_session is not None
+        assert persisted_session.revoked_at is not None
         roles = set(session.scalars(select(Role.name)).all())
         users = session.scalars(select(User)).all()
 
