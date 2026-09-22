@@ -177,8 +177,8 @@ class OidcIdentityService:
             is True
         )
         verified_email = (
-            email
-            if email_verified
+            email.strip().lower()
+            if email_verified and email
             else None
         )
         now = utc_now()
@@ -207,6 +207,14 @@ class OidcIdentityService:
                 )
             identity.email = email
             identity.last_login_at = now
+            if (
+                verified_email
+                and user.email
+                and user.email.lower()
+                == verified_email
+            ):
+                user.email = verified_email
+                user.email_verified_at = now
             user.last_login_at = now
             session.flush()
             return user
@@ -237,6 +245,8 @@ class OidcIdentityService:
                 )
             if matches:
                 user = matches[0]
+                user.email = verified_email
+                user.email_verified_at = now
 
         if (
             user is None
@@ -265,6 +275,11 @@ class OidcIdentityService:
                 username=username,
                 display_name=display_name,
                 email=verified_email,
+                email_verified_at=(
+                    now
+                    if verified_email
+                    else None
+                ),
                 password_hash=None,
                 enabled=True,
             )
