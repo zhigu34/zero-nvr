@@ -374,3 +374,253 @@ def test_playback_cache_uses_runtime_tuning_from_database(
         assert len(FakeRclone.calls) == 1
     finally:
         database.close()
+
+def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_grant(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    settings = Settings(
+        secret_key="playback-grant-test-secret-key-32-bytes-minimum",
+        environment="test",
+        database_url=f"sqlite:///{tmp_path / 'playback-grant.db'}",
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+        recordings_dir=tmp_path / "recordings",
+        session_cookie_secure=False,
+        zlm_public_base_url="/zlm",
+    )
+    app = create_app(settings)
+    Base.metadata.create_all(app.state.database.engine)
+
+    loaded: dict[str, object] = {}
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings: Settings) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def load_mp4_file(
+            self,
+            *,
+            app: str,
+            stream: str,
+            file_path: str,
+            seek_ms: int,
+            speed: float,
+        ) -> bool:
+            loaded.update(
+                {
+                    "app": app,
+                    "stream": stream,
+                    "file_path": file_path,
+                    "seek_ms": seek_ms,
+                    "speed": speed,
+                }
+            )
+            return True
+
+    monkeypatch.setattr(
+        "app.modules.recordings.playback.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    started_at = datetime(2026, 9, 20, 10, 0, tzinfo=UTC)
+    local_root = settings.recordings_dir
+    local_root.mkdir(parents=True, exist_ok=True)
+    media_path = local_root / "front-door.mp4"
+    media_path.write_bytes(b"playback-media")
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        with app.state.database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://alice:camera-secret@camera.local/main"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+            profile_id = session.scalar(
+                select(CameraStreamProfile.id).where(
+                    CameraStreamProfile.camera_id
+                    == camera.id,
+                    CameraStreamProfile.adapter_profile_key
+                    == "manual-primary",
+                )
+            )
+            assert profile_id is not None
+            target = StorageTarget(
+                name="Local Recording",
+                type="local",
+                role="recording",
+                enabled=True,
+                config_json={
+                    "path": str(local_root),
+                    "default_recording": True,
+                },
+            )
+            session.add(target)
+            session.flush()
+            segment = RecordingSegment(
+                camera_id=camera.id,
+                stream_profile_id=profile_id,
+                started_at=started_at,
+                ended_at=started_at + timedelta(minutes=5),
+                duration_ms=300_000,
+                timing_status="FINAL",
+                timing_source="RECOVERY",
+                recording_reasons_json=["continuous"],
+                size_bytes=media_path.stat().st_size,
+                codec="h264",
+                container="fmp4",
+                source_media_server_id="default",
+                source_app="zero-nvr",
+                source_stream=f"profile-{profile_id.hex}",
+                integrity_status="OK",
+                completion_reason="NORMAL",
+            )
+            session.add(segment)
+            session.flush()
+            session.add(
+                RecordingLocation(
+                    recording_segment_id=segment.id,
+                    storage_target_id=target.id,
+                    object_path=media_path.name,
+                    state="AVAILABLE",
+                    size_bytes=media_path.stat().st_size,
+                )
+            )
+            session.commit()
+            camera_id = camera.id
+
+        role = client.post(
+            "/api/v1/roles",
+            json={
+                "name": "Scoped Playback",
+                "permissions": ["recording.view"],
+            },
+        )
+        assert role.status_code == 201
+
+        user = client.post(
+            "/api/v1/users",
+            json={
+                "username": "playback-viewer",
+                "display_name": "Playback Viewer",
+                "password": ADMIN_PASSWORD,
+                "role_ids": [role.json()["id"]],
+            },
+        )
+        assert user.status_code == 201
+        user_id = user.json()["id"]
+
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "playback-viewer",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        denied = client.post(
+            f"/api/v1/cameras/{camera_id}/playback/resolve",
+            json={
+                "at": (
+                    started_at + timedelta(seconds=15)
+                ).isoformat()
+            },
+        )
+        assert denied.status_code == 404
+        assert (
+            denied.json()["error"]["code"]
+            == "camera_not_found"
+        )
+
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+        selected = client.put(
+            f"/api/v1/users/{user_id}/camera-scope",
+            json={
+                "mode": "selected",
+                "camera_ids": [str(camera_id)],
+            },
+        )
+        assert selected.status_code == 200
+
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "playback-viewer",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        playable = client.post(
+            f"/api/v1/cameras/{camera_id}/playback/resolve",
+            json={
+                "at": (
+                    started_at + timedelta(seconds=15)
+                ).isoformat()
+            },
+        )
+        assert playable.status_code == 200
+        body = playable.json()
+        assert body["status"] == "playable"
+        assert body["transport"] == "fmp4"
+        assert body["offset_ms"] == 15_000
+        assert body["url"].startswith(
+            "/zlm/zero-nvr-vod/segment-"
+        )
+        assert ".live.mp4?" in body["url"]
+        assert "zn_exp=" in body["url"]
+        assert "zn_sig=" in body["url"]
+        assert body["expires_at"]
+        expiry = datetime.fromisoformat(
+            body["expires_at"]
+        )
+        remaining = (
+            expiry - datetime.now(UTC)
+        ).total_seconds()
+        assert 270 <= remaining <= 310
+
+        assert loaded["app"] == "zero-nvr-vod"
+        assert loaded["seek_ms"] == 15_000
+        serialized = str(body) + str(loaded)
+        assert "rtsp://" not in serialized
+        assert "camera-secret" not in serialized
+
