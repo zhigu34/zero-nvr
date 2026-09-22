@@ -120,11 +120,15 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
         saved = client.patch(
             "/api/v1/system/settings",
             json={
-                "general": {
-                    "camera_ntp_servers": [
+                "time": {
+                    "recording_timezone": "UTC",
+                    "managed_camera_ntp_mode": (
+                        "manual"
+                    ),
+                    "managed_camera_ntp_servers": [
                         "pool.ntp.org",
                         "192.0.2.10",
-                    ]
+                    ],
                 }
             },
         )
@@ -154,14 +158,26 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
         assert "onvif-secret" not in serialized
         assert "onvif-admin" not in serialized
 
-        assert client.patch(
+        switched = client.patch(
             "/api/v1/system/settings",
             json={
-                "general": {
-                    "camera_ntp_servers": []
+                "time": {
+                    "managed_camera_ntp_mode": (
+                        "dhcp"
+                    )
                 }
             },
-        ).status_code == 200
+        )
+        assert switched.status_code == 200
+        assert switched.json()["time"] == {
+            "recording_timezone": "UTC",
+            "managed_camera_ntp_mode": "dhcp",
+            "managed_camera_ntp_servers": [
+                "pool.ntp.org",
+                "192.0.2.10",
+            ],
+        }
+
         dhcp = client.post(
             "/api/v1/system/settings/camera-ntp/apply"
         )
