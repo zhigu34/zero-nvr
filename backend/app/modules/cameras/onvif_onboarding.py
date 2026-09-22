@@ -301,7 +301,12 @@ class OnvifOnboardingService:
         username: str,
         password: str,
         discovery_candidate_id: uuid.UUID | None,
-    ) -> tuple[Device, list[Camera], bool]:
+    ) -> tuple[
+        Device,
+        list[Camera],
+        bool,
+        set[uuid.UUID],
+    ]:
         usable = {
             item.token: item
             for item in inspection.profiles
@@ -345,6 +350,15 @@ class OnvifOnboardingService:
                         },
                     )
                 profile_updates.append((model, probe))
+
+        bound_profile_ids = {
+            binding.stream_profile_id
+            for camera in cameras
+            for binding in camera.stream_bindings
+        }
+        restart_camera_ids: set[
+            uuid.UUID
+        ] = set()
 
         self._ensure_endpoint_available(
             session,
@@ -407,16 +421,18 @@ class OnvifOnboardingService:
             ),
             None,
         )
+        credential_changed = False
+        candidate_credential = {
+            "username": username,
+            "password": password,
+        }
         if credential is None:
             secret_ref = self.secret_store.create_json(
                 session,
                 kind="onvif_credential",
                 owner_type="device",
                 owner_id=device.id,
-                value={
-                    "username": username,
-                    "password": password,
-                },
+                value=candidate_credential,
             )
             credential = DeviceCredential(
                 device_id=device.id,
@@ -425,101 +441,200 @@ class OnvifOnboardingService:
                 secret_ref=secret_ref,
             )
             session.add(credential)
+            credential_changed = True
         else:
             credential.endpoint_id = endpoint.id
-            old_credential_ref = credential.secret_ref
             try:
-                self.secret_store.metadata(
-                    session,
-                    old_credential_ref,
-                    kind="onvif_credential",
-                    owner_type="device",
-                    owner_id=device.id,
+                current_credential = (
+                    self.secret_store.read_json(
+                        session,
+                        credential.secret_ref,
+                        kind="onvif_credential",
+                        owner_type="device",
+                        owner_id=device.id,
+                    )
                 )
             except KeyError as exc:
                 raise ApiError(
                     status_code=409,
                     code="device_credential_unavailable",
-                    message="ONVIF device credential secret is unavailable.",
+                    message=(
+                        "ONVIF device credential secret "
+                        "is unavailable."
+                    ),
                 ) from exc
 
-            candidate_credential_ref = (
-                self.secret_store.create_json(
+            credential_changed = (
+                current_credential
+                != candidate_credential
+            )
+            if credential_changed:
+                self.secret_store.replace_json(
                     session,
+                    credential.secret_ref,
+                    value=candidate_credential,
                     kind="onvif_credential",
                     owner_type="device",
                     owner_id=device.id,
-                    value={
-                        "username": username,
-                        "password": password,
-                    },
                 )
-            )
-            credential.secret_ref = (
-                candidate_credential_ref
-            )
-            session.flush()
-            self.secret_store.delete(
-                session,
-                old_credential_ref,
-                kind="onvif_credential",
-                owner_type="device",
-                owner_id=device.id,
-            )
 
         for model, probe in profile_updates:
-            model.video_source_key = probe.video_source_token
+            current_uri: str | None = None
+            if model.stream_uri_ref is not None:
+                try:
+                    current_secret = (
+                        self.secret_store.read_json(
+                            session,
+                            model.stream_uri_ref,
+                            kind="rtsp_uri",
+                            owner_type=(
+                                "camera_stream_profile"
+                            ),
+                            owner_id=model.id,
+                        )
+                    )
+                    raw_current_uri = (
+                        current_secret.get("uri")
+                    )
+                    if isinstance(
+                        raw_current_uri,
+                        str,
+                    ):
+                        current_uri = (
+                            raw_current_uri
+                        )
+                except KeyError:
+                    current_uri = None
+
+            assert probe.stream_uri is not None
+            stream_uri_changed = (
+                current_uri
+                != probe.stream_uri
+            )
+
+            model.video_source_key = (
+                probe.video_source_token
+            )
             model.name = probe.name
             model.codec = probe.codec
             model.width = probe.width
             model.height = probe.height
             model.fps = probe.fps
-            model.bitrate_kbps = probe.bitrate_kbps
-            model.gop_seconds = probe.gop_seconds
-            model.audio_codec = probe.audio_codec
-            model.has_audio = probe.has_audio
+            model.bitrate_kbps = (
+                probe.bitrate_kbps
+            )
+            model.gop_seconds = (
+                probe.gop_seconds
+            )
+            model.audio_codec = (
+                probe.audio_codec
+            )
+            model.has_audio = (
+                probe.has_audio
+            )
             model.status = "available"
             model.last_verified_at = now
 
-            assert probe.stream_uri is not None
             if model.stream_uri_ref is None:
                 model.stream_uri_ref = (
                     self.secret_store.create_json(
                         session,
                         kind="rtsp_uri",
-                        owner_type="camera_stream_profile",
+                        owner_type=(
+                            "camera_stream_profile"
+                        ),
                         owner_id=model.id,
-                        value={"uri": probe.stream_uri},
+                        value={
+                            "uri": probe.stream_uri
+                        },
                     )
                 )
-            else:
-                old_stream_ref = model.stream_uri_ref
-                candidate_stream_ref = (
-                    self.secret_store.create_json(
-                        session,
-                        kind="rtsp_uri",
-                        owner_type="camera_stream_profile",
-                        owner_id=model.id,
-                        value={"uri": probe.stream_uri},
-                    )
+            elif stream_uri_changed:
+                self.secret_store.replace_json(
+                    session,
+                    model.stream_uri_ref,
+                    value={
+                        "uri": probe.stream_uri
+                    },
+                    kind="rtsp_uri",
+                    owner_type=(
+                        "camera_stream_profile"
+                    ),
+                    owner_id=model.id,
                 )
-                model.stream_uri_ref = (
-                    candidate_stream_ref
+
+            if (
+                model.id
+                in bound_profile_ids
+                and stream_uri_changed
+            ):
+                restart_camera_ids.add(
+                    model.camera_id
                 )
-                session.flush()
-                try:
-                    self.secret_store.delete(
-                        session,
-                        old_stream_ref,
-                        kind="rtsp_uri",
-                        owner_type="camera_stream_profile",
-                        owner_id=model.id,
+
+        if credential_changed:
+            for camera in cameras:
+                for binding in (
+                    camera.stream_bindings
+                ):
+                    profile = next(
+                        (
+                            item
+                            for item in (
+                                camera.stream_profiles
+                            )
+                            if item.id
+                            == binding.stream_profile_id
+                        ),
+                        None,
                     )
-                except KeyError:
-                    pass
+                    if (
+                        profile is None
+                        or profile.stream_uri_ref
+                        is None
+                    ):
+                        continue
+                    try:
+                        value = (
+                            self.secret_store
+                            .read_json(
+                                session,
+                                profile.stream_uri_ref,
+                                kind="rtsp_uri",
+                                owner_type=(
+                                    "camera_stream_profile"
+                                ),
+                                owner_id=profile.id,
+                            )
+                        )
+                        uri = value.get(
+                            "uri"
+                        )
+                        if not isinstance(
+                            uri,
+                            str,
+                        ):
+                            continue
+                        parsed = urlsplit(
+                            uri
+                        )
+                    except (
+                        KeyError,
+                        ValueError,
+                    ):
+                        continue
+                    if parsed.username is None:
+                        restart_camera_ids.add(
+                            camera.id
+                        )
+                        break
 
         for camera in cameras:
-            camera.config_revision += 1
+            if (
+                camera.id
+                in restart_camera_ids
+            ):
+                camera.config_revision += 1
 
         self._mark_discovery_candidate_imported(
             session,
@@ -528,7 +643,12 @@ class OnvifOnboardingService:
             port=port,
         )
         session.flush()
-        return device, cameras, True
+        return (
+            device,
+            cameras,
+            True,
+            restart_camera_ids,
+        )
 
     @staticmethod
     def _mark_discovery_candidate_imported(
@@ -578,7 +698,12 @@ class OnvifOnboardingService:
         storage_label: str | None,
         selected_profile_tokens: list[str] | None,
         discovery_candidate_id: uuid.UUID | None,
-    ) -> tuple[Device, list[Camera], bool]:
+    ) -> tuple[
+        Device,
+        list[Camera],
+        bool,
+        set[uuid.UUID],
+    ]:
         existing = self._existing_device(
             session,
             inspection=inspection,
@@ -773,4 +898,4 @@ class OnvifOnboardingService:
             port=port,
         )
         session.flush()
-        return device, cameras, False
+        return device, cameras, False, set()
