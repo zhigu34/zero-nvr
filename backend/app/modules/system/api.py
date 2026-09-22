@@ -42,6 +42,8 @@ from .settings import (
     RuntimeTuningSettings,
     RuntimeTuningSettingsService,
     SystemSettingsService,
+    TimeSystemSettings,
+    TimeSystemSettingsService,
 )
 from .frigate import (
     FrigateCredentials,
@@ -76,6 +78,7 @@ from .schemas import (
     SystemSettingsPatch,
     SystemSettingsView,
     SystemUpdateInfoView,
+    TimeSystemSettingsView,
 )
 
 
@@ -816,6 +819,38 @@ def _runtime_tuning_view(
     )
 
 
+def _time_settings_view(
+    value: TimeSystemSettings,
+) -> TimeSystemSettingsView:
+    return TimeSystemSettingsView(
+        recording_timezone=(
+            value.recording_timezone
+        ),
+        managed_camera_ntp_mode=(
+            value.managed_camera_ntp_mode
+        ),
+        managed_camera_ntp_servers=list(
+            value.managed_camera_ntp_servers
+        ),
+    )
+
+
+def _time_settings_snapshot(
+    value: TimeSystemSettings,
+) -> dict[str, object]:
+    return {
+        "recording_timezone": (
+            value.recording_timezone
+        ),
+        "managed_camera_ntp_mode": (
+            value.managed_camera_ntp_mode
+        ),
+        "managed_camera_ntp_servers": list(
+            value.managed_camera_ntp_servers
+        ),
+    }
+
+
 def _runtime_tuning_snapshot(
     value: RuntimeTuningSettings,
 ) -> dict[str, object]:
@@ -874,6 +909,9 @@ def get_system_settings(
         session,
         settings=request.app.state.settings,
     )
+    time_settings = TimeSystemSettingsService.get(
+        session
+    )
     runtime = RuntimeTuningSettingsService.get(
         session,
         settings=request.app.state.settings,
@@ -881,10 +919,17 @@ def get_system_settings(
     return SystemSettingsView(
         general=GeneralSystemSettingsView(
             system_name=general.system_name,
-            display_timezone=general.display_timezone,
-            camera_ntp_servers=list(
-                general.camera_ntp_servers
+            # Compatibility aliases for clients predating
+            # the canonical time namespace.
+            display_timezone=(
+                time_settings.recording_timezone
             ),
+            camera_ntp_servers=list(
+                time_settings.managed_camera_ntp_servers
+            ),
+        ),
+        time=_time_settings_view(
+            time_settings
         ),
         runtime=_runtime_tuning_view(runtime),
     )
@@ -906,6 +951,9 @@ def patch_system_settings(
         session,
         settings=request.app.state.settings,
     )
+    before_time = TimeSystemSettingsService.get(
+        session
+    )
     before_runtime = RuntimeTuningSettingsService.get(
         session,
         settings=request.app.state.settings,
@@ -913,13 +961,56 @@ def patch_system_settings(
 
     try:
         after_general = before_general
+        time_changes: dict[str, object] = {}
+
         if body.general is not None:
-            after_general = SystemSettingsService.update(
-                session,
-                settings=request.app.state.settings,
-                changes=body.general.model_dump(
+            general_changes = body.general.model_dump(
+                exclude_unset=True
+            )
+            legacy_timezone = general_changes.pop(
+                "display_timezone",
+                None,
+            )
+            legacy_servers = general_changes.pop(
+                "camera_ntp_servers",
+                None,
+            )
+            if general_changes:
+                after_general = SystemSettingsService.update(
+                    session,
+                    settings=request.app.state.settings,
+                    changes=general_changes,
+                )
+            if legacy_timezone is not None:
+                time_changes[
+                    "recording_timezone"
+                ] = legacy_timezone
+            if legacy_servers is not None:
+                time_changes[
+                    "managed_camera_ntp_servers"
+                ] = legacy_servers
+                time_changes[
+                    "managed_camera_ntp_mode"
+                ] = (
+                    "manual"
+                    if legacy_servers
+                    else "dhcp"
+                )
+
+        if body.time is not None:
+            time_changes.update(
+                body.time.model_dump(
                     exclude_unset=True
-                ),
+                )
+            )
+
+        after_time = before_time
+        if time_changes:
+            after_time = (
+                TimeSystemSettingsService.update(
+                    session,
+                    changes=time_changes,
+                )
             )
 
         after_runtime = before_runtime
@@ -971,13 +1062,10 @@ def patch_system_settings(
                     "system_name": (
                         before_general.system_name
                     ),
-                    "display_timezone": (
-                        before_general.display_timezone
-                    ),
-                    "camera_ntp_servers": list(
-                        before_general.camera_ntp_servers
-                    ),
                 },
+                "time": _time_settings_snapshot(
+                    before_time
+                ),
                 "runtime": _runtime_tuning_snapshot(
                     before_runtime
                 ),
@@ -987,13 +1075,10 @@ def patch_system_settings(
                     "system_name": (
                         after_general.system_name
                     ),
-                    "display_timezone": (
-                        after_general.display_timezone
-                    ),
-                    "camera_ntp_servers": list(
-                        after_general.camera_ntp_servers
-                    ),
                 },
+                "time": _time_settings_snapshot(
+                    after_time
+                ),
                 "runtime": _runtime_tuning_snapshot(
                     after_runtime
                 ),
@@ -1031,11 +1116,14 @@ def patch_system_settings(
         general=GeneralSystemSettingsView(
             system_name=after_general.system_name,
             display_timezone=(
-                after_general.display_timezone
+                after_time.recording_timezone
             ),
             camera_ntp_servers=list(
-                after_general.camera_ntp_servers
+                after_time.managed_camera_ntp_servers
             ),
+        ),
+        time=_time_settings_view(
+            after_time
         ),
         runtime=_runtime_tuning_view(
             after_runtime
@@ -1118,12 +1206,17 @@ async def apply_camera_ntp_settings(
     ),
     session: Session = Depends(get_db_session),
 ) -> CameraNtpApplyView:
-    general = SystemSettingsService.get(
-        session,
-        settings=request.app.state.settings,
+    time_settings = TimeSystemSettingsService.get(
+        session
     )
-    servers = tuple(general.camera_ntp_servers)
-    mode = "manual" if servers else "dhcp"
+    mode = time_settings.managed_camera_ntp_mode
+    servers = (
+        tuple(
+            time_settings.managed_camera_ntp_servers
+        )
+        if mode == "manual"
+        else ()
+    )
     service = CameraNtpService(
         request.app.state.settings
     )
