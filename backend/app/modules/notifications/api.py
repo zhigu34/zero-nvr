@@ -24,6 +24,8 @@ from .schemas import (
     NotificationTargetTestView,
     NotificationTargetUpdate,
     NotificationTargetView,
+    SecurityEmailTargetUpdate,
+    SecurityEmailTargetView,
 )
 from .service import NotificationTargetService
 
@@ -40,7 +42,14 @@ def _target_view(
         kind=target.kind,
         enabled=target.enabled,
         config=target.config_json or {},
-        url_configured=bool(target.secret_ref),
+        url_configured=(
+            target.kind == "apprise"
+            and bool(target.secret_ref)
+        ),
+        credentials_configured=(
+            target.kind == "smtp"
+            and bool(target.secret_ref)
+        ),
     )
 
 
@@ -52,7 +61,14 @@ def _target_snapshot(
         "kind": target.kind,
         "enabled": target.enabled,
         "config": target.config_json or {},
-        "url_configured": bool(target.secret_ref),
+        "url_configured": (
+            target.kind == "apprise"
+            and bool(target.secret_ref)
+        ),
+        "credentials_configured": (
+            target.kind == "smtp"
+            and bool(target.secret_ref)
+        ),
     }
 
 
@@ -113,13 +129,55 @@ def create_notification_target(
         request.app.state.settings
     )
     try:
-        target = service.create(
-            session,
-            name=body.name,
-            enabled=body.enabled,
-            config=body.config,
-            url=body.url.get_secret_value(),
-        )
+        if body.kind == "smtp":
+            if body.url is not None:
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_url_not_allowed",
+                    message=(
+                        "SMTP targets use structured "
+                        "configuration instead of an Apprise URL."
+                    ),
+                )
+            smtp_credentials = None
+            if body.smtp_credentials is not None:
+                smtp_credentials = {
+                    "username": body.smtp_credentials.username,
+                    "password": (
+                        body.smtp_credentials.password
+                        .get_secret_value()
+                    ),
+                }
+            target = service.create_smtp(
+                session,
+                name=body.name,
+                enabled=body.enabled,
+                config=body.config,
+                credentials=smtp_credentials,
+            )
+        else:
+            if body.smtp_credentials is not None:
+                raise ApiError(
+                    status_code=400,
+                    code="notification_credentials_not_allowed",
+                    message=(
+                        "Apprise targets do not use "
+                        "structured SMTP credentials."
+                    ),
+                )
+            if body.url is None:
+                raise ApiError(
+                    status_code=400,
+                    code="notification_url_required",
+                    message="Apprise target URL is required.",
+                )
+            target = service.create(
+                session,
+                name=body.name,
+                enabled=body.enabled,
+                config=body.config,
+                url=body.url.get_secret_value(),
+            )
         append_audit_event(
             session,
             request=request,
@@ -134,6 +192,76 @@ def create_notification_target(
         session.rollback()
         raise
     return _target_view(target)
+
+
+@router.get(
+    "/notification-targets/security-email-default",
+    response_model=SecurityEmailTargetView,
+)
+def get_security_email_target(
+    _context: AuthContext = Depends(
+        require_permission("alert.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SecurityEmailTargetView:
+    return SecurityEmailTargetView(
+        target_id=(
+            NotificationTargetService
+            .security_email_target_id(session)
+        )
+    )
+
+
+@router.put(
+    "/notification-targets/security-email-default",
+    response_model=SecurityEmailTargetView,
+)
+def set_security_email_target(
+    body: SecurityEmailTargetUpdate,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("alert.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SecurityEmailTargetView:
+    before = (
+        NotificationTargetService
+        .security_email_target_id(session)
+    )
+    try:
+        target_id = (
+            NotificationTargetService
+            .set_security_email_target(
+                session,
+                target_id=body.target_id,
+            )
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="notification.security_email_target.update",
+            resource_type="system_setting",
+            metadata={
+                "before_target_id": (
+                    str(before)
+                    if before is not None
+                    else None
+                ),
+                "after_target_id": (
+                    str(target_id)
+                    if target_id is not None
+                    else None
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    return SecurityEmailTargetView(
+        target_id=target_id
+    )
 
 
 @router.get(
@@ -176,46 +304,122 @@ def update_notification_target(
 
     changes = body.model_dump(
         exclude_unset=True,
-        exclude={"url"},
+        exclude={
+            "url",
+            "smtp_credentials",
+        },
     )
-    url_action = body.url_action
-    has_url_value = body.url is not None
-    if (
-        url_action == "replace"
-        and not has_url_value
-    ):
-        raise ApiError(
-            status_code=400,
-            code="notification_url_update_invalid",
-            message=(
-                "Notification URL replacement "
-                "requires a new value."
-            ),
+
+    if target.kind == "smtp":
+        if (
+            body.url is not None
+            or body.url_action != "keep"
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_url_not_allowed",
+                message=(
+                    "SMTP targets do not use "
+                    "Apprise URL updates."
+                ),
+            )
+        action = body.credentials_action
+        has_credentials = (
+            body.smtp_credentials is not None
         )
-    if (
-        url_action != "replace"
-        and has_url_value
-    ):
-        raise ApiError(
-            status_code=400,
-            code="notification_url_update_invalid",
-            message=(
-                "Notification URL value is only "
-                "accepted with action=replace."
-            ),
-        )
-    changes["url_action"] = url_action
-    if has_url_value:
-        changes["url"] = (
-            body.url.get_secret_value()
-        )
+        if (
+            action == "replace"
+            and not has_credentials
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_credentials_update_invalid",
+                message=(
+                    "SMTP credential replacement "
+                    "requires credentials."
+                ),
+            )
+        if (
+            action != "replace"
+            and has_credentials
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_credentials_update_invalid",
+                message=(
+                    "SMTP credentials are only accepted "
+                    "with action=replace."
+                ),
+            )
+        changes["credentials_action"] = action
+        if body.smtp_credentials is not None:
+            changes["smtp_credentials"] = {
+                "username": (
+                    body.smtp_credentials.username
+                ),
+                "password": (
+                    body.smtp_credentials.password
+                    .get_secret_value()
+                ),
+            }
+    else:
+        if (
+            body.smtp_credentials is not None
+            or body.credentials_action != "keep"
+        ):
+            raise ApiError(
+                status_code=400,
+                code="notification_credentials_not_allowed",
+                message=(
+                    "Apprise targets do not use "
+                    "structured SMTP credentials."
+                ),
+            )
+        url_action = body.url_action
+        has_url_value = body.url is not None
+        if (
+            url_action == "replace"
+            and not has_url_value
+        ):
+            raise ApiError(
+                status_code=400,
+                code="notification_url_update_invalid",
+                message=(
+                    "Notification URL replacement "
+                    "requires a new value."
+                ),
+            )
+        if (
+            url_action != "replace"
+            and has_url_value
+        ):
+            raise ApiError(
+                status_code=400,
+                code="notification_url_update_invalid",
+                message=(
+                    "Notification URL value is only "
+                    "accepted with action=replace."
+                ),
+            )
+        changes["url_action"] = url_action
+        if has_url_value:
+            changes["url"] = (
+                body.url.get_secret_value()
+            )
 
     try:
-        target = service.update(
-            session,
-            target=target,
-            changes=changes,
-        )
+        if target.kind == "smtp":
+            target = service.update_smtp(
+                session,
+                target=target,
+                changes=changes,
+            )
+        else:
+            target = service.update(
+                session,
+                target=target,
+                changes=changes,
+            )
         append_audit_event(
             session,
             request=request,
