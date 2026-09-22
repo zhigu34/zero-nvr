@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field, SecretStr
+from pydantic import BaseModel, EmailStr, Field, SecretStr
 
 
 class SmtpCredentialsInput(BaseModel):
@@ -62,6 +62,10 @@ class SecurityEmailTargetUpdate(BaseModel):
 
 class SecurityEmailTargetView(BaseModel):
     target_id: uuid.UUID | None
+
+
+class NotificationTargetTestRequest(BaseModel):
+    recipient: EmailStr | None = None
 
 
 class NotificationTargetTestView(BaseModel):
