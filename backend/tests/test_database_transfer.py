@@ -11,6 +11,9 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Database
+from app.core.db.preflight import (
+    SQLiteMigrationPreflightService,
+)
 from app.core.db.transfer import (
     DatabaseTransferError,
     DatabaseTransferService,
@@ -268,6 +271,37 @@ def test_database_transfer_sqlite_to_postgresql(
             assert user is not None
             assert str(user.id) == user_id
             assert str(user.roles[0].id) == role_id
+
+        preflight = (
+            SQLiteMigrationPreflightService.collect(
+                target,
+                target_root=tmp_path,
+            )
+        )
+        assert preflight.allowed
+        assert (
+            preflight.source_backend
+            == "postgresql"
+        )
+        assert preflight.schema_current
+        assert (
+            preflight.source_database_bytes
+            is not None
+            and preflight.source_database_bytes > 0
+        )
+        assert (
+            preflight.required_target_free_bytes
+            is not None
+        )
+        assert (
+            preflight.target_free_bytes
+            >= preflight.required_target_free_bytes
+        )
+        assert preflight.recent_window_seconds == 3600
+        assert (
+            "sqlite_preflight_review_measured_workload"
+            in preflight.warnings
+        )
 
         reverse_url = (
             f"sqlite:///{tmp_path / 'reverse-from-postgres.db'}"
