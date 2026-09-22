@@ -29,6 +29,7 @@ from app.core.db.preflight import (
 )
 from app.core.db.transfer import DatabaseTransferService
 from app.core.db.types import utc_now
+from app.core.security import SecretStore
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
 from app.modules.backups.execution import (
@@ -56,6 +57,33 @@ def _settings_database() -> tuple[Settings, Database]:
     database = Database(settings)
     database.initialize_runtime()
     return settings, database
+
+
+def secret_rotate_command(
+    _args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        assert_database_schema_current(database)
+        store = SecretStore(settings)
+        with database.session() as session:
+            result = store.rotate_records(session)
+            session.commit()
+
+        print(
+            json.dumps(
+                {
+                    "total_records": result.total_records,
+                    "rotated_records": result.rotated_records,
+                    "current_records": result.current_records,
+                    "primary_key_id": result.primary_key_id,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
 
 
 def _policy(
@@ -1446,6 +1474,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(
         dest="command",
         required=True,
+    )
+
+    secret_rotate = sub.add_parser(
+        "secret-rotate"
+    )
+    secret_rotate.set_defaults(
+        handler=secret_rotate_command
     )
 
     schema = sub.add_parser(
