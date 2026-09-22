@@ -227,9 +227,6 @@ if [[ "$target_backend" != "$target" ]]; then
 fi
 
 echo "Database migration: $source_backend -> $target_description"
-echo "Creating local database safety snapshot..."
-create_local_safety_snapshot
-local_snapshot="$SAFETY_SNAPSHOT_REL"
 
 environment="$(env_get ZERO_NVR_ENVIRONMENT "production")"
 if [[ "$environment" == "production" ]]; then
@@ -249,6 +246,15 @@ fi
 
 echo "Stopping zero-nvr API and worker; ZLMediaKit remains running..."
 compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
+
+echo "Creating quiesced local database safety snapshot..."
+if ! create_local_safety_snapshot; then
+  echo "error: local database safety snapshot failed; restoring source services" >&2
+  compose up -d --wait --wait-timeout 180 \
+    zero-nvr zero-nvr-worker >/dev/null 2>&1 || true
+  exit 1
+fi
+local_snapshot="$SAFETY_SNAPSHOT_REL"
 
 transfer_failed=false
 if ! ZERO_NVR_DATABASE_MIGRATION_TARGET_URL="$target_url" \
