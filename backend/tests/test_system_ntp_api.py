@@ -76,6 +76,15 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
             )
             session.add(device)
             session.flush()
+            session.add(
+                Camera(
+                    device_id=device.id,
+                    channel_key="front-door",
+                    name="Front Door Camera",
+                    enabled=True,
+                    time_sync_mode="manage_ntp",
+                )
+            )
 
             endpoint = DeviceEndpoint(
                 device_id=device.id,
@@ -290,10 +299,20 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
             )
             session.commit()
 
+        camera_view = client.get(
+            f"/api/v1/cameras/{camera_id}"
+        )
+        assert camera_view.status_code == 200
+        assert (
+            camera_view.json()["time_sync_mode"]
+            == "monitor"
+        )
+
         before = client.get(
             f"/api/v1/cameras/{camera_id}/clock"
         )
         assert before.status_code == 200
+        assert before.json()["sync_mode"] == "monitor"
         assert before.json()["health"] == "unknown"
         assert before.json()["quality"] == "unknown"
         assert before.json()["measured_at"] is None
@@ -334,4 +353,43 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
         assert (
             "camera_clock_statuses"
             not in Base.metadata.tables
+        )
+
+        ignored = client.patch(
+            f"/api/v1/cameras/{camera_id}",
+            json={
+                "time_sync_mode": "ignore",
+            },
+        )
+        assert ignored.status_code == 200
+        assert (
+            ignored.json()["time_sync_mode"]
+            == "ignore"
+        )
+
+        skipped = client.get(
+            "/api/v1/system/camera-clock-health"
+        )
+        assert skipped.status_code == 200
+        assert skipped.json()["status"] == "DISABLED"
+        assert skipped.json()["total_devices"] == 0
+
+        ignored_projection = client.get(
+            f"/api/v1/cameras/{camera_id}/clock"
+        )
+        assert ignored_projection.status_code == 200
+        ignored_current = (
+            ignored_projection.json()
+        )
+        assert (
+            ignored_current["sync_mode"]
+            == "ignore"
+        )
+        assert (
+            ignored_current["health"]
+            == "unknown"
+        )
+        assert (
+            ignored_current["offset_ms"]
+            is None
         )
