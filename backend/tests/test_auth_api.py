@@ -190,6 +190,7 @@ class FakeNotificationTasks:
 
 class CaptureSmtpAdapter:
     calls = []
+    fail_once = False
 
     def __init__(self, **kwargs) -> None:
         self.settings = kwargs
@@ -201,6 +202,16 @@ class CaptureSmtpAdapter:
         title: str,
         body: str,
     ) -> None:
+        if self.fail_once:
+            type(self).fail_once = False
+            from app.integrations.smtp import (
+                SmtpIntegrationError,
+            )
+
+            raise SmtpIntegrationError(
+                "smtp_connection_failed",
+                "SMTP connection failed.",
+            )
         self.calls.append(
             {
                 "settings": self.settings,
@@ -314,6 +325,33 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
             assert token not in delivery.body
 
         CaptureSmtpAdapter.calls = []
+        CaptureSmtpAdapter.fail_once = True
+        from app.integrations.smtp import (
+            SmtpIntegrationError,
+        )
+
+        with pytest.raises(SmtpIntegrationError):
+            NotificationDeliveryService(
+                app.state.settings,
+                smtp_adapter_factory=CaptureSmtpAdapter,
+            ).execute(
+                app.state.database,
+                delivery_id=delivery_id,
+            )
+
+        with app.state.database.session() as session:
+            failed = session.get(
+                NotificationDelivery,
+                delivery_id,
+            )
+            assert failed is not None
+            assert failed.state == "FAILED"
+            assert failed.attempt_count == 1
+            assert (
+                failed.last_error_code
+                == "smtp_connection_failed"
+            )
+
         delivered = NotificationDeliveryService(
             app.state.settings,
             smtp_adapter_factory=CaptureSmtpAdapter,
@@ -346,7 +384,7 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
             )
             assert delivery is not None
             assert delivery.state == "SENT"
-            assert delivery.attempt_count == 1
+            assert delivery.attempt_count == 2
             assert delivery.sent_at is not None
             assert delivery.last_error_code is None
 
