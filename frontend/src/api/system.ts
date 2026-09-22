@@ -102,6 +102,7 @@ export interface AdminUser {
   username: string
   display_name: string
   email: string | null
+  email_verified: boolean
   enabled: boolean
   roles: RoleSummary[]
 }
