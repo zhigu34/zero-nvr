@@ -172,9 +172,13 @@ run_snapshot_failure() {
   [[ -z "$(env_value "$stage/.env" ZERO_NVR_DATABASE_URL)" ]]
   [[ "$(env_value "$stage/.env" ZERO_NVR_DATABASE_PREVIOUS_URL)" == "$LEGACY_PREVIOUS_URL" ]]
 
-  grep -Fq     "local database safety snapshot failed; restoring source services"     "$stage/output.log"
+  grep -Fq \
+    "local database safety snapshot failed; restoring source services" \
+    "$stage/output.log"
   grep -Fq "Original database deployment recovered." "$stage/output.log"
-  grep -Fq     " up -d --force-recreate --wait --wait-timeout 180 zero-nvr zero-nvr-worker"     "$stage/docker.log"
+  grep -Fq \
+    " up -d --force-recreate --wait --wait-timeout 180 zero-nvr zero-nvr-worker" \
+    "$stage/docker.log"
   [[ "$(cat "$stage/docker.state")" == "1" ]]
   if grep -Fq "python -m app.cli database-transfer" "$stage/docker.log"; then
     echo "database transfer ran after snapshot failure" >&2
