@@ -234,6 +234,17 @@ def test_configuration_export_is_portable_and_secret_free(
         ):
             assert forbidden not in serialized
 
+        exported_cameras = body[
+            "sections"
+        ]["cameras"]["cameras"]
+        assert len(exported_cameras) == 1
+        assert (
+            exported_cameras[0][
+                "time_sync_mode"
+            ]
+            == "ignore"
+        )
+
         camera_exports = body[
             "sections"
         ]["cameras"]["stream_profiles"]
@@ -428,6 +439,31 @@ def test_configuration_import_validation_checks_refs_and_secrets(
         assert (
             invalid_time.json()["error"]["code"]
             == "system_ntp_mode_invalid"
+        )
+
+        invalid_camera_time = copy.deepcopy(
+            bundle
+        )
+        invalid_camera_time["sections"][
+            "cameras"
+        ]["cameras"][0][
+            "time_sync_mode"
+        ] = "force"
+        invalid_camera = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={
+                "bundle": (
+                    invalid_camera_time
+                )
+            },
+        )
+        assert invalid_camera.status_code == 400
+        assert (
+            invalid_camera.json()["error"]["code"]
+            == "configuration_import_invalid"
         )
 
         broken = copy.deepcopy(bundle)
