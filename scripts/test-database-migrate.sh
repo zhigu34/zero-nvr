@@ -68,6 +68,9 @@ if [[ "$args" == *" images -q zero-nvr"* ]]; then
 fi
 
 if [[ "$args" == *"python -m app.cli safety-snapshot"* ]]; then
+  if [[ "${FAKE_SNAPSHOT_FAIL:-0}" == "1" ]]; then
+    exit 1
+  fi
   printf '%s\n' '{"safety_snapshot": "/var/lib/zero-nvr/safety-backups/pre/database.sqlite3", "database_engine": "sqlite", "size_bytes": 128}'
   exit 0
 fi
@@ -147,9 +150,34 @@ run_success() {
   grep -Fq "Database migration completed: sqlite -> postgresql" "$stage/output.log"
   grep -Fq "Previous database retained for rollback grace period." "$stage/output.log"
 
-  assert_order "$stage/docker.log" "python -m app.cli safety-snapshot" "python -m app.cli pre-database-migration-backup"
   assert_order "$stage/docker.log" "python -m app.cli pre-database-migration-backup" " stop zero-nvr-worker zero-nvr"
-  assert_order "$stage/docker.log" " stop zero-nvr-worker zero-nvr" "python -m app.cli database-transfer"
+  assert_order "$stage/docker.log" " stop zero-nvr-worker zero-nvr" "python -m app.cli safety-snapshot"
+  assert_order "$stage/docker.log" "python -m app.cli safety-snapshot" "python -m app.cli database-transfer"
+}
+
+run_snapshot_failure() {
+  local stage
+  stage="$(setup_stage snapshot-failure)"
+
+  if PATH="$stage/fake-bin:$PATH" \
+    FAKE_DOCKER_LOG="$stage/docker.log" \
+    FAKE_DOCKER_STATE="$stage/docker.state" \
+    FAKE_SNAPSHOT_FAIL=1 \
+      "$stage/scripts/database-migrate.sh" postgres > "$stage/output.log" 2>&1
+  then
+    echo "database migration unexpectedly succeeded after snapshot failure" >&2
+    exit 1
+  fi
+
+  [[ -z "$(env_value "$stage/.env" ZERO_NVR_DATABASE_URL)" ]]
+  [[ "$(env_value "$stage/.env" ZERO_NVR_DATABASE_PREVIOUS_URL)" == "$LEGACY_PREVIOUS_URL" ]]
+
+  grep -Fq     "local database safety snapshot failed; restoring source services"     "$stage/output.log"
+  grep -Fq " up -d --wait --wait-timeout 180 zero-nvr zero-nvr-worker"     "$stage/docker.log"
+  if grep -Fq "python -m app.cli database-transfer" "$stage/docker.log"; then
+    echo "database transfer ran after snapshot failure" >&2
+    exit 1
+  fi
 }
 
 run_transfer_failure() {
@@ -197,6 +225,7 @@ run_cutover_failure() {
 }
 
 run_success
+run_snapshot_failure
 run_transfer_failure
 run_cutover_failure
 
