@@ -320,6 +320,9 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             }
         ]
 
+        probes_before_reconfigure = len(
+            PROBED_URIS
+        )
         repeated = client.post(
             "/api/v1/cameras/onvif/import",
             json={
@@ -328,11 +331,35 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
                 "username": CAMERA_USERNAME,
                 "password": CAMERA_PASSWORD,
                 "name": "Warehouse Duplicate",
+                "profile_tokens": ["sub-a"],
             },
         )
         assert repeated.status_code == 201
         assert repeated.json()["reconfigured"] is True
         assert repeated.json()["device_id"] == body["device_id"]
+        reconfigure_probes = PROBED_URIS[
+            probes_before_reconfigure:
+        ]
+        assert len(
+            reconfigure_probes
+        ) == 3
+        assert {
+            uri.split("?", 1)[0]
+            for uri in reconfigure_probes
+        } == {
+            (
+                "rtsp://cam%20user:p%40ss%20word@"
+                "192.168.70.20:554/channel/a/main"
+            ),
+            (
+                "rtsp://cam%20user:p%40ss%20word@"
+                "192.168.70.20:554/channel/a/sub"
+            ),
+            (
+                "rtsp://cam%20user:p%40ss%20word@"
+                "192.168.70.20:554/channel/b/main"
+            ),
+        }
 
     with app.state.database.session() as session:
         assert session.scalar(
