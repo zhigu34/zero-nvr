@@ -79,6 +79,7 @@ jobs:
         run: |
           bash scripts/test-deployment-state.sh
           bash scripts/test-feature-profiles.sh
+          bash scripts/test-database-migrate.sh
           bash scripts/test-rollback.sh
           bash scripts/test-benchmark.sh
           bash scripts/test-soak.sh
