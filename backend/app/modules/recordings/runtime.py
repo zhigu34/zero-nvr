@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
+from app.integrations.contracts import RecordingBackend
 from app.integrations.zlm import ZlmRecordingAdapter
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import Camera, CameraStreamBinding, CameraStreamProfile
@@ -95,7 +96,7 @@ class RecordingRuntimeService:
         self,
         settings: Settings,
         *,
-        zlm_factory: Callable[[Settings], Any] = ZlmRecordingAdapter,
+        zlm_factory: Callable[[Settings], RecordingBackend] = ZlmRecordingAdapter,
         mode_tracker: RecorderModeTracker | None = None,
     ) -> None:
         self.settings = settings
