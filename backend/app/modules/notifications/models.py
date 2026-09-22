@@ -25,7 +25,7 @@ class NotificationTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "notification_targets"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('apprise')",
+            "kind IN ('apprise','smtp')",
             name="notification_target_kind",
         ),
     )
