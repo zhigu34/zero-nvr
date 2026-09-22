@@ -23,11 +23,11 @@ def upgrade() -> None:
         "notification_targets"
     ) as batch:
         batch.drop_constraint(
-            "notification_target_kind",
+            "ck_notification_targets_notification_target_kind",
             type_="check",
         )
         batch.create_check_constraint(
-            "notification_target_kind",
+            "ck_notification_targets_notification_target_kind",
             "kind IN ('apprise','smtp')",
         )
 
@@ -37,10 +37,10 @@ def downgrade() -> None:
         "notification_targets"
     ) as batch:
         batch.drop_constraint(
-            "notification_target_kind",
+            "ck_notification_targets_notification_target_kind",
             type_="check",
         )
         batch.create_check_constraint(
-            "notification_target_kind",
+            "ck_notification_targets_notification_target_kind",
             "kind IN ('apprise')",
         )
