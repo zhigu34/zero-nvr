@@ -122,7 +122,7 @@ current code/tests.
 - [x] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [x] PostgreSQL optional bundled/external production profile.
-- [ ] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
+- [x] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
 - [ ] SQLite and PostgreSQL production integration-test harnesses.
 - [ ] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
 - [ ] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
