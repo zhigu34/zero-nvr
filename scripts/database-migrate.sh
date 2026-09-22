@@ -250,8 +250,9 @@ compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
 echo "Creating quiesced local database safety snapshot..."
 if ! create_local_safety_snapshot; then
   echo "error: local database safety snapshot failed; restoring source services" >&2
-  compose up -d --wait --wait-timeout 180 \
-    zero-nvr zero-nvr-worker >/dev/null 2>&1 || true
+  recover_source \
+    "$source_configured_url" \
+    "$source_previous_url" || true
   exit 1
 fi
 local_snapshot="$SAFETY_SNAPSHOT_REL"
@@ -267,8 +268,9 @@ fi
 
 if [[ "$transfer_failed" == true ]]; then
   echo "error: database transfer failed; active database configuration was not changed" >&2
-  compose up -d --wait --wait-timeout 180 \
-    zero-nvr zero-nvr-worker >/dev/null 2>&1 || true
+  recover_source \
+    "$source_configured_url" \
+    "$source_previous_url" || true
   echo "Local source safety snapshot retained: $(deployment_data_dir)/$local_snapshot" >&2
   exit 1
 fi
