@@ -3,8 +3,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Any
+
+from sqlalchemy.orm import Session
 
 from cryptography.fernet import Fernet, InvalidToken
 from cryptography.hazmat.primitives import hashes
@@ -22,6 +25,17 @@ class EncryptedSecret:
     key_id: str
     ciphertext: bytes
     version: int = 1
+
+
+@dataclass(frozen=True, slots=True)
+class SecretMetadata:
+    secret_ref: uuid.UUID
+    kind: str
+    owner_type: str
+    owner_id: uuid.UUID
+    key_id: str
+    version: int
+    needs_rotation: bool
 
 
 class SecretStore:
@@ -129,3 +143,223 @@ class SecretStore:
             version=version,
         )
         return self.encrypt_bytes(plaintext)
+
+    @staticmethod
+    def _secret_record_type() -> type[Any]:
+        # Import lazily so the crypto/bootstrap boundary remains usable without
+        # importing the full product model graph at module import time.
+        from app.modules.auth.models import SecretRecord
+
+        return SecretRecord
+
+    def _record(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> Any:
+        record_type = self._secret_record_type()
+        record = session.get(record_type, secret_ref)
+        if (
+            record is None
+            or (kind is not None and record.kind != kind)
+            or (
+                owner_type is not None
+                and record.owner_type != owner_type
+            )
+            or (
+                owner_id is not None
+                and record.owner_id != owner_id
+            )
+        ):
+            raise KeyError(
+                f"SecretStore record is unavailable: {secret_ref}"
+            )
+        return record
+
+    def create(
+        self,
+        session: Session,
+        *,
+        kind: str,
+        owner_type: str,
+        owner_id: uuid.UUID,
+        plaintext: bytes,
+    ) -> uuid.UUID:
+        encrypted = self.encrypt_bytes(plaintext)
+        record_type = self._secret_record_type()
+        record = record_type(
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+            key_id=encrypted.key_id,
+            encrypted_payload=encrypted.ciphertext,
+            version=encrypted.version,
+        )
+        session.add(record)
+        session.flush()
+        return record.id
+
+    def read(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> bytes:
+        record = self._record(
+            session,
+            secret_ref,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
+        return self.decrypt_bytes(
+            key_id=record.key_id,
+            ciphertext=record.encrypted_payload,
+            version=record.version,
+        )
+
+    def replace(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        plaintext: bytes,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> None:
+        record = self._record(
+            session,
+            secret_ref,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
+        encrypted = self.encrypt_bytes(plaintext)
+        record.key_id = encrypted.key_id
+        record.encrypted_payload = encrypted.ciphertext
+        record.version = encrypted.version
+        session.flush()
+
+    def delete(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> None:
+        record = self._record(
+            session,
+            secret_ref,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
+        session.delete(record)
+        session.flush()
+
+    def metadata(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> SecretMetadata:
+        record = self._record(
+            session,
+            secret_ref,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
+        return SecretMetadata(
+            secret_ref=record.id,
+            kind=record.kind,
+            owner_type=record.owner_type,
+            owner_id=record.owner_id,
+            key_id=record.key_id,
+            version=record.version,
+            needs_rotation=self.needs_rotation(record.key_id),
+        )
+
+    def create_json(
+        self,
+        session: Session,
+        *,
+        kind: str,
+        owner_type: str,
+        owner_id: uuid.UUID,
+        value: dict[str, Any],
+    ) -> uuid.UUID:
+        plaintext = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return self.create(
+            session,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+            plaintext=plaintext,
+        )
+
+    def read_json(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> dict[str, Any]:
+        plaintext = self.read(
+            session,
+            secret_ref,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
+        value = json.loads(plaintext.decode("utf-8"))
+        if not isinstance(value, dict):
+            raise ValueError(
+                "SecretStore JSON payload must be an object"
+            )
+        return value
+
+    def replace_json(
+        self,
+        session: Session,
+        secret_ref: uuid.UUID,
+        *,
+        value: dict[str, Any],
+        kind: str | None = None,
+        owner_type: str | None = None,
+        owner_id: uuid.UUID | None = None,
+    ) -> None:
+        plaintext = json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        self.replace(
+            session,
+            secret_ref,
+            plaintext=plaintext,
+            kind=kind,
+            owner_type=owner_type,
+            owner_id=owner_id,
+        )
