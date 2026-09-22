@@ -148,6 +148,7 @@ class CameraService:
             channel_key="manual-0",
             name=name,
             enabled=True,
+            time_sync_mode="ignore",
             location=location,
             storage_label=storage_label,
         )
@@ -336,9 +337,54 @@ class CameraService:
         camera: Camera,
         changes: dict[str, object],
     ) -> Camera:
-        for field in ("name", "location", "storage_label"):
+        if "time_sync_mode" in changes:
+            mode = changes["time_sync_mode"]
+            if mode not in {
+                "monitor",
+                "manage_ntp",
+                "ignore",
+            }:
+                raise ApiError(
+                    status_code=400,
+                    code="camera_time_sync_mode_invalid",
+                    message="Camera time synchronization mode is invalid.",
+                )
+            if mode != "ignore":
+                device = (
+                    session.get(
+                        Device,
+                        camera.device_id,
+                    )
+                    if camera.device_id
+                    is not None
+                    else None
+                )
+                if (
+                    device is None
+                    or device.adapter_type
+                    != "onvif"
+                ):
+                    raise ApiError(
+                        status_code=400,
+                        code="camera_time_sync_unsupported",
+                        message=(
+                            "Camera does not support managed device-time "
+                            "monitoring."
+                        ),
+                    )
+
+        for field in (
+            "name",
+            "location",
+            "storage_label",
+            "time_sync_mode",
+        ):
             if field in changes:
-                setattr(camera, field, changes[field])
+                setattr(
+                    camera,
+                    field,
+                    changes[field],
+                )
         session.flush()
         return camera
 
