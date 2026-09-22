@@ -73,7 +73,7 @@ def test_smtp_target_persistence_and_security_email_selection(
                     "host": "SMTP.Example.TEST",
                     "port": 587,
                     "security": "starttls",
-                    "from_address": "security@example.test",
+                    "from_address": "security@example.com",
                     "from_name": "zero-nvr",
                 },
                 "smtp_credentials": {
@@ -90,7 +90,7 @@ def test_smtp_target_persistence_and_security_email_selection(
             "host": "smtp.example.test",
             "port": 587,
             "security": "starttls",
-            "from_address": "security@example.test",
+            "from_address": "security@example.com",
             "from_name": "zero-nvr",
         }
         assert body["url_configured"] is False
@@ -134,6 +134,46 @@ def test_smtp_target_persistence_and_security_email_selection(
                 SystemSetting,
                 SECURITY_EMAIL_NAMESPACE,
             ) is None
+
+        replaced = client.patch(
+            f"/api/v1/notification-targets/{target_id}",
+            json={
+                "credentials_action": "replace",
+                "smtp_credentials": {
+                    "username": "mailer-rotated",
+                    "password": "smtp-password-rotated",
+                },
+            },
+        )
+        assert replaced.status_code == 200
+        assert replaced.json()["credentials_configured"] is True
+
+        with app.state.database.session() as session:
+            target = session.get(
+                NotificationTarget,
+                target_id,
+            )
+            assert target is not None
+            assert target.secret_ref is not None
+            rotated_ref = target.secret_ref
+            assert rotated_ref != secret_ref
+            assert session.get(
+                SecretRecord,
+                secret_ref,
+            ) is None
+            rotated = SecretStore(
+                app.state.settings
+            ).read_json(
+                session,
+                rotated_ref,
+                kind="smtp_credentials",
+                owner_type="notification_target",
+                owner_id=target_id,
+            )
+            assert rotated == {
+                "username": "mailer-rotated",
+                "password": "smtp-password-rotated",
+            }
 
         selected = client.put(
             "/api/v1/notification-targets/security-email-default",
@@ -239,5 +279,5 @@ def test_smtp_target_persistence_and_security_email_selection(
             }
             assert session.get(
                 SecretRecord,
-                secret_ref,
+                rotated_ref,
             ) is None
