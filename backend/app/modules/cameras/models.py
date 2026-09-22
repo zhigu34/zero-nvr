@@ -207,6 +207,10 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ),
         Index("ix_cameras_enabled_name", "enabled", "name"),
         Index("ix_cameras_retired_at", "retired_at"),
+        CheckConstraint(
+            "time_sync_mode IN ('monitor','manage_ntp','ignore')",
+            name="camera_time_sync_mode",
+        ),
     )
 
     device_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -217,6 +221,12 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     channel_key: Mapped[str] = mapped_column(String(256), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    time_sync_mode: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="monitor",
+        server_default="monitor",
+    )
     retired_at: Mapped[datetime | None] = mapped_column(
         UTCDateTime(),
         nullable=True,
