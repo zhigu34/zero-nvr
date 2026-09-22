@@ -339,11 +339,14 @@ class CameraService:
     ) -> Camera:
         if "time_sync_mode" in changes:
             mode = changes["time_sync_mode"]
-            if mode not in {
-                "monitor",
-                "manage_ntp",
-                "ignore",
-            }:
+            if (
+                not isinstance(mode, str)
+                or mode not in {
+                    "monitor",
+                    "manage_ntp",
+                    "ignore",
+                }
+            ):
                 raise ApiError(
                     status_code=400,
                     code="camera_time_sync_mode_invalid",
