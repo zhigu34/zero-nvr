@@ -499,6 +499,36 @@ def test_configuration_import_validation_checks_refs_and_secrets(
             == "configuration_import_invalid"
         )
 
+        invalid_maintenance = copy.deepcopy(
+            bundle
+        )
+        invalid_maintenance["sections"][
+            "cameras"
+        ]["cameras"][0][
+            "maintenance"
+        ] = None
+        invalid_maintenance_result = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={
+                "bundle": (
+                    invalid_maintenance
+                )
+            },
+        )
+        assert (
+            invalid_maintenance_result.status_code
+            == 400
+        )
+        assert (
+            invalid_maintenance_result.json()[
+                "error"
+            ]["code"]
+            == "configuration_import_invalid"
+        )
+
         broken = copy.deepcopy(bundle)
         broken_binding = broken[
             "sections"
