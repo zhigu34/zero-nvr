@@ -674,7 +674,12 @@ async def import_onvif_camera(
         ) from exc
 
     try:
-        device, cameras, reconfigured = service.import_device(
+        (
+            device,
+            cameras,
+            reconfigured,
+            restart_camera_ids,
+        ) = service.import_device(
             session,
             inspection=inspection,
             host=body.host,
@@ -706,6 +711,13 @@ async def import_onvif_camera(
                     for camera in cameras
                 ),
                 "reconfigured": reconfigured,
+                "runtime_restart_camera_ids": [
+                    str(camera_id)
+                    for camera_id in sorted(
+                        restart_camera_ids,
+                        key=str,
+                    )
+                ],
             },
         )
         session.commit()
@@ -713,11 +725,14 @@ async def import_onvif_camera(
         session.rollback()
         raise
 
-    if reconfigured:
+    if restart_camera_ids:
         try:
-            for camera in cameras:
+            for camera_id in sorted(
+                restart_camera_ids,
+                key=str,
+            ):
                 request.app.state.recording_tasks.reconcile_runtime(
-                    camera.id,
+                    camera_id,
                     restart_streams=True,
                 )
         except Exception as exc:
