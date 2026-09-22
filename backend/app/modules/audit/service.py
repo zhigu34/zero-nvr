@@ -6,6 +6,8 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.security import redact_sensitive_value, redact_text
+
 from .models import AuditEvent
 
 
@@ -44,12 +46,12 @@ def append_audit_event(
         camera_id=camera_id,
         request_id=getattr(request.state, "request_id", None),
         source_ip=source_ip,
-        client_info=client_info,
+        client_info=redact_sensitive_value(client_info),
         result=result,
-        reason=reason,
-        before_json=before,
-        after_json=after,
-        metadata_json=metadata,
+        reason=(redact_text(reason) if reason is not None else None),
+        before_json=redact_sensitive_value(before),
+        after_json=redact_sensitive_value(after),
+        metadata_json=redact_sensitive_value(metadata),
     )
     session.add(event)
     return event
