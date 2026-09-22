@@ -19,6 +19,11 @@ class StorageTargetUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     enabled: bool | None = None
     config: dict[str, object] | None = None
+    rclone_config_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
     rclone_config: SecretStr | None = None
 
 
