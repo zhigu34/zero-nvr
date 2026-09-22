@@ -17,10 +17,13 @@ _SENSITIVE_KEY = re.compile(
 )
 _KEY_VALUE = re.compile(
     r"""(?ix)
+    (?<![A-Za-z0-9_])
+    (?P<quote>["']?)
     (?P<key>
         password|passwd|secret|token|credential|authorization|
         api[_-]?key|client[_-]?secret|access[_-]?key|private[_-]?key
     )
+    (?P=quote)
     (?P<sep>\s*[:=]\s*)
     (?P<value>
         "[^"]*"|'[^']*'|[^\s,;&]+
@@ -48,7 +51,9 @@ def redact_text(value: str) -> str:
     redacted = _BEARER.sub("Bearer ***", redacted)
     redacted = _KEY_VALUE.sub(
         lambda match: (
+            f"{match.group('quote')}"
             f"{match.group('key')}"
+            f"{match.group('quote')}"
             f"{match.group('sep')}"
             f"{REDACTED}"
         ),
