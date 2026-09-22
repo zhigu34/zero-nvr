@@ -126,7 +126,7 @@ current code/tests.
 - [x] SQLite and PostgreSQL production integration-test harnesses.
 - [x] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
 - [x] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
-- [ ] ordinary configuration + SecretStore abstraction.
+- [x] ordinary configuration + SecretStore abstraction.
 - [ ] SecretRecord persistence using mature authenticated encryption.
 - [ ] stable ZERO_NVR_SECRET_KEY / *_FILE bootstrap with simple versioned keyring rotation.
 - [ ] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
