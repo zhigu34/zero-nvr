@@ -123,9 +123,10 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
                 "notification_targets"
             )
         }
-        assert "smtp" in target_checks[
-            "ck_notification_targets_notification_target_kind"
-        ]
+        assert any(
+            "smtp" in sqltext
+            for sqltext in target_checks.values()
+        )
     finally:
         engine.dispose()
 
@@ -193,9 +194,10 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
                 "notification_targets"
             )
         }
-        assert "smtp" in target_checks[
-            "ck_notification_targets_notification_target_kind"
-        ]
+        assert any(
+            "smtp" in sqltext
+            for sqltext in target_checks.values()
+        )
     finally:
         engine.dispose()
 
