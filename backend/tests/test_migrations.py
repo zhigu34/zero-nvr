@@ -157,6 +157,93 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
         engine.dispose()
 
 
+def test_camera_time_sync_migration_backfills_unsupported_cameras(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "camera-time-mode.db"
+    database_url = f"sqlite:///{database_path}"
+    monkeypatch.setenv(
+        "ZERO_NVR_DATABASE_URL",
+        database_url,
+    )
+
+    config = alembic_config(database_url)
+    command.upgrade(
+        config,
+        "0014_notification_smtp",
+    )
+
+    engine = create_engine(database_url)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                """
+                INSERT INTO devices (
+                    id, name, adapter_type, enabled,
+                    capabilities, created_at, updated_at
+                ) VALUES
+                    (
+                        '11111111111111111111111111111111',
+                        'ONVIF Device', 'onvif', 1, '{}',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    ),
+                    (
+                        '22222222222222222222222222222222',
+                        'RTSP Device', 'manual_rtsp', 1, '{}',
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                """
+            )
+            connection.exec_driver_sql(
+                """
+                INSERT INTO cameras (
+                    id, device_id, channel_key, name,
+                    enabled, retired_at, location,
+                    storage_label, created_at, updated_at
+                ) VALUES
+                    (
+                        '33333333333333333333333333333333',
+                        '11111111111111111111111111111111',
+                        'onvif-0', 'ONVIF Camera', 1,
+                        NULL, NULL, NULL,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    ),
+                    (
+                        '44444444444444444444444444444444',
+                        '22222222222222222222222222222222',
+                        'manual-0', 'RTSP Camera', 1,
+                        NULL, NULL, NULL,
+                        CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                    )
+                """
+            )
+    finally:
+        engine.dispose()
+
+    command.upgrade(config, "head")
+
+    engine = create_engine(database_url)
+    try:
+        with engine.connect() as connection:
+            rows = dict(
+                connection.exec_driver_sql(
+                    """
+                    SELECT name, time_sync_mode
+                    FROM cameras
+                    ORDER BY name
+                    """
+                ).all()
+            )
+    finally:
+        engine.dispose()
+
+    assert rows == {
+        "ONVIF Camera": "monitor",
+        "RTSP Camera": "ignore",
+    }
+
+
 @pytest.mark.skipif(
     not os.getenv("ZERO_NVR_TEST_POSTGRES_URL"),
     reason="PostgreSQL CI service is unavailable",
