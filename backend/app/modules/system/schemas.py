@@ -39,8 +39,12 @@ class FrigateProviderPut(BaseModel):
         max_length=128,
     )
     mqtt_tls: bool = False
+    credentials_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
     credentials: FrigateCredentialsInput | None = None
-    replace_credentials: bool = False
 
 
 class FrigateProviderView(BaseModel):
