@@ -596,24 +596,74 @@ class StorageTargetService:
             config=target.config_json or {},
         )
 
-        if "rclone_config" in changes:
+        credential_action = str(
+            changes.get(
+                "rclone_config_action",
+                "keep",
+            )
+        )
+        if credential_action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="rclone_config_update_invalid",
+                message="rclone credential action is invalid.",
+            )
+
+        if credential_action != "keep":
             if target.type != "rclone":
                 raise ApiError(
                     status_code=400,
                     code="storage_target_credentials_not_allowed",
                     message="Local storage target does not use rclone credentials.",
                 )
-            raw = changes["rclone_config"]
+
+        if credential_action == "replace":
+            raw = changes.get("rclone_config")
             if not isinstance(raw, str):
                 raise ApiError(
                     status_code=400,
                     code="rclone_config_invalid",
-                    message="rclone configuration cannot be cleared with PATCH.",
+                    message="rclone configuration is invalid.",
                 )
             self._replace_rclone_secret(
                 session,
                 target=target,
                 config_text=raw,
+            )
+        elif credential_action == "clear":
+            if "rclone_config" in changes:
+                raise ApiError(
+                    status_code=400,
+                    code="rclone_config_update_invalid",
+                    message=(
+                        "rclone credential clear action "
+                        "does not accept a replacement value."
+                    ),
+                )
+            if target.credential_secret_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        target.credential_secret_ref,
+                        kind="rclone_config",
+                        owner_type="storage_target",
+                        owner_id=target.id,
+                    )
+                except KeyError:
+                    pass
+            target.credential_secret_ref = None
+        elif "rclone_config" in changes:
+            raise ApiError(
+                status_code=400,
+                code="rclone_config_update_invalid",
+                message=(
+                    "rclone credential value requires "
+                    "action=replace."
+                ),
             )
 
         session.flush()
