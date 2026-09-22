@@ -116,10 +116,11 @@ export interface CameraScope {
 export interface NotificationTarget {
   id: string
   name: string
-  kind: "apprise"
+  kind: "apprise" | "smtp"
   enabled: boolean
   config: Record<string, unknown>
   url_configured: boolean
+  credentials_configured: boolean
 }
 
 export interface NotificationDelivery {
