@@ -97,6 +97,24 @@ class GeneralSystemSettingsPatch(BaseModel):
     camera_ntp_servers: list[str] | None = None
 
 
+class TimeSystemSettingsView(BaseModel):
+    recording_timezone: str
+    managed_camera_ntp_mode: Literal[
+        "manual",
+        "dhcp",
+    ]
+    managed_camera_ntp_servers: list[str]
+
+
+class TimeSystemSettingsPatch(BaseModel):
+    recording_timezone: str | None = None
+    managed_camera_ntp_mode: Literal[
+        "manual",
+        "dhcp",
+    ] | None = None
+    managed_camera_ntp_servers: list[str] | None = None
+
+
 class RuntimeTuningSettingsView(BaseModel):
     prebuffer_fragment_seconds: int
     prebuffer_buffer_seconds: int
@@ -177,11 +195,13 @@ class RuntimeTuningSettingsPatch(BaseModel):
 
 class SystemSettingsView(BaseModel):
     general: GeneralSystemSettingsView
+    time: TimeSystemSettingsView
     runtime: RuntimeTuningSettingsView
 
 
 class SystemSettingsPatch(BaseModel):
     general: GeneralSystemSettingsPatch | None = None
+    time: TimeSystemSettingsPatch | None = None
     runtime: RuntimeTuningSettingsPatch | None = None
 
 
