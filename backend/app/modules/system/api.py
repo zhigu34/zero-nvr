@@ -252,8 +252,50 @@ def put_frigate_provider(
             message="Frigate camera mapping contains duplicate camera keys.",
         )
 
+    credential_action = body.credentials_action
+    has_credentials = body.credentials is not None
+    if (
+        credential_action == "replace"
+        and not has_credentials
+    ):
+        raise ApiError(
+            status_code=400,
+            code="frigate_credentials_update_invalid",
+            message=(
+                "Frigate credential replacement "
+                "requires credential fields."
+            ),
+        )
+    if (
+        credential_action != "replace"
+        and has_credentials
+    ):
+        raise ApiError(
+            status_code=400,
+            code="frigate_credentials_update_invalid",
+            message=(
+                "Frigate credential values are only "
+                "accepted with action=replace."
+            ),
+        )
+
     credentials = None
-    if body.credentials is not None:
+    if has_credentials:
+        assert body.credentials is not None
+        values = (
+            body.credentials.model_dump(
+                exclude_none=True
+            )
+        )
+        if not values:
+            raise ApiError(
+                status_code=400,
+                code="frigate_credentials_update_invalid",
+                message=(
+                    "Frigate credential replacement "
+                    "must contain at least one value."
+                ),
+            )
         credentials = FrigateCredentials(
             http_bearer_token=(
                 body.credentials.http_bearer_token.get_secret_value()
@@ -296,10 +338,7 @@ def put_frigate_provider(
             mqtt_topic_prefix=body.mqtt_topic_prefix,
             mqtt_tls=body.mqtt_tls,
             credentials=credentials,
-            replace_credentials=(
-                body.replace_credentials
-                or body.credentials is not None
-            ),
+            credentials_action=credential_action,
         )
         managed_plan = None
         if (
