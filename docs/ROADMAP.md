@@ -124,7 +124,7 @@ current code/tests.
 - [x] PostgreSQL optional bundled/external production profile.
 - [x] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
 - [x] SQLite and PostgreSQL production integration-test harnesses.
-- [ ] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
+- [x] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
 - [ ] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
 - [ ] ordinary configuration + SecretStore abstraction.
 - [ ] SecretRecord persistence using mature authenticated encryption.
