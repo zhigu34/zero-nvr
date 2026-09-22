@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.errors import ApiError
 from app.modules.audit.service import append_audit_event
 
 from .admin_service import AuthAdminService
