@@ -274,6 +274,10 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
         assert response.status_code == 201
         body = response.json()
         assert uuid.UUID(body["device_id"])
+        assert {
+            camera["time_sync_mode"]
+            for camera in body["cameras"]
+        } == {"monitor"}
         assert [camera["name"] for camera in body["cameras"]] == [
             "Warehouse 1",
             "Warehouse 2",
