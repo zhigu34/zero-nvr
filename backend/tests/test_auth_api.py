@@ -188,25 +188,25 @@ class FakeNotificationTasks:
         self.delivery_ids.append(delivery_id)
 
 
-class CaptureMailAdapter:
+class CaptureSmtpAdapter:
     calls = []
 
-    def __init__(self, *, url: str) -> None:
-        self.url = url
+    def __init__(self, **kwargs) -> None:
+        self.settings = kwargs
 
-    def notify(
+    def send_email(
         self,
         *,
+        recipient: str,
         title: str,
         body: str,
-        notify_type: str,
     ) -> None:
         self.calls.append(
             {
-                "url": self.url,
+                "settings": self.settings,
+                "recipient": recipient,
                 "title": title,
                 "body": body,
-                "notify_type": notify_type,
             }
         )
 
@@ -214,8 +214,6 @@ class CaptureMailAdapter:
 def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_sessions(
     tmp_path: Path,
 ) -> None:
-    from urllib.parse import parse_qs, urlsplit
-
     from app.modules.audit.models import AuditEvent
     from app.modules.auth.models import PasswordResetToken
     from app.modules.auth.password_reset import PasswordResetService
@@ -251,19 +249,27 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
             "/api/v1/notification-targets",
             json={
                 "name": "Security email",
+                "kind": "smtp",
                 "config": {
-                    "password_reset": True,
+                    "host": "mail.example.com",
+                    "port": 587,
+                    "security": "starttls",
+                    "from_address": "zero-nvr@example.com",
+                    "from_name": "zero-nvr",
                 },
-                "url": (
-                    "mailtos://smtp-user:smtp-pass@mail.example.com"
-                    "?from=zero-nvr@example.com"
-                    "&to=old@example.com"
-                    "&cc=copy@example.com"
-                    "&bcc=hidden@example.com"
-                ),
+                "smtp_credentials": {
+                    "username": "smtp-user",
+                    "password": "smtp-pass",
+                },
             },
         )
         assert target.status_code == 201
+        target_id = target.json()["id"]
+        selected = client.put(
+            "/api/v1/notification-targets/security-email-default",
+            json={"target_id": target_id},
+        )
+        assert selected.status_code == 200
 
         requested = client.post(
             "/api/v1/auth/password-reset/request",
@@ -307,27 +313,42 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
             assert delivery.purpose == "password_reset"
             assert token not in delivery.body
 
-        CaptureMailAdapter.calls = []
+        CaptureSmtpAdapter.calls = []
         delivered = NotificationDeliveryService(
             app.state.settings,
-            adapter_factory=CaptureMailAdapter,
+            smtp_adapter_factory=CaptureSmtpAdapter,
         ).execute(
             app.state.database,
             delivery_id=delivery_id,
         )
         assert delivered.state == "SENT"
         assert delivered.delivered is True
-        assert len(CaptureMailAdapter.calls) == 1
+        assert len(CaptureSmtpAdapter.calls) == 1
 
-        sent = CaptureMailAdapter.calls[0]
-        parsed = urlsplit(sent["url"])
-        query = parse_qs(parsed.query)
-        assert parsed.scheme == "mailtos"
-        assert query["to"] == ["admin@example.com"]
-        assert "cc" not in query
-        assert "bcc" not in query
-        assert "old@example.com" not in sent["url"]
+        sent = CaptureSmtpAdapter.calls[0]
+        assert sent["recipient"] == "admin@example.com"
+        assert sent["title"] == "zero-nvr password reset"
         assert token in sent["body"]
+        assert sent["settings"] == {
+            "host": "mail.example.com",
+            "port": 587,
+            "security": "starttls",
+            "from_address": "zero-nvr@example.com",
+            "from_name": "zero-nvr",
+            "username": "smtp-user",
+            "password": "smtp-pass",
+        }
+
+        with app.state.database.session() as session:
+            delivery = session.get(
+                NotificationDelivery,
+                delivery_id,
+            )
+            assert delivery is not None
+            assert delivery.state == "SENT"
+            assert delivery.attempt_count == 1
+            assert delivery.sent_at is not None
+            assert delivery.last_error_code is None
 
         completed = client.post(
             "/api/v1/auth/password-reset/complete",
