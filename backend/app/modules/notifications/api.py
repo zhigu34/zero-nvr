@@ -13,6 +13,10 @@ from app.integrations.apprise import (
     AppriseAdapter,
     AppriseIntegrationError,
 )
+from app.integrations.smtp import (
+    SmtpAdapter,
+    SmtpIntegrationError,
+)
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import require_permission
 from app.modules.auth.service import AuthContext
@@ -21,6 +25,7 @@ from .models import NotificationDelivery, NotificationTarget
 from .schemas import (
     NotificationDeliveryView,
     NotificationTargetCreate,
+    NotificationTargetTestRequest,
     NotificationTargetTestView,
     NotificationTargetUpdate,
     NotificationTargetView,
@@ -484,6 +489,7 @@ def delete_notification_target(
 def test_notification_target(
     target_id: uuid.UUID,
     request: Request,
+    body: NotificationTargetTestRequest | None = None,
     _context: AuthContext = Depends(
         require_permission("alert.manage")
     ),
@@ -493,6 +499,53 @@ def test_notification_target(
         request.app.state.settings
     )
     target = service.get(session, target_id)
+
+    if target.kind == "smtp":
+        resolved_smtp = service.resolve_smtp(
+            session,
+            target=target,
+        )
+        session.commit()
+        try:
+            adapter = SmtpAdapter(
+                host=resolved_smtp.host,
+                port=resolved_smtp.port,
+                security=resolved_smtp.security,
+                from_address=resolved_smtp.from_address,
+                from_name=resolved_smtp.from_name,
+                username=resolved_smtp.username,
+                password=resolved_smtp.password,
+            )
+            if (
+                body is not None
+                and body.recipient is not None
+            ):
+                adapter.send_test_email(
+                    recipient=str(body.recipient),
+                )
+            else:
+                adapter.test_connection()
+        except SmtpIntegrationError as exc:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+            ) from exc
+        return NotificationTargetTestView()
+
+    if (
+        body is not None
+        and body.recipient is not None
+    ):
+        raise ApiError(
+            status_code=400,
+            code="notification_test_recipient_not_supported",
+            message=(
+                "A test recipient is only supported "
+                "for SMTP targets."
+            ),
+        )
+
     resolved = service.resolve(
         session,
         target=target,
