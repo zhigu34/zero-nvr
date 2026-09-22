@@ -678,9 +678,41 @@ def update_oidc_provider(
             provider_key,
         )
         changes = body.model_dump(
-            exclude_unset=True
+            exclude_unset=True,
+            exclude={"client_secret"},
         )
-        if body.client_secret is not None:
+        secret_action = body.client_secret_action
+        has_secret_value = (
+            body.client_secret is not None
+        )
+        if (
+            secret_action == "replace"
+            and not has_secret_value
+        ):
+            raise ApiError(
+                status_code=400,
+                code="oidc_client_secret_update_invalid",
+                message=(
+                    "OIDC client secret replacement "
+                    "requires a new value."
+                ),
+            )
+        if (
+            secret_action != "replace"
+            and has_secret_value
+        ):
+            raise ApiError(
+                status_code=400,
+                code="oidc_client_secret_update_invalid",
+                message=(
+                    "OIDC client secret value is only "
+                    "accepted with action=replace."
+                ),
+            )
+        changes["client_secret_action"] = (
+            secret_action
+        )
+        if has_secret_value:
             changes["client_secret"] = (
                 body.client_secret.get_secret_value()
             )
@@ -698,9 +730,7 @@ def update_oidc_provider(
             resource_id=provider.id,
             metadata={
                 "key": provider.key,
-                "secret_replaced": (
-                    body.client_secret is not None
-                ),
+                "secret_action": secret_action,
             },
         )
         session.commit()
