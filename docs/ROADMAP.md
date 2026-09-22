@@ -135,7 +135,7 @@ current code/tests.
 - [x] credential validation before atomic secret_ref switch where practical.
 - [x] User / Role / Permission / UserSession persistence.
 - [x] first-run one-time administrator bootstrap with no default password.
-- [ ] local authentication with modern password hashing and session revocation.
+- [x] local authentication with modern password hashing and session revocation.
 - [ ] User email field + verification state.
 - [ ] SMTP NotificationTarget(type=smtp) persistence/API with SecretStore-backed credentials and one system setting selecting the default security-email target.
 - [ ] SMTP connection test + test-email flow.
