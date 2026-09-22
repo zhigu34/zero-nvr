@@ -138,7 +138,7 @@ current code/tests.
 - [x] local authentication with modern password hashing and session revocation.
 - [x] User email field + verification state.
 - [x] SMTP NotificationTarget(type=smtp) persistence/API with SecretStore-backed credentials and one system setting selecting the default security-email target.
-- [ ] SMTP connection test + test-email flow.
+- [x] SMTP connection test + test-email flow.
 - [ ] password-reset/security email delivery through NotificationDelivery + Huey retry/backoff/result tracking.
 - [ ] self-service email password reset with non-enumerating public response.
 - [ ] PasswordResetToken persistence using one-way token hashes.
