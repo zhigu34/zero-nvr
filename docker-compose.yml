@@ -216,13 +216,8 @@ services:
       test:
         - CMD-SHELL
         - >-
-          secret="$ZERO_NVR_ZLM_API_SECRET";
-          if [ -z "$secret" ]; then
-            secret="$(sed -n '/^\[api\]/,/^\[/s/^secret=//p' /opt/media/conf/config.ini | head -n 1)";
-          fi;
-          test -n "$secret" &&
           curl -fsS -X POST
-          --data-urlencode "secret=$secret"
+          --data-urlencode "secret=`sed -n '/^\[api\]/,/^\[/s/^secret=//p' /opt/media/conf/config.ini | head -n 1`"
           http://127.0.0.1/index/api/version >/dev/null
       interval: 10s
       timeout: 3s
