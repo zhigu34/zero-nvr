@@ -184,6 +184,43 @@ def test_provider_event_upsert_updates_one_canonical_row(
         assert row.metadata_json == {"phase": "end"}
 
 
+def test_event_metadata_is_redacted_before_persistence(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with app.state.database.session() as session:
+        result = EventService.upsert_provider_event(
+            session,
+            item=EventIngest(
+                source="frigate",
+                source_instance_id="frigate-main",
+                source_event_id="evt-secret-metadata",
+                category="object",
+                started_at=datetime.now(UTC),
+                metadata={
+                    "token": "provider-token",
+                    "nested": {
+                        "message": (
+                            "password=provider-password"
+                        )
+                    },
+                },
+            ),
+        )
+        event_id = result.event.id
+        session.commit()
+
+    with app.state.database.session() as session:
+        stored = session.get(Event, event_id)
+        assert stored is not None
+        assert stored.metadata_json["token"] == "***"
+        assert (
+            "provider-password"
+            not in stored.metadata_json["nested"]["message"]
+        )
+
+
 def test_provider_identity_requires_instance_when_event_id_exists(
     tmp_path: Path,
 ) -> None:
