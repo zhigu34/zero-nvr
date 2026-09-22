@@ -389,6 +389,7 @@ class StorageTargetService:
         *,
         target: StorageTarget,
         config_text: str,
+        validate_config: dict[str, object] | None = None,
     ) -> None:
         if not config_text.strip():
             raise ApiError(
@@ -396,54 +397,55 @@ class StorageTargetService:
                 code="rclone_config_invalid",
                 message="rclone configuration cannot be empty.",
             )
-        if target.credential_secret_ref is None:
-            target.credential_secret_ref = (
-                self.secret_store.create_json(
+        if validate_config is not None:
+            self.test_target(
+                target_type="rclone",
+                config=validate_config,
+                rclone_config=config_text,
+            )
+
+        old_ref = target.credential_secret_ref
+        if old_ref is not None:
+            try:
+                metadata = self.secret_store.metadata(
                     session,
-                    kind="rclone_config",
-                    owner_type="storage_target",
-                    owner_id=target.id,
-                    value={"config": config_text},
+                    old_ref,
                 )
-            )
-            return
+            except KeyError:
+                old_ref = None
+            else:
+                if (
+                    metadata.kind != "rclone_config"
+                    or metadata.owner_type != "storage_target"
+                    or metadata.owner_id != target.id
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="rclone_credentials_unavailable",
+                        message="rclone archive credentials are unavailable.",
+                    )
 
-        try:
-            metadata = self.secret_store.metadata(
-                session,
-                target.credential_secret_ref,
-            )
-        except KeyError:
-            target.credential_secret_ref = (
-                self.secret_store.create_json(
-                    session,
-                    kind="rclone_config",
-                    owner_type="storage_target",
-                    owner_id=target.id,
-                    value={"config": config_text},
-                )
-            )
-            return
-
-        if (
-            metadata.kind != "rclone_config"
-            or metadata.owner_type != "storage_target"
-            or metadata.owner_id != target.id
-        ):
-            raise ApiError(
-                status_code=409,
-                code="rclone_credentials_unavailable",
-                message="rclone archive credentials are unavailable.",
-            )
-
-        self.secret_store.replace_json(
+        candidate_ref = self.secret_store.create_json(
             session,
-            target.credential_secret_ref,
             kind="rclone_config",
             owner_type="storage_target",
             owner_id=target.id,
             value={"config": config_text},
         )
+        target.credential_secret_ref = candidate_ref
+        session.flush()
+
+        if old_ref is not None:
+            try:
+                self.secret_store.delete(
+                    session,
+                    old_ref,
+                    kind="rclone_config",
+                    owner_type="storage_target",
+                    owner_id=target.id,
+                )
+            except KeyError:
+                pass
 
     def create(
         self,
@@ -633,6 +635,9 @@ class StorageTargetService:
                 session,
                 target=target,
                 config_text=raw,
+                validate_config=(
+                    target.config_json or {}
+                ),
             )
         elif credential_action == "clear":
             if "rclone_config" in changes:
