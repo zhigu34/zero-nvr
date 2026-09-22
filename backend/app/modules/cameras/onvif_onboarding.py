@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -34,6 +35,90 @@ class OnvifOnboardingService:
             pixels,
             profile.fps or 0.0,
             profile.bitrate_kbps or 0,
+        )
+
+    @classmethod
+    def verification_profiles(
+        cls,
+        inspection: OnvifInspection,
+        selected_tokens: list[str] | None,
+    ) -> list[OnvifProfileProbe]:
+        """Return the ONVIF profiles that must pass media verification.
+
+        ONVIF remains the authority for profile/capability discovery. The
+        returned RTSP profiles are then verified through the media plane before
+        any onboarding persistence occurs.
+        """
+        return cls._usable_profiles(
+            inspection,
+            selected_tokens,
+        )
+
+    @staticmethod
+    def verification_stream_uri(
+        profile: OnvifProfileProbe,
+        *,
+        username: str,
+        password: str,
+    ) -> str:
+        raw = profile.stream_uri
+        if not raw:
+            raise ApiError(
+                status_code=422,
+                code="onvif_stream_uri_unavailable",
+                message="ONVIF profile has no usable RTSP URI.",
+            )
+
+        try:
+            parsed = urlsplit(raw)
+            port = parsed.port
+        except ValueError as exc:
+            raise ApiError(
+                status_code=422,
+                code="onvif_stream_uri_invalid",
+                message="ONVIF profile returned an invalid RTSP URI.",
+            ) from exc
+
+        if (
+            parsed.scheme.lower() != "rtsp"
+            or not parsed.hostname
+        ):
+            raise ApiError(
+                status_code=422,
+                code="onvif_stream_uri_invalid",
+                message="ONVIF profile returned an invalid RTSP URI.",
+            )
+
+        # Some devices embed authentication in GetStreamUri. Preserve it.
+        if parsed.username is not None or (
+            not username and not password
+        ):
+            return raw
+
+        host = parsed.hostname
+        display_host = (
+            f"[{host}]"
+            if ":" in host
+            and not host.startswith("[")
+            else host
+        )
+        host_port = (
+            f"{display_host}:{port}"
+            if port is not None
+            else display_host
+        )
+        auth = (
+            f"{quote(username, safe='')}:"
+            f"{quote(password, safe='')}@"
+        )
+        return urlunsplit(
+            (
+                parsed.scheme,
+                f"{auth}{host_port}",
+                parsed.path,
+                parsed.query,
+                parsed.fragment,
+            )
         )
 
     @staticmethod
