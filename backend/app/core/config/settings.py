@@ -4,7 +4,7 @@ from functools import lru_cache
 import ipaddress
 from pathlib import Path
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     environment: str = "production"
 
     secret_key: SecretStr
+    secret_key_file: Path | None = None
     secret_key_previous: list[SecretStr] = Field(default_factory=list)
 
     data_dir: Path = Path("/var/lib/zero-nvr")
@@ -91,6 +92,51 @@ class Settings(BaseSettings):
     deployment_config_dir: Path | None = None
 
     log_level: str = "INFO"
+
+    @model_validator(mode="before")
+    @classmethod
+    def load_secret_key_file(
+        cls,
+        values: object,
+    ) -> object:
+        if not isinstance(values, dict):
+            return values
+
+        raw_key = values.get("secret_key")
+        key_file = values.get("secret_key_file")
+        has_key = False
+        if isinstance(raw_key, SecretStr):
+            has_key = bool(
+                raw_key.get_secret_value()
+            )
+        elif raw_key is not None:
+            has_key = bool(str(raw_key))
+
+        if key_file is None or not str(key_file).strip():
+            return values
+        if has_key:
+            raise ValueError(
+                "configure only one of ZERO_NVR_SECRET_KEY "
+                "or ZERO_NVR_SECRET_KEY_FILE"
+            )
+
+        path = Path(str(key_file))
+        try:
+            file_value = path.read_text(
+                encoding="utf-8"
+            ).rstrip("\r\n")
+        except OSError as exc:
+            raise ValueError(
+                "ZERO_NVR_SECRET_KEY_FILE could not be read"
+            ) from exc
+        if not file_value:
+            raise ValueError(
+                "ZERO_NVR_SECRET_KEY_FILE is empty"
+            )
+
+        updated = dict(values)
+        updated["secret_key"] = file_value
+        return updated
 
     @field_validator("secret_key")
     @classmethod
