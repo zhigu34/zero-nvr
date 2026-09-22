@@ -65,6 +65,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         True,
         False,
         (),
+        None,
     )
 
     RecordingTaskDispatcher.reconcile_runtime(
@@ -76,6 +77,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         False,
         True,
         (),
+        None,
     )
 
     profile_id = uuid.uuid4()
