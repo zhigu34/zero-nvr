@@ -8,6 +8,7 @@ export interface CameraSummary {
   location: string | null
   storage_label: string | null
   adapter_type: string | null
+  time_sync_mode: "monitor" | "manage_ntp" | "ignore"
   ptz_capable: boolean
 }
 
@@ -186,6 +187,7 @@ export interface CameraClockProjection {
     | "critical"
     | "unsupported"
   quality: "unknown" | "good" | "degraded" | "poor"
+  sync_mode: "monitor" | "manage_ntp" | "ignore"
   measured_at: string | null
   offset_ms: number | null
   uncertainty_ms: number | null
@@ -255,6 +257,7 @@ export function updateCamera(
     name?: string
     location?: string | null
     storage_label?: string | null
+    time_sync_mode?: "monitor" | "manage_ntp" | "ignore"
   }
 ): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(
