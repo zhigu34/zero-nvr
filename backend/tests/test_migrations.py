@@ -127,6 +127,12 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             ]
             is False
         )
+        assert (
+            camera_columns["config_revision"][
+                "nullable"
+            ]
+            is False
+        )
         camera_checks = {
             item.get("name"): (
                 item.get("sqltext") or ""
@@ -139,6 +145,11 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             "manage_ntp" in sqltext
             and "monitor" in sqltext
             and "ignore" in sqltext
+            for sqltext in camera_checks.values()
+        )
+        assert any(
+            "config_revision" in sqltext
+            and ">= 1" in sqltext
             for sqltext in camera_checks.values()
         )
         target_checks = {
@@ -311,6 +322,12 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
             ]
             is False
         )
+        assert (
+            camera_columns["config_revision"][
+                "nullable"
+            ]
+            is False
+        )
         camera_checks = {
             item.get("name"): (
                 item.get("sqltext") or ""
@@ -323,6 +340,11 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
             "manage_ntp" in sqltext
             and "monitor" in sqltext
             and "ignore" in sqltext
+            for sqltext in camera_checks.values()
+        )
+        assert any(
+            "config_revision" in sqltext
+            and ">= 1" in sqltext
             for sqltext in camera_checks.values()
         )
         target_checks = {
