@@ -654,6 +654,186 @@ def test_onvif_import_rejects_failed_zlm_stream_verification_without_persistence
         ) == 0
 
 
+def test_onvif_revalidation_failure_preserves_last_known_good_configuration(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    fail_probe = False
+
+    class FakeOnvifAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        async def inspect_device(
+            self,
+            **kwargs,
+        ):
+            return _inspection_at(
+                str(kwargs["host"])
+            )
+
+    class ConditionalZlmAdapter(
+        FakeZlmAdapter
+    ):
+        def probe_rtsp_source(
+            self,
+            source_url: str,
+        ):
+            PROBED_URIS.append(
+                source_url
+            )
+            if fail_probe:
+                raise ZlmIntegrationError(
+                    "camera_stream_probe_failed",
+                    (
+                        "Camera stream "
+                        "verification failed."
+                    ),
+                    status_code=422,
+                )
+            return object()
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+    monkeypatch.setattr(
+        camera_api,
+        "ZlmAdapter",
+        ConditionalZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+        camera_ids = [
+            uuid.UUID(
+                item["id"]
+            )
+            for item
+            in created.json()["cameras"]
+        ]
+
+        with app.state.database.session() as session:
+            endpoint = session.scalar(
+                select(DeviceEndpoint)
+            )
+            credential = session.scalar(
+                select(DeviceCredential)
+            )
+            assert endpoint is not None
+            assert credential is not None
+            old_endpoint = (
+                endpoint.host,
+                endpoint.port,
+            )
+            old_credential_ref = (
+                credential.secret_ref
+            )
+            old_profile_refs = {
+                profile.id: (
+                    profile.stream_uri_ref
+                )
+                for profile
+                in session.scalars(
+                    select(
+                        CameraStreamProfile
+                    )
+                )
+            }
+            old_revisions = {
+                camera.id: (
+                    camera.config_revision
+                )
+                for camera
+                in session.scalars(
+                    select(Camera)
+                )
+            }
+
+        fail_probe = True
+        rejected = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.99",
+                "port": 8080,
+                "username": "new user",
+                "password": (
+                    CAMERA_PASSWORD_NEW
+                ),
+            },
+        )
+        assert rejected.status_code == 422
+        assert (
+            rejected.json()["error"]["code"]
+            == "camera_stream_probe_failed"
+        )
+        assert (
+            app.state.recording_tasks
+            .runtime_reconciles
+            == []
+        )
+
+    with app.state.database.session() as session:
+        endpoint = session.scalar(
+            select(DeviceEndpoint)
+        )
+        credential = session.scalar(
+            select(DeviceCredential)
+        )
+        assert endpoint is not None
+        assert credential is not None
+        assert (
+            endpoint.host,
+            endpoint.port,
+        ) == old_endpoint
+        assert (
+            credential.secret_ref
+            == old_credential_ref
+        )
+        assert {
+            profile.id: (
+                profile.stream_uri_ref
+            )
+            for profile
+            in session.scalars(
+                select(
+                    CameraStreamProfile
+                )
+            )
+        } == old_profile_refs
+        assert {
+            camera.id: (
+                camera.config_revision
+            )
+            for camera
+            in session.scalars(
+                select(Camera)
+            )
+        } == old_revisions
+
+        for camera_id in camera_ids:
+            camera = session.get(
+                Camera,
+                camera_id,
+            )
+            assert camera is not None
+
+
 def _inspection_at(host: str) -> OnvifInspection:
     source = inspection()
     profiles = []
