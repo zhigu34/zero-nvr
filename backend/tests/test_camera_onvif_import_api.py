@@ -517,6 +517,38 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
             for stream in camera["streams"]
         }
 
+        with app.state.database.session() as session:
+            credential = session.scalar(
+                select(DeviceCredential).where(
+                    DeviceCredential.device_id
+                    == uuid.UUID(device_id),
+                    DeviceCredential.kind == "onvif",
+                )
+            )
+            assert credential is not None
+            old_credential_ref = (
+                credential.secret_ref
+            )
+            old_stream_refs = {
+                profile.adapter_profile_key: (
+                    profile.stream_uri_ref
+                )
+                for profile in session.scalars(
+                    select(CameraStreamProfile).where(
+                        CameraStreamProfile.id.in_(
+                            [
+                                uuid.UUID(value)
+                                for value in profile_ids.values()
+                            ]
+                        )
+                    )
+                )
+            }
+            assert all(
+                value is not None
+                for value in old_stream_refs.values()
+            )
+
         refreshed = client.post(
             "/api/v1/cameras/onvif/import",
             json={
@@ -561,6 +593,46 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
         assert endpoint is not None
         assert endpoint.host == "192.168.70.99"
         assert endpoint.port == 8080
+
+        credential = session.scalar(
+            select(DeviceCredential).where(
+                DeviceCredential.device_id
+                == uuid.UUID(device_id),
+                DeviceCredential.kind == "onvif",
+            )
+        )
+        assert credential is not None
+        assert credential.secret_ref != old_credential_ref
+        assert (
+            session.get(
+                SecretRecord,
+                old_credential_ref,
+            )
+            is None
+        )
+
+        current_profiles = list(
+            session.scalars(
+                select(CameraStreamProfile).where(
+                    CameraStreamProfile.id.in_(
+                        [
+                            uuid.UUID(value)
+                            for value in profile_ids.values()
+                        ]
+                    )
+                )
+            )
+        )
+        for profile in current_profiles:
+            old_ref = old_stream_refs[
+                profile.adapter_profile_key
+            ]
+            assert profile.stream_uri_ref is not None
+            assert profile.stream_uri_ref != old_ref
+            assert session.get(
+                SecretRecord,
+                old_ref,
+            ) is None
 
         main_profile = session.scalar(
             select(CameraStreamProfile).where(
