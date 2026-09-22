@@ -244,6 +244,12 @@ def test_configuration_export_is_portable_and_secret_free(
             ]
             == "ignore"
         )
+        assert (
+            exported_cameras[0][
+                "maintenance"
+            ]
+            is False
+        )
 
         camera_exports = body[
             "sections"
@@ -705,6 +711,9 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
         )
         assert exported.status_code == 200
         bundle = exported.json()
+        bundle["sections"]["cameras"][
+            "cameras"
+        ][0]["maintenance"] = True
 
         assert client.patch(
             "/api/v1/system/settings",
@@ -817,6 +826,12 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
             ]
             == "Entry"
         )
+        assert (
+            restored_camera.json()[
+                "maintenance"
+            ]
+            is True
+        )
 
         roles = client.get(
             "/api/v1/roles"
@@ -841,4 +856,38 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
 
         assert (
             app.state.recording_tasks.reconciled
+            == []
+        )
+
+        repeated = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/apply"
+            ),
+            json={
+                "bundle": with_extra
+            },
+        )
+        assert repeated.status_code == 200
+        repeated_result = repeated.json()
+        runtime_items = [
+            item
+            for item in repeated_result[
+                "applied"
+            ]
+            if item["resource_type"]
+            in {
+                "camera",
+                "camera_stream_binding",
+                "recording_policy",
+            }
+        ]
+        assert runtime_items
+        assert {
+            item["action"]
+            for item in runtime_items
+        } == {"matched"}
+        assert (
+            app.state.recording_tasks.reconciled
+            == []
         )
