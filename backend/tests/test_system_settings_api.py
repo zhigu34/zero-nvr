@@ -63,6 +63,11 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "display_timezone": "UTC",
             "camera_ntp_servers": [],
         }
+        assert defaults.json()["time"] == {
+            "recording_timezone": "UTC",
+            "managed_camera_ntp_mode": "dhcp",
+            "managed_camera_ntp_servers": [],
+        }
         assert defaults.json()["runtime"] == {
             "prebuffer_fragment_seconds": 5,
             "prebuffer_buffer_seconds": 35,
@@ -83,13 +88,20 @@ def test_system_settings_are_bounded_persisted_and_audited(
             json={
                 "general": {
                     "system_name": "Home NVR",
-                    "display_timezone": "America/Los_Angeles",
-                    "camera_ntp_servers": [
+                },
+                "time": {
+                    "recording_timezone": (
+                        "America/Los_Angeles"
+                    ),
+                    "managed_camera_ntp_mode": (
+                        "manual"
+                    ),
+                    "managed_camera_ntp_servers": [
                         "pool.ntp.org",
                         "192.168.1.1",
                         "POOL.NTP.ORG",
                     ],
-                }
+                },
             },
         )
         assert updated.status_code == 200
@@ -97,6 +109,16 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "system_name": "Home NVR",
             "display_timezone": "America/Los_Angeles",
             "camera_ntp_servers": [
+                "pool.ntp.org",
+                "192.168.1.1",
+            ],
+        }
+        assert updated.json()["time"] == {
+            "recording_timezone": (
+                "America/Los_Angeles"
+            ),
+            "managed_camera_ntp_mode": "manual",
+            "managed_camera_ntp_servers": [
                 "pool.ntp.org",
                 "192.168.1.1",
             ],
@@ -140,8 +162,8 @@ def test_system_settings_are_bounded_persisted_and_audited(
         bad = client.patch(
             "/api/v1/system/settings",
             json={
-                "general": {
-                    "camera_ntp_servers": [
+                "time": {
+                    "managed_camera_ntp_servers": [
                         "https://evil.example/ntp"
                     ]
                 }
@@ -173,6 +195,25 @@ def test_system_settings_are_bounded_persisted_and_audited(
         )
         assert row is not None
         assert row.value_json["system_name"] == "Home NVR"
+        time_row = session.get(
+            SystemSetting,
+            "time",
+        )
+        assert time_row is not None
+        assert time_row.value_json == {
+            "recording_timezone": (
+                "America/Los_Angeles"
+            ),
+            "managed_camera_ntp_mode": "manual",
+            "managed_camera_ntp_servers": [
+                "pool.ntp.org",
+                "192.168.1.1",
+            ],
+        }
+        assert (
+            "system_time_settings"
+            not in Base.metadata.tables
+        )
         runtime_row = session.get(
             SystemSetting,
             "runtime_tuning",
