@@ -1457,6 +1457,7 @@ async def apply_camera_ntp_settings(
             "server_count": len(servers),
             "total_devices": len(devices),
             "updated": updated,
+            "verified": updated,
             "failed": failed,
         },
     )
@@ -1582,10 +1583,12 @@ async def camera_clock_health(
                 device_id=target.device_id,
                 name=target.name,
                 status=status,
+                quality=quality,
                 date_time_type=reading.date_time_type,
                 timezone=reading.timezone,
                 camera_utc_at=reading.utc_datetime,
                 offset_ms=offset_ms,
+                uncertainty_ms=uncertainty_ms,
                 rtt_ms=rtt_ms,
             )
         except OnvifIntegrationError as exc:
