@@ -151,7 +151,7 @@ current code/tests.
 - [x] built-in Administrator / Operator / Viewer roles.
 - [x] CameraGroup + PrincipalCameraScope authorization.
 - [x] centralized backend authorization dependencies/services.
-- [ ] short-lived scoped live/playback media session authorization.
+- [x] short-lived scoped live/playback media session authorization.
 - [ ] integration authentication through scoped Personal API Tokens / provider credentials without introducing a generic service-principal framework in V1.
 - [ ] append-oriented AuditEvent persistence with secret redaction.
 - [ ] Structured logging and health/readiness.
