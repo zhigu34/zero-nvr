@@ -5,13 +5,21 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from sqlalchemy import func, select
+from sqlalchemy import func, inspect, select
 
-from app.modules.alerts.models import Alert
-from app.modules.audit.models import AuditEvent
-from app.modules.events.models import Event
-from app.modules.recordings.models import RecordingSegment
+from app.modules.alerts import models as alert_models
+from app.modules.audit import models as audit_models
+from app.modules.auth import models as auth_models  # noqa: F401
+from app.modules.backups import models as backup_models  # noqa: F401
+from app.modules.cameras import models as camera_models  # noqa: F401
+from app.modules.events import models as event_models
+from app.modules.exports import models as export_models  # noqa: F401
+from app.modules.notifications import models as notification_models  # noqa: F401
+from app.modules.recordings import models as recording_models
+from app.modules.storage import models as storage_models  # noqa: F401
+from app.modules.system import models as system_models  # noqa: F401
 
+from .base import Base
 from .database import Database
 from .schema import database_schema_status
 from .types import utc_now
@@ -24,6 +32,8 @@ class SQLiteMigrationPreflight:
     schema_current_revisions: tuple[str, ...]
     schema_expected_revisions: tuple[str, ...]
     source_database_bytes: int | None
+    missing_canonical_tables: tuple[str, ...]
+    unexpected_tables: tuple[str, ...]
     target_free_bytes: int
     required_target_free_bytes: int | None
     recent_window_seconds: int
@@ -85,23 +95,23 @@ class SQLiteMigrationPreflightService:
         sources = (
             (
                 "recording_segments",
-                RecordingSegment,
-                RecordingSegment.created_at,
+                recording_models.RecordingSegment,
+                recording_models.RecordingSegment.created_at,
             ),
             (
                 "events",
-                Event,
-                Event.created_at,
+                event_models.Event,
+                event_models.Event.created_at,
             ),
             (
                 "alerts",
-                Alert,
-                Alert.created_at,
+                alert_models.Alert,
+                alert_models.Alert.created_at,
             ),
             (
                 "audit_events",
-                AuditEvent,
-                AuditEvent.created_at,
+                audit_models.AuditEvent,
+                audit_models.AuditEvent.created_at,
             ),
         )
         counts: dict[str, int] = {}
@@ -132,6 +142,8 @@ class SQLiteMigrationPreflightService:
         blockers: list[str] = []
         warnings: list[str] = []
         source_bytes: int | None = None
+        missing_tables: tuple[str, ...] = ()
+        unexpected_tables: tuple[str, ...] = ()
         required_bytes: int | None = None
         recent_writes: dict[str, int] = {}
 
@@ -144,7 +156,40 @@ class SQLiteMigrationPreflightService:
                 "sqlite_preflight_source_schema_not_current"
             )
 
-        if backend == "postgresql" and schema.compatible:
+        if backend == "postgresql":
+            actual_tables = set(
+                inspect(database.engine).get_table_names()
+            )
+            canonical_tables = set(
+                Base.metadata.tables
+            )
+            missing_tables = tuple(
+                sorted(
+                    canonical_tables - actual_tables
+                )
+            )
+            unexpected_tables = tuple(
+                sorted(
+                    actual_tables
+                    - canonical_tables
+                    - {"alembic_version"}
+                )
+            )
+            if missing_tables:
+                blockers.append(
+                    "sqlite_preflight_canonical_tables_missing"
+                )
+            if unexpected_tables:
+                blockers.append(
+                    "sqlite_preflight_unmanaged_tables_present"
+                )
+
+        if (
+            backend == "postgresql"
+            and schema.compatible
+            and not missing_tables
+            and not unexpected_tables
+        ):
             source_bytes = cls._source_database_bytes(
                 database
             )
@@ -179,6 +224,8 @@ class SQLiteMigrationPreflightService:
                 sorted(schema.expected)
             ),
             source_database_bytes=source_bytes,
+            missing_canonical_tables=missing_tables,
+            unexpected_tables=unexpected_tables,
             target_free_bytes=disk.free,
             required_target_free_bytes=required_bytes,
             recent_window_seconds=int(
