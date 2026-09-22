@@ -181,7 +181,7 @@ Acceptance:
 - [x] CameraStreamProfile persistence and stream diagnostics.
 - [x] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
 - [x] deterministic default profile binding with user override.
-- [ ] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
+- [x] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
 - [ ] monitor/manage_ntp/ignore device-time mode where supported.
 - [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
