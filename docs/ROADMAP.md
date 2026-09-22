@@ -178,7 +178,7 @@ Acceptance:
 - [x] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
 - [x] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
 - [x] ONVIF profile/capability discovery first, ZLM actual-stream verification second, ffprobe only as fallback/recovery inspection.
-- [ ] CameraStreamProfile persistence and stream diagnostics.
+- [x] CameraStreamProfile persistence and stream diagnostics.
 - [ ] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
 - [ ] deterministic default profile binding with user override.
 - [ ] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
