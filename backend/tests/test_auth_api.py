@@ -9,6 +9,7 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
 from app.modules.auth.models import Role, User
+from app.modules.system.models import SystemSetting
 
 
 def make_app(tmp_path: Path):
@@ -106,6 +107,55 @@ def test_initial_setup_login_me_and_logout(tmp_path: Path) -> None:
     assert users[0].password_hash
     assert users[0].password_hash != "correct-horse-battery-staple"
     assert users[0].password_hash.startswith("$argon2")
+
+
+def test_initial_setup_claim_does_not_reopen_if_users_are_removed(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        created = client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": "correct-horse-battery-staple",
+            },
+        )
+        assert created.status_code == 201
+
+        with app.state.database.session() as session:
+            claim = session.get(
+                SystemSetting,
+                "bootstrap.initial_admin",
+            )
+            assert claim is not None
+            for user in session.scalars(
+                select(User)
+            ).all():
+                session.delete(user)
+            session.commit()
+
+        status = client.get("/api/v1/setup/status")
+        assert status.status_code == 200
+        assert status.json() == {
+            "requires_initial_admin": False
+        }
+
+        duplicate = client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "replacement-admin",
+                "display_name": "Replacement Administrator",
+                "password": "another-long-secure-password",
+            },
+        )
+        assert duplicate.status_code == 409
+        assert (
+            duplicate.json()["error"]["code"]
+            == "setup_already_completed"
+        )
 
 
 def test_setup_rejects_short_password(tmp_path: Path) -> None:
