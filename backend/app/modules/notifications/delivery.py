@@ -156,18 +156,31 @@ class NotificationDeliveryService:
             resolved_smtp: ResolvedSmtpTarget | None = None
             resolved_url: str | None = None
             notify_type = "info"
-            if target.kind == "smtp":
-                resolved_smtp = target_service.resolve_smtp(
-                    session,
-                    target=target,
+            try:
+                if target.kind == "smtp":
+                    resolved_smtp = (
+                        target_service.resolve_smtp(
+                            session,
+                            target=target,
+                        )
+                    )
+                else:
+                    resolved = target_service.resolve(
+                        session,
+                        target=target,
+                    )
+                    resolved_url = resolved.url
+                    notify_type = resolved.notify_type
+            except ApiError as exc:
+                delivery.state = "FAILED"
+                delivery.last_attempt_at = utc_now()
+                delivery.last_error_code = exc.code
+                session.commit()
+                return NotificationResult(
+                    delivery_id=delivery.id,
+                    state="FAILED",
+                    delivered=False,
                 )
-            else:
-                resolved = target_service.resolve(
-                    session,
-                    target=target,
-                )
-                resolved_url = resolved.url
-                notify_type = resolved.notify_type
 
             delivery.state = "SENDING"
             delivery.attempt_count += 1
