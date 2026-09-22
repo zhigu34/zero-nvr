@@ -51,6 +51,18 @@ if protected_env_get ZERO_NVR_ZLM_API_SECRET >/dev/null 2>&1; then
   exit 1
 fi
 
+printf 'first-line\nsecond-line\n' > "$data_root/bootstrap-secrets/multiline"
+cat > "$ZERO_NVR_ENV_FILE" <<EOF
+ZERO_NVR_DATA_PATH=$data_root
+ZERO_NVR_ZLM_API_SECRET=
+ZERO_NVR_ZLM_API_SECRET_FILE=/var/lib/zero-nvr/bootstrap-secrets/multiline
+EOF
+
+if protected_env_get ZERO_NVR_ZLM_API_SECRET >/dev/null 2>&1; then
+  echo "error: protected_env_get accepted a multiline file" >&2
+  exit 1
+fi
+
 cat > "$ZERO_NVR_ENV_FILE" <<EOF
 ZERO_NVR_DATA_PATH=$data_root
 ZERO_NVR_ZLM_API_SECRET=
@@ -99,5 +111,14 @@ grep -Fxq \
   "$tmp/recovery-kit/zero-nvr.env"
 grep -Fxq "ZERO_NVR_ZLM_API_SECRET_FILE=" "$tmp/recovery-kit/zero-nvr.env"
 grep -Fxq "RESTIC_REPOSITORY=/backup/repository" "$tmp/recovery-kit/recovery.env"
+
+grep -Fxq "ZERO_NVR_SECRET_KEY=" "$ZERO_NVR_ENV_FILE"
+grep -Fxq \
+  "ZERO_NVR_SECRET_KEY_FILE=/var/lib/zero-nvr/bootstrap-secrets/master" \
+  "$ZERO_NVR_ENV_FILE"
+grep -Fxq "ZERO_NVR_ZLM_API_SECRET=" "$ZERO_NVR_ENV_FILE"
+grep -Fxq \
+  "ZERO_NVR_ZLM_API_SECRET_FILE=/var/lib/zero-nvr/bootstrap-secrets/zlm-api" \
+  "$ZERO_NVR_ENV_FILE"
 
 echo "protected environment secret tests passed"
