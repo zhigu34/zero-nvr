@@ -73,6 +73,14 @@ class CameraStreamProfileView(BaseModel):
     audio_codec: str | None
     has_audio: bool
     status: str
+    last_verified_at: datetime | None
+
+
+class CameraStreamDiagnosticView(BaseModel):
+    profile: CameraStreamProfileView
+    video: CameraProbeTrackView | None
+    audio: CameraProbeTrackView | None
+    verified_at: datetime
 
 
 class CameraStreamBindingView(BaseModel):
