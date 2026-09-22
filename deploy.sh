@@ -605,7 +605,11 @@ feature_enable() {
       ;;
     mqtt)
       echo "managed MQTT username: $(env_get ZERO_NVR_MQTT_USERNAME "zero-nvr")"
-      echo "managed MQTT password is stored in .env as ZERO_NVR_MQTT_PASSWORD"
+      if [[ -n "$(env_get ZERO_NVR_MQTT_PASSWORD_FILE "")" ]]; then
+        echo "managed MQTT password source: ZERO_NVR_MQTT_PASSWORD_FILE"
+      else
+        echo "managed MQTT password is stored in .env as ZERO_NVR_MQTT_PASSWORD"
+      fi
       ;;
     postgres)
       echo "managed PostgreSQL is running but the active zero-nvr database was not changed"
