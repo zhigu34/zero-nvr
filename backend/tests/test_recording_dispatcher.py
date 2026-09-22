@@ -23,12 +23,17 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         value: str,
         restart_streams: bool = False,
         force_reconfigure: bool = False,
+        restart_profile_ids: tuple[
+            str,
+            ...,
+        ] = (),
     ) -> None:
         calls.append(
             (
                 value,
                 restart_streams,
                 force_reconfigure,
+                restart_profile_ids,
             )
         )
 
@@ -40,7 +45,12 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
     RecordingTaskDispatcher.reconcile_runtime(camera_id)
 
     assert calls == [
-        (str(camera_id), False, False)
+        (
+            str(camera_id),
+            False,
+            False,
+            (),
+        )
     ]
 
     RecordingTaskDispatcher.reconcile_runtime(
@@ -51,6 +61,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         str(camera_id),
         True,
         False,
+        (),
     )
 
     RecordingTaskDispatcher.reconcile_runtime(
@@ -61,6 +72,21 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         str(camera_id),
         False,
         True,
+        (),
+    )
+
+    profile_id = uuid.uuid4()
+    RecordingTaskDispatcher.reconcile_runtime(
+        camera_id,
+        restart_profile_ids=(
+            profile_id,
+        ),
+    )
+    assert calls[-1] == (
+        str(camera_id),
+        False,
+        False,
+        (str(profile_id),),
     )
 
 
