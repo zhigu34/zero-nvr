@@ -272,6 +272,9 @@ const navigation = computed(() => {
 const healthComponents = computed(() =>
   Object.entries(health.value?.components ?? {})
 )
+const hostClockHealth = computed(
+  () => health.value?.components.host_clock ?? null
+)
 
 const latestBackupByPolicy = computed(() => {
   const map = new Map<string, BackupSet>()
@@ -460,6 +463,20 @@ function formatBytes(value: number | null): string {
 
 function healthMessage(item: HealthComponent): string {
   return item.message || "Healthy"
+}
+
+function healthDetail(
+  item: HealthComponent | null,
+  key: string
+): string {
+  const value = item?.details[key]
+  if (
+    typeof value === "string" ||
+    typeof value === "number"
+  ) {
+    return String(value)
+  }
+  return "—"
 }
 
 interface StorageHealthTarget {
@@ -1869,6 +1886,81 @@ onBeforeUnmount(() => {
             </button>
           </div>
         </form>
+
+        <div
+          v-if="hostClockHealth"
+          class="host-clock-health"
+        >
+          <div class="host-clock-health__main">
+            <div>
+              <strong>Host clock</strong>
+              <span>
+                Canonical zero-nvr time source ·
+                {{ healthDetail(hostClockHealth, "canonical_timezone") }}
+              </span>
+            </div>
+            <span
+              class="status-pill"
+              :class="statusClass(hostClockHealth.status)"
+            >
+              {{ hostClockHealth.status }}
+            </span>
+          </div>
+          <dl>
+            <div>
+              <dt>Sync state</dt>
+              <dd>
+                {{
+                  healthDetail(
+                    hostClockHealth,
+                    "sync_state"
+                  )
+                }}
+              </dd>
+            </div>
+            <div>
+              <dt>Estimated offset</dt>
+              <dd>
+                {{
+                  healthDetail(
+                    hostClockHealth,
+                    "estimated_offset_ms"
+                  )
+                }} ms
+              </dd>
+            </div>
+            <div>
+              <dt>Estimated error</dt>
+              <dd>
+                {{
+                  healthDetail(
+                    hostClockHealth,
+                    "estimated_error_ms"
+                  )
+                }} ms
+              </dd>
+            </div>
+            <div>
+              <dt>Probe</dt>
+              <dd>
+                {{
+                  healthDetail(
+                    hostClockHealth,
+                    "source"
+                  )
+                }}
+              </dd>
+            </div>
+          </dl>
+          <p v-if="hostClockHealth.status === 'DISABLED'">
+            Host synchronization status is not observable on this platform.
+            zero-nvr does not modify the host operating-system time service.
+          </p>
+          <p v-else-if="hostClockHealth.status !== 'OK'">
+            The host clock is not reported as synchronized. Recording
+            continues, but canonical timestamps depend on this clock.
+          </p>
+        </div>
 
         <div
           v-if="ntpApplyResult"
