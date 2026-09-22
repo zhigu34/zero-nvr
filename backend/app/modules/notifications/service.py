@@ -348,9 +348,23 @@ class NotificationTargetService:
                 raw_config
             )
 
+        url_action = str(
+            changes.get("url_action", "keep")
+        )
+        if url_action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="notification_url_update_invalid",
+                message="Notification URL action is invalid.",
+            )
+
         candidate_url: str | None = None
-        if "url" in changes:
-            raw_url = changes["url"]
+        if url_action == "replace":
+            raw_url = changes.get("url")
             if not isinstance(raw_url, str):
                 raise ApiError(
                     status_code=400,
@@ -358,6 +372,25 @@ class NotificationTargetService:
                     message="Notification target URL is invalid.",
                 )
             candidate_url = raw_url.strip()
+        elif url_action == "clear":
+            if "url" in changes:
+                raise ApiError(
+                    status_code=400,
+                    code="notification_url_update_invalid",
+                    message=(
+                        "Notification URL clear action "
+                        "does not accept a replacement value."
+                    ),
+                )
+        elif "url" in changes:
+            raise ApiError(
+                status_code=400,
+                code="notification_url_update_invalid",
+                message=(
+                    "Notification URL value requires "
+                    "action=replace."
+                ),
+            )
         elif candidate_config.get("password_reset") is True:
             candidate_url = self._secret_url(
                 session,
@@ -382,13 +415,26 @@ class NotificationTargetService:
         if "config" in changes:
             target.config_json = candidate_config
 
-        if "url" in changes:
+        if url_action == "replace":
             assert candidate_url is not None
             self._replace_secret(
                 session,
                 target=target,
                 url=candidate_url,
             )
+        elif url_action == "clear":
+            if target.secret_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        target.secret_ref,
+                        kind="notification_url",
+                        owner_type="notification_target",
+                        owner_id=target.id,
+                    )
+                except KeyError:
+                    pass
+            target.secret_ref = None
 
         session.flush()
         return target
@@ -399,6 +445,12 @@ class NotificationTargetService:
         *,
         target: NotificationTarget,
     ) -> str:
+        if target.secret_ref is None:
+            raise ApiError(
+                status_code=409,
+                code="notification_secret_unavailable",
+                message="Notification target secret is unavailable.",
+            )
         try:
             payload = self.secret_store.read_json(
                 session,
