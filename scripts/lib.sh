@@ -108,5 +108,10 @@ protected_env_get() {
     echo "error: ${key}_FILE is empty: $file_path" >&2
     return 1
   fi
+  if [[ "$value" == *}
+\n'* ]]; then
+    echo "error: ${key}_FILE must contain a single-line value: $file_path" >&2
+    return 1
+  fi
   printf '%s' "$value"
 }
