@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
+from app.integrations.contracts import StorageBackend
 from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
 from app.modules.recordings.models import RecordingSegment
 
@@ -57,7 +58,7 @@ class ArchiveLifecycleService:
         self,
         settings: Settings,
         *,
-        adapter_factory: Callable[..., RcloneAdapter] = RcloneAdapter,
+        adapter_factory: Callable[..., StorageBackend] = RcloneAdapter,
     ) -> None:
         self.settings = settings
         self._adapter_factory = adapter_factory
