@@ -1,3 +1,13 @@
-from .secret_store import EncryptedSecret, SecretMetadata, SecretStore
+from .secret_store import (
+    EncryptedSecret,
+    SecretMetadata,
+    SecretRotationResult,
+    SecretStore,
+)
 
-__all__ = ["EncryptedSecret", "SecretMetadata", "SecretStore"]
+__all__ = [
+    "EncryptedSecret",
+    "SecretMetadata",
+    "SecretRotationResult",
+    "SecretStore",
+]
