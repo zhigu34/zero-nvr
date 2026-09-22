@@ -223,9 +223,17 @@ class PasswordResetService:
         ):
             return None
 
-        target = NotificationTargetService.password_reset_target(
+        target = NotificationTargetService.security_email_target(
             session
         )
+        if target is not None and not target.enabled:
+            target = None
+        if target is None:
+            # Backward-compatible fallback for deployments that still
+            # have the pre-structured-SMTP Apprise reset target.
+            target = NotificationTargetService.password_reset_target(
+                session
+            )
         if target is None:
             return None
 
