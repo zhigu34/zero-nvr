@@ -528,7 +528,13 @@ EOF
       chmod 600 "$turn_config_dir/turnserver.conf"
       ;;
     postgres)
-      local pg_password
+      local pg_password pg_password_file
+      pg_password_file="$(env_get ZERO_NVR_POSTGRES_PASSWORD_FILE "")"
+      if [[ -n "$pg_password_file" ]] \
+        && [[ "$pg_password_file" != /var/lib/zero-nvr/bootstrap-secrets/* ]]; then
+        echo "error: ZERO_NVR_POSTGRES_PASSWORD_FILE must be under /var/lib/zero-nvr/bootstrap-secrets" >&2
+        return 1
+      fi
       pg_password="$(protected_env_get ZERO_NVR_POSTGRES_PASSWORD "")"
       if [[ -z "$pg_password" ]]; then
         pg_password="$(random_hex_32)"
