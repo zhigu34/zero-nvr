@@ -13,6 +13,50 @@ chmod 700 "$output"
 cp "$ENV_FILE" "$output/zero-nvr.env"
 chmod 600 "$output/zero-nvr.env"
 
+kit_set_env_value() {
+  local key="$1"
+  local value="$2"
+  local file="$output/zero-nvr.env"
+  local tmp found line
+
+  tmp="$(mktemp "$output/.zero-nvr.env.XXXXXX")"
+  found=false
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == "$key="* ]]; then
+      printf '%s=%s\n' "$key" "$value"
+      found=true
+    else
+      printf '%s\n' "$line"
+    fi
+  done < "$file" > "$tmp"
+
+  if [[ "$found" != true ]]; then
+    printf '%s=%s\n' "$key" "$value" >> "$tmp"
+  fi
+  chmod 600 "$tmp"
+  mv -f "$tmp" "$file"
+}
+
+for key in \
+  ZERO_NVR_SECRET_KEY \
+  ZERO_NVR_ZLM_API_SECRET \
+  ZERO_NVR_ZLM_HOOK_SECRET \
+  ZERO_NVR_TURN_SHARED_SECRET \
+  ZERO_NVR_MQTT_PASSWORD \
+  ZERO_NVR_POSTGRES_PASSWORD
+do
+  if [[ -z "$(env_get "${key}_FILE" "")" ]]; then
+    continue
+  fi
+  value="$(protected_env_get "$key" "")"
+  if [[ -z "$value" ]]; then
+    echo "error: RecoveryKit could not resolve protected bootstrap secret: $key" >&2
+    exit 1
+  fi
+  kit_set_env_value "$key" "$value"
+  kit_set_env_value "${key}_FILE" ""
+done
+
 tmp="$(mktemp "$output/.recovery.env.XXXXXX")"
 trap 'rm -f "$tmp"' EXIT
 
@@ -41,7 +85,9 @@ Keep this directory OFF the zero-nvr host and protect it like a password vault.
 
 Contents:
 - zero-nvr.env
-  Preserves ZERO_NVR_SECRET_KEY, ZLM secrets, and deployment bootstrap settings.
+  Preserves the product master key and deployment bootstrap settings.
+  Live *_FILE sources are resolved into direct values in this offline kit so
+  clean-host restore does not depend on files left on the failed host.
 - recovery.env
   Restic repository/password/backend credentials used to retrieve disaster backups.
 
@@ -61,4 +107,4 @@ EOF
 chmod 600 "$output/README.txt"
 
 echo "RecoveryKit exported to: $output"
-echo "Store it off-host. It contains the master encryption key and backup credentials."
+echo "Store it off-host. It contains resolved bootstrap secrets and backup credentials."
