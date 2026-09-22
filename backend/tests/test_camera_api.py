@@ -352,6 +352,14 @@ def test_camera_enable_disable_queues_runtime_reconcile(
             == [camera_id, camera_id]
         )
 
+    with app.state.database.session() as session:
+        persisted = session.get(
+            Camera,
+            camera_id,
+        )
+        assert persisted is not None
+        assert persisted.config_revision == 3
+
 
 
 def test_camera_retire_restore_preserves_history_identity(
