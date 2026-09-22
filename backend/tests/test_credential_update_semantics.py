@@ -301,3 +301,84 @@ def test_backup_credential_update_actions(tmp_path: Path) -> None:
         )
         assert cleared.status_code == 200
         assert cleared.json()["credentials_configured"] is False
+
+
+def test_frigate_credential_update_actions(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        base = {
+            "enabled": False,
+            "mode": "external",
+            "base_url": "http://frigate:5000",
+            "camera_map": [],
+            "mqtt_enabled": False,
+            "mqtt_host": None,
+            "mqtt_port": 1883,
+            "mqtt_topic_prefix": "frigate",
+            "mqtt_tls": False,
+        }
+
+        created = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "credentials_action": "replace",
+                "credentials": {
+                    "http_bearer_token": "initial-frigate-token",
+                },
+            },
+        )
+        assert created.status_code == 200
+        assert created.json()["credentials_configured"] is True
+
+        ambiguous = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "credentials": {
+                    "http_bearer_token": "ambiguous-frigate-token",
+                },
+            },
+        )
+        assert ambiguous.status_code == 400
+        assert (
+            ambiguous.json()["error"]["code"]
+            == "frigate_credentials_update_invalid"
+        )
+
+        kept = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "base_url": "http://frigate-new:5000",
+                "credentials_action": "keep",
+            },
+        )
+        assert kept.status_code == 200
+        assert kept.json()["credentials_configured"] is True
+
+        replaced = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "credentials_action": "replace",
+                "credentials": {
+                    "http_password": "replacement-frigate-password",
+                },
+            },
+        )
+        assert replaced.status_code == 200
+        assert replaced.json()["credentials_configured"] is True
+
+        cleared = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "credentials_action": "clear",
+            },
+        )
+        assert cleared.status_code == 200
+        assert cleared.json()["credentials_configured"] is False
