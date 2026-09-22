@@ -177,12 +177,12 @@ def test_configuration_export_is_portable_and_secret_free(
                 "mqtt_port": 1883,
                 "mqtt_topic_prefix": "frigate",
                 "mqtt_tls": False,
+                "credentials_action": "replace",
                 "credentials": {
                     "http_bearer_token": (
                         frigate_secret
                     ),
                 },
-                "replace_credentials": True,
             },
         )
         assert frigate.status_code == 200
