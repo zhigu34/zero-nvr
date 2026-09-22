@@ -68,10 +68,12 @@ export interface CameraClockHealthResult {
   device_id: string
   name: string
   status: "OK" | "DEGRADED" | "ERROR"
+  quality: "unknown" | "good" | "degraded" | "poor"
   date_time_type: string | null
   timezone: string | null
   camera_utc_at: string | null
   offset_ms: number | null
+  uncertainty_ms: number | null
   rtt_ms: number | null
   error_code: string | null
 }
