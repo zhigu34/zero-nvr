@@ -69,7 +69,7 @@ class CameraService:
         camera_id: uuid.UUID,
         expected_revision: int,
     ) -> None:
-        result = session.execute(
+        matched = session.execute(
             update(Camera)
             .where(
                 Camera.id == camera_id,
@@ -81,8 +81,9 @@ class CameraService:
                     Camera.config_revision
                 )
             )
-        )
-        if result.rowcount != 1:
+            .returning(Camera.id)
+        ).scalar_one_or_none()
+        if matched is None:
             session.rollback()
             raise ApiError(
                 status_code=409,
