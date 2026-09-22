@@ -49,6 +49,10 @@ export interface CameraNtpDeviceResult {
   device_id: string
   name: string
   status: "UPDATED" | "FAILED"
+  verified: boolean
+  date_time_type: string | null
+  offset_ms: number | null
+  rtt_ms: number | null
   error_code: string | null
 }
 
