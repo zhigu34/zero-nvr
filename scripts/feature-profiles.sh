@@ -47,6 +47,26 @@ feature_service_name() {
   esac
 }
 
+
+database_url_uses_managed_postgres() {
+  local url="${1:-}"
+  local authority host
+
+  case "$url" in
+    postgres://*|postgresql://*|postgresql+psycopg://*)
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  authority="${url#*://}"
+  authority="${authority%%/*}"
+  authority="${authority##*@}"
+  host="${authority%%:*}"
+  [[ "$host" == "postgres" ]]
+}
+
 profile_is_enabled() {
   local current="${1:-}"
   local wanted="${2:-}"
