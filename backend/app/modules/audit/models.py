@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Index, JSON, String, Text
+from sqlalchemy import Index, JSON, String, Text, event
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base import Base
 from app.core.db.mixins import UUIDPrimaryKeyMixin
 from app.core.db.types import UTCDateTime, UUIDType, utc_now
+from app.core.security import redact_sensitive_value, redact_text
 
 
 class AuditEvent(UUIDPrimaryKeyMixin, Base):
@@ -52,3 +53,26 @@ class AuditEvent(UUIDPrimaryKeyMixin, Base):
         nullable=False,
         default=utc_now,
     )
+
+
+@event.listens_for(AuditEvent, "before_insert")
+@event.listens_for(AuditEvent, "before_update")
+def _redact_audit_event(
+    _mapper: Any,
+    _connection: Any,
+    target: AuditEvent,
+) -> None:
+    target.client_info = redact_sensitive_value(
+        target.client_info
+    )
+    target.before_json = redact_sensitive_value(
+        target.before_json
+    )
+    target.after_json = redact_sensitive_value(
+        target.after_json
+    )
+    target.metadata_json = redact_sensitive_value(
+        target.metadata_json
+    )
+    if target.reason is not None:
+        target.reason = redact_text(target.reason)
