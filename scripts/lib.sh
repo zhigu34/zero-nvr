@@ -76,7 +76,7 @@ protected_file_host_path() {
 protected_env_get() {
   local key="$1"
   local fallback="${2:-}"
-  local direct file_path host_file value
+  local direct file_path host_file value carriage_return line_count
 
   direct="$(env_get "$key" "")"
   file_path="$(env_get "${key}_FILE" "")"
@@ -101,17 +101,18 @@ protected_env_get() {
   fi
 
   value="$(cat -- "$host_file")"
-  local carriage_return
   carriage_return="$(printf '\r')"
   value="${value%"$carriage_return"}"
   if [[ -z "$value" ]]; then
     echo "error: ${key}_FILE is empty: $file_path" >&2
     return 1
   fi
-  if [[ "$value" == *}
-\n'* ]]; then
+
+  line_count="$(printf '%s' "$value" | wc -l | tr -d '[:space:]')"
+  if [[ "$line_count" != "0" ]]; then
     echo "error: ${key}_FILE must contain a single-line value: $file_path" >&2
     return 1
   fi
+
   printf '%s' "$value"
 }
