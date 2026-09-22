@@ -215,6 +215,7 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         id=camera.id,
         name=camera.name,
         enabled=camera.enabled,
+        maintenance=camera.maintenance,
         retired_at=camera.retired_at,
         location=camera.location,
         storage_label=camera.storage_label,
@@ -272,6 +273,7 @@ def _camera_audit_snapshot(session: Session, camera: Camera) -> dict[str, Any]:
     return {
         "name": summary.name,
         "enabled": summary.enabled,
+        "maintenance": summary.maintenance,
         "retired_at": (
             summary.retired_at.isoformat()
             if summary.retired_at is not None
@@ -980,17 +982,22 @@ def update_camera(
             camera=camera,
             changes=body.model_dump(exclude_unset=True),
         )
-        append_audit_event(
+        after = _camera_audit_snapshot(
             session,
-            request=request,
-            actor_id=context.user.id,
-            action="camera.update",
-            resource_type="camera",
-            resource_id=camera.id,
-            camera_id=camera.id,
-            before=before,
-            after=_camera_audit_snapshot(session, camera),
+            camera,
         )
+        if before != after:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action="camera.update",
+                resource_type="camera",
+                resource_id=camera.id,
+                camera_id=camera.id,
+                before=before,
+                after=after,
+            )
         session.commit()
     except Exception:
         session.rollback()
@@ -1009,26 +1016,34 @@ def _set_camera_enabled(
     try:
         camera = CameraService.get_camera(session, camera_id)
         before = _camera_audit_snapshot(session, camera)
+        changed = camera.enabled != enabled
         camera = CameraService.set_enabled(
             session,
             camera=camera,
             enabled=enabled,
         )
-        append_audit_event(
-            session,
-            request=request,
-            actor_id=context.user.id,
-            action="camera.enable" if enabled else "camera.disable",
-            resource_type="camera",
-            resource_id=camera.id,
-            camera_id=camera.id,
-            before=before,
-            after=_camera_audit_snapshot(session, camera),
-        )
+        if changed:
+            append_audit_event(
+                session,
+                request=request,
+                actor_id=context.user.id,
+                action="camera.enable" if enabled else "camera.disable",
+                resource_type="camera",
+                resource_id=camera.id,
+                camera_id=camera.id,
+                before=before,
+                after=_camera_audit_snapshot(session, camera),
+            )
         session.commit()
     except Exception:
         session.rollback()
         raise
+
+    if not changed:
+        return _camera_detail(
+            session,
+            camera,
+        )
 
     try:
         request.app.state.recording_tasks.reconcile_runtime(
