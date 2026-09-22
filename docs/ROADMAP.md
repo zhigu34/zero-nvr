@@ -153,7 +153,7 @@ current code/tests.
 - [x] centralized backend authorization dependencies/services.
 - [x] short-lived scoped live/playback media session authorization.
 - [x] integration authentication through scoped Personal API Tokens / provider credentials without introducing a generic service-principal framework in V1.
-- [ ] append-oriented AuditEvent persistence with secret redaction.
+- [x] append-oriented AuditEvent persistence with secret redaction.
 - [ ] Structured logging and health/readiness.
 - [ ] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
 - [ ] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
