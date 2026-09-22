@@ -120,6 +120,15 @@ jobs:
           assert "profiles" not in model["services"]["zero-nvr"]
           assert "profiles" not in model["services"]["zero-nvr-worker"]
           assert "profiles" not in model["services"]["zlmediakit"]
+
+          zlm_healthcheck = " ".join(
+              model["services"]["zlmediakit"]["healthcheck"]["test"]
+          )
+          assert "/opt/media/conf/config.ini" in zlm_healthcheck
+          assert "ZERO_NVR_ZLM_API_SECRET" not in zlm_healthcheck
+
+          postgres_environment = model["services"]["postgres"]["environment"]
+          assert "POSTGRES_PASSWORD_FILE" in postgres_environment
           PY
 
       - name: Build zero-nvr image
