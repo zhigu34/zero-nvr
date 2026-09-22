@@ -545,13 +545,14 @@ class NotificationTargetService:
         secret_ref = target.secret_ref
         session.delete(target)
         session.flush()
-        try:
-            self.secret_store.delete(
-                session,
-                secret_ref,
-                kind="notification_url",
-                owner_type="notification_target",
-                owner_id=target.id,
-            )
-        except KeyError:
-            pass
+        if secret_ref is not None:
+            try:
+                self.secret_store.delete(
+                    session,
+                    secret_ref,
+                    kind="notification_url",
+                    owner_type="notification_target",
+                    owner_id=target.id,
+                )
+            except KeyError:
+                pass
