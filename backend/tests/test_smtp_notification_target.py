@@ -56,9 +56,30 @@ def setup_admin(client: TestClient) -> None:
 
 def test_smtp_target_persistence_and_security_email_selection(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     app = make_app(tmp_path)
     smtp_password = "smtp-password-never-export"
+    smtp_calls: list[tuple[str, object]] = []
+
+    class FakeSmtpAdapter:
+        def __init__(self, **kwargs) -> None:
+            smtp_calls.append(("init", kwargs))
+
+        def test_connection(self) -> None:
+            smtp_calls.append(("connection", None))
+
+        def send_test_email(
+            self,
+            *,
+            recipient: str,
+        ) -> None:
+            smtp_calls.append(("email", recipient))
+
+    monkeypatch.setattr(
+        "app.modules.notifications.api.SmtpAdapter",
+        FakeSmtpAdapter,
+    )
 
     with TestClient(app) as client:
         setup_admin(client)
@@ -174,6 +195,44 @@ def test_smtp_target_persistence_and_security_email_selection(
                 "username": "mailer-rotated",
                 "password": "smtp-password-rotated",
             }
+
+        connection_test = client.post(
+            f"/api/v1/notification-targets/{target_id}/test"
+        )
+        assert connection_test.status_code == 200
+        assert connection_test.json() == {"ok": True}
+
+        email_test = client.post(
+            f"/api/v1/notification-targets/{target_id}/test",
+            json={"recipient": "viewer@example.com"},
+        )
+        assert email_test.status_code == 200
+        assert email_test.json() == {"ok": True}
+
+        invalid_recipient = client.post(
+            f"/api/v1/notification-targets/{target_id}/test",
+            json={"recipient": "not-an-email"},
+        )
+        assert invalid_recipient.status_code == 422
+
+        assert smtp_calls[0][0] == "init"
+        init = smtp_calls[0][1]
+        assert isinstance(init, dict)
+        assert init == {
+            "host": "smtp.example.test",
+            "port": 587,
+            "security": "starttls",
+            "from_address": "security@example.com",
+            "from_name": "zero-nvr",
+            "username": "mailer-rotated",
+            "password": "smtp-password-rotated",
+        }
+        assert smtp_calls[1] == ("connection", None)
+        assert smtp_calls[2][0] == "init"
+        assert smtp_calls[3] == (
+            "email",
+            "viewer@example.com",
+        )
 
         selected = client.put(
             "/api/v1/notification-targets/security-email-default",
