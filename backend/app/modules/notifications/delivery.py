@@ -3,12 +3,13 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Callable
+from typing import Callable
 
 from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.integrations.contracts import EmailBackend, NotificationBackend
 from app.integrations.apprise import (
     AppriseAdapter,
     AppriseIntegrationError,
@@ -57,8 +58,8 @@ class NotificationDeliveryService:
         self,
         settings: Settings,
         *,
-        adapter_factory: Callable[..., Any] = AppriseAdapter,
-        smtp_adapter_factory: Callable[..., Any] = SmtpAdapter,
+        adapter_factory: Callable[..., NotificationBackend] = AppriseAdapter,
+        smtp_adapter_factory: Callable[..., EmailBackend] = SmtpAdapter,
     ) -> None:
         self.settings = settings
         self._adapter_factory = adapter_factory
