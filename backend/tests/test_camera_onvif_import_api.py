@@ -4,6 +4,7 @@ import json
 import uuid
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
@@ -15,6 +16,7 @@ from app.integrations.onvif import (
     OnvifInspection,
     OnvifProfileProbe,
 )
+from app.integrations.zlm import ZlmIntegrationError
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import SecretRecord
@@ -48,6 +50,47 @@ URI_MAIN_B = (
     "rtsp://192.168.70.20:554/channel/b/main"
     "?token=main-b-secret"
 )
+
+
+PROBED_URIS: list[str] = []
+
+
+class FakeZlmAdapter:
+    def __init__(
+        self,
+        _settings,
+    ) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(
+        self,
+        *_exc,
+    ) -> None:
+        return None
+
+    def probe_rtsp_source(
+        self,
+        source_url: str,
+    ):
+        PROBED_URIS.append(
+            source_url
+        )
+        return object()
+
+
+@pytest.fixture(autouse=True)
+def fake_zlm_adapter(
+    monkeypatch,
+):
+    PROBED_URIS.clear()
+    monkeypatch.setattr(
+        camera_api,
+        "ZlmAdapter",
+        FakeZlmAdapter,
+    )
 
 
 class FakeRecordingTasks:
@@ -389,6 +432,13 @@ def test_onvif_import_can_select_profile_subset(
             stream["adapter_profile_key"]
             for stream in body["cameras"][0]["streams"]
         ] == ["sub-a"]
+        assert PROBED_URIS == [
+            (
+                "rtsp://admin:secret-password@"
+                "192.168.70.20:554/channel/a/sub"
+                "?token=sub-a-secret"
+            )
+        ]
 
 
 def test_onvif_import_rejects_unknown_profile_without_partial_persistence(
@@ -424,6 +474,7 @@ def test_onvif_import_rejects_unknown_profile_without_partial_persistence(
         assert response.json()["error"]["code"] == (
             "invalid_onvif_profile_tokens"
         )
+        assert PROBED_URIS == []
 
     with app.state.database.session() as session:
         assert session.scalar(
@@ -436,6 +487,100 @@ def test_onvif_import_rejects_unknown_profile_without_partial_persistence(
             select(func.count()).select_from(SecretRecord)
         ) == 0
 
+
+
+def test_onvif_import_rejects_failed_zlm_stream_verification_without_persistence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FakeOnvifAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        async def inspect_device(
+            self,
+            **_kwargs,
+        ):
+            return inspection()
+
+    class FailingZlmAdapter(
+        FakeZlmAdapter
+    ):
+        def probe_rtsp_source(
+            self,
+            source_url: str,
+        ):
+            PROBED_URIS.append(
+                source_url
+            )
+            raise ZlmIntegrationError(
+                "camera_stream_probe_failed",
+                "Camera stream verification failed.",
+                status_code=422,
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+    monkeypatch.setattr(
+        camera_api,
+        "ZlmAdapter",
+        FailingZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        response = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert response.status_code == 422
+        assert (
+            response.json()["error"]["code"]
+            == "camera_stream_probe_failed"
+        )
+        assert (
+            response.json()["error"]["details"][
+                "profile_token"
+            ]
+            == "main-a"
+        )
+
+    assert len(PROBED_URIS) == 1
+    assert (
+        "cam%20user:p%40ss%20word@"
+        in PROBED_URIS[0]
+    )
+
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count()).select_from(
+                Device
+            )
+        ) == 0
+        assert session.scalar(
+            select(func.count()).select_from(
+                Camera
+            )
+        ) == 0
+        assert session.scalar(
+            select(func.count()).select_from(
+                SecretRecord
+            )
+        ) == 0
 
 
 def _inspection_at(host: str) -> OnvifInspection:
