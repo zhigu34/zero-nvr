@@ -31,6 +31,25 @@ def upgrade() -> None:
                 server_default="monitor",
             )
         )
+
+    op.execute(
+        sa.text(
+            """
+            UPDATE cameras
+            SET time_sync_mode = 'ignore'
+            WHERE device_id IS NULL
+               OR device_id IN (
+                    SELECT id
+                    FROM devices
+                    WHERE adapter_type <> 'onvif'
+               )
+            """
+        )
+    )
+
+    with op.batch_alter_table(
+        "cameras"
+    ) as batch:
         batch.create_check_constraint(
             "ck_cameras_camera_time_sync_mode",
             (
