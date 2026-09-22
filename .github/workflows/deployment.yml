@@ -86,6 +86,7 @@ jobs:
           bash scripts/test-soak.sh
           bash scripts/test-release-validation.sh
           bash scripts/test-port-preflight.sh
+          bash scripts/test-protected-secrets.sh
           bash scripts/test-clean-install.sh
 
       - name: Validate Compose model
