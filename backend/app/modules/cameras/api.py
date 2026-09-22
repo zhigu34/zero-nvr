@@ -56,6 +56,7 @@ from .models import (
     DiscoverySession,
 )
 from .schemas import (
+    CameraClockProjectionView,
     CameraCreate,
     CameraDetail,
     CameraGroupCreate,
@@ -867,6 +868,81 @@ def get_camera(
     return _camera_detail(
         session,
         CameraService.get_camera(session, camera_id),
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/clock",
+    response_model=CameraClockProjectionView,
+)
+def get_camera_clock_projection(
+    camera_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraClockProjectionView:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    if camera.device_id is None:
+        return CameraClockProjectionView(
+            camera_id=camera.id,
+            device_id=None,
+            health="unsupported",
+            quality="unknown",
+        )
+
+    device = session.get(
+        Device,
+        camera.device_id,
+    )
+    if (
+        device is None
+        or device.adapter_type != "onvif"
+    ):
+        return CameraClockProjectionView(
+            camera_id=camera.id,
+            device_id=camera.device_id,
+            health="unsupported",
+            quality="unknown",
+        )
+
+    projection = (
+        request.app.state
+        .camera_clock_projections
+        .get(
+            device.id
+        )
+    )
+    if projection is None:
+        return CameraClockProjectionView(
+            camera_id=camera.id,
+            device_id=device.id,
+            health="unknown",
+            quality="unknown",
+        )
+
+    return CameraClockProjectionView(
+        camera_id=camera.id,
+        device_id=device.id,
+        health=projection.health,
+        quality=projection.quality,
+        measured_at=projection.measured_at,
+        offset_ms=projection.offset_ms,
+        uncertainty_ms=(
+            projection.uncertainty_ms
+        ),
+        rtt_ms=projection.rtt_ms,
+        device_timezone=(
+            projection.device_timezone
+        ),
+        device_time_source=(
+            projection.device_time_source
+        ),
+        error_code=projection.error_code,
     )
 
 
