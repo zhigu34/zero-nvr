@@ -47,6 +47,11 @@ class BackupPolicyUpdate(BaseModel):
     )
     enabled: bool | None = None
     repository: SecretStr | None = None
+    credentials_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
     credentials: BackupCredentialsUpdate | None = None
     initialize_if_missing: bool | None = None
     schedule: dict[str, object] | None = None
