@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
-from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import Camera
 
 from .models import SystemSetting
@@ -174,23 +173,13 @@ class FrigateProviderSettingsService:
     ) -> FrigateCredentials:
         if secret_ref is None:
             return FrigateCredentials()
-        secret = session.get(SecretRecord, secret_ref)
-        if (
-            secret is None
-            or secret.owner_type != "system_setting"
-            or secret.owner_id != _FRIGATE_OWNER_ID
-            or secret.kind != "frigate_credentials"
-        ):
-            raise ApiError(
-                status_code=409,
-                code="frigate_credentials_unavailable",
-                message="Frigate credentials are unavailable.",
-            )
         try:
-            payload = self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            payload = self.secret_store.read_json(
+                session,
+                secret_ref,
+                kind="frigate_credentials",
+                owner_type="system_setting",
+                owner_id=_FRIGATE_OWNER_ID,
             )
         except Exception as exc:
             raise ApiError(
@@ -288,38 +277,55 @@ class FrigateProviderSettingsService:
             if value
         }
 
-        if not payload:
-            if existing_ref is not None:
-                existing = session.get(
-                    SecretRecord,
+        if existing_ref is not None:
+            try:
+                metadata = self.secret_store.metadata(
+                    session,
                     existing_ref,
                 )
-                if existing is not None:
-                    session.delete(existing)
+            except KeyError:
+                existing_ref = None
+            else:
+                if (
+                    metadata.kind != "frigate_credentials"
+                    or metadata.owner_type != "system_setting"
+                    or metadata.owner_id != _FRIGATE_OWNER_ID
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="frigate_credentials_unavailable",
+                        message="Frigate credentials are unavailable.",
+                    )
+
+        if not payload:
+            if existing_ref is not None:
+                self.secret_store.delete(
+                    session,
+                    existing_ref,
+                    kind="frigate_credentials",
+                    owner_type="system_setting",
+                    owner_id=_FRIGATE_OWNER_ID,
+                )
             return None
 
-        encrypted = self.secret_store.encrypt_json(payload)
-        secret = (
-            session.get(SecretRecord, existing_ref)
-            if existing_ref is not None
-            else None
-        )
-        if secret is None:
-            secret = SecretRecord(
+        if existing_ref is None:
+            return self.secret_store.create_json(
+                session,
                 kind="frigate_credentials",
                 owner_type="system_setting",
                 owner_id=_FRIGATE_OWNER_ID,
-                key_id=encrypted.key_id,
-                encrypted_payload=encrypted.ciphertext,
-                version=encrypted.version,
+                value=payload,
             )
-            session.add(secret)
-            session.flush()
-        else:
-            secret.key_id = encrypted.key_id
-            secret.encrypted_payload = encrypted.ciphertext
-            secret.version = encrypted.version
-        return secret.id
+
+        self.secret_store.replace_json(
+            session,
+            existing_ref,
+            kind="frigate_credentials",
+            owner_type="system_setting",
+            owner_id=_FRIGATE_OWNER_ID,
+            value=payload,
+        )
+        return existing_ref
 
     def put(
         self,
