@@ -319,23 +319,27 @@ class OnvifCapabilityRefreshService:
             )
             return
 
+        old_stream_ref = profile.stream_uri_ref
+        profile.stream_uri_ref = self.secret_store.create_json(
+            session,
+            kind="rtsp_uri",
+            owner_type="camera_stream_profile",
+            owner_id=profile.id,
+            value={"uri": uri},
+        )
+        session.flush()
         try:
-            self.secret_store.replace_json(
+            self.secret_store.delete(
                 session,
-                profile.stream_uri_ref,
-                value={"uri": uri},
+                old_stream_ref,
                 kind="rtsp_uri",
                 owner_type="camera_stream_profile",
                 owner_id=profile.id,
             )
-        except Exception:
-            profile.stream_uri_ref = self.secret_store.create_json(
-                session,
-                kind="rtsp_uri",
-                owner_type="camera_stream_profile",
-                owner_id=profile.id,
-                value={"uri": uri},
-            )
+        except KeyError:
+            # The old reference may already be stale; the staged replacement
+            # is authoritative once the profile points at the new record.
+            pass
 
     def apply(
         self,
