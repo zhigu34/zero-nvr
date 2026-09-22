@@ -283,6 +283,10 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
             "RECORD",
             "LIVE_LOW",
         }
+        assert {
+            item["selection_mode"]
+            for item in valid_binding.json()
+        } == {"manual"}
 
     with app.state.database.session() as session:
         actions = set(session.scalars(select(AuditEvent.action)).all())
