@@ -64,7 +64,9 @@ protected_file_host_path() {
   if [[ "$file_path" == /var/lib/zero-nvr/* ]]; then
     data_path="$(env_get ZERO_NVR_DATA_PATH "./data/zero-nvr")"
     data_path="$(host_path "$data_path")"
-    printf '%s/%s'       "$data_path"       "${file_path#/var/lib/zero-nvr/}"
+    printf '%s/%s' \
+      "$data_path" \
+      "${file_path#/var/lib/zero-nvr/}"
     return 0
   fi
 
@@ -99,7 +101,9 @@ protected_env_get() {
   fi
 
   value="$(cat -- "$host_file")"
-  value="${value%\r'}"
+  local carriage_return
+  carriage_return="$(printf '\r')"
+  value="${value%"$carriage_return"}"
   if [[ -z "$value" ]]; then
     echo "error: ${key}_FILE is empty: $file_path" >&2
     return 1
