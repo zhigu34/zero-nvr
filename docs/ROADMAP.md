@@ -129,7 +129,7 @@ current code/tests.
 - [x] ordinary configuration + SecretStore abstraction.
 - [x] SecretRecord persistence using mature authenticated encryption.
 - [x] stable ZERO_NVR_SECRET_KEY / *_FILE bootstrap with simple versioned keyring rotation.
-- [ ] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
+- [x] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
 - [ ] secret redaction for logs/errors/traces/AuditEvent.
 - [ ] explicit keep/replace/clear credential update semantics.
 - [ ] credential validation before atomic secret_ref switch where practical.
