@@ -310,8 +310,9 @@ def test_persisted_stream_verify_updates_safe_diagnostics(
         )
         assert audit is not None
         assert audit.result == "success"
+        assert audit.after_json is not None
         assert (
-            audit.metadata_json["after"]["status"]
+            audit.after_json["status"]
             == "available"
         )
 
