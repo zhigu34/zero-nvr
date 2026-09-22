@@ -296,6 +296,18 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
         assert "main-b-secret" not in serialized
 
         first = body["cameras"][0]
+        managed = client.patch(
+            f"/api/v1/cameras/{first['id']}",
+            json={
+                "time_sync_mode": "manage_ntp",
+            },
+        )
+        assert managed.status_code == 200
+        assert (
+            managed.json()["time_sync_mode"]
+            == "manage_ntp"
+        )
+
         profiles = {
             item["adapter_profile_key"]: item
             for item in first["streams"]
@@ -345,6 +357,14 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
         assert repeated.status_code == 201
         assert repeated.json()["reconfigured"] is True
         assert repeated.json()["device_id"] == body["device_id"]
+        assert {
+            camera["id"]: camera[
+                "time_sync_mode"
+            ]
+            for camera in repeated.json()[
+                "cameras"
+            ]
+        }[first["id"]] == "manage_ntp"
         reconfigure_probes = PROBED_URIS[
             probes_before_reconfigure:
         ]
