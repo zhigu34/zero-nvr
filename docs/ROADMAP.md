@@ -188,7 +188,7 @@ Acceptance:
 - [x] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
 - [x] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
 - [x] idempotent enable / disable / maintenance / configuration apply.
-- [ ] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
+- [x] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
 - [ ] CameraStreamProfile refresh/diff and capability-drift detection.
 - [ ] planned recording-profile switch at a safe segment boundary where practical.
 - [ ] ONVIF event-subscription lifecycle using mature client-library facilities.
