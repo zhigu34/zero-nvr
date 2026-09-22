@@ -76,3 +76,53 @@ def test_turn_shared_secret_accepts_configured_value() -> None:
         settings.turn_shared_secret.get_secret_value()
         == "t" * 32
     )
+
+
+def test_secret_key_file_bootstrap(tmp_path: Path) -> None:
+    key_file = tmp_path / "zero-nvr-secret-key"
+    key_file.write_text(
+        ("f" * 40) + "\n",
+        encoding="utf-8",
+    )
+
+    settings = Settings(
+        secret_key_file=key_file,
+    )
+
+    assert (
+        settings.secret_key.get_secret_value()
+        == "f" * 40
+    )
+
+
+def test_secret_key_file_rejects_direct_key_conflict(
+    tmp_path: Path,
+) -> None:
+    key_file = tmp_path / "zero-nvr-secret-key"
+    key_file.write_text(
+        "f" * 40,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="configure only one",
+    ):
+        Settings(
+            secret_key="x" * 40,
+            secret_key_file=key_file,
+        )
+
+
+def test_secret_key_file_must_be_readable(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(
+        ValidationError,
+        match="could not be read",
+    ):
+        Settings(
+            secret_key_file=(
+                tmp_path / "missing-secret-key"
+            ),
+        )
