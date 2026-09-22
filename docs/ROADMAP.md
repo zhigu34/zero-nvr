@@ -185,7 +185,7 @@ Acceptance:
 - [x] monitor/manage_ntp/ignore device-time mode where supported.
 - [x] apply/verify camera NTP configuration without modifying host OS NTP service.
 - [x] device clock offset/RTT/quality health diagnostics.
-- [ ] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
+- [x] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
 - [ ] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
 - [ ] idempotent enable / disable / maintenance / configuration apply.
 - [ ] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
