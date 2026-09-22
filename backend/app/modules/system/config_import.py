@@ -999,6 +999,16 @@ class ConfigurationImportService:
                     item=item,
                     credential="apprise_url",
                 )
+            if item.get(
+                "credentials_configured"
+            ) is True:
+                cls._requirement(
+                    requirements,
+                    section="notification_targets",
+                    resource_type="notification_target",
+                    item=item,
+                    credential="smtp_credentials",
+                )
         for item in oidc_providers:
             if item.get(
                 "client_secret_configured"
@@ -2648,9 +2658,18 @@ class ConfigurationImportService:
                         str(item["name"]),
                     )
                 )
+            credential_required = bool(
+                item.get("url_configured")
+                or item.get(
+                    "credentials_configured"
+                )
+            )
             if (
                 target is None
-                or target.secret_ref is None
+                or (
+                    credential_required
+                    and target.secret_ref is None
+                )
             ):
                 skipped.append(
                     cls._apply_item(
@@ -2673,23 +2692,34 @@ class ConfigurationImportService:
                     )
                 )
                 continue
-            target = (
-                notification_service.update(
-                    session,
-                    target=target,
-                    changes={
-                        "enabled": bool(
-                            item["enabled"]
-                        ),
-                        "config": dict(
-                            item.get(
-                                "config"
-                            )
-                            or {}
-                        ),
-                    },
+
+            changes = {
+                "enabled": bool(
+                    item["enabled"]
+                ),
+                "config": dict(
+                    item.get(
+                        "config"
+                    )
+                    or {}
+                ),
+            }
+            if target.kind == "smtp":
+                target = (
+                    notification_service.update_smtp(
+                        session,
+                        target=target,
+                        changes=changes,
+                    )
                 )
-            )
+            else:
+                target = (
+                    notification_service.update(
+                        session,
+                        target=target,
+                        changes=changes,
+                    )
+                )
             notification_map[
                 str(source_uuid)
             ] = target.id
