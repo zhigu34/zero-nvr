@@ -298,15 +298,14 @@ class FrigateProviderSettingsService:
                     )
 
         if not payload:
-            if existing_ref is not None:
-                self.secret_store.delete(
-                    session,
-                    existing_ref,
-                    kind="frigate_credentials",
-                    owner_type="system_setting",
-                    owner_id=_FRIGATE_OWNER_ID,
-                )
-            return None
+            raise ApiError(
+                status_code=400,
+                code="frigate_credentials_invalid",
+                message=(
+                    "Frigate credential replacement "
+                    "must contain at least one value."
+                ),
+            )
 
         if existing_ref is None:
             return self.secret_store.create_json(
@@ -341,7 +340,7 @@ class FrigateProviderSettingsService:
         mqtt_topic_prefix: str,
         mqtt_tls: bool,
         credentials: FrigateCredentials | None = None,
-        replace_credentials: bool = False,
+        credentials_action: str = "keep",
     ) -> FrigateProviderConfig:
         if mode not in {"managed", "external"}:
             raise ApiError(
@@ -386,13 +385,61 @@ class FrigateProviderSettingsService:
                 current_ref = None
 
         secret_ref = current_ref
-        if replace_credentials:
+        if credentials_action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="frigate_credentials_update_invalid",
+                message="Frigate credential action is invalid.",
+            )
+
+        if credentials_action == "replace":
+            if credentials is None:
+                raise ApiError(
+                    status_code=400,
+                    code="frigate_credentials_update_invalid",
+                    message=(
+                        "Frigate credential replacement "
+                        "requires credential values."
+                    ),
+                )
             secret_ref = self._replace_credentials(
                 session,
                 existing_ref=current_ref,
-                credentials=(
-                    credentials
-                    or FrigateCredentials()
+                credentials=credentials,
+            )
+        elif credentials_action == "clear":
+            if credentials is not None:
+                raise ApiError(
+                    status_code=400,
+                    code="frigate_credentials_update_invalid",
+                    message=(
+                        "Frigate credential clear action "
+                        "does not accept replacement values."
+                    ),
+                )
+            if current_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        current_ref,
+                        kind="frigate_credentials",
+                        owner_type="system_setting",
+                        owner_id=_FRIGATE_OWNER_ID,
+                    )
+                except KeyError:
+                    pass
+            secret_ref = None
+        elif credentials is not None:
+            raise ApiError(
+                status_code=400,
+                code="frigate_credentials_update_invalid",
+                message=(
+                    "Frigate credential values require "
+                    "action=replace."
                 ),
             )
 
