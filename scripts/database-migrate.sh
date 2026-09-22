@@ -9,13 +9,17 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/database-migrate.sh <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy ID_OR_NAME]
+  scripts/database-migrate.sh <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy ID_OR_NAME] [--confirm-sqlite-workload]
 
 PostgreSQL target selection:
   - --managed forces the zero-nvr managed PostgreSQL profile.
   - otherwise, if NAME (default ZERO_NVR_DATABASE_MIGRATION_TARGET_URL)
     is set in .env, that external PostgreSQL URL is used.
   - if no external target URL is configured, managed PostgreSQL is used.
+
+PostgreSQL -> SQLite requires a measured schema/disk/workload preflight.
+Use --confirm-sqlite-workload only after reviewing the reported workload and
+representative SQLite benchmark/soak evidence.
 
 The target URL is never printed. The source database is retained after cutover.
 EOF
@@ -118,6 +122,7 @@ shift
 managed=false
 target_url_env="ZERO_NVR_DATABASE_MIGRATION_TARGET_URL"
 backup_policy=""
+confirm_sqlite_workload=false
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -139,6 +144,9 @@ while [[ "$#" -gt 0 ]]; do
         echo "error: --backup-policy requires an id or name" >&2
         exit 2
       fi
+      ;;
+    --confirm-sqlite-workload)
+      confirm_sqlite_workload=true
       ;;
     -h|--help)
       usage
@@ -164,6 +172,11 @@ case "$target" in
     exit 2
     ;;
 esac
+
+if [[ "$confirm_sqlite_workload" == true && "$target" != "sqlite" ]]; then
+  echo "error: --confirm-sqlite-workload is only valid for a SQLite target" >&2
+  exit 2
+fi
 
 require_command docker
 docker compose version >/dev/null
@@ -224,6 +237,22 @@ target_backend="$(database_backend "$target_url" || true)"
 if [[ "$target_backend" != "$target" ]]; then
   echo "error: selected migration target URL is not a $target database" >&2
   exit 1
+fi
+
+if [[ "$target" == "sqlite" ]]; then
+  echo "Running PostgreSQL -> SQLite schema/disk/workload preflight..."
+  preflight_args=(
+    python -m app.cli
+    database-preflight-sqlite
+  )
+  if [[ "$confirm_sqlite_workload" == true ]]; then
+    preflight_args+=(--confirm-workload)
+  fi
+  if ! compose run --rm --no-deps zero-nvr     "${preflight_args[@]}"; then
+    echo "error: PostgreSQL -> SQLite preflight refused migration" >&2
+    echo "review the JSON blockers/warnings; run representative SQLite benchmark/soak before confirming workload suitability" >&2
+    exit 1
+  fi
 fi
 
 echo "Database migration: $source_backend -> $target_description"
