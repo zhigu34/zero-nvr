@@ -664,3 +664,95 @@ def test_login_and_reset_rate_limits_are_non_enumerating(
         )
     assert "auth.login.rate_limited" in actions
     assert "auth.password_reset.rate_limited" in actions
+
+def test_host_admin_password_recovery_reenables_user_and_revokes_sessions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    import argparse
+    from datetime import UTC, datetime, timedelta
+
+    from app import cli
+    from app.core.db import Database
+    from app.modules.auth.security import PasswordService
+
+    settings = Settings(
+        secret_key="cli-recovery-test-secret-key-32-bytes-minimum",
+        environment="test",
+        database_url=f"sqlite:///{tmp_path / 'host-recovery.db'}",
+        data_dir=tmp_path / "data",
+        cache_dir=tmp_path / "cache",
+    )
+    database = Database(settings)
+    database.initialize_runtime()
+    Base.metadata.create_all(database.engine)
+
+    passwords = PasswordService()
+    old_password = "correct-horse-battery-staple"
+    new_password = "correct-horse-battery-recovered"
+
+    with database.session() as session:
+        user = User(
+            username="recovery-admin",
+            display_name="Recovery Administrator",
+            password_hash=passwords.hash(old_password),
+            enabled=False,
+        )
+        session.add(user)
+        session.flush()
+        user_id = user.id
+        session.add(
+            UserSession(
+                user_id=user_id,
+                created_at=datetime.now(UTC),
+                last_seen_at=datetime.now(UTC),
+                expires_at=(
+                    datetime.now(UTC)
+                    + timedelta(hours=1)
+                ),
+                revoked_at=None,
+                client_info={"source": "test"},
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        cli,
+        "_settings_database",
+        lambda: (settings, database),
+    )
+    assert cli.reset_password_command(
+        argparse.Namespace(
+            username="recovery-admin",
+            password=new_password,
+        )
+    ) == 0
+
+    verify = Database(settings)
+    verify.initialize_runtime()
+    try:
+        with verify.session() as session:
+            user = session.get(User, user_id)
+            assert user is not None
+            assert user.enabled is True
+            assert user.password_hash is not None
+            assert passwords.verify(
+                new_password,
+                user.password_hash,
+            )
+            assert not passwords.verify(
+                old_password,
+                user.password_hash,
+            )
+            active_sessions = list(
+                session.scalars(
+                    select(UserSession).where(
+                        UserSession.user_id == user_id,
+                        UserSession.revoked_at.is_(None),
+                    )
+                )
+            )
+            assert active_sessions == []
+    finally:
+        verify.close()
+
