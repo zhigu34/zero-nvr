@@ -7,6 +7,7 @@ export interface AuthUser {
   username: string
   display_name: string
   email: string | null
+  email_verified: boolean
   roles: string[]
   permissions: string[]
 }
