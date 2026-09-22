@@ -342,24 +342,13 @@ class OidcProviderSettingsService:
                         message="OIDC client secret reference is invalid.",
                     )
 
-        if existing_ref is None:
-            return self.secret_store.create_json(
-                session,
-                kind="oidc_client_secret",
-                owner_type="oidc_provider",
-                owner_id=provider_id,
-                value={"client_secret": value},
-            )
-
-        self.secret_store.replace_json(
+        return self.secret_store.create_json(
             session,
-            existing_ref,
             kind="oidc_client_secret",
             owner_type="oidc_provider",
             owner_id=provider_id,
             value={"client_secret": value},
         )
-        return existing_ref
 
     def client_secret(
         self,
@@ -552,6 +541,9 @@ class OidcProviderSettingsService:
                 message="OIDC client secret action is invalid.",
             )
 
+        old_secret_ref = updated.secret_ref
+        delete_secret_ref: uuid.UUID | None = None
+
         if secret_action == "replace":
             raw = changes.get("client_secret")
             if not isinstance(raw, str):
@@ -560,15 +552,17 @@ class OidcProviderSettingsService:
                     code="oidc_client_secret_invalid",
                     message="OIDC client secret is invalid.",
                 )
+            candidate_ref = self._put_secret(
+                session,
+                provider_id=updated.id,
+                existing_ref=old_secret_ref,
+                client_secret=raw,
+            )
             updated = replace(
                 updated,
-                secret_ref=self._put_secret(
-                    session,
-                    provider_id=updated.id,
-                    existing_ref=updated.secret_ref,
-                    client_secret=raw,
-                ),
+                secret_ref=candidate_ref,
             )
+            delete_secret_ref = old_secret_ref
         elif secret_action == "clear":
             if "client_secret" in changes:
                 raise ApiError(
@@ -579,17 +573,7 @@ class OidcProviderSettingsService:
                         "does not accept a replacement value."
                     ),
                 )
-            if updated.secret_ref is not None:
-                try:
-                    self.secret_store.delete(
-                        session,
-                        updated.secret_ref,
-                        kind="oidc_client_secret",
-                        owner_type="oidc_provider",
-                        owner_id=updated.id,
-                    )
-                except KeyError:
-                    pass
+            delete_secret_ref = old_secret_ref
             updated = replace(
                 updated,
                 secret_ref=None,
@@ -609,6 +593,21 @@ class OidcProviderSettingsService:
             updated
         )
         self._save(session, providers)
+
+        if (
+            delete_secret_ref is not None
+            and delete_secret_ref != updated.secret_ref
+        ):
+            try:
+                self.secret_store.delete(
+                    session,
+                    delete_secret_ref,
+                    kind="oidc_client_secret",
+                    owner_type="oidc_provider",
+                    owner_id=updated.id,
+                )
+            except KeyError:
+                pass
         return updated
 
     def delete(
