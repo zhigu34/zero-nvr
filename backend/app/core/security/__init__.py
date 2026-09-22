@@ -1,3 +1,3 @@
-from .secret_store import EncryptedSecret, SecretStore
+from .secret_store import EncryptedSecret, SecretMetadata, SecretStore
 
-__all__ = ["EncryptedSecret", "SecretStore"]
+__all__ = ["EncryptedSecret", "SecretMetadata", "SecretStore"]
