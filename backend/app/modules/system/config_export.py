@@ -219,6 +219,9 @@ class ConfigurationExportService:
                 "channel_key": item.channel_key,
                 "name": item.name,
                 "enabled": item.enabled,
+                "time_sync_mode": (
+                    item.time_sync_mode
+                ),
                 "retired_at": _time(
                     item.retired_at
                 ),
