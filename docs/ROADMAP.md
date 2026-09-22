@@ -149,7 +149,7 @@ current code/tests.
 - [x] login rate limiting / brute-force protection.
 - [x] Personal API Token create/revoke/list flow with one-way token hashes.
 - [x] built-in Administrator / Operator / Viewer roles.
-- [ ] CameraGroup + PrincipalCameraScope authorization.
+- [x] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
 - [ ] short-lived scoped live/playback media session authorization.
 - [ ] integration authentication through scoped Personal API Tokens / provider credentials without introducing a generic service-principal framework in V1.
