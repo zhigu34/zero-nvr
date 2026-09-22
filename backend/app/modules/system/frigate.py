@@ -418,7 +418,11 @@ class FrigateProviderSettingsService:
                         "requires credential values."
                     ),
                 )
-            if enabled and mode == "external":
+            if (
+                current_ref is not None
+                and enabled
+                and mode == "external"
+            ):
                 self._validate_external_credentials(
                     base_url=normalized_url,
                     credentials=credentials,
