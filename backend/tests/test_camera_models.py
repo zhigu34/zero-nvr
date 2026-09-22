@@ -4,7 +4,7 @@ import uuid
 from pathlib import Path
 
 import pytest
-from sqlalchemy import inspect
+from sqlalchemy import UniqueConstraint, inspect
 from sqlalchemy.exc import IntegrityError
 
 from app.core.config import Settings
@@ -132,8 +132,16 @@ def test_camera_profile_binding_and_scope_constraints(tmp_path: Path) -> None:
 
 def _column_names(model) -> set[str]:
     return {
-        column.key
-        for column in inspect(model).columns
+        attribute.key
+        for attribute in inspect(model).column_attrs
+    }
+
+
+def _unique_column_sets(model) -> set[frozenset[str]]:
+    return {
+        frozenset(column.name for column in constraint.columns)
+        for constraint in model.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
     }
 
 
@@ -260,6 +268,20 @@ def test_camera_inventory_matches_v1_schema_freeze() -> None:
         "selection_mode",
         "updated_at",
     } <= _column_names(CameraStreamBinding)
+
+    assert frozenset(
+        {"device_id", "channel_key"}
+    ) in _unique_column_sets(Camera)
+    assert frozenset(
+        {"camera_id", "adapter_profile_key"}
+    ) in _unique_column_sets(
+        CameraStreamProfile
+    )
+    assert frozenset(
+        {"camera_id", "purpose"}
+    ) in _unique_column_sets(
+        CameraStreamBinding
+    )
 
     assert (
         _foreign_key_ondelete(
