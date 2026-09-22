@@ -1970,7 +1970,7 @@ onBeforeUnmount(() => {
             <strong>
               Camera NTP ·
               {{ ntpApplyResult.updated }}/{{ ntpApplyResult.total_devices }}
-              updated
+              verified
             </strong>
             <span>
               {{
@@ -2058,6 +2058,12 @@ onBeforeUnmount(() => {
                         ? "—"
                         : `${item.rtt_ms} ms`
                     }}
+                  </strong>
+                </span>
+                <span>
+                  Quality
+                  <strong>
+                    {{ pretty(item.quality) }}
                   </strong>
                 </span>
               </div>
