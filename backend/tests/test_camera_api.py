@@ -341,11 +341,29 @@ def test_camera_enable_disable_queues_runtime_reconcile(
         assert disabled.status_code == 200
         assert disabled.json()["enabled"] is False
 
+        duplicate_disabled = client.post(
+            f"/api/v1/cameras/{camera_id}/disable"
+        )
+        assert duplicate_disabled.status_code == 200
+        assert (
+            duplicate_disabled.json()["enabled"]
+            is False
+        )
+
         enabled = client.post(
             f"/api/v1/cameras/{camera_id}/enable"
         )
         assert enabled.status_code == 200
         assert enabled.json()["enabled"] is True
+
+        duplicate_enabled = client.post(
+            f"/api/v1/cameras/{camera_id}/enable"
+        )
+        assert duplicate_enabled.status_code == 200
+        assert (
+            duplicate_enabled.json()["enabled"]
+            is True
+        )
 
         assert (
             app.state.recording_tasks.runtime_reconciles
@@ -360,6 +378,77 @@ def test_camera_enable_disable_queues_runtime_reconcile(
         assert persisted is not None
         assert persisted.config_revision == 3
 
+
+
+def test_camera_maintenance_is_idempotent_and_does_not_reconcile_runtime(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        created = create_camera(
+            client,
+            name="Maintenance Camera",
+            host="10.10.0.31",
+            with_secondary=False,
+        )
+        camera_id = uuid.UUID(
+            created.json()["id"]
+        )
+        assert (
+            created.json()["maintenance"]
+            is False
+        )
+
+        first = client.patch(
+            f"/api/v1/cameras/{camera_id}",
+            json={"maintenance": True},
+        )
+        assert first.status_code == 200
+        assert first.json()["maintenance"] is True
+
+        repeated = client.patch(
+            f"/api/v1/cameras/{camera_id}",
+            json={"maintenance": True},
+        )
+        assert repeated.status_code == 200
+        assert repeated.json()["maintenance"] is True
+
+        assert (
+            app.state.recording_tasks.runtime_reconciles
+            == []
+        )
+
+    with app.state.database.session() as session:
+        persisted = session.get(
+            Camera,
+            camera_id,
+        )
+        assert persisted is not None
+        assert persisted.maintenance is True
+        assert persisted.config_revision == 1
+
+        updates = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.camera_id
+                    == camera_id,
+                    AuditEvent.action
+                    == "camera.update",
+                )
+            )
+        )
+        assert len(updates) == 1
 
 
 def test_camera_retire_restore_preserves_history_identity(
