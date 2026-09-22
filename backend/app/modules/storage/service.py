@@ -644,18 +644,20 @@ class StorageTargetService:
                         "does not accept a replacement value."
                     ),
                 )
-            if target.credential_secret_ref is not None:
+            secret_ref = target.credential_secret_ref
+            target.credential_secret_ref = None
+            session.flush()
+            if secret_ref is not None:
                 try:
                     self.secret_store.delete(
                         session,
-                        target.credential_secret_ref,
+                        secret_ref,
                         kind="rclone_config",
                         owner_type="storage_target",
                         owner_id=target.id,
                     )
                 except KeyError:
                     pass
-            target.credential_secret_ref = None
         elif "rclone_config" in changes:
             raise ApiError(
                 status_code=400,
