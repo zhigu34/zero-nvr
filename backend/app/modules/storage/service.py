@@ -14,7 +14,6 @@ from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
-from app.modules.auth.models import SecretRecord
 from app.modules.recordings.models import RecordingPolicy
 
 from .capacity import LocalStorageCapacityService
@@ -397,33 +396,36 @@ class StorageTargetService:
                 code="rclone_config_invalid",
                 message="rclone configuration cannot be empty.",
             )
-        encrypted = self.secret_store.encrypt_json(
-            {"config": config_text}
-        )
-        secret = (
-            session.get(
-                SecretRecord,
-                target.credential_secret_ref,
+        if target.credential_secret_ref is None:
+            target.credential_secret_ref = (
+                self.secret_store.create_json(
+                    session,
+                    kind="rclone_config",
+                    owner_type="storage_target",
+                    owner_id=target.id,
+                    value={"config": config_text},
+                )
             )
-            if target.credential_secret_ref is not None
-            else None
-        )
-        if secret is None:
-            secret = SecretRecord(
+            return
+        try:
+            self.secret_store.replace_json(
+                session,
+                target.credential_secret_ref,
                 kind="rclone_config",
                 owner_type="storage_target",
                 owner_id=target.id,
-                key_id=encrypted.key_id,
-                encrypted_payload=encrypted.ciphertext,
-                version=encrypted.version,
+                value={"config": config_text},
             )
-            session.add(secret)
-            session.flush()
-            target.credential_secret_ref = secret.id
-        else:
-            secret.key_id = encrypted.key_id
-            secret.encrypted_payload = encrypted.ciphertext
-            secret.version = encrypted.version
+        except KeyError:
+            target.credential_secret_ref = (
+                self.secret_store.create_json(
+                    session,
+                    kind="rclone_config",
+                    owner_type="storage_target",
+                    owner_id=target.id,
+                    value={"config": config_text},
+                )
+            )
 
     def create(
         self,
@@ -787,8 +789,8 @@ class StorageTargetService:
         )
 
 
-    @staticmethod
     def delete(
+        self,
         session: Session,
         *,
         target: StorageTarget,
@@ -818,9 +820,16 @@ class StorageTargetService:
         session.delete(target)
         session.flush()
         if secret_id is not None:
-            secret = session.get(SecretRecord, secret_id)
-            if secret is not None:
-                session.delete(secret)
+            try:
+                self.secret_store.delete(
+                    session,
+                    secret_id,
+                    kind="rclone_config",
+                    owner_type="storage_target",
+                    owner_id=target.id,
+                )
+            except KeyError:
+                pass
 
     def resolve_rclone(
         self,
@@ -844,21 +853,13 @@ class StorageTargetService:
                 code="rclone_credentials_missing",
                 message="rclone archive credentials are unavailable.",
             )
-        secret = session.get(
-            SecretRecord,
-            target.credential_secret_ref,
-        )
-        if secret is None:
-            raise ApiError(
-                status_code=409,
-                code="rclone_credentials_missing",
-                message="rclone archive credentials are unavailable.",
-            )
         try:
-            payload = self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            payload = self.secret_store.read_json(
+                session,
+                target.credential_secret_ref,
+                kind="rclone_config",
+                owner_type="storage_target",
+                owner_id=target.id,
             )
         except Exception as exc:
             raise ApiError(
