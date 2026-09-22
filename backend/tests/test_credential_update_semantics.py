@@ -66,7 +66,7 @@ def test_oidc_secret_update_actions(tmp_path: Path) -> None:
                 "default_role_ids": [],
             },
         )
-        assert created.status_code == 200
+        assert created.status_code == 201
         assert created.json()["client_secret_configured"] is True
 
         ambiguous = client.patch(
