@@ -143,6 +143,7 @@ class Settings(BaseSettings):
                 file_value is None
                 or not str(file_value).strip()
             ):
+                updated[file_name] = None
                 continue
             if has_value:
                 raise ValueError(
