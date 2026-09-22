@@ -188,12 +188,9 @@ class Settings(BaseSettings):
                 )
         return values
 
-    @field_validator(
-        "zlm_api_secret",
-        "zlm_hook_secret",
-    )
+    @field_validator("zlm_hook_secret")
     @classmethod
-    def validate_zlm_secret(
+    def validate_zlm_hook_secret(
         cls,
         value: SecretStr | None,
     ) -> SecretStr | None:
@@ -201,7 +198,7 @@ class Settings(BaseSettings):
             return None
         if len(value.get_secret_value().encode("utf-8")) < 32:
             raise ValueError(
-                "ZLM API/hook secret must be at least 32 bytes"
+                "ZERO_NVR_ZLM_HOOK_SECRET must be at least 32 bytes"
             )
         return value
 
