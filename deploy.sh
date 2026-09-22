@@ -28,6 +28,7 @@ Usage:
   ./deploy.sh restore [snapshot-id|latest] --force
   ./deploy.sh recovery-kit export [directory] [policy-id-or-name]
   ./deploy.sh admin reset-password <username>
+  ./deploy.sh secret rotate
   ./deploy.sh feature list
   ./deploy.sh feature enable <frigate|mqtt|openlist|postgres|turn>
   ./deploy.sh feature disable <frigate|mqtt|openlist|postgres|turn>
@@ -70,9 +71,24 @@ ensure_env() {
     echo "created: $ENV_FILE"
   fi
 
-  local key value
+  local key value secret_key secret_key_file
+  secret_key="$(env_get ZERO_NVR_SECRET_KEY)"
+  secret_key_file="$(env_get ZERO_NVR_SECRET_KEY_FILE)"
+
+  if [[ -n "$secret_key" && -n "$secret_key_file" ]]; then
+    echo "error: configure only one of ZERO_NVR_SECRET_KEY or ZERO_NVR_SECRET_KEY_FILE" >&2
+    exit 1
+  fi
+  if [[ -z "$secret_key" && -z "$secret_key_file" ]]; then
+    secret_key="$(random_hex_32)"
+    set_env_value ZERO_NVR_SECRET_KEY "$secret_key"
+    echo "generated: ZERO_NVR_SECRET_KEY"
+  elif [[ -n "$secret_key" && ${#secret_key} -lt 32 ]]; then
+    echo "error: ZERO_NVR_SECRET_KEY must be at least 32 characters" >&2
+    exit 1
+  fi
+
   for key in \
-    ZERO_NVR_SECRET_KEY \
     ZERO_NVR_ZLM_API_SECRET \
     ZERO_NVR_ZLM_HOOK_SECRET
   do
@@ -777,8 +793,18 @@ case "$command" in
       echo "error: restore requires the original RecoveryKit .env; refusing to generate a new master key" >&2
       exit 1
     fi
-    if [[ ${#$(env_get ZERO_NVR_SECRET_KEY)} -lt 32 ]]; then
-      echo "error: original ZERO_NVR_SECRET_KEY is missing from .env" >&2
+    secret_key="$(env_get ZERO_NVR_SECRET_KEY)"
+    secret_key_file="$(env_get ZERO_NVR_SECRET_KEY_FILE)"
+    if [[ -n "$secret_key" && -n "$secret_key_file" ]]; then
+      echo "error: RecoveryKit config contains both ZERO_NVR_SECRET_KEY and ZERO_NVR_SECRET_KEY_FILE" >&2
+      exit 1
+    fi
+    if [[ -z "$secret_key" && -z "$secret_key_file" ]]; then
+      echo "error: RecoveryKit config is missing the original zero-nvr master secret bootstrap" >&2
+      exit 1
+    fi
+    if [[ -n "$secret_key" && ${#secret_key} -lt 32 ]]; then
+      echo "error: RecoveryKit ZERO_NVR_SECRET_KEY is invalid" >&2
       exit 1
     fi
     ensure_host_dirs
@@ -806,6 +832,46 @@ case "$command" in
         ;;
       *)
         echo "error: unsupported recovery-kit command: $subcommand" >&2
+        usage >&2
+        exit 2
+        ;;
+    esac
+    ;;
+  secret)
+    subcommand="${1:-}"
+    shift || true
+    case "$subcommand" in
+      rotate)
+        if [[ "$#" -ne 0 ]]; then
+          echo "error: secret rotate accepts no arguments" >&2
+          exit 2
+        fi
+        ensure_env
+        rotation_failed=false
+        compose stop zero-nvr-worker zero-nvr
+        if ! compose run --rm --no-deps zero-nvr \
+          python -m app.cli secret-rotate
+        then
+          rotation_failed=true
+        fi
+        if ! compose up -d --force-recreate --wait \
+          zero-nvr zero-nvr-worker
+        then
+          echo "error: failed to restart zero-nvr after secret rotation attempt" >&2
+          exit 1
+        fi
+        if ! ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"; then
+          echo "error: zero-nvr health check failed after secret rotation attempt" >&2
+          exit 1
+        fi
+        if [[ "$rotation_failed" == true ]]; then
+          echo "error: secret rotation failed; configured keyring was retained and services were restarted" >&2
+          exit 1
+        fi
+        echo "SecretRecord key rotation completed and services were restarted."
+        ;;
+      *)
+        echo "error: unsupported secret command: $subcommand" >&2
         usage >&2
         exit 2
         ;;
