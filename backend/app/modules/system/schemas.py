@@ -231,6 +231,10 @@ class CameraNtpDeviceResultView(BaseModel):
     device_id: uuid.UUID
     name: str
     status: Literal["UPDATED", "FAILED"]
+    verified: bool = False
+    date_time_type: str | None = None
+    offset_ms: int | None = None
+    rtt_ms: int | None = None
     error_code: str | None = None
 
 
