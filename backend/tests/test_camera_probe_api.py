@@ -392,15 +392,18 @@ def test_persisted_stream_verify_failure_marks_unavailable_and_keeps_last_succes
             )
         )
         assert failed.status_code == 422
-        assert failed.json()["error"] == {
-            "code": "camera_stream_probe_timeout",
-            "message": (
-                "The camera stream did not become ready in time."
-            ),
-            "details": {
-                "profile_id": profile_id,
-            },
+        error = failed.json()["error"]
+        assert (
+            error["code"]
+            == "camera_stream_probe_timeout"
+        )
+        assert error["message"] == (
+            "The camera stream did not become ready in time."
+        )
+        assert error["details"] == {
+            "profile_id": profile_id,
         }
+        assert error["request_id"]
 
         fetched = client.get(
             f"/api/v1/cameras/{camera_id}/streams"
