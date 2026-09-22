@@ -411,6 +411,25 @@ def test_configuration_import_validation_checks_refs_and_secrets(
             == "configuration_import_secret_field"
         )
 
+        malformed_time = copy.deepcopy(
+            bundle
+        )
+        malformed_time["sections"]["time"][
+            "managed_camera_ntp_mode"
+        ] = []
+        invalid_time = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={"bundle": malformed_time},
+        )
+        assert invalid_time.status_code == 400
+        assert (
+            invalid_time.json()["error"]["code"]
+            == "system_ntp_mode_invalid"
+        )
+
         broken = copy.deepcopy(bundle)
         broken_binding = broken[
             "sections"
