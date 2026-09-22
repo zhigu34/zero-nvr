@@ -83,6 +83,19 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
         "ZlmAdapter",
         FakeZlm,
     )
+    monkeypatch.setattr(
+        health_module,
+        "read_host_clock_kernel_state",
+        lambda: health_module.HostClockKernelState(
+            synchronized=True,
+            time_state=0,
+            status_flags=0,
+            estimated_offset_ms=0.125,
+            estimated_error_ms=0.25,
+            max_error_ms=1.5,
+            tai_offset_seconds=37,
+        ),
+    )
 
     with app.state.database.session() as session:
         session.add(
@@ -140,6 +153,20 @@ def test_product_health_aggregates_runtime_without_db_health_rows(
         )
         assert body["components"]["frigate"]["status"] == "DISABLED"
         assert body["components"]["archive"]["status"] == "DISABLED"
+        host_clock = body["components"]["host_clock"]
+        assert host_clock["status"] == "OK"
+        assert (
+            host_clock["details"]["canonical_timezone"]
+            == "UTC"
+        )
+        assert (
+            host_clock["details"]["sync_state"]
+            == "synchronized"
+        )
+        assert (
+            host_clock["details"]["estimated_offset_ms"]
+            == 0.125
+        )
 
         client.post("/api/v1/auth/logout")
         denied = client.get(
@@ -445,4 +472,65 @@ def test_liveness_stays_up_when_readiness_database_probe_fails(
         assert readiness.json() == {
             "status": "unavailable"
         }
+
+def test_host_clock_health_reports_kernel_sync_state(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        health_module,
+        "read_host_clock_kernel_state",
+        lambda: health_module.HostClockKernelState(
+            synchronized=False,
+            time_state=5,
+            status_flags=0x40,
+            estimated_offset_ms=-1250.5,
+            estimated_error_ms=3500.0,
+            max_error_ms=5000.0,
+            tai_offset_seconds=37,
+        ),
+    )
+
+    component = SystemHealthService._host_clock()
+    assert component.status == "DEGRADED"
+    assert (
+        component.message
+        == "host_clock_unsynchronized"
+    )
+    assert (
+        component.details["canonical_timezone"]
+        == "UTC"
+    )
+    assert (
+        component.details["sync_state"]
+        == "unsynchronized"
+    )
+    assert (
+        component.details["estimated_offset_ms"]
+        == -1250.5
+    )
+    assert (
+        component.details["source"]
+        == "linux_adjtimex"
+    )
+
+
+def test_host_clock_health_is_optional_when_probe_unavailable(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        health_module,
+        "read_host_clock_kernel_state",
+        lambda: None,
+    )
+
+    component = SystemHealthService._host_clock()
+    assert component.status == "DISABLED"
+    assert (
+        component.message
+        == "host_clock_sync_probe_unavailable"
+    )
+    assert (
+        component.details["canonical_timezone"]
+        == "UTC"
+    )
 
