@@ -282,6 +282,18 @@ def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
         assert body["client_secret_configured"] is True
         assert "top-secret-client-value" not in created.text
 
+        with app.state.database.session() as session:
+            initial_provider = (
+                OidcProviderSettingsService.get(
+                    session,
+                    "authentik",
+                )
+            )
+            initial_secret_ref = (
+                initial_provider.secret_ref
+            )
+            assert initial_secret_ref is not None
+
         listed = client.get("/api/v1/oidc/providers")
         assert listed.status_code == 200
         assert len(listed.json()) == 1
@@ -325,6 +337,15 @@ def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
                 provider,
             )
             assert secret == "replacement-secret-value"
+            assert provider.secret_ref is not None
+            assert provider.secret_ref != initial_secret_ref
+            assert (
+                session.get(
+                    SecretRecord,
+                    initial_secret_ref,
+                )
+                is None
+            )
 
             stored = session.get(
                 SecretRecord,
