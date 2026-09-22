@@ -178,13 +178,34 @@ def update_notification_target(
         exclude_unset=True,
         exclude={"url"},
     )
-    if "url" in body.model_fields_set:
-        if body.url is None:
-            raise ApiError(
-                status_code=400,
-                code="notification_url_invalid",
-                message="Notification target URL cannot be cleared.",
-            )
+    url_action = body.url_action
+    has_url_value = body.url is not None
+    if (
+        url_action == "replace"
+        and not has_url_value
+    ):
+        raise ApiError(
+            status_code=400,
+            code="notification_url_update_invalid",
+            message=(
+                "Notification URL replacement "
+                "requires a new value."
+            ),
+        )
+    if (
+        url_action != "replace"
+        and has_url_value
+    ):
+        raise ApiError(
+            status_code=400,
+            code="notification_url_update_invalid",
+            message=(
+                "Notification URL value is only "
+                "accepted with action=replace."
+            ),
+        )
+    changes["url_action"] = url_action
+    if has_url_value:
         changes["url"] = (
             body.url.get_secret_value()
         )
