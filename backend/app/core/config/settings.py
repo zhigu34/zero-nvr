@@ -164,6 +164,13 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"{env_name}_FILE is empty"
                 )
+            if (
+                "\n" in protected_value
+                or "\r" in protected_value
+            ):
+                raise ValueError(
+                    f"{env_name}_FILE must contain a single-line value"
+                )
             updated[value_name] = protected_value
 
         return updated
