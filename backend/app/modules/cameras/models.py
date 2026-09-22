@@ -229,7 +229,7 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         Boolean,
         nullable=False,
         default=False,
-        server_default="0",
+        server_default=text("false"),
     )
     config_revision: Mapped[int] = mapped_column(
         Integer,
