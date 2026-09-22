@@ -123,7 +123,7 @@ current code/tests.
 - [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [x] PostgreSQL optional bundled/external production profile.
 - [x] SQLAlchemy repositories with small dialect-specific helpers only where SQLite/PostgreSQL genuinely differ.
-- [ ] SQLite and PostgreSQL production integration-test harnesses.
+- [x] SQLite and PostgreSQL production integration-test harnesses.
 - [ ] guided SQLite -> PostgreSQL migration with verified rollback-before-cutover safety.
 - [ ] guarded PostgreSQL -> SQLite migration with workload/schema preflight.
 - [ ] ordinary configuration + SecretStore abstraction.
