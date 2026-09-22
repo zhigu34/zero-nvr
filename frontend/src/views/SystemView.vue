@@ -1478,21 +1478,8 @@ onBeforeUnmount(() => {
         <header class="system-page-header">
           <div>
             <strong>General</strong>
-            <span>Identity, display timezone and camera time sources.</span>
+            <span>System identity and runtime product tuning.</span>
           </div>
-          <button
-            class="button button--ghost"
-            type="button"
-            :disabled="cameraClockLoading"
-            @click="checkCameraClocks"
-          >
-            <UiIcon name="refresh" :size="14" />
-            {{
-              cameraClockLoading
-                ? "Checking clocks…"
-                : "Check camera clocks"
-            }}
-          </button>
         </header>
 
         <form
@@ -1506,129 +1493,10 @@ onBeforeUnmount(() => {
               required
               maxlength="128"
             />
-          </label>
-          <label>
-            <span>Display timezone</span>
-            <input
-              v-model="generalForm.displayTimezone"
-              required
-              placeholder="America/Los_Angeles"
-            />
-            <small>IANA timezone used by the UI and scheduled jobs.</small>
-          </label>
-          <label>
-            <span>Camera NTP servers</span>
-            <textarea
-              v-model="generalForm.ntpServers"
-              rows="5"
-              placeholder="pool.ntp.org&#10;time.cloudflare.com"
-            />
             <small>
-              One hostname or IP per line. Leave empty to use DHCP-provided
-              NTP. Saving applies the canonical setting to enabled ONVIF
-              devices and switches their clock mode to NTP.
+              Display name for this zero-nvr installation.
             </small>
           </label>
-
-          <div
-            v-if="ntpApplyResult"
-            class="system-ntp-result"
-          >
-            <strong>
-              Camera NTP ·
-              {{ ntpApplyResult.updated }}/{{ ntpApplyResult.total_devices }}
-              updated
-            </strong>
-            <span>
-              {{
-                ntpApplyResult.mode === "manual"
-                  ? "Manual NTP servers"
-                  : "DHCP-provided NTP"
-              }}
-            </span>
-            <ul v-if="ntpApplyResult.failed">
-              <li
-                v-for="item in ntpApplyResult.results.filter(
-                  (entry) => entry.status === 'FAILED'
-                )"
-                :key="item.device_id"
-              >
-                {{ item.name }} · {{ item.error_code || "apply_failed" }}
-              </li>
-            </ul>
-          </div>
-          <div
-            v-if="cameraClockHealth"
-            class="camera-clock-health"
-          >
-            <header>
-              <div>
-                <strong>Camera clock health</strong>
-                <span>
-                  {{ cameraClockHealth.total_devices }} enabled ONVIF device(s)
-                  · checked {{ formatTime(cameraClockHealth.checked_at) }}
-                </span>
-              </div>
-              <span
-                class="status-pill"
-                :class="statusClass(cameraClockHealth.status)"
-              >
-                {{ cameraClockHealth.status }}
-              </span>
-            </header>
-
-            <div
-              v-if="!cameraClockHealth.results.length"
-              class="camera-clock-health__empty"
-            >
-              No enabled ONVIF devices to inspect.
-            </div>
-            <div v-else class="camera-clock-health__rows">
-              <article
-                v-for="item in cameraClockHealth.results"
-                :key="item.device_id"
-              >
-                <div>
-                  <strong>{{ item.name }}</strong>
-                  <span>
-                    {{
-                      item.error_code
-                        ? pretty(item.error_code)
-                        : `${item.date_time_type || "Unknown mode"} · ${item.timezone || "timezone unknown"}`
-                    }}
-                  </span>
-                </div>
-                <div class="camera-clock-health__metrics">
-                  <span>
-                    Offset
-                    <strong>
-                      {{
-                        item.offset_ms === null
-                          ? "—"
-                          : `${item.offset_ms > 0 ? "+" : ""}${item.offset_ms} ms`
-                      }}
-                    </strong>
-                  </span>
-                  <span>
-                    RTT
-                    <strong>
-                      {{
-                        item.rtt_ms === null
-                          ? "—"
-                          : `${item.rtt_ms} ms`
-                      }}
-                    </strong>
-                  </span>
-                </div>
-                <span
-                  class="status-pill"
-                  :class="statusClass(item.status)"
-                >
-                  {{ item.status }}
-                </span>
-              </article>
-            </div>
-          </div>
 
           <div class="system-form-actions">
             <button
@@ -1636,7 +1504,7 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="generalSaving || !auth.hasPermission('system.manage')"
             >
-              {{ generalSaving ? "Saving…" : "Save settings" }}
+              {{ generalSaving ? "Saving…" : "Save general settings" }}
             </button>
           </div>
         </form>
@@ -1838,6 +1706,277 @@ onBeforeUnmount(() => {
               </button>
             </div>
           </form>
+        </div>
+      </template>
+
+      <template v-else-if="tab === 'time'">
+        <header class="system-page-header">
+          <div>
+            <strong>Time</strong>
+            <span>
+              Canonical recording timezone and managed-camera clock policy.
+            </span>
+          </div>
+          <button
+            class="button button--ghost"
+            type="button"
+            :disabled="cameraClockLoading"
+            @click="checkCameraClocks"
+          >
+            <UiIcon name="refresh" :size="14" />
+            {{
+              cameraClockLoading
+                ? "Checking clocks…"
+                : "Check camera clocks"
+            }}
+          </button>
+        </header>
+
+        <form
+          class="system-form-card system-form-card--time"
+          @submit.prevent="saveTime(false)"
+        >
+          <label>
+            <span>Recording timezone</span>
+            <input
+              v-model="timeForm.recordingTimezone"
+              required
+              placeholder="America/Los_Angeles"
+              autocomplete="off"
+            />
+            <small>
+              IANA timezone used for human-readable recording paths,
+              timeline presentation and default wall-clock scheduling.
+              Canonical persisted timestamps remain UTC.
+            </small>
+          </label>
+
+          <label>
+            <span>Managed camera NTP source</span>
+            <select v-model="timeForm.ntpMode">
+              <option value="dhcp">
+                DHCP-provided NTP
+              </option>
+              <option value="manual">
+                Manual NTP servers
+              </option>
+            </select>
+            <small v-if="timeForm.ntpMode === 'dhcp'">
+              Compatible cameras are instructed to use NTP supplied by DHCP.
+              Saved manual servers are retained for later reuse.
+            </small>
+            <small v-else>
+              Compatible cameras use the servers below in priority order.
+            </small>
+          </label>
+
+          <div
+            v-if="timeForm.ntpMode === 'manual'"
+            class="time-ntp-list"
+          >
+            <div class="time-ntp-list__heading">
+              <div>
+                <strong>Manual NTP servers</strong>
+                <span>
+                  Highest priority first · up to four hostnames or IP addresses.
+                </span>
+              </div>
+              <button
+                class="button button--ghost button--compact"
+                type="button"
+                :disabled="timeForm.ntpServers.length >= 4"
+                @click="addTimeNtpServer"
+              >
+                <UiIcon name="plus" :size="13" />
+                Add server
+              </button>
+            </div>
+
+            <div class="time-ntp-list__rows">
+              <div
+                v-for="(server, index) in timeForm.ntpServers"
+                :key="index"
+                class="time-ntp-row"
+              >
+                <span class="time-ntp-row__priority">
+                  {{ index + 1 }}
+                </span>
+                <input
+                  v-model="timeForm.ntpServers[index]"
+                  :aria-label="`NTP server priority ${index + 1}`"
+                  placeholder="pool.ntp.org"
+                  maxlength="253"
+                  autocomplete="off"
+                />
+                <button
+                  class="icon-button"
+                  type="button"
+                  title="Move server up"
+                  :disabled="index === 0"
+                  @click="moveTimeNtpServer(index, -1)"
+                >
+                  <UiIcon name="chevron-up" :size="13" />
+                </button>
+                <button
+                  class="icon-button"
+                  type="button"
+                  title="Move server down"
+                  :disabled="index === timeForm.ntpServers.length - 1"
+                  @click="moveTimeNtpServer(index, 1)"
+                >
+                  <UiIcon name="chevron-down" :size="13" />
+                </button>
+                <button
+                  class="icon-button icon-button--danger"
+                  type="button"
+                  title="Remove server"
+                  @click="removeTimeNtpServer(index)"
+                >
+                  <UiIcon name="trash" :size="13" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="time-policy-note">
+            <UiIcon name="activity" :size="15" />
+            <span>
+              Saving changes does not rewrite camera clocks. Use
+              <strong>Save & apply to cameras</strong> only when you want
+              zero-nvr to push the saved NTP policy to enabled ONVIF devices.
+            </span>
+          </div>
+
+          <div class="system-form-actions">
+            <button
+              class="button button--ghost"
+              type="submit"
+              :disabled="timeSaving || !auth.hasPermission('system.manage')"
+            >
+              {{ timeSaving && !ntpApplying ? "Saving…" : "Save policy" }}
+            </button>
+            <button
+              class="button button--primary"
+              type="button"
+              :disabled="timeSaving || !auth.hasPermission('system.manage')"
+              @click="saveTime(true)"
+            >
+              {{
+                ntpApplying
+                  ? "Saving & applying…"
+                  : "Save & apply to cameras"
+              }}
+            </button>
+          </div>
+        </form>
+
+        <div
+          v-if="ntpApplyResult"
+          class="system-ntp-result"
+        >
+          <div>
+            <strong>
+              Camera NTP ·
+              {{ ntpApplyResult.updated }}/{{ ntpApplyResult.total_devices }}
+              updated
+            </strong>
+            <span>
+              {{
+                ntpApplyResult.mode === "manual"
+                  ? "Manual NTP servers"
+                  : "DHCP-provided NTP"
+              }}
+            </span>
+          </div>
+          <span
+            class="status-pill"
+            :class="ntpApplyResult.failed ? 'status-pill--error' : 'status-pill--ok'"
+          >
+            {{ ntpApplyResult.failed ? "Partial" : "Applied" }}
+          </span>
+          <ul v-if="ntpApplyResult.failed">
+            <li
+              v-for="item in ntpApplyResult.results.filter(
+                (entry) => entry.status === 'FAILED'
+              )"
+              :key="item.device_id"
+            >
+              {{ item.name }} · {{ item.error_code || "apply_failed" }}
+            </li>
+          </ul>
+        </div>
+
+        <div
+          v-if="cameraClockHealth"
+          class="camera-clock-health"
+        >
+          <header>
+            <div>
+              <strong>Camera clock health</strong>
+              <span>
+                {{ cameraClockHealth.total_devices }} enabled ONVIF device(s)
+                · checked {{ formatTime(cameraClockHealth.checked_at) }}
+              </span>
+            </div>
+            <span
+              class="status-pill"
+              :class="statusClass(cameraClockHealth.status)"
+            >
+              {{ cameraClockHealth.status }}
+            </span>
+          </header>
+
+          <div
+            v-if="!cameraClockHealth.results.length"
+            class="camera-clock-health__empty"
+          >
+            No enabled ONVIF devices to inspect.
+          </div>
+          <div v-else class="camera-clock-health__rows">
+            <article
+              v-for="item in cameraClockHealth.results"
+              :key="item.device_id"
+            >
+              <div>
+                <strong>{{ item.name }}</strong>
+                <span>
+                  {{
+                    item.error_code
+                      ? pretty(item.error_code)
+                      : `${item.date_time_type || "Unknown mode"} · ${item.timezone || "timezone unknown"}`
+                  }}
+                </span>
+              </div>
+              <div class="camera-clock-health__metrics">
+                <span>
+                  Offset
+                  <strong>
+                    {{
+                      item.offset_ms === null
+                        ? "—"
+                        : `${item.offset_ms > 0 ? "+" : ""}${item.offset_ms} ms`
+                    }}
+                  </strong>
+                </span>
+                <span>
+                  RTT
+                  <strong>
+                    {{
+                      item.rtt_ms === null
+                        ? "—"
+                        : `${item.rtt_ms} ms`
+                    }}
+                  </strong>
+                </span>
+              </div>
+              <span
+                class="status-pill"
+                :class="statusClass(item.status)"
+              >
+                {{ item.status }}
+              </span>
+            </article>
+          </div>
         </div>
       </template>
 
