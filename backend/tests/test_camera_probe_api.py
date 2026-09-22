@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from pathlib import Path
 
 import pytest
@@ -290,7 +291,7 @@ def test_persisted_stream_verify_updates_safe_diagnostics(
     with app.state.database.session() as session:
         persisted = session.get(
             CameraStreamProfile,
-            profile_id,
+            uuid.UUID(profile_id),
         )
         assert persisted is not None
         assert persisted.status == "available"
