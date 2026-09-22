@@ -635,6 +635,26 @@ class ConfigurationImportService:
                     )
 
         for index, item in enumerate(cameras):
+            maintenance = item.get(
+                "maintenance"
+            )
+            if (
+                maintenance is not None
+                and not isinstance(
+                    maintenance,
+                    bool,
+                )
+            ):
+                raise cls._error(
+                    "configuration_import_invalid",
+                    "Camera maintenance state is invalid.",
+                    details={
+                        "path": (
+                            "$.sections.cameras.cameras"
+                            f"[{index}].maintenance"
+                        )
+                    },
+                )
             mode = item.get(
                 "time_sync_mode"
             )
@@ -1817,6 +1837,21 @@ class ConfigurationImportService:
                 )
                 continue
 
+            before_camera = (
+                target.name,
+                target.location,
+                target.storage_label,
+                target.maintenance,
+                target.time_sync_mode,
+                target.enabled,
+            )
+            enabled_changed = (
+                "enabled" in item
+                and bool(
+                    item["enabled"]
+                )
+                != target.enabled
+            )
             camera_changes: dict[
                 str,
                 object,
@@ -1843,6 +1878,12 @@ class ConfigurationImportService:
                     else None
                 ),
             }
+            if "maintenance" in item:
+                camera_changes[
+                    "maintenance"
+                ] = bool(
+                    item["maintenance"]
+                )
             if (
                 "time_sync_mode"
                 in item
@@ -1857,16 +1898,47 @@ class ConfigurationImportService:
                 camera=target,
                 changes=camera_changes,
             )
-            camera_map[source_id] = target.id
-            applied.append(
-                cls._apply_item(
-                    section="cameras",
-                    resource_type="camera",
-                    item=item,
-                    action="updated",
-                    target_id=target.id,
+            if "enabled" in item:
+                CameraService.set_enabled(
+                    session,
+                    camera=target,
+                    enabled=bool(
+                        item["enabled"]
+                    ),
                 )
+            after_camera = (
+                target.name,
+                target.location,
+                target.storage_label,
+                target.maintenance,
+                target.time_sync_mode,
+                target.enabled,
             )
+            camera_map[source_id] = target.id
+            if before_camera == after_camera:
+                applied.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type="camera",
+                        item=item,
+                        action="matched",
+                        target_id=target.id,
+                    )
+                )
+            else:
+                applied.append(
+                    cls._apply_item(
+                        section="cameras",
+                        resource_type="camera",
+                        item=item,
+                        action="updated",
+                        target_id=target.id,
+                    )
+                )
+            if enabled_changed:
+                reconcile.add(
+                    target.id
+                )
 
         for raw in profiles:
             assert isinstance(raw, dict)
@@ -2030,6 +2102,9 @@ class ConfigurationImportService:
                 target_camera,
             )
             assert camera is not None
+            before_revision = (
+                camera.config_revision
+            )
             CameraService(
                 settings
             ).replace_bindings(
@@ -2037,7 +2112,14 @@ class ConfigurationImportService:
                 camera=camera,
                 bindings=mapped_bindings,
             )
-            reconcile.add(target_camera)
+            bindings_changed = (
+                camera.config_revision
+                != before_revision
+            )
+            if bindings_changed:
+                reconcile.add(
+                    target_camera
+                )
             for item in items:
                 applied.append(
                     cls._apply_item(
@@ -2046,7 +2128,11 @@ class ConfigurationImportService:
                             "camera_stream_binding"
                         ),
                         item=item,
-                        action="updated",
+                        action=(
+                            "updated"
+                            if bindings_changed
+                            else "matched"
+                        ),
                         target_id=target_camera,
                     )
                 )
