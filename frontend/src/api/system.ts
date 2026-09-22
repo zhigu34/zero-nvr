@@ -24,6 +24,11 @@ export interface SystemSettings {
     display_timezone: string
     camera_ntp_servers: string[]
   }
+  time: {
+    recording_timezone: string
+    managed_camera_ntp_mode: "manual" | "dhcp"
+    managed_camera_ntp_servers: string[]
+  }
   runtime: {
     prebuffer_fragment_seconds: number
     prebuffer_buffer_seconds: number
@@ -296,6 +301,7 @@ export function getSystemSettings(): Promise<SystemSettings> {
 export function patchSystemSettings(
   changes: {
     general?: Partial<SystemSettings["general"]>
+    time?: Partial<SystemSettings["time"]>
     runtime?: Partial<SystemSettings["runtime"]>
   }
 ): Promise<SystemSettings> {
