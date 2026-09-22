@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Callable
+from typing import Any, Callable
 
 from app.core.config import Settings
 from app.core.db import Database
@@ -13,21 +13,36 @@ from app.integrations.apprise import (
     AppriseAdapter,
     AppriseIntegrationError,
 )
+from app.integrations.smtp import (
+    SmtpAdapter,
+    SmtpIntegrationError,
+)
 
 from .models import NotificationDelivery, NotificationTarget
-from .service import NotificationTargetService
+from .service import (
+    NotificationTargetService,
+    ResolvedSmtpTarget,
+)
 
 
 @dataclass(frozen=True, slots=True)
 class NotificationPlan:
     delivery_id: uuid.UUID
     target_id: uuid.UUID
+    target_kind: str
     purpose: str
     correlation_id: str | None
     title: str
     body: str
     notify_type: str
-    url: str = field(repr=False)
+    url: str | None = field(
+        default=None,
+        repr=False,
+    )
+    smtp: ResolvedSmtpTarget | None = field(
+        default=None,
+        repr=False,
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,10 +57,12 @@ class NotificationDeliveryService:
         self,
         settings: Settings,
         *,
-        adapter_factory: Callable[..., AppriseAdapter] = AppriseAdapter,
+        adapter_factory: Callable[..., Any] = AppriseAdapter,
+        smtp_adapter_factory: Callable[..., Any] = SmtpAdapter,
     ) -> None:
         self.settings = settings
         self._adapter_factory = adapter_factory
+        self._smtp_adapter_factory = smtp_adapter_factory
 
     def prepare(
         self,
@@ -112,8 +129,13 @@ class NotificationDeliveryService:
 
             if (
                 delivery.purpose == "password_reset"
-                and not NotificationTargetService.is_password_reset_target(
-                    target
+                and not (
+                    target.kind == "smtp"
+                    or (
+                        target.kind == "apprise"
+                        and NotificationTargetService
+                        .is_password_reset_target(target)
+                    )
                 )
             ):
                 delivery.state = "FAILED"
@@ -128,12 +150,24 @@ class NotificationDeliveryService:
                     delivered=False,
                 )
 
-            resolved = NotificationTargetService(
+            target_service = NotificationTargetService(
                 self.settings
-            ).resolve(
-                session,
-                target=target,
             )
+            resolved_smtp: ResolvedSmtpTarget | None = None
+            resolved_url: str | None = None
+            notify_type = "info"
+            if target.kind == "smtp":
+                resolved_smtp = target_service.resolve_smtp(
+                    session,
+                    target=target,
+                )
+            else:
+                resolved = target_service.resolve(
+                    session,
+                    target=target,
+                )
+                resolved_url = resolved.url
+                notify_type = resolved.notify_type
 
             delivery.state = "SENDING"
             delivery.attempt_count += 1
@@ -142,12 +176,14 @@ class NotificationDeliveryService:
             plan = NotificationPlan(
                 delivery_id=delivery.id,
                 target_id=target.id,
+                target_kind=target.kind,
                 purpose=delivery.purpose,
                 correlation_id=delivery.correlation_id,
                 title=delivery.title,
                 body=delivery.body,
-                notify_type=resolved.notify_type,
-                url=resolved.url,
+                notify_type=notify_type,
+                url=resolved_url,
+                smtp=resolved_smtp,
             )
             session.commit()
             return plan
@@ -209,6 +245,7 @@ class NotificationDeliveryService:
         delivery_url = prepared.url
         delivery_title = prepared.title
         delivery_body = prepared.body
+        delivery_recipient: str | None = None
 
         if prepared.purpose == "password_reset":
             try:
@@ -229,14 +266,26 @@ class NotificationDeliveryService:
                         session,
                         correlation_id=prepared.correlation_id,
                     )
-                delivery_url = (
-                    NotificationTargetService.password_reset_recipient_url(
-                        prepared.url,
-                        mail.recipient,
-                    )
-                )
                 delivery_title = mail.title
                 delivery_body = mail.body
+                delivery_recipient = mail.recipient
+                if prepared.target_kind == "apprise":
+                    if prepared.url is None:
+                        raise ApiError(
+                            status_code=409,
+                            code="notification_secret_unavailable",
+                            message=(
+                                "Notification target secret "
+                                "is unavailable."
+                            ),
+                        )
+                    delivery_url = (
+                        NotificationTargetService
+                        .password_reset_recipient_url(
+                            prepared.url,
+                            mail.recipient,
+                        )
+                    )
             except ApiError as exc:
                 self._mark_failed(
                     database,
@@ -250,14 +299,50 @@ class NotificationDeliveryService:
                 )
 
         try:
-            self._adapter_factory(
-                url=delivery_url
-            ).notify(
-                title=delivery_title,
-                body=delivery_body,
-                notify_type=prepared.notify_type,
-            )
-        except AppriseIntegrationError as exc:
+            if prepared.target_kind == "smtp":
+                if (
+                    prepared.smtp is None
+                    or delivery_recipient is None
+                ):
+                    raise SmtpIntegrationError(
+                        "smtp_recipient_unavailable",
+                        "SMTP email recipient is unavailable.",
+                        status_code=409,
+                        category="permanent",
+                    )
+                smtp = prepared.smtp
+                self._smtp_adapter_factory(
+                    host=smtp.host,
+                    port=smtp.port,
+                    security=smtp.security,
+                    from_address=smtp.from_address,
+                    from_name=smtp.from_name,
+                    username=smtp.username,
+                    password=smtp.password,
+                ).send_email(
+                    recipient=delivery_recipient,
+                    title=delivery_title,
+                    body=delivery_body,
+                )
+            else:
+                if delivery_url is None:
+                    raise AppriseIntegrationError(
+                        "notification_secret_unavailable",
+                        "Notification target secret is unavailable.",
+                        status_code=409,
+                        category="permanent",
+                    )
+                self._adapter_factory(
+                    url=delivery_url
+                ).notify(
+                    title=delivery_title,
+                    body=delivery_body,
+                    notify_type=prepared.notify_type,
+                )
+        except (
+            AppriseIntegrationError,
+            SmtpIntegrationError,
+        ) as exc:
             self._mark_failed(
                 database,
                 delivery_id=prepared.delivery_id,
