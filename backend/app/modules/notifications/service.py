@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from email_validator import EmailNotValidError, validate_email
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -12,8 +13,12 @@ from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.apprise import AppriseAdapter, AppriseIntegrationError
+from app.modules.system.models import SystemSetting
 
 from .models import NotificationDelivery, NotificationTarget
+
+
+SECURITY_EMAIL_NAMESPACE = "notifications.security_email"
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,6 +166,398 @@ class NotificationTargetService:
             ):
                 return item
         return None
+
+    @staticmethod
+    def _normalize_smtp_config(
+        config: dict[str, object],
+    ) -> dict[str, object]:
+        allowed = {
+            "host",
+            "port",
+            "security",
+            "from_address",
+            "from_name",
+        }
+        if set(config) - allowed:
+            raise ApiError(
+                status_code=400,
+                code="smtp_config_invalid",
+                message="SMTP configuration contains unsupported fields.",
+            )
+
+        host = str(config.get("host") or "").strip().lower()
+        if (
+            not host
+            or len(host) > 253
+            or any(ch.isspace() for ch in host)
+            or any(ch in host for ch in "/\\?#@")
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_host_invalid",
+                message="SMTP host is invalid.",
+            )
+
+        raw_port = config.get("port", 587)
+        if (
+            isinstance(raw_port, bool)
+            or not isinstance(raw_port, int)
+            or raw_port < 1
+            or raw_port > 65535
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_port_invalid",
+                message="SMTP port is invalid.",
+            )
+
+        security = str(
+            config.get("security") or "starttls"
+        ).strip().lower()
+        if security not in {
+            "plain",
+            "starttls",
+            "tls",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="smtp_security_invalid",
+                message="SMTP security mode is invalid.",
+            )
+
+        from_address_raw = str(
+            config.get("from_address") or ""
+        ).strip()
+        try:
+            from_address = validate_email(
+                from_address_raw,
+                check_deliverability=False,
+            ).normalized
+        except EmailNotValidError as exc:
+            raise ApiError(
+                status_code=400,
+                code="smtp_from_address_invalid",
+                message="SMTP sender address is invalid.",
+            ) from exc
+
+        raw_name = config.get("from_name")
+        from_name: str | None = None
+        if raw_name is not None:
+            if not isinstance(raw_name, str):
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_from_name_invalid",
+                    message="SMTP sender name is invalid.",
+                )
+            normalized_name = raw_name.strip()
+            if len(normalized_name) > 128:
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_from_name_invalid",
+                    message="SMTP sender name is invalid.",
+                )
+            from_name = normalized_name or None
+
+        return {
+            "host": host,
+            "port": raw_port,
+            "security": security,
+            "from_address": from_address,
+            "from_name": from_name,
+        }
+
+    @staticmethod
+    def _normalize_smtp_credentials(
+        credentials: dict[str, object],
+    ) -> dict[str, str]:
+        username = credentials.get("username")
+        password = credentials.get("password")
+        if (
+            not isinstance(username, str)
+            or not username.strip()
+            or len(username.strip()) > 320
+            or not isinstance(password, str)
+            or not password
+        ):
+            raise ApiError(
+                status_code=400,
+                code="smtp_credentials_invalid",
+                message="SMTP credentials are invalid.",
+            )
+        return {
+            "username": username.strip(),
+            "password": password,
+        }
+
+    def create_smtp(
+        self,
+        session: Session,
+        *,
+        name: str,
+        enabled: bool,
+        config: dict[str, object],
+        credentials: dict[str, object] | None,
+    ) -> NotificationTarget:
+        normalized_name = name.strip()
+        self._name_available(
+            session,
+            name=normalized_name,
+        )
+        normalized_config = self._normalize_smtp_config(
+            config
+        )
+        target_id = uuid.uuid4()
+        secret_ref: uuid.UUID | None = None
+        if credentials is not None:
+            secret_ref = self.secret_store.create_json(
+                session,
+                kind="smtp_credentials",
+                owner_type="notification_target",
+                owner_id=target_id,
+                value=self._normalize_smtp_credentials(
+                    credentials
+                ),
+            )
+
+        target = NotificationTarget(
+            id=target_id,
+            name=normalized_name,
+            kind="smtp",
+            enabled=enabled,
+            config_json=normalized_config,
+            secret_ref=secret_ref,
+        )
+        session.add(target)
+        session.flush()
+        return target
+
+    def update_smtp(
+        self,
+        session: Session,
+        *,
+        target: NotificationTarget,
+        changes: dict[str, object],
+    ) -> NotificationTarget:
+        if target.kind != "smtp":
+            raise ApiError(
+                status_code=400,
+                code="notification_target_kind_invalid",
+                message="Notification target is not SMTP.",
+            )
+
+        if "name" in changes:
+            raw_name = changes["name"]
+            if (
+                not isinstance(raw_name, str)
+                or not raw_name.strip()
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="notification_target_name_invalid",
+                    message="Notification target name is invalid.",
+                )
+            normalized_name = raw_name.strip()
+            self._name_available(
+                session,
+                name=normalized_name,
+                exclude_id=target.id,
+            )
+            target.name = normalized_name
+
+        if "enabled" in changes:
+            target.enabled = bool(changes["enabled"])
+
+        if "config" in changes:
+            raw_config = changes["config"]
+            if not isinstance(raw_config, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_config_invalid",
+                    message="SMTP configuration is invalid.",
+                )
+            target.config_json = self._normalize_smtp_config(
+                raw_config
+            )
+
+        action = str(
+            changes.get(
+                "credentials_action",
+                "keep",
+            )
+        )
+        if action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="smtp_credentials_update_invalid",
+                message="SMTP credential action is invalid.",
+            )
+
+        if action == "replace":
+            raw_credentials = changes.get(
+                "smtp_credentials"
+            )
+            if not isinstance(raw_credentials, dict):
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_credentials_update_invalid",
+                    message=(
+                        "SMTP credential replacement "
+                        "requires credentials."
+                    ),
+                )
+            normalized_credentials = (
+                self._normalize_smtp_credentials(
+                    raw_credentials
+                )
+            )
+            old_ref = target.secret_ref
+            candidate_ref = (
+                self.secret_store.create_json(
+                    session,
+                    kind="smtp_credentials",
+                    owner_type="notification_target",
+                    owner_id=target.id,
+                    value=normalized_credentials,
+                )
+            )
+            target.secret_ref = candidate_ref
+            session.flush()
+            if old_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        old_ref,
+                        kind="smtp_credentials",
+                        owner_type="notification_target",
+                        owner_id=target.id,
+                    )
+                except KeyError:
+                    pass
+        elif action == "clear":
+            if "smtp_credentials" in changes:
+                raise ApiError(
+                    status_code=400,
+                    code="smtp_credentials_update_invalid",
+                    message=(
+                        "SMTP credential clear action "
+                        "does not accept credentials."
+                    ),
+                )
+            old_ref = target.secret_ref
+            target.secret_ref = None
+            session.flush()
+            if old_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        old_ref,
+                        kind="smtp_credentials",
+                        owner_type="notification_target",
+                        owner_id=target.id,
+                    )
+                except KeyError:
+                    pass
+        elif "smtp_credentials" in changes:
+            raise ApiError(
+                status_code=400,
+                code="smtp_credentials_update_invalid",
+                message=(
+                    "SMTP credential values require "
+                    "action=replace."
+                ),
+            )
+
+        session.flush()
+        return target
+
+    @staticmethod
+    def security_email_target_id(
+        session: Session,
+    ) -> uuid.UUID | None:
+        row = session.get(
+            SystemSetting,
+            SECURITY_EMAIL_NAMESPACE,
+        )
+        if row is None:
+            return None
+        raw = (row.value_json or {}).get(
+            "target_id"
+        )
+        if raw is None:
+            return None
+        try:
+            return uuid.UUID(str(raw))
+        except ValueError:
+            return None
+
+    @classmethod
+    def security_email_target(
+        cls,
+        session: Session,
+    ) -> NotificationTarget | None:
+        target_id = cls.security_email_target_id(
+            session
+        )
+        if target_id is None:
+            return None
+        target = session.get(
+            NotificationTarget,
+            target_id,
+        )
+        if (
+            target is None
+            or target.kind != "smtp"
+        ):
+            return None
+        return target
+
+    @classmethod
+    def set_security_email_target(
+        cls,
+        session: Session,
+        *,
+        target_id: uuid.UUID | None,
+    ) -> uuid.UUID | None:
+        if target_id is not None:
+            target = cls.get(
+                session,
+                target_id,
+            )
+            if target.kind != "smtp":
+                raise ApiError(
+                    status_code=400,
+                    code="security_email_target_invalid",
+                    message=(
+                        "Default security email target "
+                        "must be an SMTP target."
+                    ),
+                )
+
+        row = session.get(
+            SystemSetting,
+            SECURITY_EMAIL_NAMESPACE,
+        )
+        value = {
+            "target_id": (
+                str(target_id)
+                if target_id is not None
+                else None
+            )
+        }
+        if row is None:
+            row = SystemSetting(
+                namespace=SECURITY_EMAIL_NAMESPACE,
+                value_json=value,
+            )
+            session.add(row)
+        else:
+            row.value_json = value
+        session.flush()
+        return target_id
 
     @staticmethod
     def list(session: Session) -> list[NotificationTarget]:
@@ -511,6 +908,15 @@ class NotificationTargetService:
         *,
         target: NotificationTarget,
     ) -> ResolvedNotificationTarget:
+        if target.kind != "apprise":
+            raise ApiError(
+                status_code=409,
+                code="notification_delivery_not_supported",
+                message=(
+                    "SMTP delivery is configured but "
+                    "not available in this release step."
+                ),
+            )
         if not target.enabled:
             raise ApiError(
                 status_code=409,
@@ -571,7 +977,21 @@ class NotificationTargetService:
                 message="Notification target has delivery history and cannot be deleted.",
             )
 
+        if (
+            self.security_email_target_id(session)
+            == target.id
+        ):
+            self.set_security_email_target(
+                session,
+                target_id=None,
+            )
+
         secret_ref = target.secret_ref
+        secret_kind = (
+            "smtp_credentials"
+            if target.kind == "smtp"
+            else "notification_url"
+        )
         session.delete(target)
         session.flush()
         if secret_ref is not None:
@@ -579,7 +999,7 @@ class NotificationTargetService:
                 self.secret_store.delete(
                     session,
                     secret_ref,
-                    kind="notification_url",
+                    kind=secret_kind,
                     owner_type="notification_target",
                     owner_id=target.id,
                 )
