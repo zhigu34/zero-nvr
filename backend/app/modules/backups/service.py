@@ -442,9 +442,26 @@ class BackupPolicyService:
                 },
             )
 
-        if "credentials" in changes:
-            raw = changes["credentials"]
-            if not isinstance(raw, dict):
+        credential_action = str(
+            changes.get(
+                "credentials_action",
+                "keep",
+            )
+        )
+        if credential_action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="backup_credentials_update_invalid",
+                message="Backup credential action is invalid.",
+            )
+
+        if credential_action == "replace":
+            raw = changes.get("credentials")
+            if not isinstance(raw, dict) or not raw:
                 raise ApiError(
                     status_code=400,
                     code="backup_credentials_invalid",
@@ -511,6 +528,37 @@ class BackupPolicyService:
                         ),
                     },
                 )
+        elif credential_action == "clear":
+            if "credentials" in changes:
+                raise ApiError(
+                    status_code=400,
+                    code="backup_credentials_update_invalid",
+                    message=(
+                        "Backup credential clear action "
+                        "does not accept replacement fields."
+                    ),
+                )
+            if policy.credential_secret_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        policy.credential_secret_ref,
+                        kind="backup_credentials",
+                        owner_type="backup_policy",
+                        owner_id=policy.id,
+                    )
+                except KeyError:
+                    pass
+            policy.credential_secret_ref = None
+        elif "credentials" in changes:
+            raise ApiError(
+                status_code=400,
+                code="backup_credentials_update_invalid",
+                message=(
+                    "Backup credential values require "
+                    "action=replace."
+                ),
+            )
 
         session.flush()
         return policy
