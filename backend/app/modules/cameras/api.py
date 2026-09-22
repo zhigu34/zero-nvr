@@ -10,6 +10,7 @@ from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
+from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.integrations.onvif import (
     OnvifAdapter,
@@ -70,6 +71,7 @@ from .schemas import (
     CameraProbeTrackView,
     CameraStreamBindingView,
     CameraStreamBindingsUpdate,
+    CameraStreamDiagnosticView,
     CameraStreamProfileView,
     CameraSummary,
     CameraUpdate,
@@ -234,6 +236,7 @@ def _profile_view(profile: CameraStreamProfile) -> CameraStreamProfileView:
         audio_codec=profile.audio_codec,
         has_audio=profile.has_audio,
         status=profile.status,
+        last_verified_at=profile.last_verified_at,
     )
 
 
@@ -1125,6 +1128,176 @@ def list_camera_streams(
     return sorted(
         (_profile_view(item) for item in camera.stream_profiles),
         key=lambda item: item.adapter_profile_key,
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/streams/{profile_id}/verify",
+    response_model=CameraStreamDiagnosticView,
+)
+def verify_camera_stream(
+    camera_id: uuid.UUID,
+    profile_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraStreamDiagnosticView:
+    CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    profile = session.get(
+        CameraStreamProfile,
+        profile_id,
+    )
+    if (
+        profile is None
+        or profile.camera_id != camera_id
+    ):
+        raise ApiError(
+            status_code=404,
+            code="camera_stream_profile_not_found",
+            message="Camera stream profile was not found.",
+        )
+
+    source_url = CameraService(
+        request.app.state.settings
+    ).resolve_stream_uri(
+        session,
+        profile,
+    )
+    # Never hold a database transaction across the media-plane probe.
+    session.commit()
+
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            probe = zlm.probe_rtsp_source(
+                source_url
+            )
+    except ZlmIntegrationError as exc:
+        try:
+            current = session.get(
+                CameraStreamProfile,
+                profile_id,
+            )
+            if (
+                current is not None
+                and current.camera_id
+                == camera_id
+            ):
+                current.status = "unavailable"
+                append_audit_event(
+                    session,
+                    request=request,
+                    actor_id=context.user.id,
+                    action="camera.stream.verify",
+                    resource_type=(
+                        "camera_stream_profile"
+                    ),
+                    resource_id=current.id,
+                    camera_id=camera_id,
+                    result="failure",
+                    reason=exc.code,
+                    metadata={
+                        "profile_id": str(
+                            current.id
+                        ),
+                    },
+                )
+                session.commit()
+        except Exception:
+            session.rollback()
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={
+                "profile_id": str(
+                    profile_id
+                ),
+            },
+        ) from exc
+
+    current = session.get(
+        CameraStreamProfile,
+        profile_id,
+    )
+    if (
+        current is None
+        or current.camera_id != camera_id
+    ):
+        session.rollback()
+        raise ApiError(
+            status_code=404,
+            code="camera_stream_profile_not_found",
+            message="Camera stream profile was not found.",
+        )
+
+    verified_at = utc_now()
+    video = probe.video
+    audio = probe.audio
+    if video is not None:
+        if video.codec is not None:
+            current.codec = video.codec
+        if video.width is not None:
+            current.width = video.width
+        if video.height is not None:
+            current.height = video.height
+        if video.fps is not None:
+            current.fps = video.fps
+        if video.gop_seconds is not None:
+            current.gop_seconds = (
+                video.gop_seconds
+            )
+    current.has_audio = (
+        audio is not None
+        and audio.ready
+    )
+    current.audio_codec = (
+        audio.codec
+        if audio is not None
+        and audio.ready
+        else None
+    )
+    current.status = "available"
+    current.last_verified_at = verified_at
+    append_audit_event(
+        session,
+        request=request,
+        actor_id=context.user.id,
+        action="camera.stream.verify",
+        resource_type="camera_stream_profile",
+        resource_id=current.id,
+        camera_id=camera_id,
+        after={
+            "status": current.status,
+            "last_verified_at": (
+                verified_at.isoformat()
+            ),
+            "codec": current.codec,
+            "width": current.width,
+            "height": current.height,
+            "fps": current.fps,
+            "has_audio": current.has_audio,
+        },
+    )
+    session.commit()
+
+    return CameraStreamDiagnosticView(
+        profile=_profile_view(
+            current
+        ),
+        video=_probe_track_view(
+            video
+        ),
+        audio=_probe_track_view(
+            audio
+        ),
+        verified_at=verified_at,
     )
 
 
