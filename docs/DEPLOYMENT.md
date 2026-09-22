@@ -170,6 +170,39 @@ cannot be decrypted, the transaction is not committed. After a successful
 rotation and a verified post-rotation backup, remove keys that are no longer
 referenced from `ZERO_NVR_SECRET_KEY_PREVIOUS` and restart the Core services.
 
+### protected external-service bootstrap secrets
+
+Deployment/bootstrap credentials support the same direct-value or protected-file
+pattern where they are consumed outside the product SecretStore:
+
+```text
+ZERO_NVR_ZLM_API_SECRET / ZERO_NVR_ZLM_API_SECRET_FILE
+ZERO_NVR_ZLM_HOOK_SECRET / ZERO_NVR_ZLM_HOOK_SECRET_FILE
+ZERO_NVR_TURN_SHARED_SECRET / ZERO_NVR_TURN_SHARED_SECRET_FILE
+ZERO_NVR_MQTT_PASSWORD / ZERO_NVR_MQTT_PASSWORD_FILE
+ZERO_NVR_POSTGRES_PASSWORD / ZERO_NVR_POSTGRES_PASSWORD_FILE
+```
+
+Configure at most one member of each pair. When both are blank, supported
+managed services keep their existing deployment behavior and generate a stable
+direct value into the protected `.env`. When a `*_FILE` value is configured,
+zero-nvr reads the file and does not write a duplicate plaintext value back to
+`.env`.
+
+The recommended layout is a host directory below
+`ZERO_NVR_DATA_PATH/bootstrap-secrets`, mode-restricted to the deployment
+account, with container-visible paths written as
+`/var/lib/zero-nvr/bootstrap-secrets/<name>`. Host-side deployment helpers
+map that container path back to `ZERO_NVR_DATA_PATH`; API/worker already see
+the same persistent data mount. Managed PostgreSQL mounts only this
+`bootstrap-secrets` subdirectory read-only and therefore requires its password
+file to use that container path prefix.
+
+Camera credentials, OIDC client secrets, rclone credentials, Frigate provider
+credentials, notification URLs, and other product-managed credentials are not
+bootstrap environment secrets. They remain encrypted behind `SecretStore`
+rather than gaining parallel `*_FILE` configuration.
+
 ### install
 
 Current implemented behavior:
