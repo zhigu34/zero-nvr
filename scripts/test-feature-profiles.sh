@@ -16,6 +16,7 @@ managed_url="postgresql+psycopg://zero_nvr:secret@postgres:5432/zero_nvr"
 managed_plain_url="postgresql://zero_nvr:secret@postgres/zero_nvr"
 external_url="postgresql+psycopg://zero_nvr:secret@db.example.test:5432/zero_nvr"
 lookalike_url="postgresql://zero_nvr:secret@postgres.example.test/zero_nvr"
+sqlite_url="sqlite:////var/lib/zero-nvr/zero-nvr.db"
 
 database_url_uses_managed_postgres "$managed_url"
 database_url_uses_managed_postgres "$managed_plain_url"
@@ -27,7 +28,7 @@ if database_url_uses_managed_postgres "$lookalike_url"; then
   echo "lookalike PostgreSQL host unexpectedly classified as managed" >&2
   exit 1
 fi
-if database_url_uses_managed_postgres   "sqlite:////var/lib/zero-nvr/zero-nvr.db"; then
+if database_url_uses_managed_postgres "$sqlite_url"; then
   echo "SQLite unexpectedly classified as managed PostgreSQL" >&2
   exit 1
 fi
