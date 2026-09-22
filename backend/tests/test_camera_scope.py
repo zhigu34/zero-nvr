@@ -203,3 +203,137 @@ def test_custom_role_defaults_to_no_camera_access(tmp_path: Path) -> None:
             "camera_ids": [],
             "camera_group_ids": [],
         }
+
+def test_camera_scope_filters_camera_api_and_hides_out_of_scope_camera(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup = client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": PASSWORD,
+            },
+        )
+        assert setup.status_code == 201
+
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": PASSWORD,
+            },
+        ).status_code == 200
+
+        roles = client.get("/api/v1/roles")
+        assert roles.status_code == 200
+        viewer_role_id = next(
+            item["id"]
+            for item in roles.json()
+            if item["name"] == "Viewer"
+        )
+
+        viewer = client.post(
+            "/api/v1/users",
+            json={
+                "username": "viewer",
+                "display_name": "Viewer",
+                "password": PASSWORD,
+                "role_ids": [viewer_role_id],
+            },
+        )
+        assert viewer.status_code == 201
+        viewer_id = viewer.json()["id"]
+
+        with app.state.database.session() as session:
+            camera_a = Camera(
+                channel_key="scope-a",
+                name="Scope Camera A",
+                enabled=True,
+            )
+            camera_b = Camera(
+                channel_key="scope-b",
+                name="Scope Camera B",
+                enabled=True,
+            )
+            camera_c = Camera(
+                channel_key="scope-c",
+                name="Scope Camera C",
+                enabled=True,
+            )
+            parent = CameraGroup(name="Scoped Building")
+            child = CameraGroup(name="Scoped Floor")
+            session.add_all(
+                [
+                    camera_a,
+                    camera_b,
+                    camera_c,
+                    parent,
+                    child,
+                ]
+            )
+            session.flush()
+            child.parent_id = parent.id
+            session.add_all(
+                [
+                    CameraGroupMember(
+                        camera_group_id=parent.id,
+                        camera_id=camera_a.id,
+                    ),
+                    CameraGroupMember(
+                        camera_group_id=child.id,
+                        camera_id=camera_b.id,
+                    ),
+                ]
+            )
+            session.commit()
+            camera_a_id = camera_a.id
+            camera_b_id = camera_b.id
+            camera_c_id = camera_c.id
+            parent_id = parent.id
+
+        selected = client.put(
+            f"/api/v1/users/{viewer_id}/camera-scope",
+            json={
+                "mode": "selected",
+                "camera_group_ids": [str(parent_id)],
+            },
+        )
+        assert selected.status_code == 200
+
+        client.cookies.clear()
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "viewer",
+                "password": PASSWORD,
+            },
+        ).status_code == 200
+
+        cameras = client.get("/api/v1/cameras")
+        assert cameras.status_code == 200
+        assert {
+            item["id"]
+            for item in cameras.json()
+        } == {
+            str(camera_a_id),
+            str(camera_b_id),
+        }
+
+        allowed = client.get(
+            f"/api/v1/cameras/{camera_a_id}"
+        )
+        assert allowed.status_code == 200
+
+        hidden = client.get(
+            f"/api/v1/cameras/{camera_c_id}"
+        )
+        assert hidden.status_code == 404
+        assert (
+            hidden.json()["error"]["code"]
+            == "camera_not_found"
+        )
+
