@@ -148,7 +148,7 @@ current code/tests.
 - [x] OIDC/SSO provider configuration and ExternalIdentity mapping.
 - [x] login rate limiting / brute-force protection.
 - [x] Personal API Token create/revoke/list flow with one-way token hashes.
-- [ ] built-in Administrator / Operator / Viewer roles.
+- [x] built-in Administrator / Operator / Viewer roles.
 - [ ] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
 - [ ] short-lived scoped live/playback media session authorization.
