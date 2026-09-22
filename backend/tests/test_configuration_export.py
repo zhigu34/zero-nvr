@@ -466,6 +466,33 @@ def test_configuration_import_validation_checks_refs_and_secrets(
             == "configuration_import_invalid"
         )
 
+        unsupported_camera_time = copy.deepcopy(
+            bundle
+        )
+        unsupported_camera_time["sections"][
+            "cameras"
+        ]["cameras"][0][
+            "time_sync_mode"
+        ] = "manage_ntp"
+        unsupported_camera = client.post(
+            (
+                "/api/v1/system/"
+                "configuration/import/validate"
+            ),
+            json={
+                "bundle": (
+                    unsupported_camera_time
+                )
+            },
+        )
+        assert unsupported_camera.status_code == 400
+        assert (
+            unsupported_camera.json()[
+                "error"
+            ]["code"]
+            == "configuration_import_invalid"
+        )
+
         broken = copy.deepcopy(bundle)
         broken_binding = broken[
             "sections"
