@@ -128,6 +128,7 @@ feature enable <name>
 feature disable <name>
 feature restart <name>
 admin reset-password
+secret rotate
 backup
 restore
 ```
