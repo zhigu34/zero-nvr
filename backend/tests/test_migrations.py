@@ -133,6 +133,12 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             ]
             is False
         )
+        assert (
+            camera_columns["maintenance"][
+                "nullable"
+            ]
+            is False
+        )
         camera_checks = {
             item.get("name"): (
                 item.get("sqltext") or ""
@@ -324,6 +330,12 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
         )
         assert (
             camera_columns["config_revision"][
+                "nullable"
+            ]
+            is False
+        )
+        assert (
+            camera_columns["maintenance"][
                 "nullable"
             ]
             is False
