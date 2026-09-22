@@ -22,6 +22,11 @@ class NotificationTargetUpdate(BaseModel):
     )
     enabled: bool | None = None
     config: dict[str, object] | None = None
+    url_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
     url: SecretStr | None = None
 
 
