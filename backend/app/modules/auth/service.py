@@ -46,7 +46,16 @@ class AuthService:
 
     @staticmethod
     def setup_required(session: Session) -> bool:
-        user_count = session.scalar(select(func.count()).select_from(User))
+        bootstrap_claim = session.get(
+            SystemSetting,
+            BOOTSTRAP_NAMESPACE,
+        )
+        if bootstrap_claim is not None:
+            return False
+
+        user_count = session.scalar(
+            select(func.count()).select_from(User)
+        )
         return not bool(user_count)
 
     @staticmethod
