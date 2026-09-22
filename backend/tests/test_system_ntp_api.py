@@ -239,6 +239,7 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
             )
             session.add(device)
             session.flush()
+            device_id = device.id
             camera = Camera(
                 device_id=device.id,
                 channel_key="clock-camera",
@@ -319,7 +320,7 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
         assert projection.status_code == 200
         current = projection.json()
         assert current["device_id"] == str(
-            device.id
+            device_id
         )
         assert current["health"] == "healthy"
         assert current["quality"] == "good"
