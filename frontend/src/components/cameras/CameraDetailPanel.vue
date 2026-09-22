@@ -9,6 +9,7 @@ import {
 
 import {
   getCamera,
+  refreshOnvifCapabilities,
   replaceCameraBindings,
   retireCamera,
   restoreCamera,
@@ -60,6 +61,7 @@ const retentionPolicies = ref<RetentionPolicy[]>([])
 const loading = ref(false)
 const savingGeneral = ref(false)
 const savingStreams = ref(false)
+const refreshingCapabilities = ref(false)
 const savingRecording = ref(false)
 const retirementSaving = ref(false)
 const error = ref<string | null>(null)
@@ -350,6 +352,73 @@ async function toggleRetired(): Promise<void> {
   }
 }
 
+async function refreshCapabilities(): Promise<void> {
+  if (
+    !detail.value ||
+    detail.value.adapter_type !== "onvif" ||
+    !canConfigure.value
+  ) {
+    return
+  }
+
+  refreshingCapabilities.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const result = await refreshOnvifCapabilities(
+      detail.value.id
+    )
+    const refreshed = result.cameras.find(
+      (item) => item.id === detail.value?.id
+    )
+    if (refreshed) {
+      detail.value = refreshed
+      resetBindings(refreshed)
+    }
+
+    const messages: string[] = []
+    if (result.diff.profiles_missing.length) {
+      messages.push(
+        `missing: ${result.diff.profiles_missing.join(", ")}`
+      )
+    }
+    if (result.diff.profiles_recovered.length) {
+      messages.push(
+        `recovered: ${result.diff.profiles_recovered.join(", ")}`
+      )
+    }
+    if (result.diff.profiles_added.length) {
+      messages.push(
+        `added: ${result.diff.profiles_added.join(", ")}`
+      )
+    }
+    if (result.diff.profiles_changed.length) {
+      messages.push(
+        `changed: ${result.diff.profiles_changed.join(", ")}`
+      )
+    }
+    if (result.diff.capabilities_added.length) {
+      messages.push(
+        `capabilities added: ${result.diff.capabilities_added.join(", ")}`
+      )
+    }
+    if (result.diff.capabilities_removed.length) {
+      messages.push(
+        `capabilities removed: ${result.diff.capabilities_removed.join(", ")}`
+      )
+    }
+
+    notice.value = messages.length
+      ? `ONVIF refresh complete · ${messages.join(" · ")}`
+      : "ONVIF capabilities and profiles are unchanged."
+    emit("changed")
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    refreshingCapabilities.value = false
+  }
+}
+
 async function saveStreams(): Promise<void> {
   if (!detail.value) return
   savingStreams.value = true
@@ -632,9 +701,27 @@ onMounted(() => {
 
       <div v-else-if="tab === 'streams'" class="camera-stream-editor">
         <section class="camera-detail-section">
-          <div class="camera-detail-section__heading">
-            <strong>Available profiles</strong>
-            <span>Discovered/probed media profiles.</span>
+          <div
+            class="camera-detail-section__heading camera-detail-section__heading--actions"
+          >
+            <div>
+              <strong>Available profiles</strong>
+              <span>Discovered/probed media profiles.</span>
+            </div>
+            <button
+              v-if="detail.adapter_type === 'onvif'"
+              class="button button--ghost button--compact"
+              type="button"
+              :disabled="refreshingCapabilities || !canConfigure"
+              @click="refreshCapabilities"
+            >
+              <UiIcon name="refresh" :size="12" />
+              {{
+                refreshingCapabilities
+                  ? "Refreshing…"
+                  : "Refresh ONVIF"
+              }}
+            </button>
           </div>
 
           <article

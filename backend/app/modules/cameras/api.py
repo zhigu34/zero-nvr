@@ -45,6 +45,7 @@ from .turn import (
     TurnCredentialService,
 )
 from .media_runtime import CameraMediaRuntimeService, ZlmStreamReference
+from .onvif_capability_refresh import OnvifCapabilityRefreshService
 from .onvif_onboarding import OnvifOnboardingService
 from .ptz import CameraPtzService
 from .models import (
@@ -80,6 +81,8 @@ from .schemas import (
     DiscoverySessionView,
     OnvifCameraImportInput,
     OnvifCameraTestInput,
+    OnvifCapabilityDiffView,
+    OnvifCapabilityRefreshResult,
     OnvifDeviceInfoView,
     OnvifImportResult,
     OnvifInspectionView,
@@ -777,6 +780,225 @@ async def import_onvif_camera(
         cameras=[
             _camera_detail(session, camera)
             for camera in cameras
+        ],
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/onvif/refresh",
+    response_model=OnvifCapabilityRefreshResult,
+)
+async def refresh_onvif_capabilities(
+    camera_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> OnvifCapabilityRefreshResult:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    service = OnvifCapabilityRefreshService(
+        request.app.state.settings
+    )
+    device, connection = service.connection(
+        session,
+        camera,
+    )
+    device_id = device.id
+    session.commit()
+
+    try:
+        inspection = await OnvifAdapter(
+            request.app.state.settings
+        ).inspect_device(
+            host=connection.host,
+            port=connection.port,
+            username=connection.username,
+            password=connection.password,
+        )
+    except OnvifIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    verification_profiles = (
+        service.verification_profiles(
+            session,
+            device_id=device_id,
+            inspection=inspection,
+        )
+    )
+    session.commit()
+
+    active_profile_token: str | None = None
+    try:
+        if verification_profiles:
+            with ZlmAdapter(
+                request.app.state.settings
+            ) as zlm:
+                for profile in verification_profiles:
+                    active_profile_token = (
+                        profile.token
+                    )
+                    zlm.probe_rtsp_source(
+                        OnvifOnboardingService
+                        .verification_stream_uri(
+                            profile,
+                            username=(
+                                connection.username
+                            ),
+                            password=(
+                                connection.password
+                            ),
+                        )
+                    )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={
+                "profile_key": active_profile_token,
+            },
+        ) from exc
+
+    verified_tokens = {
+        profile.token
+        for profile in verification_profiles
+    }
+    try:
+        (
+            cameras,
+            diff,
+            restart_profiles_by_camera,
+        ) = service.apply(
+            session,
+            device_id=device_id,
+            inspection=inspection,
+            verified_tokens=verified_tokens,
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="device.capabilities_refreshed",
+            resource_type="device",
+            resource_id=device_id,
+            metadata={
+                "profiles_added": list(
+                    diff.profiles_added
+                ),
+                "profiles_missing": list(
+                    diff.profiles_missing
+                ),
+                "profiles_changed": list(
+                    diff.profiles_changed
+                ),
+                "profiles_recovered": list(
+                    diff.profiles_recovered
+                ),
+                "profiles_unmapped_added": list(
+                    diff.profiles_unmapped_added
+                ),
+                "capabilities_added": list(
+                    diff.capabilities_added
+                ),
+                "capabilities_removed": list(
+                    diff.capabilities_removed
+                ),
+                "runtime_restart_profiles": {
+                    str(target_camera_id): [
+                        str(profile_id)
+                        for profile_id in sorted(
+                            profile_ids,
+                            key=str,
+                        )
+                    ]
+                    for (
+                        target_camera_id,
+                        profile_ids,
+                    ) in sorted(
+                        restart_profiles_by_camera.items(),
+                        key=lambda item: str(
+                            item[0]
+                        ),
+                    )
+                },
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    if restart_profiles_by_camera:
+        try:
+            for (
+                target_camera_id,
+                profile_ids,
+            ) in sorted(
+                restart_profiles_by_camera.items(),
+                key=lambda item: str(
+                    item[0]
+                ),
+            ):
+                request.app.state.recording_tasks.reconcile_runtime(
+                    target_camera_id,
+                    restart_profile_ids=tuple(
+                        sorted(
+                            profile_ids,
+                            key=str,
+                        )
+                    ),
+                )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="camera_runtime_queue_unavailable",
+                message=(
+                    "ONVIF capability refresh was saved but runtime "
+                    "reconciliation could not be queued."
+                ),
+                details={
+                    "device_id": str(device_id),
+                    "configuration_persisted": True,
+                },
+            ) from exc
+
+    return OnvifCapabilityRefreshResult(
+        device_id=device_id,
+        diff=OnvifCapabilityDiffView(
+            profiles_added=list(
+                diff.profiles_added
+            ),
+            profiles_missing=list(
+                diff.profiles_missing
+            ),
+            profiles_changed=list(
+                diff.profiles_changed
+            ),
+            profiles_recovered=list(
+                diff.profiles_recovered
+            ),
+            profiles_unmapped_added=list(
+                diff.profiles_unmapped_added
+            ),
+            capabilities_added=list(
+                diff.capabilities_added
+            ),
+            capabilities_removed=list(
+                diff.capabilities_removed
+            ),
+        ),
+        cameras=[
+            _camera_detail(session, item)
+            for item in cameras
         ],
     )
 

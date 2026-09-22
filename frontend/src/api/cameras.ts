@@ -165,6 +165,22 @@ export interface OnvifImportResult {
   cameras: CameraDetail[]
 }
 
+export interface OnvifCapabilityDiff {
+  profiles_added: string[]
+  profiles_missing: string[]
+  profiles_changed: string[]
+  profiles_recovered: string[]
+  profiles_unmapped_added: string[]
+  capabilities_added: string[]
+  capabilities_removed: string[]
+}
+
+export interface OnvifCapabilityRefreshResult {
+  device_id: string
+  diff: OnvifCapabilityDiff
+  cameras: CameraDetail[]
+}
+
 export function importOnvif(
   body: OnvifImportInput
 ): Promise<OnvifImportResult> {
@@ -173,6 +189,17 @@ export function importOnvif(
     {
       method: "POST",
       json: body
+    }
+  )
+}
+
+export function refreshOnvifCapabilities(
+  cameraId: string
+): Promise<OnvifCapabilityRefreshResult> {
+  return apiRequest<OnvifCapabilityRefreshResult>(
+    `/cameras/${encodeURIComponent(cameraId)}/onvif/refresh`,
+    {
+      method: "POST"
     }
   )
 }

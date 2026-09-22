@@ -254,6 +254,22 @@ class OnvifCameraImportInput(OnvifCameraTestInput):
     discovery_candidate_id: uuid.UUID | None = None
 
 
+class OnvifCapabilityDiffView(BaseModel):
+    profiles_added: list[str] = Field(default_factory=list)
+    profiles_missing: list[str] = Field(default_factory=list)
+    profiles_changed: list[str] = Field(default_factory=list)
+    profiles_recovered: list[str] = Field(default_factory=list)
+    profiles_unmapped_added: list[str] = Field(default_factory=list)
+    capabilities_added: list[str] = Field(default_factory=list)
+    capabilities_removed: list[str] = Field(default_factory=list)
+
+
+class OnvifCapabilityRefreshResult(BaseModel):
+    device_id: uuid.UUID
+    diff: OnvifCapabilityDiffView
+    cameras: list[CameraDetail]
+
+
 class OnvifImportResult(BaseModel):
     device_id: uuid.UUID
     reconfigured: bool = False

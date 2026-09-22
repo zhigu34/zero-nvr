@@ -1295,6 +1295,278 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
     }
 
 
+def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    refresh_state = "initial"
+
+    def refreshed_inspection() -> OnvifInspection:
+        source = inspection()
+        profiles: list[OnvifProfileProbe] = []
+        for item in source.profiles:
+            if (
+                item.token == "sub-a"
+                and refresh_state == "drift"
+            ):
+                continue
+            profiles.append(
+                OnvifProfileProbe(
+                    token=item.token,
+                    name=item.name,
+                    video_source_token=(
+                        item.video_source_token
+                    ),
+                    codec=item.codec,
+                    width=(
+                        2560
+                        if item.token == "main-a"
+                        else item.width
+                    ),
+                    height=item.height,
+                    fps=item.fps,
+                    bitrate_kbps=(
+                        item.bitrate_kbps
+                    ),
+                    gop_seconds=(
+                        item.gop_seconds
+                    ),
+                    audio_codec=(
+                        item.audio_codec
+                    ),
+                    has_audio=item.has_audio,
+                    stream_uri_available=(
+                        item.stream_uri_available
+                    ),
+                    stream_uri=item.stream_uri,
+                )
+            )
+        if refresh_state != "initial":
+            profiles.append(
+                OnvifProfileProbe(
+                    token="extra-a",
+                    name="Channel A Extra",
+                    video_source_token="source-a",
+                    codec="h264",
+                    width=1280,
+                    height=720,
+                    fps=15.0,
+                    bitrate_kbps=1024,
+                    gop_seconds=2.0,
+                    audio_codec=None,
+                    has_audio=False,
+                    stream_uri_available=True,
+                    stream_uri=(
+                        "rtsp://192.168.70.20:554/"
+                        "channel/a/extra"
+                    ),
+                )
+            )
+        capabilities = (
+            ("Media",)
+            if refresh_state == "drift"
+            else source.capabilities
+        )
+        return OnvifInspection(
+            device=source.device,
+            capabilities=capabilities,
+            profiles=tuple(profiles),
+        )
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **_kwargs):
+            return refreshed_inspection()
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+
+        source_a = next(
+            camera
+            for camera in created.json()[
+                "cameras"
+            ]
+            if {
+                stream[
+                    "adapter_profile_key"
+                ]
+                for stream
+                in camera["streams"]
+            }
+            == {
+                "main-a",
+                "sub-a",
+            }
+        )
+        original_bindings = {
+            item["purpose"]: item[
+                "stream_profile_id"
+            ]
+            for item in source_a["bindings"]
+        }
+        sub_profile_id = uuid.UUID(
+            next(
+                stream["id"]
+                for stream
+                in source_a["streams"]
+                if stream[
+                    "adapter_profile_key"
+                ]
+                == "sub-a"
+            )
+        )
+        with app.state.database.session() as session:
+            sub_profile = session.get(
+                CameraStreamProfile,
+                sub_profile_id,
+            )
+            assert sub_profile is not None
+            original_sub_uri_ref = (
+                sub_profile.stream_uri_ref
+            )
+
+        probes_before_refresh = len(
+            PROBED_URIS
+        )
+        refresh_state = "drift"
+        refreshed = client.post(
+            (
+                f"/api/v1/cameras/{source_a['id']}"
+                "/onvif/refresh"
+            )
+        )
+        assert refreshed.status_code == 200
+        body = refreshed.json()
+        assert body["diff"] == {
+            "profiles_added": ["extra-a"],
+            "profiles_missing": ["sub-a"],
+            "profiles_changed": ["main-a"],
+            "profiles_recovered": [],
+            "profiles_unmapped_added": [],
+            "capabilities_added": [],
+            "capabilities_removed": ["PTZ"],
+        }
+        assert len(PROBED_URIS) == (
+            probes_before_refresh + 1
+        )
+        assert PROBED_URIS[-1].endswith(
+            "/channel/a/extra"
+        )
+
+        refreshed_a = next(
+            camera
+            for camera in body["cameras"]
+            if camera["id"] == source_a["id"]
+        )
+        streams = {
+            item["adapter_profile_key"]: item
+            for item in refreshed_a["streams"]
+        }
+        assert set(streams) == {
+            "main-a",
+            "sub-a",
+            "extra-a",
+        }
+        assert streams["main-a"]["width"] == 2560
+        assert streams["sub-a"]["status"] == (
+            "unavailable"
+        )
+        assert streams["extra-a"]["status"] == (
+            "available"
+        )
+        assert {
+            item["purpose"]: item[
+                "stream_profile_id"
+            ]
+            for item in refreshed_a["bindings"]
+        } == original_bindings
+        assert (
+            app.state.recording_tasks
+            .runtime_reconciles
+            == []
+        )
+
+        refresh_state = "recovered"
+        recovered = client.post(
+            (
+                f"/api/v1/cameras/{source_a['id']}"
+                "/onvif/refresh"
+            )
+        )
+        assert recovered.status_code == 200
+        recovered_body = recovered.json()
+        assert recovered_body["diff"][
+            "profiles_recovered"
+        ] == ["sub-a"]
+        assert recovered_body["diff"][
+            "profiles_missing"
+        ] == []
+        recovered_a = next(
+            camera
+            for camera
+            in recovered_body["cameras"]
+            if camera["id"] == source_a["id"]
+        )
+        recovered_streams = {
+            item["adapter_profile_key"]: item
+            for item in recovered_a["streams"]
+        }
+        assert recovered_streams[
+            "sub-a"
+        ]["status"] == "available"
+
+    with app.state.database.session() as session:
+        sub_profile = session.get(
+            CameraStreamProfile,
+            sub_profile_id,
+        )
+        assert sub_profile is not None
+        assert (
+            sub_profile.stream_uri_ref
+            == original_sub_uri_ref
+        )
+        assert "capability_drift" not in (
+            sub_profile.metadata_json or {}
+        )
+        device = session.scalar(
+            select(Device)
+        )
+        assert device is not None
+        assert set(
+            device.capabilities_json[
+                "onvif_services"
+            ]
+        ) == {"Media", "PTZ"}
+        audits = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action
+                    == "device.capabilities_refreshed"
+                )
+            )
+        )
+        assert len(audits) == 2
+
+
 def test_onvif_reconfigure_rejects_topology_change_before_mutation(
     tmp_path: Path,
     monkeypatch,

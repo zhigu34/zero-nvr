@@ -189,7 +189,7 @@ Acceptance:
 - [x] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
 - [x] idempotent enable / disable / maintenance / configuration apply.
 - [x] endpoint/credential/profile revalidation with the minimum required ZLM proxy change.
-- [ ] CameraStreamProfile refresh/diff and capability-drift detection.
+- [x] CameraStreamProfile refresh/diff and capability-drift detection.
 - [ ] planned recording-profile switch at a safe segment boundary where practical.
 - [ ] ONVIF event-subscription lifecycle using mature client-library facilities.
 - [ ] multi-channel missing/return lifecycle without Camera identity loss.
