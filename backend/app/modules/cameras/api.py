@@ -667,7 +667,7 @@ async def import_onvif_camera(
             code=exc.code,
             message=str(exc),
             details={
-                "profile_token": active_profile_token,
+                "profile_key": active_profile_token,
             },
         ) from exc
 
