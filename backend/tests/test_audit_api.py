@@ -4,6 +4,7 @@ import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Base
@@ -104,6 +105,28 @@ def test_audit_query_redacts_sensitive_fields_and_respects_scope(
                 ]
             )
             session.commit()
+
+        with app.state.database.session() as session:
+            stored_global = session.scalar(
+                select(AuditEvent).where(
+                    AuditEvent.action == "global.change"
+                )
+            )
+            assert stored_global is not None
+            assert (
+                stored_global.before_json["password"]
+                == "***"
+            )
+            stored_camera = session.scalar(
+                select(AuditEvent).where(
+                    AuditEvent.camera_id == visible_id
+                )
+            )
+            assert stored_camera is not None
+            assert (
+                stored_camera.after_json["nested"]["api_token"]
+                == "***"
+            )
 
         scoped = client.put(
             f"/api/v1/users/{admin_id}/camera-scope",
