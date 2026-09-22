@@ -324,7 +324,7 @@ def test_provider_settings_encrypt_credentials_and_keep_instance_stable(
                     mqtt_username="mqtt-user",
                     mqtt_password="mqtt-secret-password",
                 ),
-                replace_credentials=True,
+                credentials_action="replace",
             )
             session.commit()
             first_id = first.instance_id
@@ -377,7 +377,7 @@ def test_provider_settings_encrypt_credentials_and_keep_instance_stable(
                 mqtt_port=1883,
                 mqtt_topic_prefix="frigate",
                 mqtt_tls=False,
-                replace_credentials=False,
+                credentials_action="keep",
             )
             session.commit()
             assert updated.instance_id == first_id
@@ -682,7 +682,7 @@ def test_mqtt_runtime_uses_persistent_qos1_and_ingests_event(
                     mqtt_username="mqtt-user",
                     mqtt_password="mqtt-password",
                 ),
-                replace_credentials=True,
+                credentials_action="replace",
             )
             session.commit()
 
