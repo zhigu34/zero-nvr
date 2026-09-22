@@ -183,8 +183,8 @@ Acceptance:
 - [x] deterministic default profile binding with user override.
 - [x] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
 - [x] monitor/manage_ntp/ignore device-time mode where supported.
-- [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
-- [ ] device clock offset/RTT/quality health diagnostics.
+- [x] apply/verify camera NTP configuration without modifying host OS NTP service.
+- [x] device clock offset/RTT/quality health diagnostics.
 - [ ] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
 - [ ] config_revision/runtime_generation fencing only where needed to ignore stale adapter callbacks.
 - [ ] idempotent enable / disable / maintenance / configuration apply.
