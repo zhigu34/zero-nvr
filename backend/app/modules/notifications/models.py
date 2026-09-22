@@ -50,10 +50,10 @@ class NotificationTarget(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
         default=dict,
     )
-    secret_ref: Mapped[uuid.UUID] = mapped_column(
+    secret_ref: Mapped[uuid.UUID | None] = mapped_column(
         UUIDType,
         ForeignKey("secret_records.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
 
 
