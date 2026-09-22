@@ -164,3 +164,48 @@ def test_secret_key_file_environment_bootstrap(
         settings.secret_key.get_secret_value()
         == "e" * 40
     )
+
+
+def test_external_service_file_sources(tmp_path: Path) -> None:
+    zlm_api_file = tmp_path / "zlm-api"
+    zlm_hook_file = tmp_path / "zlm-hook"
+    turn_file = tmp_path / "turn"
+    for path in (zlm_api_file, zlm_hook_file, turn_file):
+        path.write_text(
+            ("v" * 40) + "\n",
+            encoding="utf-8",
+        )
+
+    settings = Settings(
+        secret_key="x" * 32,
+        zlm_api_secret_file=zlm_api_file,
+        zlm_hook_secret_file=zlm_hook_file,
+        turn_shared_secret_file=turn_file,
+    )
+
+    assert settings.zlm_api_secret is not None
+    assert settings.zlm_hook_secret is not None
+    assert settings.turn_shared_secret is not None
+    assert settings.zlm_api_secret.get_secret_value() == "v" * 40
+    assert settings.zlm_hook_secret.get_secret_value() == "v" * 40
+    assert settings.turn_shared_secret.get_secret_value() == "v" * 40
+
+
+def test_external_service_file_source_rejects_direct_conflict(
+    tmp_path: Path,
+) -> None:
+    zlm_api_file = tmp_path / "zlm-api"
+    zlm_api_file.write_text(
+        "v" * 40,
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="configure only one",
+    ):
+        Settings(
+            secret_key="x" * 32,
+            zlm_api_secret="d" * 40,
+            zlm_api_secret_file=zlm_api_file,
+        )
