@@ -16,6 +16,7 @@ from app.modules.notifications.models import (
     NotificationDelivery,
     NotificationTarget,
 )
+from app.modules.cameras.models import Camera
 from app.modules.recordings.models import RecordingProtection
 
 from .models import Alert, AlertPolicy
@@ -747,6 +748,20 @@ class AlertEvaluationService:
         *,
         event: Event,
     ) -> AlertEvaluationResult:
+        if event.camera_id is not None:
+            camera = session.get(
+                Camera,
+                event.camera_id,
+            )
+            if (
+                camera is not None
+                and camera.maintenance
+            ):
+                return AlertEvaluationResult(
+                    alerts=(),
+                    delivery_ids=(),
+                )
+
         created_alerts: list[Alert] = []
         delivery_ids: list[uuid.UUID] = []
 
