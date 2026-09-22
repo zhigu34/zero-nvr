@@ -214,7 +214,7 @@ const navigation = computed(() => {
     {
       id: "time",
       label: "Time",
-      icon: "activity",
+      icon: "calendar",
       visible: auth.hasPermission("system.view")
     },
     {
