@@ -7,8 +7,8 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 
 require_command docker
 
-api_secret="$(env_get ZERO_NVR_ZLM_API_SECRET)"
-hook_secret="$(env_get ZERO_NVR_ZLM_HOOK_SECRET)"
+api_secret="$(protected_env_get ZERO_NVR_ZLM_API_SECRET)"
+hook_secret="$(protected_env_get ZERO_NVR_ZLM_HOOK_SECRET)"
 image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
 webrtc_port="$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")"
 webrtc_extern_ip="$(env_get ZERO_NVR_ZLM_WEBRTC_EXTERN_IP "")"
