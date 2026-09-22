@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
+from app.integrations.apprise import AppriseAdapter, AppriseIntegrationError
 
 from .models import NotificationDelivery, NotificationTarget
 
@@ -223,39 +224,56 @@ class NotificationTargetService:
             )
 
         try:
-            metadata = self.secret_store.metadata(
-                session,
-                target.secret_ref,
-            )
-        except KeyError:
-            target.secret_ref = self.secret_store.create_json(
-                session,
-                kind="notification_url",
-                owner_type="notification_target",
-                owner_id=target.id,
-                value={"url": normalized},
-            )
-            return
-
-        if (
-            metadata.kind != "notification_url"
-            or metadata.owner_type != "notification_target"
-            or metadata.owner_id != target.id
-        ):
+            AppriseAdapter(url=normalized)
+        except AppriseIntegrationError as exc:
             raise ApiError(
-                status_code=409,
-                code="notification_secret_invalid",
-                message="Notification target secret reference is invalid.",
-            )
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+            ) from exc
 
-        self.secret_store.replace_json(
+        old_ref = target.secret_ref
+        if old_ref is not None:
+            try:
+                metadata = self.secret_store.metadata(
+                    session,
+                    old_ref,
+                )
+            except KeyError:
+                old_ref = None
+            else:
+                if (
+                    metadata.kind != "notification_url"
+                    or metadata.owner_type != "notification_target"
+                    or metadata.owner_id != target.id
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="notification_secret_invalid",
+                        message="Notification target secret reference is invalid.",
+                    )
+
+        candidate_ref = self.secret_store.create_json(
             session,
-            target.secret_ref,
             kind="notification_url",
             owner_type="notification_target",
             owner_id=target.id,
             value={"url": normalized},
         )
+        target.secret_ref = candidate_ref
+        session.flush()
+
+        if old_ref is not None:
+            try:
+                self.secret_store.delete(
+                    session,
+                    old_ref,
+                    kind="notification_url",
+                    owner_type="notification_target",
+                    owner_id=target.id,
+                )
+            except KeyError:
+                pass
 
     def create(
         self,
@@ -290,6 +308,15 @@ class NotificationTargetService:
             )
 
         target_id = uuid.uuid4()
+        try:
+            AppriseAdapter(url=normalized_url)
+        except AppriseIntegrationError as exc:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+            ) from exc
+
         secret_id = self.secret_store.create_json(
             session,
             kind="notification_url",
