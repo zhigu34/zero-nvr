@@ -159,7 +159,7 @@ current code/tests.
 - [x] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
 - [x] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [x] canonical UTC/timezone configuration and host clock-health checks.
-- [ ] Adapter contracts.
+- [x] Adapter contracts.
 - [ ] Docker Compose development stack.
 
 Acceptance:
