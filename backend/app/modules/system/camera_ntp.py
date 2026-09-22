@@ -10,6 +10,7 @@ from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.modules.cameras.models import (
+    Camera,
     Device,
     DeviceCredential,
     DeviceEndpoint,
@@ -31,17 +32,60 @@ class CameraNtpService:
         self.secret_store = SecretStore(settings)
 
     @staticmethod
-    def list_devices(session: Session) -> list[Device]:
-        return list(
+    def effective_mode(
+        session: Session,
+        device_id: uuid.UUID,
+    ) -> str:
+        modes = set(
+            session.scalars(
+                select(
+                    Camera.time_sync_mode
+                ).where(
+                    Camera.device_id
+                    == device_id,
+                    Camera.retired_at.is_(
+                        None
+                    ),
+                )
+            )
+        )
+        if "manage_ntp" in modes:
+            return "manage_ntp"
+        if "monitor" in modes:
+            return "monitor"
+        return "ignore"
+
+    @classmethod
+    def list_devices(
+        cls,
+        session: Session,
+        *,
+        modes: set[str] | None = None,
+    ) -> list[Device]:
+        devices = list(
             session.scalars(
                 select(Device)
                 .where(
                     Device.adapter_type == "onvif",
                     Device.enabled.is_(True),
                 )
-                .order_by(Device.name, Device.id)
+                .order_by(
+                    Device.name,
+                    Device.id,
+                )
             )
         )
+        if modes is None:
+            return devices
+        return [
+            device
+            for device in devices
+            if cls.effective_mode(
+                session,
+                device.id,
+            )
+            in modes
+        ]
 
     def target(
         self,
