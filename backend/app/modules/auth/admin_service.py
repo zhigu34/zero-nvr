@@ -136,10 +136,15 @@ class AuthAdminService:
         role_ids: list[uuid.UUID],
     ) -> User:
         roles = self._roles_by_ids(session, role_ids)
+        normalized_email = (
+            email.strip().lower()
+            if email
+            else None
+        )
         user = User(
             username=username,
             display_name=display_name,
-            email=email,
+            email=normalized_email,
             password_hash=self.passwords.hash(password),
             enabled=True,
         )
@@ -167,7 +172,14 @@ class AuthAdminService:
 
         if "email" in changes:
             raw_email = changes["email"]
-            user.email = str(raw_email) if raw_email is not None else None
+            normalized_email = (
+                str(raw_email).strip().lower()
+                if raw_email is not None
+                else None
+            )
+            if normalized_email != user.email:
+                user.email = normalized_email
+                user.email_verified_at = None
 
         if "role_ids" in changes:
             roles = self._roles_by_ids(session, list(changes["role_ids"] or []))
