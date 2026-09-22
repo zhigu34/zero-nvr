@@ -223,13 +223,9 @@ class NotificationTargetService:
             )
 
         try:
-            self.secret_store.replace_json(
+            metadata = self.secret_store.metadata(
                 session,
                 target.secret_ref,
-                kind="notification_url",
-                owner_type="notification_target",
-                owner_id=target.id,
-                value={"url": normalized},
             )
         except KeyError:
             target.secret_ref = self.secret_store.create_json(
@@ -239,6 +235,27 @@ class NotificationTargetService:
                 owner_id=target.id,
                 value={"url": normalized},
             )
+            return
+
+        if (
+            metadata.kind != "notification_url"
+            or metadata.owner_type != "notification_target"
+            or metadata.owner_id != target.id
+        ):
+            raise ApiError(
+                status_code=409,
+                code="notification_secret_invalid",
+                message="Notification target secret reference is invalid.",
+            )
+
+        self.secret_store.replace_json(
+            session,
+            target.secret_ref,
+            kind="notification_url",
+            owner_type="notification_target",
+            owner_id=target.id,
+            value={"url": normalized},
+        )
 
     def create(
         self,
