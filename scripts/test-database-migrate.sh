@@ -36,6 +36,7 @@ services:
 EOF
 
   printf 'consistent-sqlite-snapshot\n' > "$stage/data/safety-backups/pre/database.sqlite3"
+  printf 'consistent-postgresql-snapshot\n' > "$stage/data/safety-backups/pre/database.pgcustom"
 
   cat > "$stage/.env" <<EOF
 ZERO_NVR_DATA_PATH=$stage/data
@@ -71,7 +72,24 @@ if [[ "$args" == *"python -m app.cli safety-snapshot"* ]]; then
   if [[ "${FAKE_SNAPSHOT_FAIL:-0}" == "1" ]]; then
     exit 1
   fi
-  printf '%s\n' '{"safety_snapshot": "/var/lib/zero-nvr/safety-backups/pre/database.sqlite3", "database_engine": "sqlite", "size_bytes": 128}'
+  if [[ "${FAKE_SOURCE_BACKEND:-sqlite}" == "postgresql" ]]; then
+    printf '%s\n' '{"safety_snapshot": "/var/lib/zero-nvr/safety-backups/pre/database.pgcustom", "database_engine": "postgresql", "size_bytes": 256}'
+  else
+    printf '%s\n' '{"safety_snapshot": "/var/lib/zero-nvr/safety-backups/pre/database.sqlite3", "database_engine": "sqlite", "size_bytes": 128}'
+  fi
+  exit 0
+fi
+
+if [[ "$args" == *"python -m app.cli database-preflight-sqlite"* ]]; then
+  if [[ "${FAKE_PREFLIGHT_FAIL:-0}" == "1" ]]; then
+    printf '%s\n' '{"allowed": false, "blockers": ["sqlite_preflight_target_disk_space_insufficient"]}'
+    exit 1
+  fi
+  if [[ "$args" != *"--confirm-workload"* ]]; then
+    printf '%s\n' '{"allowed": false, "blockers": ["sqlite_preflight_workload_confirmation_required"]}'
+    exit 1
+  fi
+  printf '%s\n' '{"allowed": true, "blockers": [], "recent_write_rows": 12}'
   exit 0
 fi
 
@@ -232,9 +250,94 @@ run_cutover_failure() {
   [[ "$(cat "$stage/docker.state")" == "2" ]]
 }
 
+prepare_postgresql_source() {
+  local stage="$1"
+  cat > "$stage/.env" <<EOF
+ZERO_NVR_DATA_PATH=$stage/data
+ZERO_NVR_DATABASE_URL=$TARGET_URL
+ZERO_NVR_DATABASE_PREVIOUS_URL=
+ZERO_NVR_DATABASE_MIGRATION_TARGET_URL=
+ZERO_NVR_ENVIRONMENT=production
+COMPOSE_PROFILES=
+EOF
+}
+
+run_sqlite_preflight_requires_confirmation() {
+  local stage
+  stage="$(setup_stage sqlite-unconfirmed)"
+  prepare_postgresql_source "$stage"
+
+  if PATH="$stage/fake-bin:$PATH" \
+    FAKE_DOCKER_LOG="$stage/docker.log" \
+    FAKE_DOCKER_STATE="$stage/docker.state" \
+    FAKE_SOURCE_BACKEND=postgresql \
+      "$stage/scripts/database-migrate.sh" sqlite > "$stage/output.log" 2>&1
+  then
+    echo "PostgreSQL -> SQLite migration bypassed workload confirmation" >&2
+    exit 1
+  fi
+
+  grep -Fq "PostgreSQL -> SQLite preflight refused migration" "$stage/output.log"
+  grep -Fq "database-preflight-sqlite" "$stage/docker.log"
+  if grep -Fq "pre-database-migration-backup" "$stage/docker.log"; then
+    echo "backup ran after refused SQLite preflight" >&2
+    exit 1
+  fi
+}
+
+run_sqlite_preflight_blocks_hard_failure() {
+  local stage
+  stage="$(setup_stage sqlite-blocked)"
+  prepare_postgresql_source "$stage"
+
+  if PATH="$stage/fake-bin:$PATH" \
+    FAKE_DOCKER_LOG="$stage/docker.log" \
+    FAKE_DOCKER_STATE="$stage/docker.state" \
+    FAKE_SOURCE_BACKEND=postgresql \
+    FAKE_PREFLIGHT_FAIL=1 \
+      "$stage/scripts/database-migrate.sh" sqlite \
+        --confirm-sqlite-workload > "$stage/output.log" 2>&1
+  then
+    echo "PostgreSQL -> SQLite migration bypassed hard preflight blocker" >&2
+    exit 1
+  fi
+
+  grep -Fq "sqlite_preflight_target_disk_space_insufficient" "$stage/output.log"
+  if grep -Fq " stop zero-nvr-worker zero-nvr" "$stage/docker.log"; then
+    echo "source was quiesced after refused SQLite preflight" >&2
+    exit 1
+  fi
+}
+
+run_sqlite_confirmed_success() {
+  local stage active
+  stage="$(setup_stage sqlite-confirmed)"
+  prepare_postgresql_source "$stage"
+
+  PATH="$stage/fake-bin:$PATH" \
+  FAKE_DOCKER_LOG="$stage/docker.log" \
+  FAKE_DOCKER_STATE="$stage/docker.state" \
+  FAKE_SOURCE_BACKEND=postgresql \
+    "$stage/scripts/database-migrate.sh" sqlite \
+      --confirm-sqlite-workload > "$stage/output.log" 2>&1
+
+  active="$(env_value "$stage/.env" ZERO_NVR_DATABASE_URL)"
+  [[ "$active" == sqlite:////var/lib/zero-nvr/database-migrations/zero-nvr-*.db ]]
+  [[ "$(env_value "$stage/.env" ZERO_NVR_DATABASE_PREVIOUS_URL)" == "$TARGET_URL" ]]
+
+  grep -Fq '"allowed": true' "$stage/output.log"
+  grep -Fq "Database migration completed: postgresql -> sqlite" "$stage/output.log"
+  assert_order "$stage/docker.log" "database-preflight-sqlite --confirm-workload" "pre-database-migration-backup"
+  assert_order "$stage/docker.log" " stop zero-nvr-worker zero-nvr" "python -m app.cli safety-snapshot"
+  grep -Fq "database.pgcustom" "$stage/output.log"
+}
+
 run_success
 run_snapshot_failure
 run_transfer_failure
 run_cutover_failure
+run_sqlite_preflight_requires_confirmation
+run_sqlite_preflight_blocks_hard_failure
+run_sqlite_confirmed_success
 
 echo "database migration: ok"
