@@ -218,7 +218,7 @@ class TimeSystemSettingsService:
         timezone = value.strip()
         try:
             ZoneInfo(timezone)
-        except ZoneInfoNotFoundError as exc:
+        except (ZoneInfoNotFoundError, ValueError) as exc:
             raise ApiError(
                 status_code=400,
                 code="system_timezone_invalid",
@@ -307,7 +307,10 @@ class TimeSystemSettingsService:
             base["recording_timezone"]
         )
         mode = base["managed_camera_ntp_mode"]
-        if mode not in {"manual", "dhcp"}:
+        if (
+            not isinstance(mode, str)
+            or mode not in {"manual", "dhcp"}
+        ):
             raise ApiError(
                 status_code=400,
                 code="system_ntp_mode_invalid",
