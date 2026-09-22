@@ -327,7 +327,7 @@ PostgreSQL -> SQLite is intentionally stricter:
 ./deploy.sh database migrate sqlite --confirm-sqlite-workload
 ```
 
-The first command runs the reverse-migration preflight and refuses cutover until workload suitability is explicitly confirmed. The preflight reports the active Alembic schema heads, actual PostgreSQL database size, free/required space on the zero-nvr data filesystem, and the previous hour of representative high-write database activity (recording segments, events, alerts, and audit events). Hard blockers such as an incompatible schema or insufficient target disk space cannot be bypassed by workload confirmation.
+The first command runs the reverse-migration preflight and refuses cutover until workload suitability is explicitly confirmed. The preflight reports the active Alembic schema heads, missing canonical or unexpected unmanaged tables, actual PostgreSQL database size, free/required space on the zero-nvr data filesystem, and the previous hour of representative high-write database activity (recording segments, events, alerts, and audit events). Hard blockers such as schema drift or insufficient target disk space cannot be bypassed by workload confirmation.
 
 `--confirm-sqlite-workload` means the operator has reviewed those measured results and representative SQLite benchmark/soak evidence for the intended host. zero-nvr does not reject the reverse migration from a guessed camera-count limit. After preflight passes, the normal verified backup -> quiesce -> consistent source snapshot -> transfer -> cutover -> health-check workflow applies, and the previous PostgreSQL URL remains recorded for the rollback grace period.
 
