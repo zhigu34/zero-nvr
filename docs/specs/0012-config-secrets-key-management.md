@@ -164,9 +164,23 @@ Use explicit state such as:
 credentials_configured: true
 ~~~
 
-When editing a resource, omitted secret means keep the existing secret; an explicit replacement action provides a new value.
+When editing a resource, secret mutation is explicit. Field-specific update actions use:
 
-Do not send fake masked strings such as ******** back and forth as if they were credentials.
+~~~text
+keep
+replace
+clear
+~~~
+
+Rules:
+
+- `keep` preserves the current SecretStore reference and does not accept a new secret value;
+- `replace` requires a new secret value and replaces or creates the referenced secret;
+- `clear` does not accept a replacement value and removes the optional SecretStore reference plus its SecretRecord;
+- omitted optional secret action defaults to `keep`;
+- resources whose secret is structurally required may reject `clear` rather than silently storing an empty value.
+
+Do not infer replacement or clearing from empty strings, nulls, masked placeholders, or whether a secret-looking field happens to be present. Do not send fake masked strings such as ******** back and forth as if they were credentials.
 
 ## Logging / errors / audit
 
