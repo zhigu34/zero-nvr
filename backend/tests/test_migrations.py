@@ -115,6 +115,32 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             for item in inspector.get_columns("users")
         }
         assert "email_verified_at" in user_columns
+        camera_columns = {
+            item["name"]: item
+            for item in inspector.get_columns(
+                "cameras"
+            )
+        }
+        assert (
+            camera_columns["time_sync_mode"][
+                "nullable"
+            ]
+            is False
+        )
+        camera_checks = {
+            item.get("name"): (
+                item.get("sqltext") or ""
+            )
+            for item in inspector.get_check_constraints(
+                "cameras"
+            )
+        }
+        assert any(
+            "manage_ntp" in sqltext
+            and "monitor" in sqltext
+            and "ignore" in sqltext
+            for sqltext in camera_checks.values()
+        )
         target_checks = {
             item.get("name"): (
                 item.get("sqltext") or ""
