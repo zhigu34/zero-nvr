@@ -93,8 +93,10 @@ print(url.render_as_string(hide_password=False))
 
 recover_source() {
   local original_url="$1"
+  local original_previous_url="$2"
   echo "Restoring original database configuration..." >&2
   set_env_value ZERO_NVR_DATABASE_URL "$original_url"
+  set_env_value ZERO_NVR_DATABASE_PREVIOUS_URL "$original_previous_url"
   compose up -d --force-recreate --wait --wait-timeout 180 \
     zero-nvr zero-nvr-worker >/dev/null 2>&1 || true
   if ZERO_NVR_ENV_FILE="$ENV_FILE" \
@@ -173,6 +175,7 @@ if [[ ! -f "$ENV_FILE" ]]; then
 fi
 
 source_configured_url="$(env_get ZERO_NVR_DATABASE_URL "")"
+source_previous_url="$(env_get ZERO_NVR_DATABASE_PREVIOUS_URL "")"
 source_url="$(effective_source_url)"
 source_backend="$(database_backend "$source_url" || true)"
 if [[ -z "$source_backend" ]]; then
@@ -279,7 +282,9 @@ fi
 
 if [[ "$cutover_ok" != true ]]; then
   echo "error: target database cutover failed" >&2
-  recover_source "$source_configured_url" || true
+  recover_source \
+    "$source_configured_url" \
+    "$source_previous_url" || true
   echo "Transferred target database was retained for diagnosis." >&2
   echo "Local source safety snapshot retained: $(deployment_data_dir)/$local_snapshot" >&2
   exit 1
