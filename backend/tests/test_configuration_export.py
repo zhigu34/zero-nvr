@@ -207,6 +207,11 @@ def test_configuration_export_is_portable_and_secret_free(
         )
         assert body["format_version"] == 1
         assert body["secrets_included"] is False
+        assert body["sections"]["time"] == {
+            "recording_timezone": "UTC",
+            "managed_camera_ntp_mode": "dhcp",
+            "managed_camera_ntp_servers": [],
+        }
 
         serialized = json.dumps(
             body,
@@ -649,6 +654,12 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
         with_extra = copy.deepcopy(
             bundle
         )
+        # Simulate a pre-time-namespace v1 bundle. Legacy
+        # general fields must migrate into system_settings.time.
+        with_extra["sections"].pop(
+            "time",
+            None,
+        )
         with_extra["sections"][
             "storage_targets"
         ].append(
@@ -701,6 +712,15 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
         assert settings.json()["general"][
             "camera_ntp_servers"
         ] == ["time.example.test"]
+        assert settings.json()["time"] == {
+            "recording_timezone": "UTC",
+            "managed_camera_ntp_mode": (
+                "manual"
+            ),
+            "managed_camera_ntp_servers": [
+                "time.example.test"
+            ],
+        }
 
         restored_camera = client.get(
             f"/api/v1/cameras/{camera_id}"
