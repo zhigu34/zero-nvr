@@ -1202,14 +1202,14 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
         assert credential is not None
         assert (
             credential.secret_ref
-            == old_credential_ref
+            != old_credential_ref
         )
         assert (
             session.get(
                 SecretRecord,
                 old_credential_ref,
             )
-            is not None
+            is None
         )
 
         current_profiles = list(
@@ -1231,12 +1231,12 @@ def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identi
             assert profile.stream_uri_ref is not None
             assert (
                 profile.stream_uri_ref
-                == old_ref
+                != old_ref
             )
             assert session.get(
                 SecretRecord,
                 old_ref,
-            ) is not None
+            ) is None
 
         main_profile = session.scalar(
             select(CameraStreamProfile).where(
