@@ -126,3 +126,29 @@ def test_secret_key_file_must_be_readable(
                 tmp_path / "missing-secret-key"
             ),
         )
+
+
+def test_secret_key_file_environment_bootstrap(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    key_file = tmp_path / "zero-nvr-secret-key"
+    key_file.write_text(
+        ("e" * 40) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv(
+        "ZERO_NVR_SECRET_KEY",
+        raising=False,
+    )
+    monkeypatch.setenv(
+        "ZERO_NVR_SECRET_KEY_FILE",
+        str(key_file),
+    )
+
+    settings = Settings()
+
+    assert (
+        settings.secret_key.get_secret_value()
+        == "e" * 40
+    )
