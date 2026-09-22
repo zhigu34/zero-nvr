@@ -141,7 +141,7 @@ current code/tests.
 - [x] SMTP connection test + test-email flow.
 - [x] password-reset/security email delivery through NotificationDelivery + Huey retry/backoff/result tracking.
 - [x] self-service email password reset with non-enumerating public response.
-- [ ] PasswordResetToken persistence using one-way token hashes.
+- [x] PasswordResetToken persistence using one-way token hashes.
 - [ ] administrator-issued one-time password reset token.
 - [ ] host/Docker CLI emergency administrator password recovery.
 - [ ] OPTIONAL: TOTP MFA using a mature OTP library; must not block V1 release.
