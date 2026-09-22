@@ -1236,9 +1236,12 @@ def verify_camera_stream(
     ),
     session: Session = Depends(get_db_session),
 ) -> CameraStreamDiagnosticView:
-    CameraService.get_camera(
+    camera = CameraService.get_camera(
         session,
         camera_id,
+    )
+    expected_revision = (
+        camera.config_revision
     )
     profile = session.get(
         CameraStreamProfile,
@@ -1271,6 +1274,11 @@ def verify_camera_stream(
                 source_url
             )
     except ZlmIntegrationError as exc:
+        CameraService.fence_config_revision(
+            session,
+            camera_id=camera_id,
+            expected_revision=expected_revision,
+        )
         try:
             current = session.get(
                 CameraStreamProfile,
@@ -1314,6 +1322,11 @@ def verify_camera_stream(
             },
         ) from exc
 
+    CameraService.fence_config_revision(
+        session,
+        camera_id=camera_id,
+        expected_revision=expected_revision,
+    )
     current = session.get(
         CameraStreamProfile,
         profile_id,
