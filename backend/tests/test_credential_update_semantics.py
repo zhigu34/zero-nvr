@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import uuid
 
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.core.db import Base
+from app.core.errors import ApiError
 from app.main import create_app
+from app.modules.storage.service import StorageTargetService
+from app.modules.system.frigate import FrigateProviderSettingsService
+from app.modules.system.models import SystemSetting
 
 
 PASSWORD = "correct-horse-battery-staple"
@@ -162,8 +167,16 @@ def test_notification_url_update_actions(tmp_path: Path) -> None:
         assert cleared.json()["url_configured"] is False
 
 
-def test_storage_credential_update_actions(tmp_path: Path) -> None:
+def test_storage_credential_update_actions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
     app = make_app(tmp_path)
+    monkeypatch.setattr(
+        StorageTargetService,
+        "test_target",
+        lambda self, **_kwargs: None,
+    )
 
     with TestClient(app) as client:
         setup_admin(client)
@@ -382,3 +395,191 @@ def test_frigate_credential_update_actions(tmp_path: Path) -> None:
         )
         assert cleared.status_code == 200
         assert cleared.json()["credentials_configured"] is False
+
+
+def test_storage_validation_failure_preserves_current_secret(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        created = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "rclone",
+                "role": "archive",
+                "name": "Atomic archive",
+                "enabled": True,
+                "config": {
+                    "remote": "archive",
+                    "base_path": "zero-nvr",
+                },
+                "rclone_config": (
+                    "[archive]\n"
+                    "type = s3\n"
+                    "access_key_id = initial\n"
+                ),
+            },
+        )
+        assert created.status_code == 201
+        target_id = uuid.UUID(created.json()["id"])
+
+        service = StorageTargetService(
+            app.state.settings
+        )
+        with app.state.database.session() as session:
+            target = service.get(
+                session,
+                target_id,
+            )
+            old_ref = target.credential_secret_ref
+            assert old_ref is not None
+            assert "access_key_id = initial" in (
+                service.resolve_rclone(
+                    session,
+                    target=target,
+                ).config_text
+            )
+
+        def reject_candidate(
+            _self,
+            **_kwargs,
+        ):
+            raise ApiError(
+                status_code=409,
+                code="rclone_probe_failed",
+                message="candidate rejected",
+            )
+
+        monkeypatch.setattr(
+            StorageTargetService,
+            "test_target",
+            reject_candidate,
+        )
+
+        rejected = client.patch(
+            f"/api/v1/storage/targets/{target_id}",
+            json={
+                "rclone_config_action": "replace",
+                "rclone_config": (
+                    "[archive]\n"
+                    "type = s3\n"
+                    "access_key_id = rejected\n"
+                ),
+            },
+        )
+        assert rejected.status_code == 409
+
+        with app.state.database.session() as session:
+            target = service.get(
+                session,
+                target_id,
+            )
+            assert target.credential_secret_ref == old_ref
+            resolved = service.resolve_rclone(
+                session,
+                target=target,
+            )
+            assert "access_key_id = initial" in (
+                resolved.config_text
+            )
+            assert "access_key_id = rejected" not in (
+                resolved.config_text
+            )
+
+
+def test_frigate_validation_failure_preserves_current_secret(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        base = {
+            "mode": "external",
+            "base_url": "http://frigate:5000",
+            "camera_map": [],
+            "mqtt_enabled": False,
+            "mqtt_host": None,
+            "mqtt_port": 1883,
+            "mqtt_topic_prefix": "frigate",
+            "mqtt_tls": False,
+        }
+
+        created = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "enabled": False,
+                "credentials_action": "replace",
+                "credentials": {
+                    "http_bearer_token": "current-token",
+                },
+            },
+        )
+        assert created.status_code == 200
+
+        with app.state.database.session() as session:
+            setting = session.get(
+                SystemSetting,
+                "ai.frigate",
+            )
+            assert setting is not None
+            old_ref = str(
+                setting.value_json["secret_ref"]
+            )
+
+        def reject_candidate(
+            *,
+            base_url: str,
+            credentials,
+        ) -> None:
+            del base_url, credentials
+            raise ApiError(
+                status_code=401,
+                code="frigate_request_failed",
+                message="candidate rejected",
+            )
+
+        monkeypatch.setattr(
+            FrigateProviderSettingsService,
+            "_validate_external_credentials",
+            staticmethod(reject_candidate),
+        )
+
+        rejected = client.put(
+            "/api/v1/system/integrations/frigate",
+            json={
+                **base,
+                "enabled": True,
+                "credentials_action": "replace",
+                "credentials": {
+                    "http_bearer_token": "rejected-token",
+                },
+            },
+        )
+        assert rejected.status_code == 401
+
+        with app.state.database.session() as session:
+            setting = session.get(
+                SystemSetting,
+                "ai.frigate",
+            )
+            assert setting is not None
+            assert (
+                str(setting.value_json["secret_ref"])
+                == old_ref
+            )
+            resolved = FrigateProviderSettingsService(
+                app.state.settings
+            ).get(session)
+            assert resolved is not None
+            assert (
+                resolved.credentials.http_bearer_token
+                == "current-token"
+            )
