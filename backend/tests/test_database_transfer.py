@@ -289,6 +289,8 @@ def test_database_transfer_sqlite_to_postgresql(
             is not None
             and preflight.source_database_bytes > 0
         )
+        assert preflight.missing_canonical_tables == ()
+        assert preflight.unexpected_tables == ()
         assert (
             preflight.required_target_free_bytes
             is not None
@@ -302,6 +304,32 @@ def test_database_transfer_sqlite_to_postgresql(
             "sqlite_preflight_review_measured_workload"
             in preflight.warnings
         )
+
+        with target.engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE zero_nvr_unmanaged_test "
+                "(id INTEGER PRIMARY KEY)"
+            )
+        try:
+            drifted = (
+                SQLiteMigrationPreflightService.collect(
+                    target,
+                    target_root=tmp_path,
+                )
+            )
+            assert not drifted.allowed
+            assert drifted.unexpected_tables == (
+                "zero_nvr_unmanaged_test",
+            )
+            assert (
+                "sqlite_preflight_unmanaged_tables_present"
+                in drifted.blockers
+            )
+        finally:
+            with target.engine.begin() as connection:
+                connection.exec_driver_sql(
+                    "DROP TABLE zero_nvr_unmanaged_test"
+                )
 
         reverse_url = (
             f"sqlite:///{tmp_path / 'reverse-from-postgres.db'}"
