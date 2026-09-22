@@ -182,7 +182,7 @@ Acceptance:
 - [x] canonical stream-purpose roles: RECORD / LIVE_HIGH / LIVE_LOW / AI_DETECT / SNAPSHOT / AUDIO where supported.
 - [x] deterministic default profile binding with user override.
 - [x] current Camera clock-offset/quality projection for ONVIF-capable devices; no high-frequency CameraClockStatus history table.
-- [ ] monitor/manage_ntp/ignore device-time mode where supported.
+- [x] monitor/manage_ntp/ignore device-time mode where supported.
 - [ ] apply/verify camera NTP configuration without modifying host OS NTP service.
 - [ ] device clock offset/RTT/quality health diagnostics.
 - [ ] thin RuntimeReconciler that maps desired Camera configuration to ZLM/ONVIF adapter operations after restart.
