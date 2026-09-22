@@ -10,7 +10,6 @@ from app.core.config import Settings
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.core.security import SecretStore
-from app.modules.auth.models import SecretRecord
 
 from .models import (
     STREAM_PURPOSES,
@@ -94,18 +93,13 @@ class CameraService:
         session.add(profile)
         session.flush()
 
-        encrypted = self.secret_store.encrypt_json({"uri": rtsp_url})
-        secret = SecretRecord(
+        profile.stream_uri_ref = self.secret_store.create_json(
+            session,
             kind="rtsp_uri",
             owner_type="camera_stream_profile",
             owner_id=profile.id,
-            key_id=encrypted.key_id,
-            encrypted_payload=encrypted.ciphertext,
-            version=encrypted.version,
+            value={"uri": rtsp_url},
         )
-        session.add(secret)
-        session.flush()
-        profile.stream_uri_ref = secret.id
         return profile
 
     def create_manual_rtsp_camera(
@@ -212,19 +206,20 @@ class CameraService:
                 message="Stream URI is not configured.",
             )
 
-        secret = session.get(SecretRecord, profile.stream_uri_ref)
-        if secret is None:
+        try:
+            value = self.secret_store.read_json(
+                session,
+                profile.stream_uri_ref,
+                kind="rtsp_uri",
+                owner_type="camera_stream_profile",
+                owner_id=profile.id,
+            )
+        except Exception as exc:
             raise ApiError(
                 status_code=409,
                 code="stream_secret_missing",
                 message="Stream credential reference is unavailable.",
-            )
-
-        value = self.secret_store.decrypt_json(
-            key_id=secret.key_id,
-            ciphertext=secret.encrypted_payload,
-            version=secret.version,
-        )
+            ) from exc
         uri = value.get("uri")
         if not isinstance(uri, str) or not uri:
             raise ApiError(
@@ -268,19 +263,13 @@ class CameraService:
                 message="ONVIF device credentials are unavailable.",
             )
 
-        credential_secret = session.get(SecretRecord, credential.secret_ref)
-        if credential_secret is None:
-            raise ApiError(
-                status_code=409,
-                code="device_credential_unavailable",
-                message="ONVIF device credentials are unavailable.",
-            )
-
         try:
-            credential_value = self.secret_store.decrypt_json(
-                key_id=credential_secret.key_id,
-                ciphertext=credential_secret.encrypted_payload,
-                version=credential_secret.version,
+            credential_value = self.secret_store.read_json(
+                session,
+                credential.secret_ref,
+                kind="onvif_credential",
+                owner_type="device",
+                owner_id=device.id,
             )
         except Exception as exc:
             raise ApiError(
