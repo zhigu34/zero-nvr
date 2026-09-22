@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
+import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,117 @@ from app.modules.storage.models import StorageTarget
 from app.modules.system.models import SystemSetting
 
 from .frigate import FrigateProviderSettingsService
+
+
+class _Timeval(ctypes.Structure):
+    _fields_ = [
+        ("tv_sec", ctypes.c_long),
+        ("tv_usec", ctypes.c_long),
+    ]
+
+
+class _Timex(ctypes.Structure):
+    # Linux struct timex. Querying adjtimex with modes=0 is read-only and
+    # observes the host kernel clock discipline from inside the container.
+    _fields_ = [
+        ("modes", ctypes.c_uint),
+        ("offset", ctypes.c_long),
+        ("freq", ctypes.c_long),
+        ("maxerror", ctypes.c_long),
+        ("esterror", ctypes.c_long),
+        ("status", ctypes.c_int),
+        ("constant", ctypes.c_long),
+        ("precision", ctypes.c_long),
+        ("tolerance", ctypes.c_long),
+        ("time", _Timeval),
+        ("tick", ctypes.c_long),
+        ("ppsfreq", ctypes.c_long),
+        ("jitter", ctypes.c_long),
+        ("shift", ctypes.c_int),
+        ("stabil", ctypes.c_long),
+        ("jitcnt", ctypes.c_long),
+        ("calcnt", ctypes.c_long),
+        ("errcnt", ctypes.c_long),
+        ("stbcnt", ctypes.c_long),
+        ("tai", ctypes.c_int),
+        ("reserved", ctypes.c_int * 11),
+    ]
+
+
+_STA_UNSYNC = 0x0040
+_STA_NANO = 0x2000
+_TIME_ERROR = 5
+
+
+@dataclass(frozen=True, slots=True)
+class HostClockKernelState:
+    synchronized: bool
+    time_state: int
+    status_flags: int
+    estimated_offset_ms: float
+    estimated_error_ms: float
+    max_error_ms: float
+    tai_offset_seconds: int
+
+
+def read_host_clock_kernel_state() -> HostClockKernelState | None:
+    if not sys.platform.startswith("linux"):
+        return None
+    try:
+        libc = ctypes.CDLL(
+            None,
+            use_errno=True,
+        )
+        adjtimex = libc.adjtimex
+        adjtimex.argtypes = [
+            ctypes.POINTER(_Timex)
+        ]
+        adjtimex.restype = ctypes.c_int
+        value = _Timex()
+        time_state = int(
+            adjtimex(
+                ctypes.byref(value)
+            )
+        )
+    except (AttributeError, OSError):
+        return None
+
+    if time_state < 0:
+        return None
+
+    offset_divisor = (
+        1_000_000.0
+        if value.status & _STA_NANO
+        else 1_000.0
+    )
+    return HostClockKernelState(
+        synchronized=(
+            time_state != _TIME_ERROR
+            and not (
+                value.status
+                & _STA_UNSYNC
+            )
+        ),
+        time_state=time_state,
+        status_flags=int(
+            value.status
+        ),
+        estimated_offset_ms=(
+            float(value.offset)
+            / offset_divisor
+        ),
+        estimated_error_ms=(
+            float(value.esterror)
+            / 1_000.0
+        ),
+        max_error_ms=(
+            float(value.maxerror)
+            / 1_000.0
+        ),
+        tai_offset_seconds=int(
+            value.tai
+        ),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +206,69 @@ class SystemHealthService:
         ):
             return "DEGRADED"
         return "OK"
+
+    @staticmethod
+    def _host_clock() -> HealthComponent:
+        state = read_host_clock_kernel_state()
+        base: dict[str, object] = {
+            "canonical_timezone": "UTC",
+            "checked_at": (
+                datetime.now(
+                    UTC
+                ).isoformat()
+            ),
+            "source": "linux_adjtimex",
+        }
+        if state is None:
+            return HealthComponent(
+                status="DISABLED",
+                message=(
+                    "host_clock_sync_probe_unavailable"
+                ),
+                details=base,
+            )
+
+        details = {
+            **base,
+            "sync_state": (
+                "synchronized"
+                if state.synchronized
+                else "unsynchronized"
+            ),
+            "kernel_time_state": (
+                state.time_state
+            ),
+            "status_flags": (
+                state.status_flags
+            ),
+            "estimated_offset_ms": round(
+                state.estimated_offset_ms,
+                3,
+            ),
+            "estimated_error_ms": round(
+                state.estimated_error_ms,
+                3,
+            ),
+            "max_error_ms": round(
+                state.max_error_ms,
+                3,
+            ),
+            "tai_offset_seconds": (
+                state.tai_offset_seconds
+            ),
+        }
+        if not state.synchronized:
+            return HealthComponent(
+                status="DEGRADED",
+                message=(
+                    "host_clock_unsynchronized"
+                ),
+                details=details,
+            )
+        return HealthComponent(
+            status="OK",
+            details=details,
+        )
 
     def _database(self) -> HealthComponent:
         try:
@@ -662,6 +838,7 @@ class SystemHealthService:
         )
         components = {
             "database": database_health,
+            "host_clock": self._host_clock(),
             "worker": self._worker(),
             "zlmediakit": self._zlm(),
             "storage": self._local_storage(
