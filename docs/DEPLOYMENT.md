@@ -310,7 +310,7 @@ Managed service lifecycle is explicit:
 
 The command edits only `COMPOSE_PROFILES` plus feature-specific bootstrap secrets/configuration, then targets that service. Disabling a feature removes its container but retains persistent data.
 
-Managed PostgreSQL startup does not silently switch an existing SQLite deployment to PostgreSQL. Database-engine migration remains a separate, explicit workflow.
+Managed PostgreSQL startup does not silently switch an existing SQLite deployment to PostgreSQL. Database-engine migration remains a separate, explicit workflow. When the active `ZERO_NVR_DATABASE_URL` points at the managed Compose `postgres` service, `feature disable postgres` refuses to stop that service until the active database is switched away, preventing an operator action from disconnecting the running control plane from its database.
 
 Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
 
