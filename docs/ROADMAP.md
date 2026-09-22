@@ -160,7 +160,7 @@ current code/tests.
 - [x] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [x] canonical UTC/timezone configuration and host clock-health checks.
 - [x] Adapter contracts.
-- [ ] Docker Compose development stack.
+- [x] Docker Compose development stack.
 
 Acceptance:
 
