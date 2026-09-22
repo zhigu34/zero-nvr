@@ -612,6 +612,13 @@ feature_disable() {
 
   preflight
   ensure_env
+  if [[ "$profile" == "postgres" ]] \
+    && database_url_uses_managed_postgres \
+      "$(env_get ZERO_NVR_DATABASE_URL "")"; then
+    echo "error: managed PostgreSQL is the active zero-nvr database" >&2
+    echo "switch the active database away from the managed postgres service before disabling it" >&2
+    return 1
+  fi
   if [[ "$profile" == "turn" ]]; then
     set_env_value ZERO_NVR_TURN_ENABLED "false"
   fi
