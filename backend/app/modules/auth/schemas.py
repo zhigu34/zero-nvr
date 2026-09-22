@@ -181,6 +181,11 @@ class OidcProviderUpdate(BaseModel):
         min_length=1,
         max_length=512,
     )
+    client_secret_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
     client_secret: SecretStr | None = None
     auto_provision: bool | None = None
     email_linking: bool | None = None
