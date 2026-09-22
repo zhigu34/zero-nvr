@@ -527,6 +527,16 @@ class ConfigurationImportService:
                 "$.sections.devices.devices"
             ),
         )
+        device_adapter_types = {
+            str(item["id"]): str(
+                item.get(
+                    "adapter_type",
+                    "",
+                )
+            )
+            for item in devices
+        }
+
         endpoint_ids = cls._id_set(
             endpoints,
             path=(
@@ -649,7 +659,7 @@ class ConfigurationImportService:
                         )
                     },
                 )
-            cls._require_ref(
+            device_id = cls._require_ref(
                 item.get("device_id"),
                 device_ids,
                 path=(
@@ -658,6 +668,30 @@ class ConfigurationImportService:
                 ),
                 nullable=True,
             )
+            if (
+                mode is not None
+                and mode != "ignore"
+                and (
+                    device_id is None
+                    or device_adapter_types.get(
+                        device_id
+                    )
+                    != "onvif"
+                )
+            ):
+                raise cls._error(
+                    "configuration_import_invalid",
+                    (
+                        "Camera time synchronization mode "
+                        "requires an ONVIF device."
+                    ),
+                    details={
+                        "path": (
+                            "$.sections.cameras.cameras"
+                            f"[{index}].time_sync_mode"
+                        )
+                    },
+                )
 
         profile_camera: dict[str, str] = {}
         for index, item in enumerate(profiles):
