@@ -27,6 +27,31 @@ class CameraUpdate(BaseModel):
     storage_label: str | None = Field(default=None, max_length=128)
 
 
+class CameraClockProjectionView(BaseModel):
+    camera_id: uuid.UUID
+    device_id: uuid.UUID | None
+    health: Literal[
+        "unknown",
+        "healthy",
+        "warning",
+        "critical",
+        "unsupported",
+    ]
+    quality: Literal[
+        "unknown",
+        "good",
+        "degraded",
+        "poor",
+    ]
+    measured_at: datetime | None = None
+    offset_ms: int | None = None
+    uncertainty_ms: int | None = None
+    rtt_ms: int | None = None
+    device_timezone: str | None = None
+    device_time_source: str | None = None
+    error_code: str | None = None
+
+
 class CameraSummary(BaseModel):
     id: uuid.UUID
     name: str
