@@ -24,6 +24,9 @@ from app.core.db import (
     assert_database_schema_current,
     database_schema_status,
 )
+from app.core.db.preflight import (
+    SQLiteMigrationPreflightService,
+)
 from app.core.db.transfer import DatabaseTransferService
 from app.core.db.types import utc_now
 from app.modules.auth.models import User, UserSession
@@ -261,6 +264,62 @@ def database_transfer_command(
         return 0
     finally:
         target.close()
+        source.close()
+
+
+def database_preflight_sqlite_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, source = _settings_database()
+    try:
+        result = SQLiteMigrationPreflightService.collect(
+            source,
+            target_root=settings.data_dir,
+        )
+        blockers = list(result.blockers)
+        if not args.confirm_workload:
+            blockers.append(
+                "sqlite_preflight_workload_confirmation_required"
+            )
+
+        payload = {
+            "allowed": not blockers,
+            "source_backend": result.source_backend,
+            "schema_current": result.schema_current,
+            "schema_current_revisions": list(
+                result.schema_current_revisions
+            ),
+            "schema_expected_revisions": list(
+                result.schema_expected_revisions
+            ),
+            "source_database_bytes": (
+                result.source_database_bytes
+            ),
+            "target_free_bytes": result.target_free_bytes,
+            "required_target_free_bytes": (
+                result.required_target_free_bytes
+            ),
+            "recent_window_seconds": (
+                result.recent_window_seconds
+            ),
+            "recent_writes": result.recent_writes,
+            "recent_write_rows": (
+                result.recent_write_rows
+            ),
+            "workload_confirmed": bool(
+                args.confirm_workload
+            ),
+            "blockers": blockers,
+            "warnings": list(result.warnings),
+        }
+        print(
+            json.dumps(
+                payload,
+                sort_keys=True,
+            )
+        )
+        return 0 if not blockers else 1
+    finally:
         source.close()
 
 
@@ -1388,6 +1447,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     schema.set_defaults(
         handler=check_schema_command
+    )
+
+    preflight_sqlite = sub.add_parser(
+        "database-preflight-sqlite"
+    )
+    preflight_sqlite.add_argument(
+        "--confirm-workload",
+        action="store_true",
+    )
+    preflight_sqlite.set_defaults(
+        handler=database_preflight_sqlite_command
     )
 
     transfer = sub.add_parser(
