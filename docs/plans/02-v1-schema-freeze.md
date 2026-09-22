@@ -314,6 +314,7 @@ device_id nullable
 channel_key
 name
 enabled
+maintenance
 config_revision
 location
 storage_label
