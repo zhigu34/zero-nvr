@@ -52,6 +52,7 @@ class AuthUser(BaseModel):
     username: str
     display_name: str
     email: str | None
+    email_verified: bool
     roles: list[str]
     permissions: list[str]
 
@@ -93,6 +94,7 @@ class UserAdminView(BaseModel):
     username: str
     display_name: str
     email: str | None
+    email_verified: bool
     enabled: bool
     roles: list[RoleSummary]
 
