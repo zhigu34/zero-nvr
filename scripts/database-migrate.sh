@@ -76,11 +76,20 @@ effective_source_url() {
 }
 
 managed_postgres_url() {
-  compose run --rm --no-deps zero-nvr \
+  local pg_password
+  pg_password="$(protected_env_get ZERO_NVR_POSTGRES_PASSWORD "")"
+  if [[ -z "$pg_password" ]]; then
+    echo "error: managed PostgreSQL password is unavailable" >&2
+    return 1
+  fi
+
+  compose run --rm --no-deps \
+    -e ZERO_NVR_MANAGED_POSTGRES_PASSWORD="$pg_password" \
+    zero-nvr \
     python -c '
 import os
 from sqlalchemy.engine import URL
-password = os.environ.get("ZERO_NVR_POSTGRES_PASSWORD", "")
+password = os.environ.get("ZERO_NVR_MANAGED_POSTGRES_PASSWORD", "")
 if not password:
     raise SystemExit("managed PostgreSQL password is unavailable")
 url = URL.create(
