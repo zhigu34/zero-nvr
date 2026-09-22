@@ -158,7 +158,7 @@ current code/tests.
 - [x] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
 - [x] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
 - [x] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
-- [ ] canonical UTC/timezone configuration and host clock-health checks.
+- [x] canonical UTC/timezone configuration and host clock-health checks.
 - [ ] Adapter contracts.
 - [ ] Docker Compose development stack.
 
