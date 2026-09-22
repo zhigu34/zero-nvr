@@ -203,6 +203,12 @@ credentials, notification URLs, and other product-managed credentials are not
 bootstrap environment secrets. They remain encrypted behind `SecretStore`
 rather than gaining parallel `*_FILE` configuration.
 
+RecoveryKit export resolves configured bootstrap `*_FILE` sources into direct
+values inside its protected `zero-nvr.env` and clears the corresponding file
+references in the kit copy. The live deployment `.env` is not modified. This
+keeps clean-host disaster recovery self-contained even when the normal host
+uses protected files.
+
 ### install
 
 Current implemented behavior:
