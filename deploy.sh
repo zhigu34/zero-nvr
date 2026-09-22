@@ -22,7 +22,7 @@ Usage:
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
   ./deploy.sh migrate
-  ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>]
+  ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>] [--confirm-sqlite-workload]
   ./deploy.sh backup [reason] [policy-id-or-name]
   ./deploy.sh restore list
   ./deploy.sh restore [snapshot-id|latest] --force
