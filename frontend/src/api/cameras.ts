@@ -4,6 +4,7 @@ export interface CameraSummary {
   id: string
   name: string
   enabled: boolean
+  maintenance: boolean
   retired_at: string | null
   location: string | null
   storage_label: string | null
@@ -257,6 +258,7 @@ export function updateCamera(
     name?: string
     location?: string | null
     storage_label?: string | null
+    maintenance?: boolean
     time_sync_mode?: "monitor" | "manage_ntp" | "ignore"
   }
 ): Promise<CameraDetail> {
