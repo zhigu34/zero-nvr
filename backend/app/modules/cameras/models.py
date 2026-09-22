@@ -48,6 +48,12 @@ class Device(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     hardware_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     adapter_type: Mapped[str] = mapped_column(String(64), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    config_revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     capabilities_json: Mapped[dict[str, Any]] = mapped_column(
         "capabilities",
         JSON,
@@ -210,6 +216,10 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         CheckConstraint(
             "time_sync_mode IN ('monitor','manage_ntp','ignore')",
             name="camera_time_sync_mode",
+        ),
+        CheckConstraint(
+            "config_revision >= 1",
+            name="camera_config_revision_positive",
         ),
     )
 
