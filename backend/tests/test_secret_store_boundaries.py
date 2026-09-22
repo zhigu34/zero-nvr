@@ -4,18 +4,22 @@ import ast
 from pathlib import Path
 
 
-MODULE_ROOT = (
+APP_ROOT = (
     Path(__file__).resolve().parents[1]
     / "app"
-    / "modules"
 )
+ALLOWED = {
+    Path("modules/auth/models.py"),
+    Path("core/security/secret_store.py"),
+}
 
 
-def test_business_modules_do_not_import_secret_record_directly() -> None:
+def test_application_uses_secret_store_persistence_boundary() -> None:
     offenders: list[str] = []
 
-    for path in MODULE_ROOT.rglob("*.py"):
-        if path == MODULE_ROOT / "auth" / "models.py":
+    for path in APP_ROOT.rglob("*.py"):
+        relative = path.relative_to(APP_ROOT)
+        if relative in ALLOWED:
             continue
 
         tree = ast.parse(
@@ -32,12 +36,12 @@ def test_business_modules_do_not_import_secret_record_directly() -> None:
                 for alias in node.names
             ):
                 offenders.append(
-                    str(path.relative_to(MODULE_ROOT))
+                    str(relative)
                 )
                 break
 
     assert offenders == [], (
-        "Business modules must use the SecretStore persistence "
+        "Application code must use the SecretStore persistence "
         "boundary instead of importing SecretRecord directly: "
         + ", ".join(sorted(offenders))
     )
