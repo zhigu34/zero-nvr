@@ -14,7 +14,7 @@ from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.modules.system.models import SystemSetting
 
-from .models import Role, SecretRecord
+from .models import Role
 
 
 OIDC_NAMESPACE = "auth.oidc"
@@ -322,48 +322,44 @@ class OidcProviderSettingsService:
                 message="OIDC client secret is invalid.",
             )
 
-        encrypted = self.secret_store.encrypt_json(
-            {
-                "client_secret": value,
-            }
-        )
-        secret = (
-            session.get(
-                SecretRecord,
-                existing_ref,
-            )
-            if existing_ref is not None
-            else None
-        )
-        if secret is None:
-            secret = SecretRecord(
+        if existing_ref is not None:
+            try:
+                metadata = self.secret_store.metadata(
+                    session,
+                    existing_ref,
+                )
+            except KeyError:
+                existing_ref = None
+            else:
+                if (
+                    metadata.kind != "oidc_client_secret"
+                    or metadata.owner_type != "oidc_provider"
+                    or metadata.owner_id != provider_id
+                ):
+                    raise ApiError(
+                        status_code=409,
+                        code="oidc_client_secret_unavailable",
+                        message="OIDC client secret reference is invalid.",
+                    )
+
+        if existing_ref is None:
+            return self.secret_store.create_json(
+                session,
                 kind="oidc_client_secret",
                 owner_type="oidc_provider",
                 owner_id=provider_id,
-                key_id=encrypted.key_id,
-                encrypted_payload=encrypted.ciphertext,
-                version=encrypted.version,
+                value={"client_secret": value},
             )
-            session.add(secret)
-            session.flush()
-        else:
-            if (
-                secret.kind != "oidc_client_secret"
-                or secret.owner_type
-                != "oidc_provider"
-                or secret.owner_id != provider_id
-            ):
-                raise ApiError(
-                    status_code=409,
-                    code="oidc_client_secret_unavailable",
-                    message="OIDC client secret reference is invalid.",
-                )
-            secret.key_id = encrypted.key_id
-            secret.encrypted_payload = (
-                encrypted.ciphertext
-            )
-            secret.version = encrypted.version
-        return secret.id
+
+        self.secret_store.replace_json(
+            session,
+            existing_ref,
+            kind="oidc_client_secret",
+            owner_type="oidc_provider",
+            owner_id=provider_id,
+            value={"client_secret": value},
+        )
+        return existing_ref
 
     def client_secret(
         self,
@@ -376,26 +372,13 @@ class OidcProviderSettingsService:
                 code="oidc_client_secret_unavailable",
                 message="OIDC client secret is not configured.",
             )
-        secret = session.get(
-            SecretRecord,
-            provider.secret_ref,
-        )
-        if (
-            secret is None
-            or secret.kind != "oidc_client_secret"
-            or secret.owner_type != "oidc_provider"
-            or secret.owner_id != provider.id
-        ):
-            raise ApiError(
-                status_code=409,
-                code="oidc_client_secret_unavailable",
-                message="OIDC client secret is unavailable.",
-            )
         try:
-            payload = self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            payload = self.secret_store.read_json(
+                session,
+                provider.secret_ref,
+                kind="oidc_client_secret",
+                owner_type="oidc_provider",
+                owner_id=provider.id,
             )
         except Exception as exc:
             raise ApiError(
@@ -587,10 +570,14 @@ class OidcProviderSettingsService:
         providers.pop(provider.key, None)
         self._save(session, providers)
         if provider.secret_ref is not None:
-            secret = session.get(
-                SecretRecord,
-                provider.secret_ref,
-            )
-            if secret is not None:
-                session.delete(secret)
+            try:
+                self.secret_store.delete(
+                    session,
+                    provider.secret_ref,
+                    kind="oidc_client_secret",
+                    owner_type="oidc_provider",
+                    owner_id=provider.id,
+                )
+            except KeyError:
+                pass
         session.flush()
