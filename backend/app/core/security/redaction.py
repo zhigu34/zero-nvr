@@ -30,6 +30,12 @@ _KEY_VALUE = re.compile(
     )
     """
 )
+_AUTH_HEADER = re.compile(
+    r"(?i)\bAuthorization\s*[:=]\s*[^\r\n,;]+"
+)
+_COOKIE_HEADER = re.compile(
+    r"(?i)\b(?:Cookie|Set-Cookie)\s*[:=]\s*[^\r\n]+"
+)
 _BEARER = re.compile(
     r"(?i)\bBearer\s+[^\s,;]+"
 )
@@ -48,6 +54,8 @@ def redact_text(value: str) -> str:
         lambda match: f"{match.group('scheme')}***:***@",
         value,
     )
+    redacted = _AUTH_HEADER.sub("Authorization: ***", redacted)
+    redacted = _COOKIE_HEADER.sub("Cookie: ***", redacted)
     redacted = _BEARER.sub("Bearer ***", redacted)
     redacted = _KEY_VALUE.sub(
         lambda match: (
