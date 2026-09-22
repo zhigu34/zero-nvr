@@ -16,8 +16,8 @@ def test_redact_sensitive_value_covers_nested_and_text_forms() -> None:
             "api_token": "plain-token",
             "message": (
                 'provider returned "client_secret": "plain-client-secret" '
-                "Authorization: Basic plain-basic "
-        "Cookie: session=plain-cookie"
+                "Authorization: Basic plain-basic\n"
+                "Cookie: session=plain-cookie"
             ),
         },
         "url": "rtsp://camera-user:camera-pass@example.test/live",
@@ -30,7 +30,8 @@ def test_redact_sensitive_value_covers_nested_and_text_forms() -> None:
         "plain-password",
         "plain-token",
         "plain-client-secret",
-        "plain-bearer",
+        "plain-basic",
+        "plain-cookie",
         "camera-user",
         "camera-pass",
     ):
@@ -53,8 +54,7 @@ def test_redact_text_preserves_non_sensitive_context() -> None:
     assert "request failed" in redacted
     assert "plain-password" not in redacted
     assert "plain-token" not in redacted
-    assert "plain-basic" not in redacted
-    assert "plain-cookie" not in redacted
+    assert "plain-bearer" not in redacted
 
 
 def test_api_error_sanitizes_message_and_details() -> None:
