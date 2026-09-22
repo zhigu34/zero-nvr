@@ -609,7 +609,7 @@ def test_onvif_import_rejects_failed_zlm_stream_verification_without_persistence
         )
         assert (
             response.json()["error"]["details"][
-                "profile_token"
+                "profile_key"
             ]
             == "main-a"
         )
