@@ -241,12 +241,45 @@ def update_backup_policy(
         changes["repository"] = (
             body.repository.get_secret_value()
         )
-    if "credentials" in body.model_fields_set:
-        if body.credentials is None:
+    credential_action = body.credentials_action
+    has_credentials = body.credentials is not None
+    if (
+        credential_action == "replace"
+        and not has_credentials
+    ):
+        raise ApiError(
+            status_code=400,
+            code="backup_credentials_update_invalid",
+            message=(
+                "Backup credential replacement "
+                "requires credential fields."
+            ),
+        )
+    if (
+        credential_action != "replace"
+        and has_credentials
+    ):
+        raise ApiError(
+            status_code=400,
+            code="backup_credentials_update_invalid",
+            message=(
+                "Backup credential values are only "
+                "accepted with action=replace."
+            ),
+        )
+    changes["credentials_action"] = (
+        credential_action
+    )
+    if has_credentials:
+        assert body.credentials is not None
+        if not body.credentials.model_fields_set:
             raise ApiError(
                 status_code=400,
-                code="backup_credentials_invalid",
-                message="Backup credentials cannot be cleared.",
+                code="backup_credentials_update_invalid",
+                message=(
+                    "Backup credential replacement "
+                    "must change at least one field."
+                ),
             )
         credential_changes: dict[str, object] = {}
         if body.credentials.password is not None:
