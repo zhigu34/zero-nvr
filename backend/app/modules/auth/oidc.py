@@ -535,8 +535,25 @@ class OidcProviderSettingsService:
             ),
         )
 
-        if "client_secret" in changes:
-            raw = changes["client_secret"]
+        secret_action = str(
+            changes.get(
+                "client_secret_action",
+                "keep",
+            )
+        )
+        if secret_action not in {
+            "keep",
+            "replace",
+            "clear",
+        }:
+            raise ApiError(
+                status_code=400,
+                code="oidc_client_secret_update_invalid",
+                message="OIDC client secret action is invalid.",
+            )
+
+        if secret_action == "replace":
+            raw = changes.get("client_secret")
             if not isinstance(raw, str):
                 raise ApiError(
                     status_code=400,
@@ -550,6 +567,40 @@ class OidcProviderSettingsService:
                     provider_id=updated.id,
                     existing_ref=updated.secret_ref,
                     client_secret=raw,
+                ),
+            )
+        elif secret_action == "clear":
+            if "client_secret" in changes:
+                raise ApiError(
+                    status_code=400,
+                    code="oidc_client_secret_update_invalid",
+                    message=(
+                        "OIDC client secret clear action "
+                        "does not accept a replacement value."
+                    ),
+                )
+            if updated.secret_ref is not None:
+                try:
+                    self.secret_store.delete(
+                        session,
+                        updated.secret_ref,
+                        kind="oidc_client_secret",
+                        owner_type="oidc_provider",
+                        owner_id=updated.id,
+                    )
+                except KeyError:
+                    pass
+            updated = replace(
+                updated,
+                secret_ref=None,
+            )
+        elif "client_secret" in changes:
+            raise ApiError(
+                status_code=400,
+                code="oidc_client_secret_update_invalid",
+                message=(
+                    "OIDC client secret value requires "
+                    "action=replace."
                 ),
             )
 
