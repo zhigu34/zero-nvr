@@ -8,7 +8,7 @@ from pathlib import Path
 
 import httpx
 from pydantic import SecretStr
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.config import Settings
 from app.core.db import Base, Database
@@ -385,6 +385,31 @@ def test_provider_settings_encrypt_credentials_and_keep_instance_stable(
                 updated.credentials.http_bearer_token
                 == "http-secret-token"
             )
+
+            cleared = service.put(
+                session,
+                enabled=True,
+                mode="external",
+                base_url="https://frigate-new.example.test",
+                camera_map={"front_door": camera_id},
+                mqtt_enabled=False,
+                mqtt_host=None,
+                mqtt_port=1883,
+                mqtt_topic_prefix="frigate",
+                mqtt_tls=False,
+                credentials_action="clear",
+            )
+            session.commit()
+            assert cleared.instance_id == first_id
+            assert cleared.credentials == FrigateCredentials()
+            assert session.scalar(
+                select(func.count()).select_from(
+                    SecretRecord
+                ).where(
+                    SecretRecord.kind
+                    == "frigate_credentials"
+                )
+            ) == 0
     finally:
         database.close()
 
