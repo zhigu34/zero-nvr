@@ -71,19 +71,13 @@ ensure_env() {
     echo "created: $ENV_FILE"
   fi
 
-  local key value secret_key secret_key_file
-  secret_key="$(env_get ZERO_NVR_SECRET_KEY)"
-  secret_key_file="$(env_get ZERO_NVR_SECRET_KEY_FILE)"
-
-  if [[ -n "$secret_key" && -n "$secret_key_file" ]]; then
-    echo "error: configure only one of ZERO_NVR_SECRET_KEY or ZERO_NVR_SECRET_KEY_FILE" >&2
-    exit 1
-  fi
-  if [[ -z "$secret_key" && -z "$secret_key_file" ]]; then
+  local key value secret_key
+  secret_key="$(protected_env_get ZERO_NVR_SECRET_KEY "")"
+  if [[ -z "$secret_key" ]]; then
     secret_key="$(random_hex_32)"
     set_env_value ZERO_NVR_SECRET_KEY "$secret_key"
     echo "generated: ZERO_NVR_SECRET_KEY"
-  elif [[ -n "$secret_key" && ${#secret_key} -lt 32 ]]; then
+  elif [[ ${#secret_key} -lt 32 ]]; then
     echo "error: ZERO_NVR_SECRET_KEY must be at least 32 characters" >&2
     exit 1
   fi
@@ -92,7 +86,7 @@ ensure_env() {
     ZERO_NVR_ZLM_API_SECRET \
     ZERO_NVR_ZLM_HOOK_SECRET
   do
-    value="$(env_get "$key")"
+    value="$(protected_env_get "$key" "")"
     if [[ -z "$value" ]]; then
       value="$(random_hex_32)"
       set_env_value "$key" "$value"
@@ -447,7 +441,7 @@ EOF
       local image username password config_dir
       image="$(env_get ZERO_NVR_MQTT_IMAGE "eclipse-mosquitto:2.1.2-alpine")"
       username="$(env_get ZERO_NVR_MQTT_USERNAME "zero-nvr")"
-      password="$(env_get ZERO_NVR_MQTT_PASSWORD "")"
+      password="$(protected_env_get ZERO_NVR_MQTT_PASSWORD "")"
       if [[ -z "$password" ]]; then
         password="$(random_hex_32)"
         set_env_value ZERO_NVR_MQTT_PASSWORD "$password"
@@ -473,7 +467,7 @@ EOF
     turn)
       local turn_secret turn_realm turn_external_ip
       local relay_min relay_max turn_config_dir
-      turn_secret="$(env_get ZERO_NVR_TURN_SHARED_SECRET "")"
+      turn_secret="$(protected_env_get ZERO_NVR_TURN_SHARED_SECRET "")"
       if [[ -z "$turn_secret" ]]; then
         turn_secret="$(random_hex_32)"
         set_env_value ZERO_NVR_TURN_SHARED_SECRET "$turn_secret"
@@ -535,12 +529,14 @@ EOF
       ;;
     postgres)
       local pg_password
-      pg_password="$(env_get ZERO_NVR_POSTGRES_PASSWORD "")"
+      pg_password="$(protected_env_get ZERO_NVR_POSTGRES_PASSWORD "")"
       if [[ -z "$pg_password" ]]; then
         pg_password="$(random_hex_32)"
         set_env_value ZERO_NVR_POSTGRES_PASSWORD "$pg_password"
         echo "generated: ZERO_NVR_POSTGRES_PASSWORD"
       fi
+      mkdir -p "$data_root/bootstrap-secrets"
+      chmod 700 "$data_root/bootstrap-secrets"
       ;;
     *)
       echo "error: unsupported feature profile: $profile" >&2
@@ -793,26 +789,18 @@ case "$command" in
       echo "error: restore requires the original RecoveryKit .env; refusing to generate a new master key" >&2
       exit 1
     fi
-    secret_key="$(env_get ZERO_NVR_SECRET_KEY)"
-    secret_key_file="$(env_get ZERO_NVR_SECRET_KEY_FILE)"
-    if [[ -n "$secret_key" && -n "$secret_key_file" ]]; then
-      echo "error: RecoveryKit config contains both ZERO_NVR_SECRET_KEY and ZERO_NVR_SECRET_KEY_FILE" >&2
-      exit 1
-    fi
-    if [[ -z "$secret_key" && -z "$secret_key_file" ]]; then
-      echo "error: RecoveryKit config is missing the original zero-nvr master secret bootstrap" >&2
-      exit 1
-    fi
-    if [[ -n "$secret_key" && ${#secret_key} -lt 32 ]]; then
-      echo "error: RecoveryKit ZERO_NVR_SECRET_KEY is invalid" >&2
+    secret_key="$(protected_env_get ZERO_NVR_SECRET_KEY "")"
+    if [[ ${#secret_key} -lt 32 ]]; then
+      echo "error: RecoveryKit master secret bootstrap is missing or invalid" >&2
       exit 1
     fi
     ensure_host_dirs
     build_backend
     if [[ "${1:-}" != "list" ]]; then
       for key in ZERO_NVR_ZLM_API_SECRET ZERO_NVR_ZLM_HOOK_SECRET; do
-        if [[ ${#$(env_get "$key")} -lt 32 ]]; then
-          echo "error: RecoveryKit .env is missing $key" >&2
+        value="$(protected_env_get "$key" "")"
+        if [[ ${#value} -lt 32 ]]; then
+          echo "error: RecoveryKit bootstrap is missing $key or ${key}_FILE" >&2
           exit 1
         fi
       done
