@@ -7,11 +7,21 @@ from typing import Literal
 from pydantic import BaseModel, Field, SecretStr
 
 
+class SmtpCredentialsInput(BaseModel):
+    username: str = Field(
+        min_length=1,
+        max_length=320,
+    )
+    password: SecretStr
+
+
 class NotificationTargetCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
+    kind: Literal["apprise", "smtp"] = "apprise"
     enabled: bool = True
     config: dict[str, object] = Field(default_factory=dict)
-    url: SecretStr
+    url: SecretStr | None = None
+    smtp_credentials: SmtpCredentialsInput | None = None
 
 
 class NotificationTargetUpdate(BaseModel):
@@ -28,15 +38,30 @@ class NotificationTargetUpdate(BaseModel):
         "clear",
     ] = "keep"
     url: SecretStr | None = None
+    credentials_action: Literal[
+        "keep",
+        "replace",
+        "clear",
+    ] = "keep"
+    smtp_credentials: SmtpCredentialsInput | None = None
 
 
 class NotificationTargetView(BaseModel):
     id: uuid.UUID
     name: str
-    kind: Literal["apprise"]
+    kind: Literal["apprise", "smtp"]
     enabled: bool
     config: dict[str, object]
     url_configured: bool
+    credentials_configured: bool
+
+
+class SecurityEmailTargetUpdate(BaseModel):
+    target_id: uuid.UUID | None
+
+
+class SecurityEmailTargetView(BaseModel):
+    target_id: uuid.UUID | None
 
 
 class NotificationTargetTestView(BaseModel):
