@@ -540,10 +540,18 @@ class CameraService:
             for item in camera.stream_bindings
         )
         desired = sorted(bindings)
-        if current != desired:
-            CameraService.bump_config_revision(
-                camera
+        if current == desired:
+            return sorted(
+                camera.stream_bindings,
+                key=lambda item: (
+                    item.purpose,
+                    item.id,
+                ),
             )
+
+        CameraService.bump_config_revision(
+            camera
+        )
 
         session.execute(
             delete(CameraStreamBinding).where(
