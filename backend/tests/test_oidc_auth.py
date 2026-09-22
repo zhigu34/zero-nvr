@@ -227,6 +227,8 @@ def test_oidc_auto_provision_login_and_identity_reuse(
         assert me.json()["roles"] == [
             "Viewer"
         ]
+        assert me.json()["email"] == "sso@example.com"
+        assert me.json()["email_verified"] is True
 
         client.cookies.clear()
         assert client.get(
