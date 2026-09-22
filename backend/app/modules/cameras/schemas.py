@@ -25,6 +25,11 @@ class CameraUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     location: str | None = Field(default=None, max_length=256)
     storage_label: str | None = Field(default=None, max_length=128)
+    time_sync_mode: Literal[
+        "monitor",
+        "manage_ntp",
+        "ignore",
+    ] | None = None
 
 
 class CameraClockProjectionView(BaseModel):
@@ -43,6 +48,11 @@ class CameraClockProjectionView(BaseModel):
         "degraded",
         "poor",
     ]
+    sync_mode: Literal[
+        "monitor",
+        "manage_ntp",
+        "ignore",
+    ]
     measured_at: datetime | None = None
     offset_ms: int | None = None
     uncertainty_ms: int | None = None
@@ -60,6 +70,11 @@ class CameraSummary(BaseModel):
     location: str | None
     storage_label: str | None
     adapter_type: str | None
+    time_sync_mode: Literal[
+        "monitor",
+        "manage_ntp",
+        "ignore",
+    ]
     ptz_capable: bool = False
 
 
