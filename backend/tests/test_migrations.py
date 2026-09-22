@@ -110,6 +110,11 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             ]
             is True
         )
+        user_columns = {
+            item["name"]
+            for item in inspector.get_columns("users")
+        }
+        assert "email_verified_at" in user_columns
     finally:
         engine.dispose()
 
@@ -164,6 +169,11 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
             ]
             is True
         )
+        user_columns = {
+            item["name"]
+            for item in inspector.get_columns("users")
+        }
+        assert "email_verified_at" in user_columns
     finally:
         engine.dispose()
 
