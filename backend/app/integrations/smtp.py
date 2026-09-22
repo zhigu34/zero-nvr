@@ -16,10 +16,20 @@ class SmtpIntegrationError(RuntimeError):
         message: str,
         *,
         status_code: int = 502,
+        category: str = "transient",
     ) -> None:
         super().__init__(message)
+        if category not in {
+            "transient",
+            "permanent",
+            "rate_limited",
+        }:
+            raise ValueError(
+                "SMTP error category is invalid"
+            )
         self.code = code
         self.status_code = status_code
+        self.category = category
 
 
 class SmtpAdapter:
@@ -45,18 +55,21 @@ class SmtpAdapter:
                 "smtp_security_invalid",
                 "SMTP security mode is invalid.",
                 status_code=400,
+                category="permanent",
             )
         if not host or port < 1 or port > 65535:
             raise SmtpIntegrationError(
                 "smtp_connection_invalid",
                 "SMTP connection settings are invalid.",
                 status_code=400,
+                category="permanent",
             )
         if (username is None) != (password is None):
             raise SmtpIntegrationError(
                 "smtp_credentials_invalid",
                 "SMTP credentials are invalid.",
                 status_code=400,
+                category="permanent",
             )
 
         self.host = host
@@ -121,12 +134,14 @@ class SmtpAdapter:
             raise SmtpIntegrationError(
                 "smtp_authentication_failed",
                 "SMTP authentication failed.",
+                category="permanent",
             ) from exc
         except smtplib.SMTPNotSupportedError as exc:
             self._close(client)
             raise SmtpIntegrationError(
                 "smtp_tls_unavailable",
                 "SMTP server does not support the configured security mode.",
+                category="permanent",
             ) from exc
         except (
             smtplib.SMTPException,
@@ -143,13 +158,15 @@ class SmtpAdapter:
         client = self._connect()
         self._close(client)
 
-    def send_test_email(
+    def send_email(
         self,
         *,
         recipient: str,
+        title: str,
+        body: str,
     ) -> None:
         message = EmailMessage()
-        message["Subject"] = "zero-nvr SMTP test"
+        message["Subject"] = title
         message["From"] = (
             formataddr(
                 (
@@ -161,10 +178,7 @@ class SmtpAdapter:
             else self.from_address
         )
         message["To"] = recipient
-        message.set_content(
-            "This is a zero-nvr SMTP test email. "
-            "If you received it, SMTP delivery is working."
-        )
+        message.set_content(body)
 
         client = self._connect()
         try:
@@ -172,7 +186,8 @@ class SmtpAdapter:
         except smtplib.SMTPRecipientsRefused as exc:
             raise SmtpIntegrationError(
                 "smtp_recipient_rejected",
-                "SMTP server rejected the test recipient.",
+                "SMTP server rejected the recipient.",
+                category="permanent",
             ) from exc
         except (
             smtplib.SMTPException,
@@ -181,7 +196,21 @@ class SmtpAdapter:
         ) as exc:
             raise SmtpIntegrationError(
                 "smtp_delivery_failed",
-                "SMTP test email delivery failed.",
+                "SMTP email delivery failed.",
             ) from exc
         finally:
             self._close(client)
+
+    def send_test_email(
+        self,
+        *,
+        recipient: str,
+    ) -> None:
+        self.send_email(
+            recipient=recipient,
+            title="zero-nvr SMTP test",
+            body=(
+                "This is a zero-nvr SMTP test email. "
+                "If you received it, SMTP delivery is working."
+            ),
+        )
