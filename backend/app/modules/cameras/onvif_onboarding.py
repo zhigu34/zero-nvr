@@ -480,6 +480,9 @@ class OnvifOnboardingService:
 
         for model, probe in profile_updates:
             current_uri: str | None = None
+            stream_secret_missing = (
+                model.stream_uri_ref is None
+            )
             if model.stream_uri_ref is not None:
                 try:
                     current_secret = (
@@ -505,6 +508,7 @@ class OnvifOnboardingService:
                         )
                 except KeyError:
                     current_uri = None
+                    stream_secret_missing = True
 
             assert probe.stream_uri is not None
             stream_uri_changed = (
@@ -535,7 +539,7 @@ class OnvifOnboardingService:
             model.status = "available"
             model.last_verified_at = now
 
-            if model.stream_uri_ref is None:
+            if stream_secret_missing:
                 model.stream_uri_ref = (
                     self.secret_store.create_json(
                         session,
