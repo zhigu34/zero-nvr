@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
-from app.modules.auth.models import SecretRecord
 
 from .models import NotificationDelivery, NotificationTarget
 
@@ -223,39 +222,23 @@ class NotificationTargetService:
                 message="Notification target URL is invalid.",
             )
 
-        encrypted = self.secret_store.encrypt_json(
-            {"url": normalized}
-        )
-        secret = session.get(
-            SecretRecord,
-            target.secret_ref,
-        )
-        if secret is None:
-            secret = SecretRecord(
+        try:
+            self.secret_store.replace_json(
+                session,
+                target.secret_ref,
                 kind="notification_url",
                 owner_type="notification_target",
                 owner_id=target.id,
-                key_id=encrypted.key_id,
-                encrypted_payload=encrypted.ciphertext,
-                version=encrypted.version,
+                value={"url": normalized},
             )
-            session.add(secret)
-            session.flush()
-            target.secret_ref = secret.id
-        else:
-            if (
-                secret.kind != "notification_url"
-                or secret.owner_type != "notification_target"
-                or secret.owner_id != target.id
-            ):
-                raise ApiError(
-                    status_code=409,
-                    code="notification_secret_invalid",
-                    message="Notification target secret reference is invalid.",
-                )
-            secret.key_id = encrypted.key_id
-            secret.encrypted_payload = encrypted.ciphertext
-            secret.version = encrypted.version
+        except KeyError:
+            target.secret_ref = self.secret_store.create_json(
+                session,
+                kind="notification_url",
+                owner_type="notification_target",
+                owner_id=target.id,
+                value={"url": normalized},
+            )
 
     def create(
         self,
@@ -290,18 +273,12 @@ class NotificationTargetService:
             )
 
         target_id = uuid.uuid4()
-        secret_id = uuid.uuid4()
-        encrypted = self.secret_store.encrypt_json(
-            {"url": normalized_url}
-        )
-        secret = SecretRecord(
-            id=secret_id,
+        secret_id = self.secret_store.create_json(
+            session,
             kind="notification_url",
             owner_type="notification_target",
             owner_id=target_id,
-            key_id=encrypted.key_id,
-            encrypted_payload=encrypted.ciphertext,
-            version=encrypted.version,
+            value={"url": normalized_url},
         )
         target = NotificationTarget(
             id=target_id,
@@ -311,7 +288,7 @@ class NotificationTargetService:
             config_json=normalized_config,
             secret_ref=secret_id,
         )
-        session.add_all([secret, target])
+        session.add(target)
         session.flush()
         return target
 
@@ -405,26 +382,13 @@ class NotificationTargetService:
         *,
         target: NotificationTarget,
     ) -> str:
-        secret = session.get(
-            SecretRecord,
-            target.secret_ref,
-        )
-        if (
-            secret is None
-            or secret.kind != "notification_url"
-            or secret.owner_type != "notification_target"
-            or secret.owner_id != target.id
-        ):
-            raise ApiError(
-                status_code=409,
-                code="notification_secret_unavailable",
-                message="Notification target secret is unavailable.",
-            )
         try:
-            payload = self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            payload = self.secret_store.read_json(
+                session,
+                target.secret_ref,
+                kind="notification_url",
+                owner_type="notification_target",
+                owner_id=target.id,
             )
         except Exception as exc:
             raise ApiError(
@@ -471,8 +435,8 @@ class NotificationTargetService:
             ),
         )
 
-    @staticmethod
     def delete(
+        self,
         session: Session,
         *,
         target: NotificationTarget,
@@ -512,6 +476,13 @@ class NotificationTargetService:
         secret_ref = target.secret_ref
         session.delete(target)
         session.flush()
-        secret = session.get(SecretRecord, secret_ref)
-        if secret is not None:
-            session.delete(secret)
+        try:
+            self.secret_store.delete(
+                session,
+                secret_ref,
+                kind="notification_url",
+                owner_type="notification_target",
+                owner_id=target.id,
+            )
+        except KeyError:
+            pass
