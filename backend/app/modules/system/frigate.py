@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
+from app.integrations.frigate import FrigateHttpAdapter, FrigateIntegrationError
 from app.modules.cameras.models import Camera
 
 from .models import SystemSetting
@@ -258,13 +259,13 @@ class FrigateProviderSettingsService:
             ),
         )
 
-    def _replace_credentials(
+    def _stage_credentials(
         self,
         session: Session,
         *,
         existing_ref: uuid.UUID | None,
         credentials: FrigateCredentials,
-    ) -> uuid.UUID | None:
+    ) -> uuid.UUID:
         payload = {
             key: value
             for key, value in {
@@ -307,24 +308,34 @@ class FrigateProviderSettingsService:
                 ),
             )
 
-        if existing_ref is None:
-            return self.secret_store.create_json(
-                session,
-                kind="frigate_credentials",
-                owner_type="system_setting",
-                owner_id=_FRIGATE_OWNER_ID,
-                value=payload,
-            )
-
-        self.secret_store.replace_json(
+        return self.secret_store.create_json(
             session,
-            existing_ref,
             kind="frigate_credentials",
             owner_type="system_setting",
             owner_id=_FRIGATE_OWNER_ID,
             value=payload,
         )
-        return existing_ref
+
+    @staticmethod
+    def _validate_external_credentials(
+        *,
+        base_url: str,
+        credentials: FrigateCredentials,
+    ) -> None:
+        try:
+            with FrigateHttpAdapter(
+                base_url=base_url,
+                bearer_token=credentials.http_bearer_token,
+                username=credentials.http_username,
+                password=credentials.http_password,
+            ) as adapter:
+                adapter.version()
+        except FrigateIntegrationError as exc:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+            ) from exc
 
     def put(
         self,
@@ -385,6 +396,7 @@ class FrigateProviderSettingsService:
                 current_ref = None
 
         secret_ref = current_ref
+        delete_secret_ref: uuid.UUID | None = None
         if credentials_action not in {
             "keep",
             "replace",
@@ -406,11 +418,17 @@ class FrigateProviderSettingsService:
                         "requires credential values."
                     ),
                 )
-            secret_ref = self._replace_credentials(
+            if enabled and mode == "external":
+                self._validate_external_credentials(
+                    base_url=normalized_url,
+                    credentials=credentials,
+                )
+            secret_ref = self._stage_credentials(
                 session,
                 existing_ref=current_ref,
                 credentials=credentials,
             )
+            delete_secret_ref = current_ref
         elif credentials_action == "clear":
             if credentials is not None:
                 raise ApiError(
@@ -421,17 +439,7 @@ class FrigateProviderSettingsService:
                         "does not accept replacement values."
                     ),
                 )
-            if current_ref is not None:
-                try:
-                    self.secret_store.delete(
-                        session,
-                        current_ref,
-                        kind="frigate_credentials",
-                        owner_type="system_setting",
-                        owner_id=_FRIGATE_OWNER_ID,
-                    )
-                except KeyError:
-                    pass
+            delete_secret_ref = current_ref
             secret_ref = None
         elif credentials is not None:
             raise ApiError(
@@ -471,6 +479,22 @@ class FrigateProviderSettingsService:
             setting.value_json = value_json
 
         session.flush()
+
+        if (
+            delete_secret_ref is not None
+            and delete_secret_ref != secret_ref
+        ):
+            try:
+                self.secret_store.delete(
+                    session,
+                    delete_secret_ref,
+                    kind="frigate_credentials",
+                    owner_type="system_setting",
+                    owner_id=_FRIGATE_OWNER_ID,
+                )
+            except KeyError:
+                pass
+
         result = self.get(session)
         assert result is not None
         return result
