@@ -155,7 +155,7 @@ current code/tests.
 - [x] integration authentication through scoped Personal API Tokens / provider credentials without introducing a generic service-principal framework in V1.
 - [x] append-oriented AuditEvent persistence with secret redaction.
 - [x] Structured logging and health/readiness.
-- [ ] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
+- [x] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
 - [ ] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
 - [ ] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [ ] canonical UTC/timezone configuration and host clock-health checks.
