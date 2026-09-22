@@ -166,7 +166,7 @@ class SQLiteMigrationPreflightService:
                 )
 
         warnings.append(
-            "sqlite_preflight_workload_confirmation_required"
+            "sqlite_preflight_review_measured_workload"
         )
 
         return SQLiteMigrationPreflight(
