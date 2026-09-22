@@ -470,10 +470,22 @@ class OnvifOnboardingService:
                 != candidate_credential
             )
             if credential_changed:
-                self.secret_store.replace_json(
+                old_secret_ref = (
+                    credential.secret_ref
+                )
+                credential.secret_ref = (
+                    self.secret_store.create_json(
+                        session,
+                        kind="onvif_credential",
+                        owner_type="device",
+                        owner_id=device.id,
+                        value=candidate_credential,
+                    )
+                )
+                session.flush()
+                self.secret_store.delete(
                     session,
-                    credential.secret_ref,
-                    value=candidate_credential,
+                    old_secret_ref,
                     kind="onvif_credential",
                     owner_type="device",
                     owner_id=device.id,
@@ -555,12 +567,27 @@ class OnvifOnboardingService:
                     )
                 )
             elif stream_uri_changed:
-                self.secret_store.replace_json(
+                old_stream_ref = (
+                    model.stream_uri_ref
+                )
+                model.stream_uri_ref = (
+                    self.secret_store.create_json(
+                        session,
+                        kind="rtsp_uri",
+                        owner_type=(
+                            "camera_stream_profile"
+                        ),
+                        owner_id=model.id,
+                        value={
+                            "uri": probe.stream_uri
+                        },
+                    )
+                )
+                session.flush()
+                assert old_stream_ref is not None
+                self.secret_store.delete(
                     session,
-                    model.stream_uri_ref,
-                    value={
-                        "uri": probe.stream_uri
-                    },
+                    old_stream_ref,
                     kind="rtsp_uri",
                     owner_type=(
                         "camera_stream_profile"
