@@ -295,6 +295,12 @@ def database_preflight_sqlite_command(
             "source_database_bytes": (
                 result.source_database_bytes
             ),
+            "missing_canonical_tables": list(
+                result.missing_canonical_tables
+            ),
+            "unexpected_tables": list(
+                result.unexpected_tables
+            ),
             "target_free_bytes": result.target_free_bytes,
             "required_target_free_bytes": (
                 result.required_target_free_bytes
