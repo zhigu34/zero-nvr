@@ -1223,7 +1223,10 @@ async def apply_camera_ntp_settings(
     service = CameraNtpService(
         request.app.state.settings
     )
-    devices = service.list_devices(session)
+    devices = service.list_devices(
+        session,
+        modes={"manage_ntp"},
+    )
 
     ready = []
     results: list[CameraNtpDeviceResultView] = []
@@ -1333,7 +1336,13 @@ async def camera_clock_health(
     projection_store = (
         request.app.state.camera_clock_projections
     )
-    devices = service.list_devices(session)
+    devices = service.list_devices(
+        session,
+        modes={
+            "monitor",
+            "manage_ntp",
+        },
+    )
     ready = []
     results: list[CameraClockHealthResultView] = []
 
