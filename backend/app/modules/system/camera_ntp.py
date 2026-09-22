@@ -9,7 +9,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
-from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import (
     Device,
     DeviceCredential,
@@ -95,22 +94,13 @@ class CameraNtpService:
                 message="ONVIF device credentials are unavailable.",
             )
 
-        secret = session.get(
-            SecretRecord,
-            credential.secret_ref,
-        )
-        if secret is None:
-            raise ApiError(
-                status_code=409,
-                code="device_credential_unavailable",
-                message="ONVIF device credentials are unavailable.",
-            )
-
         try:
-            value = self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            value = self.secret_store.read_json(
+                session,
+                credential.secret_ref,
+                kind="onvif_credential",
+                owner_type="device",
+                owner_id=device.id,
             )
         except Exception as exc:
             raise ApiError(
