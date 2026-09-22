@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.security import SecretStore
+from app.modules.auth.models import SecretRecord
 
 
 NEW_KEY = "n" * 40
@@ -87,3 +92,97 @@ def test_missing_old_key_fails_explicitly() -> None:
             key_id=old_value.key_id,
             ciphertext=old_value.ciphertext,
         )
+
+
+def test_secret_store_database_boundary_crud() -> None:
+    engine = create_engine("sqlite:///:memory:")
+    SecretRecord.__table__.create(engine)
+    store = SecretStore(Settings(secret_key=NEW_KEY))
+    owner_id = uuid.uuid4()
+
+    try:
+        with Session(engine) as session:
+            secret_ref = store.create_json(
+                session,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+                value={
+                    "username": "camera-admin",
+                    "password": "database-secret",
+                },
+            )
+            session.commit()
+
+        with Session(engine) as session:
+            record = session.get(
+                SecretRecord,
+                secret_ref,
+            )
+            assert record is not None
+            assert b"database-secret" not in record.encrypted_payload
+
+            metadata = store.metadata(
+                session,
+                secret_ref,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            )
+            assert metadata.secret_ref == secret_ref
+            assert metadata.kind == "test_credential"
+            assert not metadata.needs_rotation
+
+            assert store.read_json(
+                session,
+                secret_ref,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            ) == {
+                "password": "database-secret",
+                "username": "camera-admin",
+            }
+
+            with pytest.raises(
+                KeyError,
+                match="record is unavailable",
+            ):
+                store.read_json(
+                    session,
+                    secret_ref,
+                    kind="test_credential",
+                    owner_type="test_owner",
+                    owner_id=uuid.uuid4(),
+                )
+
+            store.replace_json(
+                session,
+                secret_ref,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+                value={"password": "replacement-secret"},
+            )
+            session.commit()
+
+        with Session(engine) as session:
+            assert store.read_json(
+                session,
+                secret_ref,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            ) == {"password": "replacement-secret"}
+
+            store.delete(
+                session,
+                secret_ref,
+                kind="test_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            )
+            session.commit()
+            assert session.get(SecretRecord, secret_ref) is None
+    finally:
+        engine.dispose()
