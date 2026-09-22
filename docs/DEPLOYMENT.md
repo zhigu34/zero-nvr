@@ -132,6 +132,43 @@ backup
 restore
 ```
 
+### master secret bootstrap and rotation
+
+The product encryption master key is deployment state and must remain stable
+across container recreation and upgrades. Configure exactly one of:
+
+```text
+ZERO_NVR_SECRET_KEY=<stable secret>
+ZERO_NVR_SECRET_KEY_FILE=/path/visible/inside/container
+```
+
+For the default Compose deployment, a protected file can live below the
+persisted `ZERO_NVR_DATA_PATH` host directory and be referenced by its
+container path below `/var/lib/zero-nvr`. The file should be readable only by
+the deployment/runtime account. The application strips only the final CR/LF;
+other key bytes are preserved. Missing, empty, conflicting, or shorter-than-32
+byte master-key input fails explicitly rather than generating a replacement at
+application startup.
+
+A simple rotation keeps the old key readable while making the new key primary:
+
+```bash
+# 1. Take and verify the normal production backup first.
+# 2. Put the new value in ZERO_NVR_SECRET_KEY (or its *_FILE).
+# 3. Keep the old value temporarily in the JSON keyring:
+ZERO_NVR_SECRET_KEY_PREVIOUS='["<old-key>"]'
+
+./deploy.sh secret rotate
+```
+
+The command quiesces the API/worker, verifies every `SecretRecord` is
+decryptable with the configured keyring, re-encrypts only records not already
+on the primary key, verifies the rewritten records, commits atomically, then
+force-recreates API/worker and runs the deployment health check. If any record
+cannot be decrypted, the transaction is not committed. After a successful
+rotation and a verified post-rotation backup, remove keys that are no longer
+referenced from `ZERO_NVR_SECRET_KEY_PREVIOUS` and restart the Core services.
+
 ### install
 
 Current implemented behavior:
@@ -139,8 +176,12 @@ Current implemented behavior:
 - validates Docker, Docker Compose, and Docker daemon availability;
 - creates `.env` automatically from `.env.example` when it does not exist;
 - sets `.env` permissions to `0600`;
-- generates `ZERO_NVR_SECRET_KEY`, `ZERO_NVR_ZLM_API_SECRET`, and
-  `ZERO_NVR_ZLM_HOOK_SECRET` when absent;
+- accepts either `ZERO_NVR_SECRET_KEY` or `ZERO_NVR_SECRET_KEY_FILE`
+  for the product master secret and refuses ambiguous dual configuration;
+- generates `ZERO_NVR_SECRET_KEY` only when neither master-key input is
+  configured, so container recreation never creates a replacement key;
+- generates `ZERO_NVR_ZLM_API_SECRET` and `ZERO_NVR_ZLM_HOOK_SECRET`
+  when absent;
 - creates configured host data/cache/recording directories;
 - renders the managed ZLMediaKit configuration;
 - builds the zero-nvr image;
