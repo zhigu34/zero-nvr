@@ -35,7 +35,7 @@ from app.modules.storage.models import StorageTarget
 from app.modules.storage.retention_admin import RetentionPolicyAdminService
 from app.modules.storage.service import StorageTargetService
 
-from .settings import SystemSettingsService
+from .settings import SystemSettingsService, TimeSystemSettingsService
 
 
 _FORBIDDEN_KEYS = frozenset(
@@ -63,6 +63,7 @@ _FORBIDDEN_KEYS = frozenset(
 _KNOWN_SECTIONS = frozenset(
     {
         "general",
+        "time",
         "roles",
         "devices",
         "cameras",
@@ -349,6 +350,16 @@ class ConfigurationImportService:
             sections.get("general", {}),
             path="$.sections.general",
         )
+        time_settings = cls._mapping(
+            sections.get("time", {}),
+            path="$.sections.time",
+        )
+        if time_settings:
+            TimeSystemSettingsService.normalize(
+                current=None,
+                legacy=None,
+                changes=dict(time_settings),
+            )
         roles = cls._items(
             sections.get("roles", []),
             path="$.sections.roles",
@@ -1060,6 +1071,7 @@ class ConfigurationImportService:
 
         section_counts = {
             "general": 1 if general else 0,
+            "time": 1 if time_settings else 0,
             "roles": len(roles),
             "devices": (
                 len(devices)
@@ -1238,12 +1250,38 @@ class ConfigurationImportService:
             "general",
             {},
         )
+        time_changes: dict[str, object] = {}
         if isinstance(general, dict) and general:
-            SystemSettingsService.update(
-                session,
-                settings=settings,
-                changes=dict(general),
+            general_changes = dict(general)
+            legacy_timezone = general_changes.pop(
+                "display_timezone",
+                None,
             )
+            legacy_servers = general_changes.pop(
+                "camera_ntp_servers",
+                None,
+            )
+            if general_changes:
+                SystemSettingsService.update(
+                    session,
+                    settings=settings,
+                    changes=general_changes,
+                )
+            if legacy_timezone is not None:
+                time_changes[
+                    "recording_timezone"
+                ] = legacy_timezone
+            if legacy_servers is not None:
+                time_changes[
+                    "managed_camera_ntp_servers"
+                ] = legacy_servers
+                time_changes[
+                    "managed_camera_ntp_mode"
+                ] = (
+                    "manual"
+                    if legacy_servers
+                    else "dhcp"
+                )
             applied.append(
                 ConfigurationApplyItem(
                     section="general",
@@ -1251,6 +1289,30 @@ class ConfigurationImportService:
                     source_id=None,
                     target_id=None,
                     name="General",
+                    action="updated",
+                )
+            )
+
+        time_section = sections.get(
+            "time",
+            {},
+        )
+        if isinstance(time_section, dict):
+            time_changes.update(
+                dict(time_section)
+            )
+        if time_changes:
+            TimeSystemSettingsService.update(
+                session,
+                changes=time_changes,
+            )
+            applied.append(
+                ConfigurationApplyItem(
+                    section="time",
+                    resource_type="system_settings",
+                    source_id=None,
+                    target_id=None,
+                    name="Time",
                     action="updated",
                 )
             )
