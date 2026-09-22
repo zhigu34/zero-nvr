@@ -21,6 +21,9 @@ from app.integrations.onvif import (
     OnvifIntegrationError,
 )
 from app.modules.audit.service import append_audit_event
+from app.modules.cameras.clock_projection import (
+    CameraClockProjection,
+)
 from app.modules.cameras.media_runtime import (
     CameraMediaRuntimeService,
 )
@@ -1327,6 +1330,9 @@ async def camera_clock_health(
     service = CameraNtpService(
         request.app.state.settings
     )
+    projection_store = (
+        request.app.state.camera_clock_projections
+    )
     devices = service.list_devices(session)
     ready = []
     results: list[CameraClockHealthResultView] = []
@@ -1337,6 +1343,21 @@ async def camera_clock_health(
                 service.target(session, device)
             )
         except ApiError as exc:
+            measured_at = datetime.now(UTC)
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=device.id,
+                    measured_at=measured_at,
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=exc.code,
+                )
+            )
             results.append(
                 CameraClockHealthResultView(
                     device_id=device.id,
@@ -1348,6 +1369,7 @@ async def camera_clock_health(
     session.commit()
 
     async def inspect_one(target):
+        measured_at = datetime.now(UTC)
         try:
             reading = await OnvifAdapter(
                 request.app.state.settings
@@ -1357,17 +1379,43 @@ async def camera_clock_health(
                 username=target.username,
                 password=target.password,
             )
+            measured_at = datetime.now(UTC)
             offset_ms = int(round(reading.offset_ms))
             rtt_ms = int(round(reading.rtt_ms))
+            uncertainty_ms = max(
+                0,
+                int(round(reading.rtt_ms / 2)),
+            )
             absolute_offset = abs(offset_ms)
 
             if absolute_offset > 10_000 or rtt_ms > 5_000:
                 status = "ERROR"
+                health = "critical"
+                quality = "poor"
             elif absolute_offset > 2_000 or rtt_ms > 2_000:
                 status = "DEGRADED"
+                health = "warning"
+                quality = "degraded"
             else:
                 status = "OK"
+                health = "healthy"
+                quality = "good"
 
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health=health,
+                    quality=quality,
+                    offset_ms=offset_ms,
+                    uncertainty_ms=uncertainty_ms,
+                    rtt_ms=rtt_ms,
+                    device_timezone=reading.timezone,
+                    device_time_source=(
+                        reading.date_time_type
+                    ),
+                )
+            )
             return CameraClockHealthResultView(
                 device_id=target.device_id,
                 name=target.name,
@@ -1379,6 +1427,20 @@ async def camera_clock_health(
                 rtt_ms=rtt_ms,
             )
         except OnvifIntegrationError as exc:
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=exc.code,
+                )
+            )
             return CameraClockHealthResultView(
                 device_id=target.device_id,
                 name=target.name,
@@ -1386,6 +1448,22 @@ async def camera_clock_health(
                 error_code=exc.code,
             )
         except Exception:
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=(
+                        "camera_clock_check_failed"
+                    ),
+                )
+            )
             return CameraClockHealthResultView(
                 device_id=target.device_id,
                 name=target.name,
@@ -1432,7 +1510,6 @@ async def camera_clock_health(
         error=errors,
         results=results,
     )
-
 
 
 @router.get(
