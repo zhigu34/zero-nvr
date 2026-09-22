@@ -280,10 +280,25 @@ class OnvifOnboardingService:
             session.add(credential)
         else:
             credential.endpoint_id = endpoint.id
+            old_credential_ref = credential.secret_ref
             try:
-                self.secret_store.replace_json(
+                self.secret_store.metadata(
                     session,
-                    credential.secret_ref,
+                    old_credential_ref,
+                    kind="onvif_credential",
+                    owner_type="device",
+                    owner_id=device.id,
+                )
+            except KeyError as exc:
+                raise ApiError(
+                    status_code=409,
+                    code="device_credential_unavailable",
+                    message="ONVIF device credential secret is unavailable.",
+                ) from exc
+
+            candidate_credential_ref = (
+                self.secret_store.create_json(
+                    session,
                     kind="onvif_credential",
                     owner_type="device",
                     owner_id=device.id,
@@ -292,12 +307,18 @@ class OnvifOnboardingService:
                         "password": password,
                     },
                 )
-            except KeyError as exc:
-                raise ApiError(
-                    status_code=409,
-                    code="device_credential_unavailable",
-                    message="ONVIF device credential secret is unavailable.",
-                ) from exc
+            )
+            credential.secret_ref = (
+                candidate_credential_ref
+            )
+            session.flush()
+            self.secret_store.delete(
+                session,
+                old_credential_ref,
+                kind="onvif_credential",
+                owner_type="device",
+                owner_id=device.id,
+            )
 
         for model, probe in profile_updates:
             model.video_source_key = probe.video_source_token
@@ -325,25 +346,30 @@ class OnvifOnboardingService:
                     )
                 )
             else:
-                try:
-                    self.secret_store.replace_json(
+                old_stream_ref = model.stream_uri_ref
+                candidate_stream_ref = (
+                    self.secret_store.create_json(
                         session,
-                        model.stream_uri_ref,
                         kind="rtsp_uri",
                         owner_type="camera_stream_profile",
                         owner_id=model.id,
                         value={"uri": probe.stream_uri},
                     )
-                except KeyError:
-                    model.stream_uri_ref = (
-                        self.secret_store.create_json(
-                            session,
-                            kind="rtsp_uri",
-                            owner_type="camera_stream_profile",
-                            owner_id=model.id,
-                            value={"uri": probe.stream_uri},
-                        )
+                )
+                model.stream_uri_ref = (
+                    candidate_stream_ref
+                )
+                session.flush()
+                try:
+                    self.secret_store.delete(
+                        session,
+                        old_stream_ref,
+                        kind="rtsp_uri",
+                        owner_type="camera_stream_profile",
+                        owner_id=model.id,
                     )
+                except KeyError:
+                    pass
 
         self._mark_discovery_candidate_imported(
             session,
