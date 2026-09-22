@@ -315,7 +315,7 @@ class BackupPolicyService:
         session.flush()
         return policy
 
-    def _replace_secret(
+    def _stage_secret_replacement(
         self,
         session: Session,
         *,
@@ -323,22 +323,34 @@ class BackupPolicyService:
         secret_id: uuid.UUID,
         kind: str,
         value: dict[str, object],
-    ) -> None:
+    ) -> uuid.UUID:
         try:
-            self.secret_store.replace_json(
+            metadata = self.secret_store.metadata(
                 session,
                 secret_id,
                 kind=kind,
                 owner_type="backup_policy",
                 owner_id=policy.id,
-                value=value,
             )
-        except Exception as exc:
+        except KeyError as exc:
             raise ApiError(
                 status_code=409,
                 code="backup_secret_unavailable",
                 message="Backup policy secret is unavailable.",
             ) from exc
+        if metadata.secret_ref != secret_id:
+            raise ApiError(
+                status_code=409,
+                code="backup_secret_unavailable",
+                message="Backup policy secret is unavailable.",
+            )
+        return self.secret_store.create_json(
+            session,
+            kind=kind,
+            owner_type="backup_policy",
+            owner_id=policy.id,
+            value=value,
+        )
 
     def update(
         self,
@@ -427,19 +439,33 @@ class BackupPolicyService:
                     code="backup_repository_invalid",
                     message="Backup repository is invalid.",
                 )
-            self._replace_secret(
+            old_repository_ref = policy.repository_config_ref
+            candidate_repository_ref = (
+                self._stage_secret_replacement(
+                    session,
+                    policy=policy,
+                    secret_id=old_repository_ref,
+                    kind="backup_repository",
+                    value={
+                        "repository": self.normalize_repository(
+                            repository
+                        ),
+                        "initialize_if_missing": bool(
+                            initialize
+                        ),
+                    },
+                )
+            )
+            policy.repository_config_ref = (
+                candidate_repository_ref
+            )
+            session.flush()
+            self.secret_store.delete(
                 session,
-                policy=policy,
-                secret_id=policy.repository_config_ref,
+                old_repository_ref,
                 kind="backup_repository",
-                value={
-                    "repository": self.normalize_repository(
-                        repository
-                    ),
-                    "initialize_if_missing": bool(
-                        initialize
-                    ),
-                },
+                owner_type="backup_policy",
+                owner_id=policy.id,
             )
 
         credential_action = str(
@@ -516,17 +542,33 @@ class BackupPolicyService:
                     )
                 )
             else:
-                self._replace_secret(
+                old_credential_ref = (
+                    policy.credential_secret_ref
+                )
+                candidate_credential_ref = (
+                    self._stage_secret_replacement(
+                        session,
+                        policy=policy,
+                        secret_id=old_credential_ref,
+                        kind="backup_credentials",
+                        value={
+                            "password": password,
+                            "environment": self.normalize_environment(
+                                dict(environment)
+                            ),
+                        },
+                    )
+                )
+                policy.credential_secret_ref = (
+                    candidate_credential_ref
+                )
+                session.flush()
+                self.secret_store.delete(
                     session,
-                    policy=policy,
-                    secret_id=policy.credential_secret_ref,
+                    old_credential_ref,
                     kind="backup_credentials",
-                    value={
-                        "password": password,
-                        "environment": self.normalize_environment(
-                            dict(environment)
-                        ),
-                    },
+                    owner_type="backup_policy",
+                    owner_id=policy.id,
                 )
         elif credential_action == "clear":
             if "credentials" in changes:
