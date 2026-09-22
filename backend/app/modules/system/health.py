@@ -217,7 +217,6 @@ class SystemHealthService:
                     UTC
                 ).isoformat()
             ),
-            "source": "linux_adjtimex",
         }
         if state is None:
             return HealthComponent(
@@ -225,11 +224,15 @@ class SystemHealthService:
                 message=(
                     "host_clock_sync_probe_unavailable"
                 ),
-                details=base,
+                details={
+                    **base,
+                    "source": "unavailable",
+                },
             )
 
         details = {
             **base,
+            "source": "linux_adjtimex",
             "sync_state": (
                 "synchronized"
                 if state.synchronized
