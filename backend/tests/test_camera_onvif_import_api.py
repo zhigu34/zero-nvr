@@ -304,6 +304,10 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             item["purpose"]: item["stream_profile_id"]
             for item in first["bindings"]
         }
+        assert {
+            item["selection_mode"]
+            for item in first["bindings"]
+        } == {"auto"}
         assert bindings["RECORD"] == profiles["main-a"]["id"]
         assert bindings["LIVE_HIGH"] == profiles["main-a"]["id"]
         assert bindings["SNAPSHOT"] == profiles["main-a"]["id"]
