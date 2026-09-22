@@ -219,6 +219,9 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         location=camera.location,
         storage_label=camera.storage_label,
         adapter_type=adapter_type,
+        time_sync_mode=(
+            camera.time_sync_mode
+        ),
         ptz_capable=ptz_capable,
     )
 
@@ -893,6 +896,7 @@ def get_camera_clock_projection(
             device_id=None,
             health="unsupported",
             quality="unknown",
+            sync_mode=camera.time_sync_mode,
         )
 
     device = session.get(
@@ -908,6 +912,16 @@ def get_camera_clock_projection(
             device_id=camera.device_id,
             health="unsupported",
             quality="unknown",
+            sync_mode=camera.time_sync_mode,
+        )
+
+    if camera.time_sync_mode == "ignore":
+        return CameraClockProjectionView(
+            camera_id=camera.id,
+            device_id=device.id,
+            health="unknown",
+            quality="unknown",
+            sync_mode="ignore",
         )
 
     projection = (
@@ -923,6 +937,7 @@ def get_camera_clock_projection(
             device_id=device.id,
             health="unknown",
             quality="unknown",
+            sync_mode=camera.time_sync_mode,
         )
 
     return CameraClockProjectionView(
@@ -930,6 +945,7 @@ def get_camera_clock_projection(
         device_id=device.id,
         health=projection.health,
         quality=projection.quality,
+        sync_mode=camera.time_sync_mode,
         measured_at=projection.measured_at,
         offset_ms=projection.offset_ms,
         uncertainty_ms=(
