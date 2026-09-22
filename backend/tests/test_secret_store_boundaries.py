@@ -37,7 +37,6 @@ def test_application_uses_secret_store_persistence_boundary() -> None:
         for node in ast.walk(tree):
             if (
                 isinstance(node, ast.ImportFrom)
-                and node.module == "app.modules.auth.models"
                 and any(
                     alias.name == "SecretRecord"
                     for alias in node.names
