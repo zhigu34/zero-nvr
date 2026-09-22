@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -39,7 +39,7 @@ class ResolvedSmtpTarget:
     from_address: str
     from_name: str | None
     username: str | None
-    password: str | None
+    password: str | None = field(repr=False)
 
 
 class NotificationTargetService:
