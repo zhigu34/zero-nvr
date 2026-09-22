@@ -172,8 +172,8 @@ Acceptance:
 
 ## Phase 2 — ZLMediaKit Media Plane
 
-- [ ] Add ZLMediaKit service.
-- [ ] Implement MediaPlane contract.
+- [x] Add ZLMediaKit service.
+- [x] Implement MediaPlane contract.
 - [ ] Device / DeviceEndpoint / DeviceCredential persistence.
 - [ ] DiscoverySession / DiscoveryCandidate staging model backed by WS-Discovery/ONVIF discovery.
 - [ ] Manual ONVIF and Manual RTSP first-class onboarding; no default-password guessing or homemade LAN port scanner.
