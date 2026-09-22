@@ -864,7 +864,10 @@ async function saveNotification(): Promise<void> {
     const url = notificationForm.url.trim()
 
     if (editingNotification.value) {
-      const changes: Record<string, unknown> = { name }
+      const changes: Record<string, unknown> = {
+        name,
+        url_action: url ? "replace" : "keep"
+      }
       if (url) {
         changes.url = url
       }
@@ -976,6 +979,9 @@ async function saveFrigate(): Promise<void> {
       mqtt_topic_prefix:
         frigateForm.mqttTopicPrefix.trim() || "frigate",
       mqtt_tls: frigateForm.mqttTls,
+      credentials_action: hasCredentials
+        ? "replace"
+        : "keep",
       credentials: hasCredentials
         ? {
             http_bearer_token:
@@ -989,8 +995,7 @@ async function saveFrigate(): Promise<void> {
             mqtt_password:
               frigateForm.mqttPassword || null
           }
-        : null,
-      replace_credentials: hasCredentials
+        : null
     })
     frigateForm.bearerToken = ""
     frigateForm.httpUsername = ""
@@ -1132,6 +1137,7 @@ async function saveBackupPolicy(): Promise<void> {
         verify_after_backup: boolean
         include_deployment_config: boolean
         repository?: string
+        credentials_action: "keep" | "replace"
         credentials?: { password?: string }
       } = {
         name: backupForm.name.trim(),
@@ -1140,7 +1146,10 @@ async function saveBackupPolicy(): Promise<void> {
         retention,
         verify_after_backup: backupForm.verifyAfter,
         include_deployment_config:
-          backupForm.includeDeploymentConfig
+          backupForm.includeDeploymentConfig,
+        credentials_action: backupForm.password
+          ? "replace"
+          : "keep"
       }
 
       if (backupForm.repository.trim()) {
