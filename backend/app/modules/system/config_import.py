@@ -639,7 +639,7 @@ class ConfigurationImportService:
                 "maintenance"
             )
             if (
-                maintenance is not None
+                "maintenance" in item
                 and not isinstance(
                     maintenance,
                     bool,
