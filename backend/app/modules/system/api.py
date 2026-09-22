@@ -1223,6 +1223,9 @@ async def apply_camera_ntp_settings(
     service = CameraNtpService(
         request.app.state.settings
     )
+    projection_store = (
+        request.app.state.camera_clock_projections
+    )
     devices = service.list_devices(
         session,
         modes={"manage_ntp"},
@@ -1236,6 +1239,20 @@ async def apply_camera_ntp_settings(
                 service.target(session, device)
             )
         except ApiError as exc:
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=device.id,
+                    measured_at=datetime.now(UTC),
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=exc.code,
+                )
+            )
             results.append(
                 CameraNtpDeviceResultView(
                     device_id=device.id,
@@ -1247,34 +1264,170 @@ async def apply_camera_ntp_settings(
     session.commit()
 
     async def apply_one(target):
+        phase = "apply"
+        measured_at = datetime.now(UTC)
         try:
-            await OnvifAdapter(
+            adapter = OnvifAdapter(
                 request.app.state.settings
-            ).configure_ntp(
+            )
+            await adapter.configure_ntp(
                 host=target.host,
                 port=target.port,
                 username=target.username,
                 password=target.password,
                 servers=servers,
             )
+
+            phase = "verify"
+            reading = await adapter.read_system_clock(
+                host=target.host,
+                port=target.port,
+                username=target.username,
+                password=target.password,
+            )
+            measured_at = datetime.now(UTC)
+            offset_ms = int(
+                round(reading.offset_ms)
+            )
+            rtt_ms = int(
+                round(reading.rtt_ms)
+            )
+            uncertainty_ms = max(
+                0,
+                int(round(reading.rtt_ms / 2)),
+            )
+            date_time_type = (
+                reading.date_time_type
+            )
+            is_ntp = (
+                isinstance(
+                    date_time_type,
+                    str,
+                )
+                and date_time_type.upper()
+                == "NTP"
+            )
+            absolute_offset = abs(
+                offset_ms
+            )
+
+            if not is_ntp:
+                health = "critical"
+                quality = "poor"
+                error_code = (
+                    "camera_ntp_verify_mode_mismatch"
+                )
+            elif (
+                absolute_offset > 10_000
+                or rtt_ms > 5_000
+            ):
+                health = "critical"
+                quality = "poor"
+                error_code = None
+            elif (
+                absolute_offset > 2_000
+                or rtt_ms > 2_000
+            ):
+                health = "warning"
+                quality = "degraded"
+                error_code = None
+            else:
+                health = "healthy"
+                quality = "good"
+                error_code = None
+
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health=health,
+                    quality=quality,
+                    offset_ms=offset_ms,
+                    uncertainty_ms=uncertainty_ms,
+                    rtt_ms=rtt_ms,
+                    device_timezone=(
+                        reading.timezone
+                    ),
+                    device_time_source=(
+                        date_time_type
+                    ),
+                    error_code=error_code,
+                )
+            )
+
+            if not is_ntp:
+                return CameraNtpDeviceResultView(
+                    device_id=target.device_id,
+                    name=target.name,
+                    status="FAILED",
+                    verified=False,
+                    date_time_type=(
+                        date_time_type
+                    ),
+                    offset_ms=offset_ms,
+                    rtt_ms=rtt_ms,
+                    error_code=error_code,
+                )
+
             return CameraNtpDeviceResultView(
                 device_id=target.device_id,
                 name=target.name,
                 status="UPDATED",
+                verified=True,
+                date_time_type=(
+                    date_time_type
+                ),
+                offset_ms=offset_ms,
+                rtt_ms=rtt_ms,
             )
         except OnvifIntegrationError as exc:
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=exc.code,
+                )
+            )
             return CameraNtpDeviceResultView(
                 device_id=target.device_id,
                 name=target.name,
                 status="FAILED",
+                verified=False,
                 error_code=exc.code,
             )
         except Exception:
+            error_code = (
+                "camera_ntp_verify_failed"
+                if phase == "verify"
+                else "camera_ntp_apply_failed"
+            )
+            projection_store.put(
+                CameraClockProjection(
+                    device_id=target.device_id,
+                    measured_at=measured_at,
+                    health="critical",
+                    quality="unknown",
+                    offset_ms=None,
+                    uncertainty_ms=None,
+                    rtt_ms=None,
+                    device_timezone=None,
+                    device_time_source=None,
+                    error_code=error_code,
+                )
+            )
             return CameraNtpDeviceResultView(
                 device_id=target.device_id,
                 name=target.name,
                 status="FAILED",
-                error_code="camera_ntp_apply_failed",
+                verified=False,
+                error_code=error_code,
             )
 
     applied = await asyncio.gather(
