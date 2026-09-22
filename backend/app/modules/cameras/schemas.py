@@ -76,13 +76,6 @@ class CameraStreamProfileView(BaseModel):
     last_verified_at: datetime | None
 
 
-class CameraStreamDiagnosticView(BaseModel):
-    profile: CameraStreamProfileView
-    video: CameraProbeTrackView | None
-    audio: CameraProbeTrackView | None
-    verified_at: datetime
-
-
 class CameraStreamBindingView(BaseModel):
     purpose: str
     stream_profile_id: uuid.UUID
@@ -121,6 +114,13 @@ class CameraProbeTrackView(BaseModel):
     gop_seconds: float | None = None
     sample_rate: int | None = None
     channels: int | None = None
+
+
+class CameraStreamDiagnosticView(BaseModel):
+    profile: CameraStreamProfileView
+    video: CameraProbeTrackView | None
+    audio: CameraProbeTrackView | None
+    verified_at: datetime
 
 
 class CameraProbeStreamView(BaseModel):
