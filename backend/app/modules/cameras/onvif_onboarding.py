@@ -11,7 +11,6 @@ from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.onvif import OnvifInspection, OnvifProfileProbe
-from app.modules.auth.models import SecretRecord
 
 from .models import (
     Camera,
@@ -144,17 +143,6 @@ class OnvifOnboardingService:
                 ),
             )
 
-    def _replace_secret(
-        self,
-        *,
-        record: SecretRecord,
-        value: dict[str, str],
-    ) -> None:
-        encrypted = self.secret_store.encrypt_json(value)
-        record.key_id = encrypted.key_id
-        record.encrypted_payload = encrypted.ciphertext
-        record.version = encrypted.version
-
     def _reconfigure_existing(
         self,
         session: Session,
@@ -273,39 +261,43 @@ class OnvifOnboardingService:
             None,
         )
         if credential is None:
-            encrypted = self.secret_store.encrypt_json(
-                {"username": username, "password": password}
-            )
-            secret = SecretRecord(
+            secret_ref = self.secret_store.create_json(
+                session,
                 kind="onvif_credential",
                 owner_type="device",
                 owner_id=device.id,
-                key_id=encrypted.key_id,
-                encrypted_payload=encrypted.ciphertext,
-                version=encrypted.version,
+                value={
+                    "username": username,
+                    "password": password,
+                },
             )
-            session.add(secret)
-            session.flush()
             credential = DeviceCredential(
                 device_id=device.id,
                 endpoint_id=endpoint.id,
                 kind="onvif",
-                secret_ref=secret.id,
+                secret_ref=secret_ref,
             )
             session.add(credential)
         else:
             credential.endpoint_id = endpoint.id
-            secret = session.get(SecretRecord, credential.secret_ref)
-            if secret is None:
+            try:
+                self.secret_store.replace_json(
+                    session,
+                    credential.secret_ref,
+                    kind="onvif_credential",
+                    owner_type="device",
+                    owner_id=device.id,
+                    value={
+                        "username": username,
+                        "password": password,
+                    },
+                )
+            except KeyError as exc:
                 raise ApiError(
                     status_code=409,
                     code="device_credential_unavailable",
                     message="ONVIF device credential secret is unavailable.",
-                )
-            self._replace_secret(
-                record=secret,
-                value={"username": username, "password": password},
-            )
+                ) from exc
 
         for model, probe in profile_updates:
             model.video_source_key = probe.video_source_token
@@ -321,32 +313,37 @@ class OnvifOnboardingService:
             model.status = "available"
             model.last_verified_at = now
 
-            uri_secret = (
-                session.get(SecretRecord, model.stream_uri_ref)
-                if model.stream_uri_ref is not None
-                else None
-            )
             assert probe.stream_uri is not None
-            if uri_secret is None:
-                encrypted = self.secret_store.encrypt_json(
-                    {"uri": probe.stream_uri}
+            if model.stream_uri_ref is None:
+                model.stream_uri_ref = (
+                    self.secret_store.create_json(
+                        session,
+                        kind="rtsp_uri",
+                        owner_type="camera_stream_profile",
+                        owner_id=model.id,
+                        value={"uri": probe.stream_uri},
+                    )
                 )
-                uri_secret = SecretRecord(
-                    kind="rtsp_uri",
-                    owner_type="camera_stream_profile",
-                    owner_id=model.id,
-                    key_id=encrypted.key_id,
-                    encrypted_payload=encrypted.ciphertext,
-                    version=encrypted.version,
-                )
-                session.add(uri_secret)
-                session.flush()
-                model.stream_uri_ref = uri_secret.id
             else:
-                self._replace_secret(
-                    record=uri_secret,
-                    value={"uri": probe.stream_uri},
-                )
+                try:
+                    self.secret_store.replace_json(
+                        session,
+                        model.stream_uri_ref,
+                        kind="rtsp_uri",
+                        owner_type="camera_stream_profile",
+                        owner_id=model.id,
+                        value={"uri": probe.stream_uri},
+                    )
+                except KeyError:
+                    model.stream_uri_ref = (
+                        self.secret_store.create_json(
+                            session,
+                            kind="rtsp_uri",
+                            owner_type="camera_stream_profile",
+                            owner_id=model.id,
+                            value={"uri": probe.stream_uri},
+                        )
+                    )
 
         self._mark_discovery_candidate_imported(
             session,
@@ -472,29 +469,25 @@ class OnvifOnboardingService:
         session.add(endpoint)
         session.flush()
 
-        encrypted_credentials = self.secret_store.encrypt_json(
-            {
-                "username": username,
-                "password": password,
-            }
+        credential_secret_ref = (
+            self.secret_store.create_json(
+                session,
+                kind="onvif_credential",
+                owner_type="device",
+                owner_id=device.id,
+                value={
+                    "username": username,
+                    "password": password,
+                },
+            )
         )
-        credential_secret = SecretRecord(
-            kind="onvif_credential",
-            owner_type="device",
-            owner_id=device.id,
-            key_id=encrypted_credentials.key_id,
-            encrypted_payload=encrypted_credentials.ciphertext,
-            version=encrypted_credentials.version,
-        )
-        session.add(credential_secret)
-        session.flush()
 
         session.add(
             DeviceCredential(
                 device_id=device.id,
                 endpoint_id=endpoint.id,
                 kind="onvif",
-                secret_ref=credential_secret.id,
+                secret_ref=credential_secret_ref,
             )
         )
 
@@ -553,20 +546,15 @@ class OnvifOnboardingService:
                 session.add(model)
                 session.flush()
 
-                encrypted_uri = self.secret_store.encrypt_json(
-                    {"uri": profile.stream_uri}
+                model.stream_uri_ref = (
+                    self.secret_store.create_json(
+                        session,
+                        kind="rtsp_uri",
+                        owner_type="camera_stream_profile",
+                        owner_id=model.id,
+                        value={"uri": profile.stream_uri},
+                    )
                 )
-                uri_secret = SecretRecord(
-                    kind="rtsp_uri",
-                    owner_type="camera_stream_profile",
-                    owner_id=model.id,
-                    key_id=encrypted_uri.key_id,
-                    encrypted_payload=encrypted_uri.ciphertext,
-                    version=encrypted_uri.version,
-                )
-                session.add(uri_secret)
-                session.flush()
-                model.stream_uri_ref = uri_secret.id
 
                 profile_models.append((profile, model))
 
