@@ -317,6 +317,110 @@ def test_persisted_stream_verify_updates_safe_diagnostics(
         )
 
 
+def test_persisted_stream_verify_discards_stale_adapter_result(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras",
+            json=probe_payload(),
+        )
+        assert created.status_code == 201
+        camera_id = uuid.UUID(
+            created.json()["id"]
+        )
+        profile_id = uuid.UUID(
+            next(
+                item["id"]
+                for item in created.json()["streams"]
+                if item["adapter_profile_key"]
+                == "manual-primary"
+            )
+        )
+
+        class StaleFailingProbeAdapter:
+            def __init__(
+                self,
+                _settings,
+            ) -> None:
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(
+                self,
+                *_exc,
+            ) -> None:
+                return None
+
+            def probe_rtsp_source(
+                self,
+                _source_url: str,
+            ) -> ZlmMediaProbe:
+                with app.state.database.session() as race:
+                    camera = race.get(
+                        Camera,
+                        camera_id,
+                    )
+                    assert camera is not None
+                    camera.config_revision += 1
+                    race.commit()
+                raise ZlmIntegrationError(
+                    "camera_stream_probe_timeout",
+                    (
+                        "The camera stream did not "
+                        "become ready in time."
+                    ),
+                    status_code=422,
+                )
+
+        monkeypatch.setattr(
+            camera_api,
+            "ZlmAdapter",
+            StaleFailingProbeAdapter,
+        )
+
+        response = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/streams/{profile_id}/verify"
+            )
+        )
+        assert response.status_code == 409
+        assert (
+            response.json()["error"]["code"]
+            == "camera_configuration_changed"
+        )
+
+    with app.state.database.session() as session:
+        camera = session.get(
+            Camera,
+            camera_id,
+        )
+        profile = session.get(
+            CameraStreamProfile,
+            profile_id,
+        )
+        assert camera is not None
+        assert profile is not None
+        assert camera.config_revision == 2
+        assert profile.status == "configured"
+        assert profile.last_verified_at is None
+        assert session.scalar(
+            select(func.count())
+            .select_from(AuditEvent)
+            .where(
+                AuditEvent.action
+                == "camera.stream.verify"
+            )
+        ) == 0
+
+
 def test_persisted_stream_verify_failure_marks_unavailable_and_keeps_last_success(
     tmp_path: Path,
     monkeypatch,
