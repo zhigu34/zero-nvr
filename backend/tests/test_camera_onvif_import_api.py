@@ -1321,7 +1321,10 @@ def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
                     codec=item.codec,
                     width=(
                         2560
-                        if item.token == "main-a"
+                        if (
+                            refresh_state != "initial"
+                            and item.token == "main-a"
+                        )
                         else item.width
                     ),
                     height=item.height,
