@@ -1,6 +1,6 @@
 """allow clearing notification target credential
 
-Revision ID: 0012_notification_secret_optional
+Revision ID: 0012_notification_secret
 Revises: 0011_live_view_layouts
 Create Date: 2026-09-22
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision: str = "0012_notification_secret_optional"
+revision: str = "0012_notification_secret"
 down_revision: str | Sequence[str] | None = (
     "0011_live_view_layouts"
 )
