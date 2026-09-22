@@ -66,6 +66,9 @@ def _user_view(user: User) -> UserAdminView:
         username=user.username,
         display_name=user.display_name,
         email=user.email,
+        email_verified=(
+            user.email_verified_at is not None
+        ),
         enabled=user.enabled,
         roles=sorted(
             (_role_summary(role) for role in user.roles),
@@ -79,6 +82,9 @@ def _user_audit_snapshot(user: User) -> dict[str, Any]:
         "username": user.username,
         "display_name": user.display_name,
         "email": user.email,
+        "email_verified": (
+            user.email_verified_at is not None
+        ),
         "enabled": user.enabled,
         "roles": sorted(role.name for role in user.roles),
     }
