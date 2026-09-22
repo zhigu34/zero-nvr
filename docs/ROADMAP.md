@@ -156,7 +156,7 @@ current code/tests.
 - [x] append-oriented AuditEvent persistence with secret redaction.
 - [x] Structured logging and health/readiness.
 - [x] Device / DeviceEndpoint / DeviceCredential / Camera / CameraStreamProfile / CameraStreamBinding schema from the V1 Schema Freeze.
-- [ ] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
+- [x] namespaced system_settings persistence/API for recording timezone and managed-camera NTP policy; no dedicated SystemTimeSettings table.
 - [ ] Time Settings UI with DHCP/manual NTP source and ordered NTP server list.
 - [ ] canonical UTC/timezone configuration and host clock-health checks.
 - [ ] Adapter contracts.
