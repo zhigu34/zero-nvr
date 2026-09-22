@@ -204,11 +204,42 @@ def update_storage_target(
         exclude_unset=True,
         exclude={"rclone_config"},
     )
-    if "rclone_config" in body.model_fields_set:
+    credential_action = (
+        body.rclone_config_action
+    )
+    has_credential_value = (
+        body.rclone_config is not None
+    )
+    if (
+        credential_action == "replace"
+        and not has_credential_value
+    ):
+        raise ApiError(
+            status_code=400,
+            code="rclone_config_update_invalid",
+            message=(
+                "rclone credential replacement "
+                "requires a new value."
+            ),
+        )
+    if (
+        credential_action != "replace"
+        and has_credential_value
+    ):
+        raise ApiError(
+            status_code=400,
+            code="rclone_config_update_invalid",
+            message=(
+                "rclone credential value is only "
+                "accepted with action=replace."
+            ),
+        )
+    changes["rclone_config_action"] = (
+        credential_action
+    )
+    if has_credential_value:
         changes["rclone_config"] = (
             body.rclone_config.get_secret_value()
-            if body.rclone_config is not None
-            else None
         )
 
     try:
