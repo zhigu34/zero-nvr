@@ -11,6 +11,7 @@ from app.core.security import SecretStore
 from app.main import create_app
 from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import (
+    Camera,
     Device,
     DeviceCredential,
     DeviceEndpoint,
@@ -238,6 +239,16 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
             )
             session.add(device)
             session.flush()
+            camera = Camera(
+                device_id=device.id,
+                channel_key="clock-camera",
+                name="Clock Camera",
+                enabled=True,
+            )
+            session.add(camera)
+            session.flush()
+            camera_id = camera.id
+
             endpoint = DeviceEndpoint(
                 device_id=device.id,
                 type="onvif",
@@ -278,6 +289,14 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
             )
             session.commit()
 
+        before = client.get(
+            f"/api/v1/cameras/{camera_id}/clock"
+        )
+        assert before.status_code == 200
+        assert before.json()["health"] == "unknown"
+        assert before.json()["quality"] == "unknown"
+        assert before.json()["measured_at"] is None
+
         response = client.get(
             "/api/v1/system/camera-clock-health"
         )
@@ -293,3 +312,25 @@ def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(
         assert item["rtt_ms"] == 180
         assert "onvif-secret" not in str(body)
         assert "onvif-admin" not in str(body)
+
+        projection = client.get(
+            f"/api/v1/cameras/{camera_id}/clock"
+        )
+        assert projection.status_code == 200
+        current = projection.json()
+        assert current["device_id"] == str(
+            device.id
+        )
+        assert current["health"] == "healthy"
+        assert current["quality"] == "good"
+        assert current["offset_ms"] == 1250
+        assert current["rtt_ms"] == 180
+        assert current["uncertainty_ms"] == 90
+        assert current["device_timezone"] == "UTC0"
+        assert current["device_time_source"] == "NTP"
+        assert current["measured_at"] is not None
+
+        assert (
+            "camera_clock_statuses"
+            not in Base.metadata.tables
+        )
