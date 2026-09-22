@@ -25,6 +25,7 @@ class CameraUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     location: str | None = Field(default=None, max_length=256)
     storage_label: str | None = Field(default=None, max_length=128)
+    maintenance: bool | None = None
     time_sync_mode: Literal[
         "monitor",
         "manage_ntp",
@@ -66,6 +67,7 @@ class CameraSummary(BaseModel):
     id: uuid.UUID
     name: str
     enabled: bool
+    maintenance: bool
     retired_at: datetime | None
     location: str | None
     storage_label: str | None
