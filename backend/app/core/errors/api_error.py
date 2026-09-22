@@ -5,6 +5,8 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.core.security import redact_sensitive_value, redact_text
+
 
 class ApiError(Exception):
     def __init__(
@@ -15,11 +17,15 @@ class ApiError(Exception):
         message: str,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message)
+        safe_message = redact_text(message)
+        safe_details = redact_sensitive_value(
+            details or {}
+        )
+        super().__init__(safe_message)
         self.status_code = status_code
         self.code = code
-        self.message = message
-        self.details = details or {}
+        self.message = safe_message
+        self.details = safe_details
 
 
 def _request_id(request: Request) -> str | None:
