@@ -133,6 +133,7 @@ def test_backup_policy_schedule_and_credential_update(
                         "cron": "*/15 * * * *",
                         "timezone": "UTC",
                     },
+                    "credentials_action": "replace",
                     "credentials": {
                         "password": "new-restic-password-value",
                         "environment": {
