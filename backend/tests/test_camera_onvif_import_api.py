@@ -686,6 +686,208 @@ def _inspection_at(host: str) -> OnvifInspection:
     )
 
 
+def _inspection_with_profile_uri(
+    token: str,
+    stream_uri: str,
+) -> OnvifInspection:
+    source = inspection()
+    profiles = []
+    for item in source.profiles:
+        profiles.append(
+            OnvifProfileProbe(
+                token=item.token,
+                name=item.name,
+                video_source_token=(
+                    item.video_source_token
+                ),
+                codec=item.codec,
+                width=item.width,
+                height=item.height,
+                fps=item.fps,
+                bitrate_kbps=(
+                    item.bitrate_kbps
+                ),
+                gop_seconds=(
+                    item.gop_seconds
+                ),
+                audio_codec=(
+                    item.audio_codec
+                ),
+                has_audio=item.has_audio,
+                stream_uri_available=(
+                    item.stream_uri_available
+                ),
+                stream_uri=(
+                    stream_uri
+                    if item.token == token
+                    else item.stream_uri
+                ),
+            )
+        )
+    return OnvifInspection(
+        device=source.device,
+        capabilities=source.capabilities,
+        profiles=tuple(profiles),
+    )
+
+
+def test_onvif_revalidation_restarts_only_changed_bound_profile(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    changed = False
+
+    class FakeOnvifAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        async def inspect_device(
+            self,
+            **_kwargs,
+        ):
+            if not changed:
+                return inspection()
+            return _inspection_with_profile_uri(
+                "sub-a",
+                (
+                    "rtsp://192.168.70.20:554/"
+                    "channel/a/sub-new"
+                    "?token=sub-a-new-secret"
+                ),
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+
+        source_a = next(
+            camera
+            for camera in created.json()[
+                "cameras"
+            ]
+            if {
+                stream[
+                    "adapter_profile_key"
+                ]
+                for stream
+                in camera["streams"]
+            }
+            == {
+                "main-a",
+                "sub-a",
+            }
+        )
+        source_b = next(
+            camera
+            for camera in created.json()[
+                "cameras"
+            ]
+            if {
+                stream[
+                    "adapter_profile_key"
+                ]
+                for stream
+                in camera["streams"]
+            }
+            == {"main-b"}
+        )
+        sub_profile = next(
+            stream
+            for stream
+            in source_a["streams"]
+            if stream[
+                "adapter_profile_key"
+            ]
+            == "sub-a"
+        )
+
+        changed = True
+        refreshed = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert refreshed.status_code == 201
+        assert (
+            app.state.recording_tasks
+            .runtime_reconciles
+        ) == [
+            (
+                uuid.UUID(
+                    source_a["id"]
+                ),
+                False,
+                (
+                    uuid.UUID(
+                        sub_profile["id"]
+                    ),
+                ),
+            )
+        ]
+
+    with app.state.database.session() as session:
+        camera_a = session.get(
+            Camera,
+            uuid.UUID(
+                source_a["id"]
+            ),
+        )
+        camera_b = session.get(
+            Camera,
+            uuid.UUID(
+                source_b["id"]
+            ),
+        )
+        assert camera_a is not None
+        assert camera_b is not None
+        assert (
+            camera_a.config_revision
+            == 2
+        )
+        assert (
+            camera_b.config_revision
+            == 1
+        )
+
+        profile = session.get(
+            CameraStreamProfile,
+            uuid.UUID(
+                sub_profile["id"]
+            ),
+        )
+        assert profile is not None
+        resolved = CameraService(
+            app.state.settings
+        ).resolve_stream_uri(
+            session,
+            profile,
+        )
+        assert "/channel/a/sub-new" in resolved
+
+
 def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identity(
     tmp_path: Path,
     monkeypatch,
