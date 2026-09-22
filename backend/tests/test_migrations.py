@@ -10,6 +10,19 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 
 
+EXPECTED_SECRET_RECORD_COLUMNS = {
+    "id",
+    "kind",
+    "owner_type",
+    "owner_id",
+    "key_id",
+    "encrypted_payload",
+    "version",
+    "created_at",
+    "updated_at",
+}
+
+
 EXPECTED_FOUNDATION_TABLES = {
     "alembic_version",
     "users",
@@ -72,8 +85,19 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
 
     engine = create_engine(database_url)
     try:
-        tables = set(inspect(engine).get_table_names())
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
         assert EXPECTED_FOUNDATION_TABLES <= tables
+        secret_columns = {
+            item["name"]
+            for item in inspector.get_columns(
+                "secret_records"
+            )
+        }
+        assert (
+            EXPECTED_SECRET_RECORD_COLUMNS
+            <= secret_columns
+        )
     finally:
         engine.dispose()
 
@@ -103,8 +127,19 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
 
     engine = create_engine(runtime_url)
     try:
-        tables = set(inspect(engine).get_table_names())
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
         assert EXPECTED_FOUNDATION_TABLES <= tables
+        secret_columns = {
+            item["name"]
+            for item in inspector.get_columns(
+                "secret_records"
+            )
+        }
+        assert (
+            EXPECTED_SECRET_RECORD_COLUMNS
+            <= secret_columns
+        )
     finally:
         engine.dispose()
 
