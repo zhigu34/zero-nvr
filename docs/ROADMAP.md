@@ -142,12 +142,12 @@ current code/tests.
 - [x] password-reset/security email delivery through NotificationDelivery + Huey retry/backoff/result tracking.
 - [x] self-service email password reset with non-enumerating public response.
 - [x] PasswordResetToken persistence using one-way token hashes.
-- [ ] administrator-issued one-time password reset token.
-- [ ] host/Docker CLI emergency administrator password recovery.
+- [x] administrator-issued one-time password reset token.
+- [x] host/Docker CLI emergency administrator password recovery.
 - [ ] OPTIONAL: TOTP MFA using a mature OTP library; must not block V1 release.
-- [ ] OIDC/SSO provider configuration and ExternalIdentity mapping.
-- [ ] login rate limiting / brute-force protection.
-- [ ] Personal API Token create/revoke/list flow with one-way token hashes.
+- [x] OIDC/SSO provider configuration and ExternalIdentity mapping.
+- [x] login rate limiting / brute-force protection.
+- [x] Personal API Token create/revoke/list flow with one-way token hashes.
 - [ ] built-in Administrator / Operator / Viewer roles.
 - [ ] CameraGroup + PrincipalCameraScope authorization.
 - [ ] centralized backend authorization dependencies/services.
