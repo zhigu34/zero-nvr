@@ -630,6 +630,35 @@ async def import_onvif_camera(
         ) from exc
 
     service = OnvifOnboardingService(request.app.state.settings)
+    verification_profiles = service.verification_profiles(
+        inspection,
+        body.profile_tokens,
+    )
+    password = body.password.get_secret_value()
+    active_profile_token: str | None = None
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            for profile in verification_profiles:
+                active_profile_token = profile.token
+                zlm.probe_rtsp_source(
+                    service.verification_stream_uri(
+                        profile,
+                        username=body.username,
+                        password=password,
+                    )
+                )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={
+                "profile_token": active_profile_token,
+            },
+        ) from exc
+
     try:
         device, cameras, reconfigured = service.import_device(
             session,
@@ -637,7 +666,7 @@ async def import_onvif_camera(
             host=body.host,
             port=body.port,
             username=body.username,
-            password=body.password.get_secret_value(),
+            password=password,
             base_name=body.name,
             location=body.location,
             storage_label=body.storage_label,
