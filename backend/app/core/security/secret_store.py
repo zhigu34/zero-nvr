@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -36,6 +37,14 @@ class SecretMetadata:
     key_id: str
     version: int
     needs_rotation: bool
+
+
+@dataclass(frozen=True, slots=True)
+class SecretRotationResult:
+    total_records: int
+    rotated_records: int
+    current_records: int
+    primary_key_id: str
 
 
 class SecretStore:
@@ -362,4 +371,69 @@ class SecretStore:
             kind=kind,
             owner_type=owner_type,
             owner_id=owner_id,
+        )
+
+
+    def rotate_records(
+        self,
+        session: Session,
+    ) -> SecretRotationResult:
+        record_type = self._secret_record_type()
+        records = list(
+            session.scalars(
+                select(record_type).order_by(
+                    record_type.id
+                )
+            )
+        )
+
+        plaintext_by_id: dict[
+            uuid.UUID,
+            bytes,
+        ] = {}
+        for record in records:
+            plaintext_by_id[record.id] = (
+                self.decrypt_bytes(
+                    key_id=record.key_id,
+                    ciphertext=record.encrypted_payload,
+                    version=record.version,
+                )
+            )
+
+        rotated = 0
+        for record in records:
+            if not self.needs_rotation(
+                record.key_id
+            ):
+                continue
+            encrypted = self.encrypt_bytes(
+                plaintext_by_id[record.id]
+            )
+            record.key_id = encrypted.key_id
+            record.encrypted_payload = (
+                encrypted.ciphertext
+            )
+            record.version = encrypted.version
+            rotated += 1
+
+        session.flush()
+
+        for record in records:
+            self.decrypt_bytes(
+                key_id=record.key_id,
+                ciphertext=record.encrypted_payload,
+                version=record.version,
+            )
+            if record.key_id != self.primary_key_id:
+                raise ValueError(
+                    "SecretStore rotation left a non-primary key record"
+                )
+
+        return SecretRotationResult(
+            total_records=len(records),
+            rotated_records=rotated,
+            current_records=(
+                len(records) - rotated
+            ),
+            primary_key_id=self.primary_key_id,
         )
