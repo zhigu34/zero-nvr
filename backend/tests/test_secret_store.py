@@ -186,3 +186,61 @@ def test_secret_store_database_boundary_crud() -> None:
             assert session.get(SecretRecord, secret_ref) is None
     finally:
         engine.dispose()
+
+
+def test_secret_store_persists_across_process_recreation(
+    tmp_path,
+) -> None:
+    database_path = tmp_path / "secrets.db"
+    database_url = f"sqlite:///{database_path}"
+    owner_id = uuid.uuid4()
+
+    engine = create_engine(database_url)
+    SecretRecord.__table__.create(engine)
+    try:
+        first_store = SecretStore(
+            Settings(secret_key=NEW_KEY)
+        )
+        with Session(engine) as session:
+            secret_ref = first_store.create_json(
+                session,
+                kind="restart_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+                value={
+                    "username": "camera-admin",
+                    "password": "persistent-secret",
+                },
+            )
+            session.commit()
+    finally:
+        engine.dispose()
+
+    reopened_engine = create_engine(database_url)
+    try:
+        second_store = SecretStore(
+            Settings(secret_key=NEW_KEY)
+        )
+        with Session(reopened_engine) as session:
+            assert second_store.read_json(
+                session,
+                secret_ref,
+                kind="restart_credential",
+                owner_type="test_owner",
+                owner_id=owner_id,
+            ) == {
+                "password": "persistent-secret",
+                "username": "camera-admin",
+            }
+
+            record = session.get(
+                SecretRecord,
+                secret_ref,
+            )
+            assert record is not None
+            assert (
+                b"persistent-secret"
+                not in record.encrypted_payload
+            )
+    finally:
+        reopened_engine.dispose()
