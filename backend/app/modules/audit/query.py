@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -12,33 +11,13 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
+from app.core.security import redact_sensitive_value
 
 from .models import AuditEvent
 
 
-_SENSITIVE_KEY = re.compile(
-    r"(?:password|passwd|secret|token|credential|authorization|api[_-]?key)",
-    re.IGNORECASE,
-)
-
-
 def redact_audit_value(value: Any) -> Any:
-    if isinstance(value, dict):
-        result: dict[str, Any] = {}
-        for key, item in value.items():
-            if _SENSITIVE_KEY.search(str(key)):
-                result[str(key)] = "***"
-            else:
-                result[str(key)] = redact_audit_value(
-                    item
-                )
-        return result
-    if isinstance(value, list):
-        return [
-            redact_audit_value(item)
-            for item in value
-        ]
-    return value
+    return redact_sensitive_value(value)
 
 
 @dataclass(frozen=True, slots=True)
