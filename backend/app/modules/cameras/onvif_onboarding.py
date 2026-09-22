@@ -305,7 +305,7 @@ class OnvifOnboardingService:
         Device,
         list[Camera],
         bool,
-        set[uuid.UUID],
+        dict[uuid.UUID, set[uuid.UUID]],
     ]:
         usable = {
             item.token: item
@@ -356,9 +356,10 @@ class OnvifOnboardingService:
             for camera in cameras
             for binding in camera.stream_bindings
         }
-        restart_camera_ids: set[
-            uuid.UUID
-        ] = set()
+        restart_profiles_by_camera: dict[
+            uuid.UUID,
+            set[uuid.UUID],
+        ] = defaultdict(set)
 
         self._ensure_endpoint_available(
             session,
@@ -572,8 +573,10 @@ class OnvifOnboardingService:
                 in bound_profile_ids
                 and stream_uri_changed
             ):
-                restart_camera_ids.add(
+                restart_profiles_by_camera[
                     model.camera_id
+                ].add(
+                    model.id
                 )
 
         if credential_changed:
@@ -628,15 +631,17 @@ class OnvifOnboardingService:
                     ):
                         continue
                     if parsed.username is None:
-                        restart_camera_ids.add(
+                        restart_profiles_by_camera[
                             camera.id
+                        ].add(
+                            profile.id
                         )
-                        break
 
         for camera in cameras:
             if (
-                camera.id
-                in restart_camera_ids
+                restart_profiles_by_camera.get(
+                    camera.id
+                )
             ):
                 camera.config_revision += 1
 
@@ -651,7 +656,7 @@ class OnvifOnboardingService:
             device,
             cameras,
             True,
-            restart_camera_ids,
+            restart_profiles_by_camera,
         )
 
     @staticmethod
@@ -706,7 +711,7 @@ class OnvifOnboardingService:
         Device,
         list[Camera],
         bool,
-        set[uuid.UUID],
+        dict[uuid.UUID, set[uuid.UUID]],
     ]:
         existing = self._existing_device(
             session,
@@ -902,4 +907,4 @@ class OnvifOnboardingService:
             port=port,
         )
         session.flush()
-        return device, cameras, False, set()
+        return device, cameras, False, {}
