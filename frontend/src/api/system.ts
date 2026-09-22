@@ -169,6 +169,7 @@ export interface FrigateProviderPut {
   mqtt_port: number
   mqtt_topic_prefix: string
   mqtt_tls: boolean
+  credentials_action: "keep" | "replace" | "clear"
   credentials?: {
     http_bearer_token?: string | null
     http_username?: string | null
@@ -176,7 +177,6 @@ export interface FrigateProviderPut {
     mqtt_username?: string | null
     mqtt_password?: string | null
   } | null
-  replace_credentials: boolean
 }
 
 export interface ConfigurationCredentialRequirement {
@@ -361,6 +361,7 @@ export function updateOidcProvider(
     enabled?: boolean
     issuer?: string
     client_id?: string
+    client_secret_action?: "keep" | "replace" | "clear"
     client_secret?: string
     auto_provision?: boolean
     email_linking?: boolean
@@ -674,6 +675,7 @@ export function updateBackupPolicy(
     name?: string
     enabled?: boolean
     repository?: string
+    credentials_action?: "keep" | "replace" | "clear"
     credentials?: {
       password?: string
       environment?: Record<string, string>
