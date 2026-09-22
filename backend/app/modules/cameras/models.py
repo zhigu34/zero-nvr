@@ -225,6 +225,12 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     channel_key: Mapped[str] = mapped_column(String(256), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    maintenance: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="0",
+    )
     config_revision: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
