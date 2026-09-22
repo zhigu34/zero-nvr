@@ -248,7 +248,8 @@ if [[ "$target" == "sqlite" ]]; then
   if [[ "$confirm_sqlite_workload" == true ]]; then
     preflight_args+=(--confirm-workload)
   fi
-  if ! compose run --rm --no-deps zero-nvr     "${preflight_args[@]}"; then
+  if ! compose run --rm --no-deps zero-nvr \
+    "${preflight_args[@]}"; then
     echo "error: PostgreSQL -> SQLite preflight refused migration" >&2
     echo "review the JSON blockers/warnings; run representative SQLite benchmark/soak before confirming workload suitability" >&2
     exit 1
