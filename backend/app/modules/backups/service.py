@@ -14,7 +14,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.core.security import SecretStore
-from app.modules.auth.models import SecretRecord
 
 from .models import BackupPolicy
 
@@ -224,25 +223,6 @@ class BackupPolicyService:
                 message="Backup policy name is already in use.",
             )
 
-    def _secret(
-        self,
-        *,
-        secret_id: uuid.UUID,
-        owner_id: uuid.UUID,
-        kind: str,
-        value: dict[str, object],
-    ) -> SecretRecord:
-        encrypted = self.secret_store.encrypt_json(value)
-        return SecretRecord(
-            id=secret_id,
-            kind=kind,
-            owner_type="backup_policy",
-            owner_id=owner_id,
-            key_id=encrypted.key_id,
-            encrypted_payload=encrypted.ciphertext,
-            version=encrypted.version,
-        )
-
     def create(
         self,
         session: Session,
@@ -290,27 +270,31 @@ class BackupPolicyService:
         retention_value = self.normalize_retention(retention)
 
         policy_id = uuid.uuid4()
-        repository_secret_id = uuid.uuid4()
-        credential_secret_id = uuid.uuid4()
-        repository_secret = self._secret(
-            secret_id=repository_secret_id,
-            owner_id=policy_id,
-            kind="backup_repository",
-            value={
-                "repository": repository_value,
-                "initialize_if_missing": bool(
-                    initialize_if_missing
-                ),
-            },
+        repository_secret_id = (
+            self.secret_store.create_json(
+                session,
+                kind="backup_repository",
+                owner_type="backup_policy",
+                owner_id=policy_id,
+                value={
+                    "repository": repository_value,
+                    "initialize_if_missing": bool(
+                        initialize_if_missing
+                    ),
+                },
+            )
         )
-        credential_secret = self._secret(
-            secret_id=credential_secret_id,
-            owner_id=policy_id,
-            kind="backup_credentials",
-            value={
-                "password": password,
-                "environment": credentials,
-            },
+        credential_secret_id = (
+            self.secret_store.create_json(
+                session,
+                kind="backup_credentials",
+                owner_type="backup_policy",
+                owner_id=policy_id,
+                value={
+                    "password": password,
+                    "environment": credentials,
+                },
+            )
         )
         policy = BackupPolicy(
             id=policy_id,
@@ -327,13 +311,7 @@ class BackupPolicyService:
                 include_deployment_config
             ),
         )
-        session.add_all(
-            [
-                repository_secret,
-                credential_secret,
-                policy,
-            ]
-        )
+        session.add(policy)
         session.flush()
         return policy
 
@@ -346,22 +324,21 @@ class BackupPolicyService:
         kind: str,
         value: dict[str, object],
     ) -> None:
-        secret = session.get(SecretRecord, secret_id)
-        if (
-            secret is None
-            or secret.kind != kind
-            or secret.owner_type != "backup_policy"
-            or secret.owner_id != policy.id
-        ):
+        try:
+            self.secret_store.replace_json(
+                session,
+                secret_id,
+                kind=kind,
+                owner_type="backup_policy",
+                owner_id=policy.id,
+                value=value,
+            )
+        except Exception as exc:
             raise ApiError(
                 status_code=409,
                 code="backup_secret_unavailable",
                 message="Backup policy secret is unavailable.",
-            )
-        encrypted = self.secret_store.encrypt_json(value)
-        secret.key_id = encrypted.key_id
-        secret.encrypted_payload = encrypted.ciphertext
-        secret.version = encrypted.version
+            ) from exc
 
     def update(
         self,
@@ -507,21 +484,20 @@ class BackupPolicyService:
                     message="Backup credentials are invalid.",
                 )
             if policy.credential_secret_ref is None:
-                secret_id = uuid.uuid4()
-                secret = self._secret(
-                    secret_id=secret_id,
-                    owner_id=policy.id,
-                    kind="backup_credentials",
-                    value={
-                        "password": password,
-                        "environment": self.normalize_environment(
-                            dict(environment)
-                        ),
-                    },
+                policy.credential_secret_ref = (
+                    self.secret_store.create_json(
+                        session,
+                        kind="backup_credentials",
+                        owner_type="backup_policy",
+                        owner_id=policy.id,
+                        value={
+                            "password": password,
+                            "environment": self.normalize_environment(
+                                dict(environment)
+                            ),
+                        },
+                    )
                 )
-                session.add(secret)
-                session.flush()
-                policy.credential_secret_ref = secret.id
             else:
                 self._replace_secret(
                     session,
@@ -553,23 +529,13 @@ class BackupPolicyService:
                 code="backup_secret_unavailable",
                 message="Backup policy secret is unavailable.",
             )
-        secret = session.get(SecretRecord, secret_id)
-        if (
-            secret is None
-            or secret.kind != kind
-            or secret.owner_type != "backup_policy"
-            or secret.owner_id != policy.id
-        ):
-            raise ApiError(
-                status_code=409,
-                code="backup_secret_unavailable",
-                message="Backup policy secret is unavailable.",
-            )
         try:
-            return self.secret_store.decrypt_json(
-                key_id=secret.key_id,
-                ciphertext=secret.encrypted_payload,
-                version=secret.version,
+            return self.secret_store.read_json(
+                session,
+                secret_id,
+                kind=kind,
+                owner_type="backup_policy",
+                owner_id=policy.id,
             )
         except Exception as exc:
             raise ApiError(
