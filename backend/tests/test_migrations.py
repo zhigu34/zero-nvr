@@ -115,6 +115,17 @@ def test_alembic_upgrade_head_sqlite(tmp_path, monkeypatch) -> None:
             for item in inspector.get_columns("users")
         }
         assert "email_verified_at" in user_columns
+        target_checks = {
+            item.get("name"): (
+                item.get("sqltext") or ""
+            )
+            for item in inspector.get_check_constraints(
+                "notification_targets"
+            )
+        }
+        assert "smtp" in target_checks[
+            "notification_target_kind"
+        ]
     finally:
         engine.dispose()
 
@@ -174,6 +185,17 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
             for item in inspector.get_columns("users")
         }
         assert "email_verified_at" in user_columns
+        target_checks = {
+            item.get("name"): (
+                item.get("sqltext") or ""
+            )
+            for item in inspector.get_check_constraints(
+                "notification_targets"
+            )
+        }
+        assert "smtp" in target_checks[
+            "notification_target_kind"
+        ]
     finally:
         engine.dispose()
 
