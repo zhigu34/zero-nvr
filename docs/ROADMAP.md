@@ -132,7 +132,7 @@ current code/tests.
 - [x] protected-file *_FILE bootstrap support for product master secret and external-service credentials.
 - [x] secret redaction for logs/errors/traces/AuditEvent.
 - [x] explicit keep/replace/clear credential update semantics.
-- [ ] credential validation before atomic secret_ref switch where practical.
+- [x] credential validation before atomic secret_ref switch where practical.
 - [ ] User / Role / Permission / UserSession persistence.
 - [ ] first-run one-time administrator bootstrap with no default password.
 - [ ] local authentication with modern password hashing and session revocation.
