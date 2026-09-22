@@ -13,12 +13,14 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    event,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.db.base import Base
 from app.core.db.mixins import TimestampMixin, UUIDPrimaryKeyMixin
 from app.core.db.types import UTCDateTime, UUIDType
+from app.core.security import redact_sensitive_value
 
 
 class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
@@ -98,4 +100,16 @@ class Event(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         JSON,
         nullable=False,
         default=dict,
+    )
+
+
+@event.listens_for(Event, "before_insert")
+@event.listens_for(Event, "before_update")
+def _redact_event_metadata(
+    _mapper: Any,
+    _connection: Any,
+    target: Event,
+) -> None:
+    target.metadata_json = redact_sensitive_value(
+        target.metadata_json
     )
