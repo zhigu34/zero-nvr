@@ -189,6 +189,14 @@ export interface CameraStreamProfile {
   audio_codec: string | null
   has_audio: boolean
   status: string
+  last_verified_at: string | null
+}
+
+export interface CameraStreamDiagnostic {
+  profile: CameraStreamProfile
+  video: CameraProbeTrack | null
+  audio: CameraProbeTrack | null
+  verified_at: string
 }
 
 export interface CameraStreamBinding {
@@ -255,6 +263,16 @@ export function restoreCamera(
 ): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(
     `/cameras/${encodeURIComponent(cameraId)}/restore`,
+    { method: "POST" }
+  )
+}
+
+export function verifyCameraStream(
+  cameraId: string,
+  profileId: string
+): Promise<CameraStreamDiagnostic> {
+  return apiRequest<CameraStreamDiagnostic>(
+    `/cameras/${encodeURIComponent(cameraId)}/streams/${encodeURIComponent(profileId)}/verify`,
     { method: "POST" }
   )
 }
