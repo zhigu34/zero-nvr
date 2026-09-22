@@ -146,6 +146,33 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         assert roles.status_code == 200
         role_by_name = {item["name"]: item for item in roles.json()}
         assert set(role_by_name) == {"Administrator", "Operator", "Viewer"}
+        assert all(
+            item["built_in"] is True
+            for item in role_by_name.values()
+        )
+        assert set(
+            role_by_name["Administrator"]["permissions"]
+        ) == set(permissions.json())
+        assert set(
+            role_by_name["Operator"]["permissions"]
+        ) == {
+            "camera.view",
+            "camera.control",
+            "recording.view",
+            "recording.export",
+            "recording.protect",
+            "event.view",
+            "alert.acknowledge",
+            "system.view",
+        }
+        assert set(
+            role_by_name["Viewer"]["permissions"]
+        ) == {
+            "camera.view",
+            "recording.view",
+            "event.view",
+            "system.view",
+        }
 
         viewer_role_id = role_by_name["Viewer"]["id"]
 
