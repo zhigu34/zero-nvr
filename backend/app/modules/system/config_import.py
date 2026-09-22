@@ -625,6 +625,30 @@ class ConfigurationImportService:
                     )
 
         for index, item in enumerate(cameras):
+            mode = item.get(
+                "time_sync_mode"
+            )
+            if (
+                mode is not None
+                and (
+                    not isinstance(mode, str)
+                    or mode not in {
+                        "monitor",
+                        "manage_ntp",
+                        "ignore",
+                    }
+                )
+            ):
+                raise cls._error(
+                    "configuration_import_invalid",
+                    "Camera time synchronization mode is invalid.",
+                    details={
+                        "path": (
+                            "$.sections.cameras.cameras"
+                            f"[{index}].time_sync_mode"
+                        )
+                    },
+                )
             cls._require_ref(
                 item.get("device_id"),
                 device_ids,
@@ -1759,26 +1783,46 @@ class ConfigurationImportService:
                 )
                 continue
 
-            target.name = str(
-                item["name"]
+            camera_changes: dict[
+                str,
+                object,
+            ] = {
+                "name": str(
+                    item["name"]
+                ),
+                "location": (
+                    str(item["location"])
+                    if item.get(
+                        "location"
+                    )
+                    is not None
+                    else None
+                ),
+                "storage_label": (
+                    str(
+                        item["storage_label"]
+                    )
+                    if item.get(
+                        "storage_label"
+                    )
+                    is not None
+                    else None
+                ),
+            }
+            if (
+                "time_sync_mode"
+                in item
+            ):
+                camera_changes[
+                    "time_sync_mode"
+                ] = item[
+                    "time_sync_mode"
+                ]
+            CameraService.update_camera(
+                session,
+                camera=target,
+                changes=camera_changes,
             )
-            target.location = (
-                str(item["location"])
-                if item.get("location")
-                is not None
-                else None
-            )
-            target.storage_label = (
-                str(
-                    item["storage_label"]
-                )
-                if item.get(
-                    "storage_label"
-                )
-                is not None
-                else None
-            )
-            session.flush()
             camera_map[source_id] = target.id
             applied.append(
                 cls._apply_item(
