@@ -20,6 +20,9 @@ from app.frontend import mount_frontend
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.zlm import ZlmContinuityTracker
 from app.modules.auth.rate_limit import AuthRateLimiter
+from app.modules.cameras.clock_projection import (
+    CameraClockProjectionStore,
+)
 from app.modules.cameras.live_transcode import LiveTranscodeManager
 from app.modules.cameras.media_sessions import MediaSessionRegistry
 from app.modules.backups.dispatcher import BackupTaskDispatcher
@@ -41,6 +44,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     auth_rate_limiter = AuthRateLimiter()
     zlm_continuity = ZlmContinuityTracker()
     recorder_modes = RecorderModeTracker()
+    camera_clock_projections = (
+        CameraClockProjectionStore()
+    )
     prebuffer_fragments = PrebufferFragmentTracker()
     live_transcodes = LiveTranscodeManager(
         resolved_settings,
@@ -119,6 +125,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.logger = logger
     app.state.zlm_continuity = zlm_continuity
     app.state.recorder_modes = recorder_modes
+    app.state.camera_clock_projections = (
+        camera_clock_projections
+    )
     app.state.prebuffer_fragments = prebuffer_fragments
     app.state.live_transcodes = live_transcodes
     app.state.media_sessions = media_sessions
