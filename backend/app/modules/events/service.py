@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
+from app.core.security import redact_sensitive_value
 from app.modules.cameras.models import Camera
 
 from .models import Event
@@ -216,7 +217,9 @@ class EventService:
             field_name="correlation_id",
             max_length=128,
         )
-        event.metadata_json = dict(item.metadata)
+        event.metadata_json = redact_sensitive_value(
+            dict(item.metadata)
+        )
         session.flush()
 
         return EventUpsertResult(
