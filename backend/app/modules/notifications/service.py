@@ -423,18 +423,20 @@ class NotificationTargetService:
                 url=candidate_url,
             )
         elif url_action == "clear":
-            if target.secret_ref is not None:
+            secret_ref = target.secret_ref
+            target.secret_ref = None
+            session.flush()
+            if secret_ref is not None:
                 try:
                     self.secret_store.delete(
                         session,
-                        target.secret_ref,
+                        secret_ref,
                         kind="notification_url",
                         owner_type="notification_target",
                         owner_id=target.id,
                     )
                 except KeyError:
                     pass
-            target.secret_ref = None
 
         session.flush()
         return target
