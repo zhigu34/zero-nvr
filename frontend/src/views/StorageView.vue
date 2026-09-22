@@ -343,6 +343,11 @@ async function saveTarget(): Promise<void> {
             default_archive: targetForm.defaultArchive
           }
         }
+        changes.rclone_config_action = (
+          targetForm.rcloneConfig.trim()
+            ? "replace"
+            : "keep"
+        )
         if (targetForm.rcloneConfig.trim()) {
           changes.rclone_config = targetForm.rcloneConfig
         }
