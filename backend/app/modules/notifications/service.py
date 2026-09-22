@@ -29,6 +29,19 @@ class ResolvedNotificationTarget:
     notify_type: str
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedSmtpTarget:
+    target_id: uuid.UUID
+    name: str
+    host: str
+    port: int
+    security: str
+    from_address: str
+    from_name: str | None
+    username: str | None
+    password: str | None
+
+
 class NotificationTargetService:
     def __init__(self, settings: Settings) -> None:
         self.secret_store = SecretStore(settings)
@@ -936,6 +949,83 @@ class NotificationTargetService:
                     "notify_type",
                     "info",
                 )
+            ),
+        )
+
+    def resolve_smtp(
+        self,
+        session: Session,
+        *,
+        target: NotificationTarget,
+    ) -> ResolvedSmtpTarget:
+        if target.kind != "smtp":
+            raise ApiError(
+                status_code=409,
+                code="notification_delivery_not_supported",
+                message="Notification target is not SMTP.",
+            )
+        if not target.enabled:
+            raise ApiError(
+                status_code=409,
+                code="notification_target_disabled",
+                message="Notification target is disabled.",
+            )
+
+        raw_config = target.config_json or {}
+        normalized = self._normalize_smtp_config(
+            dict(raw_config)
+        )
+
+        credentials: dict[str, str] | None = None
+        if target.secret_ref is not None:
+            try:
+                raw_credentials = (
+                    self.secret_store.read_json(
+                        session,
+                        target.secret_ref,
+                        kind="smtp_credentials",
+                        owner_type="notification_target",
+                        owner_id=target.id,
+                    )
+                )
+                credentials = (
+                    self._normalize_smtp_credentials(
+                        raw_credentials
+                    )
+                )
+            except Exception as exc:
+                raise ApiError(
+                    status_code=409,
+                    code="smtp_credentials_unavailable",
+                    message=(
+                        "SMTP credentials could not be "
+                        "resolved."
+                    ),
+                ) from exc
+
+        return ResolvedSmtpTarget(
+            target_id=target.id,
+            name=target.name,
+            host=str(normalized["host"]),
+            port=int(normalized["port"]),
+            security=str(normalized["security"]),
+            from_address=str(
+                normalized["from_address"]
+            ),
+            from_name=(
+                str(normalized["from_name"])
+                if normalized["from_name"] is not None
+                else None
+            ),
+            username=(
+                credentials["username"]
+                if credentials is not None
+                else None
+            ),
+            password=(
+                credentials["password"]
+                if credentials is not None
+                else None
             ),
         )
 
