@@ -105,6 +105,7 @@ async function save(): Promise<void> {
         auto_provision: boolean
         email_linking: boolean
         default_role_ids: string[]
+        client_secret_action: "keep" | "replace"
         client_secret?: string
       } = {
         name: form.name.trim(),
@@ -113,7 +114,12 @@ async function save(): Promise<void> {
         client_id: form.clientId.trim(),
         auto_provision: form.autoProvision,
         email_linking: form.emailLinking,
-        default_role_ids: [...form.defaultRoleIds]
+        default_role_ids: [...form.defaultRoleIds],
+        client_secret_action: (
+          form.clientSecret
+            ? "replace"
+            : "keep"
+        )
       }
       if (form.clientSecret) {
         changes.client_secret = form.clientSecret
