@@ -48,12 +48,6 @@ class Device(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     hardware_id: Mapped[str | None] = mapped_column(String(512), nullable=True)
     adapter_type: Mapped[str] = mapped_column(String(64), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
-    config_revision: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=1,
-        server_default="1",
-    )
     capabilities_json: Mapped[dict[str, Any]] = mapped_column(
         "capabilities",
         JSON,
@@ -231,6 +225,12 @@ class Camera(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     channel_key: Mapped[str] = mapped_column(String(256), nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    config_revision: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=1,
+        server_default="1",
+    )
     time_sync_mode: Mapped[str] = mapped_column(
         String(16),
         nullable=False,
