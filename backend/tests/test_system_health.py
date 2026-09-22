@@ -410,3 +410,39 @@ def test_storage_health_marks_unavailable_target_error(
     )
     detail = component.details["target_details"][0]
     assert detail["level"] == "unavailable"
+
+def test_liveness_stays_up_when_readiness_database_probe_fails(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.get("/health").json() == {
+            "status": "ok"
+        }
+        assert client.get("/ready").json() == {
+            "status": "ok"
+        }
+
+        def fail_ping() -> None:
+            raise RuntimeError("database unavailable")
+
+        monkeypatch.setattr(
+            app.state.database,
+            "ping",
+            fail_ping,
+        )
+
+        liveness = client.get("/health")
+        assert liveness.status_code == 200
+        assert liveness.json() == {
+            "status": "ok"
+        }
+
+        readiness = client.get("/ready")
+        assert readiness.status_code == 503
+        assert readiness.json() == {
+            "status": "unavailable"
+        }
+
