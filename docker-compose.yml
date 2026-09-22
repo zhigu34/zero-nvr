@@ -175,8 +175,10 @@ services:
       POSTGRES_DB: ${ZERO_NVR_POSTGRES_DB:-zero_nvr}
       POSTGRES_USER: ${ZERO_NVR_POSTGRES_USER:-zero_nvr}
       POSTGRES_PASSWORD: ${ZERO_NVR_POSTGRES_PASSWORD:-}
+      POSTGRES_PASSWORD_FILE: ${ZERO_NVR_POSTGRES_PASSWORD_FILE:-}
     volumes:
       - zero-nvr-postgres-data:/var/lib/postgresql/data
+      - ${ZERO_NVR_DATA_PATH:-./data/zero-nvr}/bootstrap-secrets:/var/lib/zero-nvr/bootstrap-secrets:ro
     healthcheck:
       test:
         - CMD-SHELL
