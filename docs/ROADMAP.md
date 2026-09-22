@@ -140,7 +140,7 @@ current code/tests.
 - [x] SMTP NotificationTarget(type=smtp) persistence/API with SecretStore-backed credentials and one system setting selecting the default security-email target.
 - [x] SMTP connection test + test-email flow.
 - [x] password-reset/security email delivery through NotificationDelivery + Huey retry/backoff/result tracking.
-- [ ] self-service email password reset with non-enumerating public response.
+- [x] self-service email password reset with non-enumerating public response.
 - [ ] PasswordResetToken persistence using one-way token hashes.
 - [ ] administrator-issued one-time password reset token.
 - [ ] host/Docker CLI emergency administrator password recovery.
