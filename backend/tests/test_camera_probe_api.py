@@ -224,6 +224,215 @@ def test_camera_test_returns_safe_media_info_without_persistence(
         assert after == before
 
 
+def test_persisted_stream_verify_updates_safe_diagnostics(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras",
+            json=probe_payload(),
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+        profile = next(
+            item
+            for item in created.json()["streams"]
+            if item["adapter_profile_key"]
+            == "manual-primary"
+        )
+        profile_id = profile["id"]
+        assert profile["status"] == "configured"
+        assert profile["last_verified_at"] is None
+
+        SuccessfulProbeAdapter.calls = []
+        monkeypatch.setattr(
+            camera_api,
+            "ZlmAdapter",
+            SuccessfulProbeAdapter,
+        )
+        response = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/streams/{profile_id}/verify"
+            )
+        )
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["profile"]["id"] == profile_id
+        assert body["profile"]["status"] == "available"
+        assert (
+            body["profile"]["last_verified_at"]
+            == body["verified_at"]
+        )
+        assert body["profile"]["codec"] == "h265"
+        assert body["profile"]["width"] == 3840
+        assert body["profile"]["height"] == 2160
+        assert body["profile"]["fps"] == 25.0
+        assert body["profile"]["gop_seconds"] == 2.0
+        assert body["profile"]["audio_codec"] == "aac"
+        assert body["profile"]["has_audio"] is True
+        assert body["video"]["codec"] == "h265"
+        assert body["audio"]["sample_rate"] == 48000
+        assert SuccessfulProbeAdapter.calls == [
+            PRIMARY_URL
+        ]
+
+        serialized = json.dumps(body)
+        assert "camera-password" not in serialized
+        assert "primary-secret" not in serialized
+        assert "rtsp://" not in serialized
+
+    with app.state.database.session() as session:
+        persisted = session.get(
+            CameraStreamProfile,
+            profile_id,
+        )
+        assert persisted is not None
+        assert persisted.status == "available"
+        assert persisted.last_verified_at is not None
+        assert persisted.codec == "h265"
+        assert persisted.width == 3840
+        assert persisted.height == 2160
+        assert persisted.audio_codec == "aac"
+        assert persisted.has_audio is True
+
+        audit = session.scalar(
+            select(AuditEvent).where(
+                AuditEvent.action
+                == "camera.stream.verify"
+            )
+        )
+        assert audit is not None
+        assert audit.result == "success"
+        assert (
+            audit.metadata_json["after"]["status"]
+            == "available"
+        )
+
+
+def test_persisted_stream_verify_failure_marks_unavailable_and_keeps_last_success(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FailingProbeAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(
+            self,
+            *_exc,
+        ) -> None:
+            return None
+
+        def probe_rtsp_source(
+            self,
+            _source_url: str,
+        ) -> ZlmMediaProbe:
+            raise ZlmIntegrationError(
+                "camera_stream_probe_timeout",
+                "The camera stream did not become ready in time.",
+                status_code=422,
+            )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras",
+            json=probe_payload(),
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+        profile_id = next(
+            item["id"]
+            for item in created.json()["streams"]
+            if item["adapter_profile_key"]
+            == "manual-primary"
+        )
+
+        monkeypatch.setattr(
+            camera_api,
+            "ZlmAdapter",
+            SuccessfulProbeAdapter,
+        )
+        success = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/streams/{profile_id}/verify"
+            )
+        )
+        assert success.status_code == 200
+        last_success = success.json()[
+            "verified_at"
+        ]
+
+        monkeypatch.setattr(
+            camera_api,
+            "ZlmAdapter",
+            FailingProbeAdapter,
+        )
+        failed = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/streams/{profile_id}/verify"
+            )
+        )
+        assert failed.status_code == 422
+        assert failed.json()["error"] == {
+            "code": "camera_stream_probe_timeout",
+            "message": (
+                "The camera stream did not become ready in time."
+            ),
+            "details": {
+                "profile_id": profile_id,
+            },
+        }
+
+        fetched = client.get(
+            f"/api/v1/cameras/{camera_id}/streams"
+        )
+        assert fetched.status_code == 200
+        current = next(
+            item
+            for item in fetched.json()
+            if item["id"] == profile_id
+        )
+        assert current["status"] == "unavailable"
+        assert (
+            current["last_verified_at"]
+            == last_success
+        )
+
+    with app.state.database.session() as session:
+        failures = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action
+                    == "camera.stream.verify",
+                    AuditEvent.result
+                    == "failure",
+                )
+            )
+        )
+        assert len(failures) == 1
+        assert (
+            failures[0].reason
+            == "camera_stream_probe_timeout"
+        )
+
+
 def test_camera_test_reports_unconfigured_zlm_without_persistence(
     tmp_path: Path,
 ) -> None:
