@@ -27,6 +27,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
             str,
             ...,
         ] = (),
+        previous_record_profile_id: str | None = None,
     ) -> None:
         calls.append(
             (
@@ -34,6 +35,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
                 restart_streams,
                 force_reconfigure,
                 restart_profile_ids,
+                previous_record_profile_id,
             )
         )
 
@@ -50,6 +52,7 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
             False,
             False,
             (),
+            None,
         )
     ]
 
@@ -87,6 +90,22 @@ def test_recording_dispatcher_exposes_runtime_reconcile(
         False,
         False,
         (str(profile_id),),
+        None,
+    )
+
+    previous_profile_id = uuid.uuid4()
+    RecordingTaskDispatcher.reconcile_runtime(
+        camera_id,
+        previous_record_profile_id=(
+            previous_profile_id
+        ),
+    )
+    assert calls[-1] == (
+        str(camera_id),
+        False,
+        False,
+        (),
+        str(previous_profile_id),
     )
 
 

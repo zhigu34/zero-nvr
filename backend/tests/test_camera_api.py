@@ -28,9 +28,24 @@ VIEWER_PASSWORD = "viewer-correct-horse-battery"
 class FakeRecordingTasks:
     def __init__(self) -> None:
         self.runtime_reconciles: list[uuid.UUID] = []
+        self.record_profile_switches: list[
+            tuple[uuid.UUID, uuid.UUID | None]
+        ] = []
 
-    def reconcile_runtime(self, camera_id: uuid.UUID) -> None:
+    def reconcile_runtime(
+        self,
+        camera_id: uuid.UUID,
+        *,
+        previous_record_profile_id: uuid.UUID | None = None,
+        **_kwargs,
+    ) -> None:
         self.runtime_reconciles.append(camera_id)
+        self.record_profile_switches.append(
+            (
+                camera_id,
+                previous_record_profile_id,
+            )
+        )
 
 
 def make_app(tmp_path: Path):
@@ -309,6 +324,90 @@ def test_manual_rtsp_secret_storage_scope_and_bindings(tmp_path: Path) -> None:
     assert "camera.create" in actions
     assert "camera.stream_bindings.update" in actions
 
+
+
+
+
+def test_record_binding_change_queues_safe_profile_switch(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        created = create_camera(
+            client,
+            name="Profile Switch Camera",
+            host="10.10.0.29",
+            with_secondary=True,
+        )
+        body = created.json()
+        camera_id = uuid.UUID(body["id"])
+        profiles = {
+            item["adapter_profile_key"]: uuid.UUID(
+                item["id"]
+            )
+            for item in body["streams"]
+        }
+        switch_body = {
+            "bindings": [
+                {
+                    "purpose": item["purpose"],
+                    "stream_profile_id": str(
+                        profiles["manual-secondary"]
+                        if item["purpose"] == "RECORD"
+                        else uuid.UUID(
+                            item["stream_profile_id"]
+                        )
+                    ),
+                    "selection_mode": (
+                        "manual"
+                        if item["purpose"] == "RECORD"
+                        else item["selection_mode"]
+                    ),
+                }
+                for item in body["bindings"]
+            ]
+        }
+
+        changed = client.put(
+            f"/api/v1/cameras/{camera_id}/stream-bindings",
+            json=switch_body,
+        )
+        assert changed.status_code == 200
+        assert (
+            app.state.recording_tasks
+            .record_profile_switches
+        ) == [
+            (
+                camera_id,
+                profiles["manual-primary"],
+            )
+        ]
+
+        repeated = client.put(
+            f"/api/v1/cameras/{camera_id}/stream-bindings",
+            json=switch_body,
+        )
+        assert repeated.status_code == 200
+        assert (
+            app.state.recording_tasks
+            .record_profile_switches
+        ) == [
+            (
+                camera_id,
+                profiles["manual-primary"],
+            )
+        ]
 
 
 def test_camera_enable_disable_queues_runtime_reconcile(

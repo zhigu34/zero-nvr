@@ -1714,6 +1714,14 @@ def replace_camera_stream_bindings(
     try:
         camera = CameraService.get_camera(session, camera_id)
         before = _binding_audit_snapshot(camera)
+        before_record_profile_id = next(
+            (
+                item.stream_profile_id
+                for item in camera.stream_bindings
+                if item.purpose == "RECORD"
+            ),
+            None,
+        )
         bindings = CameraService.replace_bindings(
             session,
             camera=camera,
@@ -1725,6 +1733,18 @@ def replace_camera_stream_bindings(
                 )
                 for item in body.bindings
             ],
+        )
+        after_record_profile_id = next(
+            (
+                item.stream_profile_id
+                for item in bindings
+                if item.purpose == "RECORD"
+            ),
+            None,
+        )
+        record_profile_changed = (
+            before_record_profile_id
+            != after_record_profile_id
         )
         after = sorted(
             [
@@ -1763,6 +1783,28 @@ def replace_camera_stream_bindings(
     except Exception:
         session.rollback()
         raise
+
+    if record_profile_changed:
+        try:
+            request.app.state.recording_tasks.reconcile_runtime(
+                camera_id,
+                previous_record_profile_id=(
+                    before_record_profile_id
+                ),
+            )
+        except Exception as exc:
+            raise ApiError(
+                status_code=503,
+                code="camera_runtime_queue_unavailable",
+                message=(
+                    "Stream bindings were saved but the RECORD profile "
+                    "switch could not be queued."
+                ),
+                details={
+                    "camera_id": str(camera_id),
+                    "configuration_persisted": True,
+                },
+            ) from exc
 
     return sorted(
         (_binding_view(item) for item in bindings),

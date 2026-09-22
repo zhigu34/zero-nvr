@@ -90,6 +90,7 @@ class RecordingTaskDispatcher:
             uuid.UUID,
             ...,
         ] = (),
+        previous_record_profile_id: uuid.UUID | None = None,
     ) -> None:
         from app.worker.tasks import reconcile_camera_runtime
 
@@ -101,6 +102,11 @@ class RecordingTaskDispatcher:
                 str(profile_id)
                 for profile_id
                 in restart_profile_ids
+            ),
+            (
+                str(previous_record_profile_id)
+                if previous_record_profile_id is not None
+                else None
             ),
         )
 

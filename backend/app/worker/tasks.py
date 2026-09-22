@@ -383,6 +383,7 @@ def reconcile_camera_runtime(
         str,
         ...,
     ] = (),
+    previous_record_profile_id: str | None = None,
 ) -> str:
     """Reconcile one Camera's ZLM recorder and stream runtime.
 
@@ -400,6 +401,11 @@ def reconcile_camera_runtime(
         for profile_id
         in restart_profile_ids
     }
+    previous_profile_id = (
+        uuid.UUID(previous_record_profile_id)
+        if previous_record_profile_id is not None
+        else None
+    )
 
     try:
         media_runtime = CameraMediaRuntimeService(settings)
@@ -416,11 +422,23 @@ def reconcile_camera_runtime(
                 session,
                 camera=camera,
             )
-            desired_recorder = RecordingRuntimeService.desired(
-                session,
-                settings=settings,
-                camera_id=camera_uuid,
-                capacity_behavior="off",
+            current_record_profile_id = next(
+                (
+                    binding.stream_profile_id
+                    for binding in camera.stream_bindings
+                    if binding.purpose == "RECORD"
+                ),
+                None,
+            )
+            desired_recorder = (
+                RecordingRuntimeService.desired(
+                    session,
+                    settings=settings,
+                    camera_id=camera_uuid,
+                    capacity_behavior="off",
+                )
+                if current_record_profile_id is not None
+                else None
             )
             enabled = camera.enabled
 
@@ -447,6 +465,30 @@ def reconcile_camera_runtime(
             if item.profile_id
             in targeted_profile_ids
         ]
+        desired_record_profile_id = (
+            desired_recorder.profile_id
+            if desired_recorder is not None
+            else current_record_profile_id
+        )
+        previous_reference = (
+            CameraMediaRuntimeService.reference_for(
+                camera_id=camera_uuid,
+                profile_id=previous_profile_id,
+            )
+            if (
+                previous_profile_id is not None
+                and previous_profile_id
+                != desired_record_profile_id
+            )
+            else None
+        )
+        previous_still_bound = (
+            previous_profile_id is not None
+            and any(
+                item.profile_id == previous_profile_id
+                for item in desired_streams
+            )
+        )
         record_profile_id = (
             desired_recorder.profile_id
             if (
@@ -494,19 +536,31 @@ def reconcile_camera_runtime(
                 record_streams
             )
 
-        runtime_result = RecordingRuntimeService(
+        recording_runtime = RecordingRuntimeService(
             settings,
             mode_tracker=_RECORDER_MODE_TRACKER,
-        ).reconcile(
-            desired_recorder,
-            force_reconfigure=(
-                restart_streams
-                or force_reconfigure
-                or bool(
-                    targeted_record_streams
-                )
-            ),
         )
+        if previous_reference is not None:
+            runtime_result = recording_runtime.switch_profile(
+                previous_app=previous_reference.app,
+                previous_stream=previous_reference.stream,
+                desired=desired_recorder,
+            )
+            if not previous_still_bound:
+                media_runtime.stop_streams(
+                    [previous_reference]
+                )
+        else:
+            runtime_result = recording_runtime.reconcile(
+                desired_recorder,
+                force_reconfigure=(
+                    restart_streams
+                    or force_reconfigure
+                    or bool(
+                        targeted_record_streams
+                    )
+                ),
+            )
 
         if not enabled:
             media_runtime.stop_streams(references)

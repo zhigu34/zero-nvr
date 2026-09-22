@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.core.config import Settings
 from app.core.db import Base, Database
+from app.core.errors import ApiError
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.runtime import (
@@ -350,3 +351,200 @@ def test_explicit_policy_target_overrides_system_default_for_zlm_path(
         )
     finally:
         database.close()
+
+
+class SwitchFakeZlm:
+    states: dict[str, dict[str, bool]] = {}
+    calls: list[tuple] = []
+
+    def __init__(self, _settings) -> None:
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc) -> None:
+        return None
+
+    def is_stream_online(
+        self,
+        *,
+        app: str,
+        stream: str,
+    ) -> bool:
+        self.calls.append(("online", app, stream))
+        return self.states.get(
+            stream,
+            {},
+        ).get("online", False)
+
+    def is_recording(
+        self,
+        *,
+        app: str,
+        stream: str,
+    ) -> bool:
+        self.calls.append(("is", app, stream))
+        return self.states.get(
+            stream,
+            {},
+        ).get("recording", False)
+
+    def stop(
+        self,
+        *,
+        app: str,
+        stream: str,
+    ) -> bool:
+        self.calls.append(("stop", app, stream))
+        self.states.setdefault(
+            stream,
+            {},
+        )["recording"] = False
+        return True
+
+    def start(
+        self,
+        *,
+        app: str,
+        stream: str,
+        customized_path: str,
+        max_second: int,
+    ) -> bool:
+        self.calls.append(
+            (
+                "start",
+                app,
+                stream,
+                customized_path,
+                max_second,
+            )
+        )
+        self.states.setdefault(
+            stream,
+            {},
+        )["recording"] = True
+        return True
+
+
+def test_record_profile_switch_checks_new_stream_before_finalizing_old(
+    tmp_path: Path,
+) -> None:
+    tracker = RecorderModeTracker()
+    tracker.set(
+        app="zero-nvr",
+        stream="profile-old",
+        mode="persistent",
+    )
+    SwitchFakeZlm.states = {
+        "profile-old": {
+            "online": True,
+            "recording": True,
+        },
+        "profile-test": {
+            "online": True,
+            "recording": False,
+        },
+    }
+    SwitchFakeZlm.calls = []
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=SwitchFakeZlm,
+        mode_tracker=tracker,
+    )
+    target = desired(
+        mode="persistent",
+        root="/recordings",
+        max_second=300,
+    )
+
+    result = service.switch_profile(
+        previous_app="zero-nvr",
+        previous_stream="profile-old",
+        desired=target,
+    )
+
+    assert result.desired_mode == "persistent"
+    assert result.observed_recording is True
+    assert result.changed is True
+    new_online = SwitchFakeZlm.calls.index(
+        ("online", "zero-nvr", "profile-test")
+    )
+    old_stop = SwitchFakeZlm.calls.index(
+        ("stop", "zero-nvr", "profile-old")
+    )
+    new_start = SwitchFakeZlm.calls.index(
+        (
+            "start",
+            "zero-nvr",
+            "profile-test",
+            "/recordings",
+            300,
+        )
+    )
+    assert new_online < old_stop < new_start
+    assert tracker.get(
+        app="zero-nvr",
+        stream="profile-old",
+    ) is None
+    assert tracker.get(
+        app="zero-nvr",
+        stream="profile-test",
+    ) == "persistent"
+
+
+def test_record_profile_switch_leaves_old_recorder_when_new_stream_offline(
+    tmp_path: Path,
+) -> None:
+    tracker = RecorderModeTracker()
+    tracker.set(
+        app="zero-nvr",
+        stream="profile-old",
+        mode="persistent",
+    )
+    SwitchFakeZlm.states = {
+        "profile-old": {
+            "online": True,
+            "recording": True,
+        },
+        "profile-test": {
+            "online": False,
+            "recording": False,
+        },
+    }
+    SwitchFakeZlm.calls = []
+    service = RecordingRuntimeService(
+        settings(tmp_path),
+        zlm_factory=SwitchFakeZlm,
+        mode_tracker=tracker,
+    )
+
+    try:
+        service.switch_profile(
+            previous_app="zero-nvr",
+            previous_stream="profile-old",
+            desired=desired(
+                mode="persistent",
+                root="/recordings",
+                max_second=300,
+            ),
+        )
+    except ApiError as exc:
+        assert exc.code == "recording_stream_offline"
+    else:
+        raise AssertionError(
+            "offline target must reject the profile switch"
+        )
+
+    assert (
+        "stop",
+        "zero-nvr",
+        "profile-old",
+    ) not in SwitchFakeZlm.calls
+    assert SwitchFakeZlm.states[
+        "profile-old"
+    ]["recording"] is True
+    assert tracker.get(
+        app="zero-nvr",
+        stream="profile-old",
+    ) == "persistent"

@@ -219,6 +219,131 @@ class RecordingRuntimeService:
             reasons=arbitration.reasons,
         )
 
+    def switch_profile(
+        self,
+        *,
+        previous_app: str,
+        previous_stream: str,
+        desired: DesiredRecorder | None,
+    ) -> RecorderReconcileResult:
+        """Switch RECORD source at an explicit ZLM finalize boundary.
+
+        The target stream must already be online before the previous recorder
+        is touched. ZLM stop is used as the safe V1 segment boundary so the
+        current physical file is finalized normally; zero-nvr does not guess a
+        boundary from the nominal segment duration.
+        """
+
+        if (
+            desired is not None
+            and desired.app == previous_app
+            and desired.stream == previous_stream
+        ):
+            return self.reconcile(
+                desired,
+                force_reconfigure=True,
+            )
+
+        with self._zlm_factory(self.settings) as zlm:
+            if (
+                desired is not None
+                and desired.mode != "off"
+            ):
+                if desired.target_root is None:
+                    raise ApiError(
+                        status_code=500,
+                        code="recording_runtime_invalid",
+                        message=(
+                            "Recording runtime target is unavailable."
+                        ),
+                    )
+                if not zlm.is_stream_online(
+                    app=desired.app,
+                    stream=desired.stream,
+                ):
+                    raise ApiError(
+                        status_code=503,
+                        code="recording_stream_offline",
+                        message=(
+                            "New camera recording stream is not available "
+                            "in ZLMediaKit; the previous recorder was left "
+                            "running."
+                        ),
+                    )
+
+            changed = False
+            previous_online = zlm.is_stream_online(
+                app=previous_app,
+                stream=previous_stream,
+            )
+            if previous_online and zlm.is_recording(
+                app=previous_app,
+                stream=previous_stream,
+            ):
+                if not zlm.stop(
+                    app=previous_app,
+                    stream=previous_stream,
+                ):
+                    raise ApiError(
+                        status_code=503,
+                        code="recording_stop_failed",
+                        message=(
+                            "ZLMediaKit did not finalize the previous "
+                            "recording profile."
+                        ),
+                    )
+                changed = True
+
+            self.mode_tracker.set(
+                app=previous_app,
+                stream=previous_stream,
+                mode="off",
+            )
+
+            if desired is None or desired.mode == "off":
+                return RecorderReconcileResult(
+                    desired_mode="off",
+                    observed_recording=False,
+                    changed=changed,
+                    assumed_existing_mode=False,
+                )
+
+            current = zlm.is_recording(
+                app=desired.app,
+                stream=desired.stream,
+            )
+            if not current:
+                assert desired.target_root is not None
+                if not zlm.start(
+                    app=desired.app,
+                    stream=desired.stream,
+                    customized_path=desired.target_root,
+                    max_second=desired.max_second,
+                ):
+                    raise ApiError(
+                        status_code=503,
+                        code="recording_start_failed",
+                        message=(
+                            "ZLMediaKit did not start recording on the "
+                            "new profile."
+                        ),
+                    )
+                current = True
+                changed = True
+
+            self.mode_tracker.set(
+                app=desired.app,
+                stream=desired.stream,
+                mode=desired.mode,
+            )
+
+        return RecorderReconcileResult(
+            desired_mode=desired.mode,
+            observed_recording=current,
+            changed=changed,
+            assumed_existing_mode=False,
+        )
+
     def reconcile(
         self,
         desired: DesiredRecorder | None,
