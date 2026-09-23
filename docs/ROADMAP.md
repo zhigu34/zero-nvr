@@ -425,8 +425,8 @@ Acceptance:
 - [x] PlaybackResolver by RecordingSegment ID.
 - [x] playback/timeline camera-scope authorization and short-lived media access.
 - [x] local playback.
-- [~] ordered detailed segment ranges + binary absolute-time segment lookup.
-- [ ] dual-player preload/ping-pong cross-segment continuation.
+- [x] ordered detailed segment ranges + binary absolute-time segment lookup.
+- [~] dual-player preload/ping-pong cross-segment continuation.
 - [ ] standby-player readiness gating and absolute-boundary source switching.
 - [ ] sub-pixel visual seam smoothing without mutating real gap data.
 - [ ] monotonic Master Clock.
