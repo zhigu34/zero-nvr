@@ -57,6 +57,21 @@ const onvifStorageLabel = ref("")
 const inspection = ref<OnvifInspection | null>(null)
 const inspectionFingerprint = ref<string | null>(null)
 const selectedProfiles = ref<string[]>([])
+const confirmExistingIdentity = ref(false)
+
+const identity = computed(() => inspection.value?.identity ?? null)
+const identityRequiresConfirmation = computed(
+  () => identity.value?.state === "probable_match_requires_confirmation"
+)
+const identityConflict = computed(
+  () => identity.value?.state === "identity_conflict"
+)
+const importActionLabel = computed(() => {
+  if (working.value === "import") return "Importing…"
+  if (identity.value?.state === "same_device") return "Refresh existing device"
+  if (identityRequiresConfirmation.value) return "Confirm & refresh device"
+  return "Import device"
+})
 
 const canCreateManual = computed(
   () =>
@@ -70,6 +85,8 @@ const canImport = computed(
     inspection.value !== null &&
     inspectionFingerprint.value === JSON.stringify(onvifCredentials()) &&
     selectedProfiles.value.length > 0 &&
+    !identityConflict.value &&
+    (!identityRequiresConfirmation.value || confirmExistingIdentity.value) &&
     working.value === null
 )
 
@@ -158,6 +175,7 @@ function useCandidate(candidate: DiscoveryCandidate): void {
   inspection.value = null
   inspectionFingerprint.value = null
   selectedProfiles.value = []
+  confirmExistingIdentity.value = false
 }
 
 function onvifCredentials() {
@@ -174,6 +192,7 @@ async function inspectDevice(): Promise<void> {
   inspection.value = null
   inspectionFingerprint.value = null
   selectedProfiles.value = []
+  confirmExistingIdentity.value = false
   working.value = "inspect"
 
   try {
@@ -203,11 +222,15 @@ async function importDevice(): Promise<void> {
       location: normalizeOptional(onvifLocation.value),
       storage_label: normalizeOptional(onvifStorageLabel.value),
       profile_tokens: [...selectedProfiles.value],
-      discovery_candidate_id: selectedCandidateId.value
+      discovery_candidate_id: selectedCandidateId.value,
+      confirm_existing_device_id:
+        identityRequiresConfirmation.value && confirmExistingIdentity.value
+          ? identity.value?.matched_device_id ?? null
+          : null
     })
     successMessage.value =
       imported.reconfigured
-        ? "Existing ONVIF device refreshed. Camera identity and history were preserved while endpoint, credentials and stream URIs were updated."
+        ? "Existing ONVIF device refreshed after identity review. Camera identity and history were preserved while endpoint, credentials and stream URIs were updated."
         : "ONVIF device imported. Stream credentials remain in the zero-nvr secret store."
     onvifPassword.value = ""
     emit("created")
@@ -385,6 +408,56 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
             </span>
           </div>
 
+          <p
+            v-if="inspection.identity.state === 'new_device'"
+            class="notice notice--success"
+            role="status"
+          >
+            New device identity. No existing ONVIF device matches the stable
+            identity or endpoint.
+          </p>
+          <p
+            v-else-if="inspection.identity.state === 'same_device'"
+            class="notice notice--success"
+            role="status"
+          >
+            Existing device matched by stable identity:
+            <strong>
+              {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
+            </strong>.
+            Import will refresh that device rather than create a duplicate.
+          </p>
+          <div
+            v-else-if="
+              inspection.identity.state ===
+              'probable_match_requires_confirmation'
+            "
+            class="notice"
+            role="status"
+          >
+            <strong>Identity confirmation required.</strong>
+            This endpoint already belongs to
+            <strong>
+              {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
+            </strong>,
+            but the device did not provide a strong stable identity. zero-nvr
+            will not merge it automatically.
+            <label class="check-row">
+              <input v-model="confirmExistingIdentity" type="checkbox" />
+              <span>I confirm this is the same physical device.</span>
+            </label>
+          </div>
+          <p
+            v-else
+            class="notice notice--error"
+            role="alert"
+          >
+            <strong>Identity conflict.</strong>
+            Stable identity and endpoint evidence point to different or
+            duplicate existing devices. Import is disabled until the existing
+            device records are resolved.
+          </p>
+
           <div class="profile-list">
             <label
               v-for="profile in inspection.profiles"
@@ -448,7 +521,7 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
             :disabled="!canImport"
             @click="importDevice"
           >
-            {{ working === "import" ? "Importing…" : "Import device" }}
+            {{ importActionLabel }}
           </button>
         </div>
       </div>

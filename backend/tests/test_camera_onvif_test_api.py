@@ -18,7 +18,12 @@ from app.integrations.onvif import (
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import SecretRecord
-from app.modules.cameras.models import Camera, Device, DiscoverySession
+from app.modules.cameras.models import (
+    Camera,
+    Device,
+    DeviceEndpoint,
+    DiscoverySession,
+)
 
 
 PASSWORD = "camera-admin-password"
@@ -160,6 +165,13 @@ def test_onvif_test_returns_safe_profile_metadata_without_persistence(
             "hardware_id": "HW-100",
         }
         assert body["capabilities"] == ["Media", "PTZ"]
+        assert body["identity"] == {
+            "state": "new_device",
+            "matched_device_id": None,
+            "matched_device_name": None,
+            "conflicting_device_ids": [],
+            "reason": "no_existing_identity_match",
+        }
         assert body["profiles"][0]["token"] == "profile-main"
         assert body["profiles"][0]["codec"] == "h265"
         assert body["profiles"][0]["stream_uri_available"] is True
@@ -179,6 +191,169 @@ def test_onvif_test_returns_safe_profile_metadata_without_persistence(
             }
         ]
         assert counts(app) == before
+
+
+def test_onvif_test_surfaces_endpoint_only_match_for_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **_kwargs):
+            return OnvifInspection(
+                device=OnvifDeviceInfo(
+                    manufacturer="Acme",
+                    model="SecureCam",
+                    firmware_version="3.4.5",
+                    serial_number=None,
+                    hardware_id=None,
+                ),
+                capabilities=("Media",),
+                profiles=(),
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with app.state.database.session() as session:
+        existing = Device(
+            name="Existing weak identity",
+            adapter_type="onvif",
+            enabled=True,
+            capabilities_json={},
+        )
+        session.add(existing)
+        session.flush()
+        session.add(
+            DeviceEndpoint(
+                device_id=existing.id,
+                type="onvif",
+                host="192.168.60.20",
+                port=80,
+                scheme="http",
+                priority=100,
+                enabled=True,
+                metadata_json={},
+            )
+        )
+        session.commit()
+        existing_id = str(existing.id)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        response = client.post(
+            "/api/v1/cameras/onvif/test",
+            json={
+                "host": "192.168.60.20",
+                "port": 80,
+                "username": "camera-admin",
+                "password": PASSWORD,
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["identity"] == {
+        "state": "probable_match_requires_confirmation",
+        "matched_device_id": existing_id,
+        "matched_device_name": "Existing weak identity",
+        "conflicting_device_ids": [],
+        "reason": "endpoint_only_match",
+    }
+
+
+def test_onvif_test_surfaces_stable_identity_endpoint_conflict(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **_kwargs):
+            return OnvifInspection(
+                device=OnvifDeviceInfo(
+                    manufacturer="Acme",
+                    model="SecureCam",
+                    firmware_version="3.4.5",
+                    serial_number="SN-100",
+                    hardware_id="HW-100",
+                ),
+                capabilities=("Media",),
+                profiles=(),
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with app.state.database.session() as session:
+        stable = Device(
+            name="Stable match",
+            hardware_id="HW-100",
+            adapter_type="onvif",
+            enabled=True,
+            capabilities_json={},
+        )
+        endpoint_owner = Device(
+            name="Endpoint owner",
+            hardware_id="HW-OTHER",
+            adapter_type="onvif",
+            enabled=True,
+            capabilities_json={},
+        )
+        session.add_all([stable, endpoint_owner])
+        session.flush()
+        session.add(
+            DeviceEndpoint(
+                device_id=endpoint_owner.id,
+                type="onvif",
+                host="192.168.60.20",
+                port=80,
+                scheme="http",
+                priority=100,
+                enabled=True,
+                metadata_json={},
+            )
+        )
+        session.commit()
+        stable_id = str(stable.id)
+        endpoint_id = str(endpoint_owner.id)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        response = client.post(
+            "/api/v1/cameras/onvif/test",
+            json={
+                "host": "192.168.60.20",
+                "port": 80,
+                "username": "camera-admin",
+                "password": PASSWORD,
+            },
+        )
+
+    assert response.status_code == 200
+    identity = response.json()["identity"]
+    assert identity["state"] == "identity_conflict"
+    assert identity["matched_device_id"] == stable_id
+    assert set(identity["conflicting_device_ids"]) == {
+        stable_id,
+        endpoint_id,
+    }
+    assert (
+        identity["reason"]
+        == "stable_identity_endpoint_conflict"
+    )
 
 
 def test_onvif_test_sanitizes_connection_failure_without_persistence(

@@ -94,10 +94,23 @@ export interface OnvifProfile {
   stream_uri_available: boolean
 }
 
+export interface OnvifIdentity {
+  state:
+    | "new_device"
+    | "same_device"
+    | "probable_match_requires_confirmation"
+    | "identity_conflict"
+  matched_device_id: string | null
+  matched_device_name: string | null
+  conflicting_device_ids: string[]
+  reason: string | null
+}
+
 export interface OnvifInspection {
   device: OnvifDeviceInfo
   capabilities: string[]
   profiles: OnvifProfile[]
+  identity: OnvifIdentity
 }
 
 export interface OnvifCredentialsInput {
@@ -113,6 +126,7 @@ export interface OnvifImportInput extends OnvifCredentialsInput {
   storage_label: string | null
   profile_tokens: string[]
   discovery_candidate_id?: string | null
+  confirm_existing_device_id?: string | null
 }
 
 export function listCameras(

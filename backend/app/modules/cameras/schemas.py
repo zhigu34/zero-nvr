@@ -265,10 +265,26 @@ class OnvifProfileView(BaseModel):
     stream_uri_available: bool
 
 
+class OnvifIdentityView(BaseModel):
+    state: Literal[
+        "new_device",
+        "same_device",
+        "probable_match_requires_confirmation",
+        "identity_conflict",
+    ]
+    matched_device_id: uuid.UUID | None = None
+    matched_device_name: str | None = None
+    conflicting_device_ids: list[uuid.UUID] = Field(
+        default_factory=list
+    )
+    reason: str | None = None
+
+
 class OnvifInspectionView(BaseModel):
     device: OnvifDeviceInfoView
     capabilities: list[str]
     profiles: list[OnvifProfileView]
+    identity: OnvifIdentityView
 
 
 class OnvifCameraImportInput(OnvifCameraTestInput):
@@ -277,6 +293,7 @@ class OnvifCameraImportInput(OnvifCameraTestInput):
     storage_label: str | None = Field(default=None, max_length=128)
     profile_tokens: list[str] | None = None
     discovery_candidate_id: uuid.UUID | None = None
+    confirm_existing_device_id: uuid.UUID | None = None
 
 
 class OnvifCapabilityDiffView(BaseModel):

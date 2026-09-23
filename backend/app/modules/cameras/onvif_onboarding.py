@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from urllib.parse import quote, urlsplit, urlunsplit
 
 from sqlalchemy import select
@@ -27,6 +28,15 @@ from .models import (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class OnvifIdentityAssessment:
+    state: str
+    matched_device_id: uuid.UUID | None = None
+    matched_device_name: str | None = None
+    conflicting_device_ids: tuple[uuid.UUID, ...] = ()
+    reason: str | None = None
+
+
 class OnvifOnboardingService:
     def __init__(self, settings: Settings) -> None:
         self.secret_store = SecretStore(settings)
@@ -47,6 +57,7 @@ class OnvifOnboardingService:
         *,
         inspection: OnvifInspection,
         selected_tokens: list[str] | None,
+        existing_device_id: uuid.UUID | None = None,
     ) -> list[OnvifProfileProbe]:
         """Return the ONVIF profiles that must pass media verification.
 
@@ -54,10 +65,29 @@ class OnvifOnboardingService:
         the existing Camera/profile topology, so every persisted profile must
         be present and media-verifiable before any credential/URI replacement.
         """
-        existing = cls._existing_device(
-            session,
-            inspection=inspection,
+        existing = (
+            session.get(
+                Device,
+                existing_device_id,
+            )
+            if existing_device_id is not None
+            else cls._existing_device(
+                session,
+                inspection=inspection,
+            )
         )
+        if (
+            existing_device_id is not None
+            and (
+                existing is None
+                or existing.adapter_type != "onvif"
+            )
+        ):
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_identity_confirmation_invalid",
+                message="Confirmed ONVIF device is unavailable.",
+            )
         if existing is None:
             return cls._usable_profiles(
                 inspection,
@@ -225,43 +255,306 @@ class OnvifOnboardingService:
         return usable
 
     @staticmethod
-    def _existing_device(
+    def _stable_identity_matches(
         session: Session,
         *,
         inspection: OnvifInspection,
-    ) -> Device | None:
+    ) -> list[Device]:
         info = inspection.device
         if info.hardware_id:
-            return session.scalar(
-                select(Device).where(
-                    Device.adapter_type == "onvif",
-                    Device.hardware_id == info.hardware_id,
+            return list(
+                session.scalars(
+                    select(Device)
+                    .where(
+                        Device.adapter_type == "onvif",
+                        Device.hardware_id == info.hardware_id,
+                    )
+                    .order_by(Device.id)
                 )
             )
 
-        if info.serial_number and info.manufacturer and info.model:
-            matches = list(
+        if (
+            info.serial_number
+            and info.manufacturer
+            and info.model
+        ):
+            return list(
                 session.scalars(
-                    select(Device).where(
+                    select(Device)
+                    .where(
                         Device.adapter_type == "onvif",
                         Device.serial_number == info.serial_number,
                         Device.manufacturer == info.manufacturer,
                         Device.model == info.model,
                     )
+                    .order_by(Device.id)
                 )
             )
-            if len(matches) > 1:
+        return []
+
+    @classmethod
+    def _existing_device(
+        cls,
+        session: Session,
+        *,
+        inspection: OnvifInspection,
+    ) -> Device | None:
+        matches = cls._stable_identity_matches(
+            session,
+            inspection=inspection,
+        )
+        if len(matches) > 1:
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_identity_ambiguous",
+                message=(
+                    "More than one imported ONVIF device matches "
+                    "this stable identity."
+                ),
+                details={
+                    "device_ids": [
+                        str(item.id)
+                        for item in matches
+                    ],
+                },
+            )
+        return matches[0] if matches else None
+
+    @staticmethod
+    def _endpoint_devices(
+        session: Session,
+        *,
+        host: str,
+        port: int,
+    ) -> list[Device]:
+        return list(
+            session.scalars(
+                select(Device)
+                .join(
+                    DeviceEndpoint,
+                    DeviceEndpoint.device_id
+                    == Device.id,
+                )
+                .where(
+                    Device.adapter_type == "onvif",
+                    DeviceEndpoint.type == "onvif",
+                    DeviceEndpoint.host == host,
+                    DeviceEndpoint.port == port,
+                )
+                .distinct()
+                .order_by(Device.id)
+            )
+        )
+
+    @classmethod
+    def identity_assessment(
+        cls,
+        session: Session,
+        *,
+        inspection: OnvifInspection,
+        host: str,
+        port: int,
+    ) -> OnvifIdentityAssessment:
+        stable_matches = (
+            cls._stable_identity_matches(
+                session,
+                inspection=inspection,
+            )
+        )
+        endpoint_matches = (
+            cls._endpoint_devices(
+                session,
+                host=host,
+                port=port,
+            )
+        )
+
+        if len(stable_matches) > 1:
+            return OnvifIdentityAssessment(
+                state="identity_conflict",
+                conflicting_device_ids=tuple(
+                    item.id
+                    for item in stable_matches
+                ),
+                reason="duplicate_stable_identity",
+            )
+        if len(endpoint_matches) > 1:
+            return OnvifIdentityAssessment(
+                state="identity_conflict",
+                conflicting_device_ids=tuple(
+                    item.id
+                    for item in endpoint_matches
+                ),
+                reason="duplicate_endpoint_identity",
+            )
+
+        stable = (
+            stable_matches[0]
+            if stable_matches
+            else None
+        )
+        endpoint = (
+            endpoint_matches[0]
+            if endpoint_matches
+            else None
+        )
+        if (
+            stable is not None
+            and endpoint is not None
+            and stable.id != endpoint.id
+        ):
+            return OnvifIdentityAssessment(
+                state="identity_conflict",
+                matched_device_id=stable.id,
+                matched_device_name=stable.name,
+                conflicting_device_ids=(
+                    stable.id,
+                    endpoint.id,
+                ),
+                reason=(
+                    "stable_identity_endpoint_conflict"
+                ),
+            )
+        if stable is not None:
+            return OnvifIdentityAssessment(
+                state="same_device",
+                matched_device_id=stable.id,
+                matched_device_name=stable.name,
+                reason="stable_identity_match",
+            )
+        if endpoint is not None:
+            return OnvifIdentityAssessment(
+                state=(
+                    "probable_match_requires_confirmation"
+                ),
+                matched_device_id=endpoint.id,
+                matched_device_name=endpoint.name,
+                reason="endpoint_only_match",
+            )
+        return OnvifIdentityAssessment(
+            state="new_device",
+            reason="no_existing_identity_match",
+        )
+
+    @classmethod
+    def resolve_identity(
+        cls,
+        session: Session,
+        *,
+        inspection: OnvifInspection,
+        host: str,
+        port: int,
+        confirmed_existing_device_id: (
+            uuid.UUID | None
+        ) = None,
+    ) -> tuple[
+        OnvifIdentityAssessment,
+        Device | None,
+    ]:
+        assessment = cls.identity_assessment(
+            session,
+            inspection=inspection,
+            host=host,
+            port=port,
+        )
+
+        if assessment.state == "identity_conflict":
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_identity_conflict",
+                message=(
+                    "The ONVIF identity conflicts with existing "
+                    "device records. Resolve the conflict before "
+                    "importing."
+                ),
+                details={
+                    "reason": assessment.reason,
+                    "device_ids": [
+                        str(item)
+                        for item in (
+                            assessment
+                            .conflicting_device_ids
+                        )
+                    ],
+                },
+            )
+
+        if assessment.state == "same_device":
+            if (
+                confirmed_existing_device_id
+                is not None
+                and confirmed_existing_device_id
+                != assessment.matched_device_id
+            ):
                 raise ApiError(
                     status_code=409,
-                    code="onvif_device_identity_ambiguous",
+                    code=(
+                        "onvif_device_identity_confirmation_invalid"
+                    ),
                     message=(
-                        "More than one imported ONVIF device matches "
-                        "this stable identity."
+                        "The confirmed existing device does not "
+                        "match the stable ONVIF identity."
                     ),
                 )
-            return matches[0] if matches else None
+            assert assessment.matched_device_id is not None
+            return (
+                assessment,
+                session.get(
+                    Device,
+                    assessment.matched_device_id,
+                ),
+            )
 
-        return None
+        if (
+            assessment.state
+            == "probable_match_requires_confirmation"
+        ):
+            if (
+                confirmed_existing_device_id
+                != assessment.matched_device_id
+            ):
+                raise ApiError(
+                    status_code=409,
+                    code=(
+                        "onvif_device_identity_confirmation_required"
+                    ),
+                    message=(
+                        "This endpoint already belongs to an "
+                        "existing device, but the ONVIF identity "
+                        "is not strong enough to merge "
+                        "automatically."
+                    ),
+                    details={
+                        "matched_device_id": str(
+                            assessment.matched_device_id
+                        ),
+                        "matched_device_name": (
+                            assessment.matched_device_name
+                        ),
+                        "reason": assessment.reason,
+                    },
+                )
+            assert assessment.matched_device_id is not None
+            return (
+                assessment,
+                session.get(
+                    Device,
+                    assessment.matched_device_id,
+                ),
+            )
+
+        if confirmed_existing_device_id is not None:
+            raise ApiError(
+                status_code=409,
+                code=(
+                    "onvif_device_identity_confirmation_invalid"
+                ),
+                message=(
+                    "There is no existing device match to "
+                    "confirm."
+                ),
+            )
+        return assessment, None
 
     @staticmethod
     def _ensure_endpoint_available(
@@ -739,16 +1032,36 @@ class OnvifOnboardingService:
         storage_label: str | None,
         selected_profile_tokens: list[str] | None,
         discovery_candidate_id: uuid.UUID | None,
+        existing_device_id: uuid.UUID | None = None,
     ) -> tuple[
         Device,
         list[Camera],
         bool,
         dict[uuid.UUID, set[uuid.UUID]],
     ]:
-        existing = self._existing_device(
-            session,
-            inspection=inspection,
+        existing = (
+            session.get(
+                Device,
+                existing_device_id,
+            )
+            if existing_device_id is not None
+            else self._existing_device(
+                session,
+                inspection=inspection,
+            )
         )
+        if (
+            existing_device_id is not None
+            and (
+                existing is None
+                or existing.adapter_type != "onvif"
+            )
+        ):
+            raise ApiError(
+                status_code=409,
+                code="onvif_device_identity_confirmation_invalid",
+                message="Confirmed ONVIF device is unavailable.",
+            )
         if existing is not None:
             return self._reconfigure_existing(
                 session,

@@ -92,6 +92,7 @@ from .schemas import (
     OnvifDeviceInfoView,
     OnvifImportResult,
     OnvifInspectionView,
+    OnvifIdentityView,
     OnvifProfileView,
 )
 from .service import CameraService
@@ -132,6 +133,8 @@ def _probe_stream_view(
 
 def _onvif_inspection_view(
     inspection: OnvifInspection,
+    *,
+    identity,
 ) -> OnvifInspectionView:
     return OnvifInspectionView(
         device=OnvifDeviceInfoView(
@@ -159,6 +162,19 @@ def _onvif_inspection_view(
             )
             for profile in inspection.profiles
         ],
+        identity=OnvifIdentityView(
+            state=identity.state,
+            matched_device_id=(
+                identity.matched_device_id
+            ),
+            matched_device_name=(
+                identity.matched_device_name
+            ),
+            conflicting_device_ids=list(
+                identity.conflicting_device_ids
+            ),
+            reason=identity.reason,
+        ),
     )
 
 
@@ -648,10 +664,27 @@ async def import_onvif_camera(
         ) from exc
 
     service = OnvifOnboardingService(request.app.state.settings)
+    (
+        _identity,
+        existing_device,
+    ) = service.resolve_identity(
+        session,
+        inspection=inspection,
+        host=body.host,
+        port=body.port,
+        confirmed_existing_device_id=(
+            body.confirm_existing_device_id
+        ),
+    )
     verification_profiles = service.verification_profiles(
         session,
         inspection=inspection,
         selected_tokens=body.profile_tokens,
+        existing_device_id=(
+            existing_device.id
+            if existing_device is not None
+            else None
+        ),
     )
     # Close the read-only identity/topology transaction before temporary
     # media-plane network probes. Persistence starts only after all probes pass.
@@ -700,6 +733,11 @@ async def import_onvif_camera(
             storage_label=body.storage_label,
             selected_profile_tokens=body.profile_tokens,
             discovery_candidate_id=body.discovery_candidate_id,
+            existing_device_id=(
+                existing_device.id
+                if existing_device is not None
+                else None
+            ),
         )
         append_audit_event(
             session,
@@ -1014,6 +1052,7 @@ async def test_onvif_camera(
     body: OnvifCameraTestInput,
     request: Request,
     _context: AuthContext = Depends(require_permission("camera.configure")),
+    session: Session = Depends(get_db_session),
 ) -> OnvifInspectionView:
     try:
         inspection = await OnvifAdapter(
@@ -1032,7 +1071,18 @@ async def test_onvif_camera(
             details={},
         ) from exc
 
-    return _onvif_inspection_view(inspection)
+    identity = OnvifOnboardingService(
+        request.app.state.settings
+    ).identity_assessment(
+        session,
+        inspection=inspection,
+        host=body.host,
+        port=body.port,
+    )
+    return _onvif_inspection_view(
+        inspection,
+        identity=identity,
+    )
 
 
 def _normalize_discovery_source_addresses(

@@ -1112,6 +1112,96 @@ def test_onvif_revalidation_restarts_only_changed_bound_profile(
         assert "/channel/a/sub-new" in resolved
 
 
+def test_onvif_endpoint_only_match_requires_explicit_confirmation(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    def weak_inspection() -> OnvifInspection:
+        source = inspection()
+        return OnvifInspection(
+            device=OnvifDeviceInfo(
+                manufacturer=source.device.manufacturer,
+                model=source.device.model,
+                firmware_version=(
+                    source.device.firmware_version
+                ),
+                serial_number=None,
+                hardware_id=None,
+            ),
+            capabilities=source.capabilities,
+            profiles=source.profiles,
+        )
+
+    class FakeOnvifAdapter:
+        def __init__(self, _settings) -> None:
+            pass
+
+        async def inspect_device(self, **_kwargs):
+            return weak_inspection()
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        first = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert first.status_code == 201
+        device_id = first.json()["device_id"]
+
+        blocked = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert blocked.status_code == 409
+        assert (
+            blocked.json()["error"]["code"]
+            == "onvif_device_identity_confirmation_required"
+        )
+        assert (
+            blocked.json()["error"]["details"][
+                "matched_device_id"
+            ]
+            == device_id
+        )
+
+        confirmed = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+                "confirm_existing_device_id": device_id,
+            },
+        )
+        assert confirmed.status_code == 201
+        assert confirmed.json()["reconfigured"] is True
+        assert confirmed.json()["device_id"] == device_id
+
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count()).select_from(Device)
+        ) == 1
+
+
 def test_onvif_reimport_same_hardware_refreshes_address_without_replacing_identity(
     tmp_path: Path,
     monkeypatch,
