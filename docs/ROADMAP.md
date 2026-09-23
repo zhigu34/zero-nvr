@@ -284,10 +284,10 @@ Acceptance:
 - [x] stream URI retrieval without credential leakage.
 - [x] per-role stream selection and actual pull verification.
 - [ ] DeviceCapabilitySnapshot persistence/refresh.
-- [ ] ONVIF Events capability + subscription path.
-- [ ] PTZ capability/control after Events.
+- [x] ONVIF Events capability + subscription path.
+- [x] PTZ capability/control after Events.
 - [ ] snapshot/audio/time/NTP capability probing.
-- [ ] DHCP endpoint-change rediscovery without recreating Camera IDs.
+- [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
 - [ ] identity-conflict UI instead of weak automatic merge.
 - [ ] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
 
@@ -302,14 +302,14 @@ Acceptance:
 
 ## Phase 5 — Events and Optional AI
 
-- [ ] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
-- [ ] idempotent UPSERT for provider new/update/end messages.
+- [x] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
+- [x] idempotent UPSERT for provider new/update/end messages.
 - [ ] native ONVIF event adapter using mature library subscription mechanisms.
 - [ ] optional vendor-native event adapter only where ONVIF is insufficient.
 - [ ] Frigate AIProviderInstance + Camera binding.
-- [ ] Managed Frigate stream path through ZLM internal AI_DETECT stream.
-- [ ] External Frigate connection/mapping mode.
-- [ ] Frigate event/snapshot normalization without copying its full internal event schema.
+- [x] Managed Frigate stream path through ZLM internal AI_DETECT stream.
+- [x] External Frigate connection/mapping mode.
+- [x] Frigate event/snapshot normalization without copying its full internal event schema.
 - [ ] provider liveness/health transitions without high-frequency DB heartbeat rows.
 - [ ] Event Center filters: camera / source / category / label / zone / confidence / date.
 - [ ] Event detail drawer with snapshot, metadata, playback jump, protect/export actions.
@@ -329,20 +329,20 @@ Acceptance:
 ## Phase 6 — Alerting and Notifications
 
 - [ ] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
-- [ ] Alert persistence with active / acknowledged / resolved states.
+- [x] Alert persistence with active / acknowledged / resolved states.
 - [ ] source-recovery handling for health Alerts.
-- [ ] NotificationTarget persistence with SecretStore-backed credentials/config.
-- [ ] NotificationDelivery persistence: pending / sending / sent / failed / suppressed.
-- [ ] Huey-backed delivery retry with transient/permanent/rate-limited classification.
-- [ ] Apprise integration as the default multi-channel delivery mechanism.
-- [ ] SMTP configuration/test and password-reset delivery.
-- [ ] outbound webhook and MQTT targets where configured.
+- [x] NotificationTarget persistence with SecretStore-backed credentials/config.
+- [x] NotificationDelivery persistence: pending / sending / sent / failed / suppressed.
+- [x] Huey-backed delivery retry with transient/permanent/rate-limited classification.
+- [x] Apprise integration as the default multi-channel delivery mechanism.
+- [x] SMTP configuration/test and password-reset delivery.
+- [x] outbound webhook and MQTT targets where configured.
 - [ ] optional snapshot/deep-link attachment without permanent public media URLs.
-- [ ] cooldown and notification-storm protection without dropping Events.
-- [ ] optional RecordingProtection action for selected AlertPolicy.
+- [x] cooldown and notification-storm protection without dropping Events.
+- [x] optional RecordingProtection action for selected AlertPolicy.
 - [ ] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
 - [ ] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
-- [ ] audit for policy/target/human acknowledgement and configuration changes.
+- [x] audit for policy/target/human acknowledgement and configuration changes.
 
 Acceptance:
 
@@ -356,29 +356,29 @@ Acceptance:
 
 ## Phase 7 — Storage and Cloud
 
-- [ ] StorageTarget kinds/roles: LOCAL recording target and RCLONE archive target.
-- [ ] StorageTarget / RecordingLocation persistence.
-- [ ] local retention using RetentionPolicy + RecordingProtection.
-- [ ] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
+- [x] StorageTarget kinds/roles: LOCAL recording target and RCLONE archive target.
+- [x] StorageTarget / RecordingLocation persistence.
+- [x] local retention using RetentionPolicy + RecordingProtection.
+- [x] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
 - [ ] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
-- [ ] remote RecordingLocation lifecycle: ARCHIVING -> AVAILABLE / FAILED.
-- [ ] remote verification before archive-required local deletion.
-- [ ] safe local RecordingLocation deletion: AVAILABLE -> DELETING -> DELETED.
-- [ ] archive upload policy independent from hot recording placement.
-- [ ] block destructive StorageTarget removal when unique retained media exists.
-- [ ] PlaybackResolver chooses RecordingLocation; remote-only playback restores to bounded local cache.
+- [x] remote RecordingLocation lifecycle: ARCHIVING -> AVAILABLE / FAILED.
+- [x] remote verification before archive-required local deletion.
+- [x] safe local RecordingLocation deletion: AVAILABLE -> DELETING -> DELETED.
+- [x] archive upload policy independent from hot recording placement.
+- [x] block destructive StorageTarget removal when unique retained media exists.
+- [x] PlaybackResolver chooses RecordingLocation; remote-only playback restores to bounded local cache.
 
 ## Phase 8 — Historical Playback
 
-- [ ] timezone-aware ISO 8601 PlaybackTimeline query API; frontend converts to milliseconds internally.
+- [x] timezone-aware ISO 8601 PlaybackTimeline query API; frontend converts to milliseconds internally.
 - [ ] range/detail-level timeline responses for day/hour/minute zoom.
 - [ ] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
 - [ ] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
 - [ ] Canvas timeline with pan/zoom/shared playhead.
 - [ ] event Marker ranges/points and zoom-aware aggregation.
 - [ ] PlaybackResolver by RecordingSegment ID.
-- [ ] playback/timeline camera-scope authorization and short-lived media access.
-- [ ] local playback.
+- [x] playback/timeline camera-scope authorization and short-lived media access.
+- [x] local playback.
 - [ ] ordered detailed segment ranges + binary absolute-time segment lookup.
 - [ ] dual-player preload/ping-pong cross-segment continuation.
 - [ ] standby-player readiness gating and absolute-boundary source switching.
@@ -390,11 +390,11 @@ Acceptance:
 - [ ] multi-camera aligned timeline query/track response.
 - [ ] optional skip-gaps playback.
 - [ ] playback speeds 0.5x / 1x / 2x / 4x / 8x.
-- [ ] remote object resolver.
-- [ ] playback cache.
-- [ ] cloud-only playback.
+- [x] remote object resolver.
+- [x] playback cache.
+- [x] cloud-only playback.
 - [ ] playback diagnostics.
-- [ ] export.
+- [x] export.
 
 Acceptance:
 
@@ -412,16 +412,16 @@ Acceptance:
 
 - [ ] RecordingTrigger lifecycle for AI/ONVIF/HA/API/manual event recording requests.
 - [x] derive desired recording state from baseline policy + active trigger windows.
-- [ ] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
-- [ ] continuous/scheduled/manual existing recording is annotated rather than restarted.
-- [ ] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.
-- [ ] configurable pre_roll_seconds / post_roll_seconds.
+- [x] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
+- [x] continuous/scheduled/manual existing recording is annotated rather than restarted.
+- [x] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.
+- [x] configurable pre_roll_seconds / post_roll_seconds.
 - [ ] honest degraded-pre-roll state when required past coverage is unavailable.
-- [ ] actual ZLM segment finalize hooks feed RecordingSegment catalog.
+- [x] actual ZLM segment finalize hooks feed RecordingSegment catalog.
 - [ ] Event -> RecordingSegment wall-clock linkage at query time.
-- [ ] asynchronous explicit Export job for a single clip/file when requested.
-- [ ] event-driven RecordingProtection action where policy requires it.
-- [ ] no mandatory RecordingSession / RecordingIntent / PrebufferFragment / RecordingSessionSegment tables.
+- [x] asynchronous explicit Export job for a single clip/file when requested.
+- [x] event-driven RecordingProtection action where policy requires it.
+- [x] no mandatory RecordingSession / RecordingIntent / PrebufferFragment / RecordingSessionSegment tables.
 
 Acceptance:
 
@@ -439,7 +439,7 @@ Acceptance:
 - [ ] RecordingTrigger external automation flow.
 - [ ] MQTT integration / Home Assistant MQTT Discovery.
 - [ ] Frigate DetectionProvider with Managed and External modes.
-- [ ] optional TURN support for remote WebRTC when deployment requires it.
+- [x] optional TURN support for remote WebRTC when deployment requires it.
 
 Acceptance:
 
@@ -461,33 +461,33 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 ## Phase 11 — Operations, Backup, Recovery, and Release
 
 - [ ] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
-- [ ] lightweight BackupPolicy / BackupSet persistence and APIs; BackupManifest remains a versioned artifact inside backup payloads.
-- [ ] SQLite Online Backup API consistent snapshot backend.
-- [ ] PostgreSQL pg_dump backup backend.
-- [ ] restic backup repository integration, retention, snapshot identity, and periodic check.
+- [x] lightweight BackupPolicy / BackupSet persistence and APIs; BackupManifest remains a versioned artifact inside backup payloads.
+- [x] SQLite Online Backup API consistent snapshot backend.
+- [x] PostgreSQL pg_dump backup backend.
+- [x] restic backup repository integration, retention, snapshot identity, and periodic check.
 - [ ] encrypted RecoveryKit generation/download/staleness tracking.
-- [ ] backup-target bootstrap recovery without depending on the lost production database.
-- [ ] scheduled/manual/pre-upgrade backup reasons and protected rollback retention.
-- [ ] clean-host restore via deploy.sh + compatible release + RecoveryKit.
+- [x] backup-target bootstrap recovery without depending on the lost production database.
+- [x] scheduled/manual/pre-upgrade backup reasons and protected rollback retention.
+- [x] clean-host restore via deploy.sh + compatible release + RecoveryKit.
 - [ ] restore diagnostics for missing/wrong keyring and unavailable repository credentials.
-- [ ] non-destructive post-restore RecordingLocation/media reconciliation.
-- [ ] configuration-only export distinct from disaster backup.
+- [x] non-destructive post-restore RecordingLocation/media reconciliation.
+- [x] configuration-only export distinct from disaster backup.
 - [ ] backup/restore authorization and audit.
 - [ ] Backup & Recovery UI for normal administration.
-- [ ] user/role/camera-scope administration UI.
-- [ ] audit UI.
+- [x] user/role/camera-scope administration UI.
+- [x] audit UI.
 - [ ] release manifest/version/digest compatibility metadata.
-- [ ] update-availability/version display in System UI.
+- [x] update-availability/version display in System UI.
 - [ ] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
-- [ ] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.
+- [x] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.
 - [ ] Alembic migration classes A/B/C and SQLite batch/table-rebuild safety.
 - [ ] PostgreSQL bounded-lock/restartable migration behavior where required.
-- [ ] startup application/database/schema compatibility gate.
+- [x] startup application/database/schema compatibility gate.
 - [ ] pinned previous artifacts until successful update/rollback decision.
-- [ ] post-upgrade readiness and media/catalog reconciliation.
-- [ ] rollback command/path for compatible and recovery-point rollback.
-- [ ] separate SQLite <-> PostgreSQL migration workflow with validation and rollback grace period.
-- [ ] deploy.sh status / doctor / backup / restore / rollback flows.
+- [x] post-upgrade readiness and media/catalog reconciliation.
+- [x] rollback command/path for compatible and recovery-point rollback.
+- [x] separate SQLite <-> PostgreSQL migration workflow with validation and rollback grace period.
+- [x] deploy.sh status / doctor / backup / restore / rollback flows.
 - [ ] long-duration 8-camera baseline acceptance.
 - [ ] 16-camera extended-target benchmark.
 - [ ] execute Plan 04 R1 clean-Core image/static-footprint + no-camera idle measurement.
