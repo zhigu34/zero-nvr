@@ -138,6 +138,7 @@ class PlaybackCacheService:
         *,
         segment_id: uuid.UUID,
         expected_size: int,
+        touch: bool = True,
     ) -> Path | None:
         path = self.path_for(segment_id)
         try:
@@ -146,7 +147,8 @@ class PlaybackCacheService:
             if path.stat().st_size != expected_size:
                 path.unlink(missing_ok=True)
                 return None
-            os.utime(path, None)
+            if touch:
+                os.utime(path, None)
             return path
         except OSError:
             return None

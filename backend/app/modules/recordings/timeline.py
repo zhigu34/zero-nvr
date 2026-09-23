@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import Settings
 from app.modules.events.models import Event
 from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import (
@@ -16,6 +17,7 @@ from app.modules.recordings.models import (
 )
 from app.modules.storage.models import RecordingLocation
 
+from .playback_cache import PlaybackCacheService
 from .schemas import (
     PlaybackTimelineView,
     TimelineDetailLevel,
@@ -39,7 +41,11 @@ class _ProjectedSegment:
 
 class PlaybackTimelineService:
     @staticmethod
-    def _availability(segment: RecordingSegment) -> str:
+    def _availability(
+        segment: RecordingSegment,
+        *,
+        cache: PlaybackCacheService | None = None,
+    ) -> str:
         if segment.integrity_status.upper() == "CORRUPT":
             return "corrupted"
 
@@ -57,11 +63,22 @@ class PlaybackTimelineService:
         ):
             return "local"
 
-        if any(
+        remote_available = any(
             item.storage_target.type == "rclone"
             and item.storage_target.role == "archive"
             for item in available
-        ):
+        )
+        if remote_available:
+            if (
+                cache is not None
+                and cache.cached_file(
+                    segment_id=segment.id,
+                    expected_size=segment.size_bytes,
+                    touch=False,
+                )
+                is not None
+            ):
+                return "cached_remote"
             return "remote"
 
         if any(item.state == "MISSING" for item in locations):
@@ -196,6 +213,7 @@ class PlaybackTimelineService:
         start_at: datetime,
         end_at: datetime,
         detail: TimelineDetailLevel = "minute",
+        settings: Settings | None = None,
     ) -> PlaybackTimelineView:
         segments = list(
             session.scalars(
@@ -237,9 +255,17 @@ class PlaybackTimelineService:
         )
 
         projected: list[_ProjectedSegment] = []
+        cache = (
+            PlaybackCacheService(settings)
+            if settings is not None
+            else None
+        )
 
         for segment in segments:
-            availability = cls._availability(segment)
+            availability = cls._availability(
+                segment,
+                cache=cache,
+            )
             clipped_start = max(segment.started_at, start_at)
             clipped_end = min(segment.ended_at, end_at)
             if clipped_end <= clipped_start:
@@ -276,9 +302,12 @@ class PlaybackTimelineService:
         recording_ranges: list[TimelineRecordingRangeView] = []
         gaps: list[TimelineGapView] = []
         availability_priority = {
-            "local": 3,
-            "cached_remote": 2,
-            "remote": 1,
+            "local": 6,
+            "cached_remote": 5,
+            "remote": 4,
+            "corrupted": 3,
+            "missing": 2,
+            "purged": 1,
         }
 
         for left, right in zip(ordered, ordered[1:]):
@@ -291,15 +320,12 @@ class PlaybackTimelineService:
                 if item.clipped_start < right
                 and item.clipped_end > left
             ]
-            playable = [
-                item.availability
-                for item in overlapping
-                if item.availability in _PLAYABLE
-            ]
-
-            if playable:
+            if overlapping:
                 availability = max(
-                    playable,
+                    (
+                        item.availability
+                        for item in overlapping
+                    ),
                     key=lambda value: availability_priority[value],
                 )
                 if (
@@ -321,9 +347,9 @@ class PlaybackTimelineService:
                             availability=availability,
                         )
                     )
-                continue
 
-            if overlapping:
+                if availability in _PLAYABLE:
+                    continue
                 reason = cls._unavailable_reason(overlapping)
             else:
                 reason = cls._empty_reason(

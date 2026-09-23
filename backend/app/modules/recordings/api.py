@@ -1058,6 +1058,7 @@ def resolve_camera_playback(
 )
 def camera_timeline(
     camera_id: uuid.UUID,
+    request: Request,
     from_at: datetime = Query(alias="from"),
     to_at: datetime = Query(alias="to"),
     detail: TimelineDetailLevel = Query(
@@ -1086,4 +1087,5 @@ def camera_timeline(
         start_at=start_at,
         end_at=end_at,
         detail=detail,
+        settings=request.app.state.settings,
     )

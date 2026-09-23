@@ -138,6 +138,15 @@ Meaning:
 
 Purged and unexpectedly missing media are different user-visible conditions.
 
+Timeline coverage keeps availability explicit even when media is not playable.
+A range backed by segment metadata may therefore appear in
+`recording_ranges` as `missing`, `corrupted`, or `purged` while the same
+interval also carries a user-facing gap reason. `cached_remote` is emitted only
+when an AVAILABLE remote archive location still exists and a size-valid local
+playback-cache file is present. A stale cache file never turns deleted/purged
+canonical media back into `cached_remote`. Timeline inspection does not refresh
+the cache file's TTL; only real playback/cache use does that.
+
 ## Gap model
 
 An empty timeline range is not automatically "camera disconnected".

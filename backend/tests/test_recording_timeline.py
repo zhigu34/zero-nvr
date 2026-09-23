@@ -267,3 +267,196 @@ def test_timeline_merges_physical_segments_into_wall_clock_ranges(
         ]
     finally:
         database.close()
+
+
+
+def test_timeline_exposes_all_segment_availability_states(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Availability Camera",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://camera.local/availability"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+            local = StorageTarget(
+                name="Availability Local",
+                type="local",
+                role="recording",
+                enabled=True,
+                config_json={
+                    "path": "/recordings"
+                },
+            )
+            remote = StorageTarget(
+                name="Availability Archive",
+                type="rclone",
+                role="archive",
+                enabled=True,
+                config_json={
+                    "remote": "archive"
+                },
+            )
+            session.add_all(
+                [local, remote]
+            )
+            session.flush()
+
+            profile_id = session.scalar(
+                select(
+                    CameraStreamProfile.id
+                ).where(
+                    CameraStreamProfile.camera_id
+                    == camera.id,
+                    CameraStreamProfile
+                    .adapter_profile_key
+                    == "manual-primary",
+                )
+            )
+            assert profile_id is not None
+
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera.id,
+                    baseline_mode="continuous",
+                    event_recording_enabled=False,
+                    storage_target_id=local.id,
+                    enabled=True,
+                )
+            )
+            base = datetime(
+                2026,
+                9,
+                20,
+                12,
+                0,
+                tzinfo=UTC,
+            )
+
+            segments: list[
+                RecordingSegment
+            ] = []
+            cases = [
+                ("local", local, "AVAILABLE", "OK"),
+                ("cached_remote", remote, "AVAILABLE", "OK"),
+                ("remote", remote, "AVAILABLE", "OK"),
+                ("missing", remote, "MISSING", "OK"),
+                ("corrupted", local, "AVAILABLE", "CORRUPT"),
+                ("purged", remote, "DELETED", "OK"),
+            ]
+            for index, (
+                _expected,
+                target,
+                state,
+                integrity,
+            ) in enumerate(cases):
+                start = base + timedelta(
+                    minutes=index
+                )
+                end = start + timedelta(
+                    minutes=1
+                )
+                segment = RecordingSegment(
+                    camera_id=camera.id,
+                    stream_profile_id=profile_id,
+                    started_at=start,
+                    ended_at=end,
+                    duration_ms=60_000,
+                    timing_status="FINAL",
+                    timing_source="RECOVERY",
+                    recording_reasons_json=[
+                        "continuous"
+                    ],
+                    size_bytes=1000,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream=(
+                        f"availability-{index}"
+                    ),
+                    integrity_status=integrity,
+                    completion_reason="NORMAL",
+                )
+                session.add(segment)
+                session.flush()
+                session.add(
+                    RecordingLocation(
+                        recording_segment_id=(
+                            segment.id
+                        ),
+                        storage_target_id=target.id,
+                        object_path=(
+                            f"availability-{index}.mp4"
+                        ),
+                        state=state,
+                        size_bytes=1000,
+                    )
+                )
+                segments.append(segment)
+
+            session.commit()
+            camera_id = camera.id
+            cached_segment_id = (
+                segments[1].id
+            )
+
+        cache_path = (
+            settings.cache_dir
+            / "playback"
+            / f"{cached_segment_id.hex}.mp4"
+        )
+        cache_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        cache_path.write_bytes(
+            b"x" * 1000
+        )
+
+        with database.session() as session:
+            timeline = (
+                PlaybackTimelineService.build(
+                    session,
+                    camera_id=camera_id,
+                    start_at=base,
+                    end_at=(
+                        base
+                        + timedelta(minutes=6)
+                    ),
+                    settings=settings,
+                )
+            )
+
+        assert [
+            item.availability
+            for item in timeline.recording_ranges
+        ] == [
+            "local",
+            "cached_remote",
+            "remote",
+            "missing",
+            "corrupted",
+            "purged",
+        ]
+        assert [
+            item.reason
+            for item in timeline.gaps
+        ] == [
+            "missing_media",
+            "storage_failure",
+            "purged",
+        ]
+    finally:
+        database.close()
