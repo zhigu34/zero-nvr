@@ -63,6 +63,31 @@ class CameraClockProjectionView(BaseModel):
     error_code: str | None = None
 
 
+class CameraCapabilityHealthLayerView(BaseModel):
+    state: Literal[
+        "healthy",
+        "degraded",
+        "critical",
+        "unknown",
+        "unsupported",
+        "disabled",
+    ]
+    reason: str | None = None
+    details: dict[str, object] = Field(
+        default_factory=dict
+    )
+
+
+class CameraCapabilityHealthView(BaseModel):
+    camera_id: uuid.UUID
+    control: CameraCapabilityHealthLayerView
+    media: CameraCapabilityHealthLayerView
+    recording: CameraCapabilityHealthLayerView
+    events: CameraCapabilityHealthLayerView
+    ptz: CameraCapabilityHealthLayerView
+    clock: CameraCapabilityHealthLayerView
+
+
 class CameraSummary(BaseModel):
     id: uuid.UUID
     name: str

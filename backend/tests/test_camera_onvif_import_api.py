@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,6 +22,9 @@ from app.integrations.zlm import ZlmIntegrationError
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import SecretRecord
+from app.modules.cameras.clock_projection import (
+    CameraClockProjection,
+)
 from app.modules.cameras.models import (
     Camera,
     CameraStreamBinding,
@@ -31,6 +36,9 @@ from app.modules.cameras.models import (
     DiscoverySession,
 )
 from app.modules.cameras.service import CameraService
+from app.modules.recordings.models import (
+    RecordingPolicy,
+)
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -1568,6 +1576,224 @@ def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
             )
         )
         assert len(audits) == 2
+
+
+def test_camera_health_projects_capabilities_independently(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    class FakeOnvifAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        async def inspect_device(
+            self,
+            **_kwargs,
+        ):
+            source = inspection()
+            return OnvifInspection(
+                device=source.device,
+                capabilities=(
+                    "Media",
+                    "PTZ",
+                    "Events",
+                ),
+                profiles=source.profiles,
+            )
+
+    class HealthyEvents:
+        @staticmethod
+        def status(
+            device_id: uuid.UUID,
+        ):
+            return SimpleNamespace(
+                device_id=device_id,
+                state="healthy",
+                error_code=None,
+            )
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+    app.state.onvif_events = (
+        HealthyEvents()
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+        source_a = next(
+            item
+            for item
+            in created.json()["cameras"]
+            if {
+                stream[
+                    "adapter_profile_key"
+                ]
+                for stream
+                in item["streams"]
+            }
+            == {
+                "main-a",
+                "sub-a",
+            }
+        )
+        camera_id = uuid.UUID(
+            source_a["id"]
+        )
+        device_id = uuid.UUID(
+            created.json()[
+                "device_id"
+            ]
+        )
+        record_profile_id = uuid.UUID(
+            next(
+                binding[
+                    "stream_profile_id"
+                ]
+                for binding
+                in source_a["bindings"]
+                if binding["purpose"]
+                == "RECORD"
+            )
+        )
+
+        with app.state.database.session() as session:
+            session.add(
+                RecordingPolicy(
+                    camera_id=camera_id,
+                    baseline_mode=(
+                        "continuous"
+                    ),
+                    schedule_json={},
+                    event_recording_enabled=False,
+                    event_filter_json={},
+                    segment_target_seconds=300,
+                    pre_roll_seconds=10,
+                    post_roll_seconds=10,
+                    enabled=True,
+                )
+            )
+            session.commit()
+
+        app.state.camera_clock_projections.put(
+            CameraClockProjection(
+                device_id=device_id,
+                measured_at=datetime.now(
+                    UTC
+                ),
+                health="healthy",
+                quality="good",
+                offset_ms=12,
+                uncertainty_ms=5,
+                rtt_ms=10,
+                device_timezone="UTC",
+                device_time_source="NTP",
+            )
+        )
+
+        health = client.get(
+            f"/api/v1/cameras/{camera_id}/health"
+        )
+        assert health.status_code == 200
+        layers = health.json()
+        assert layers["control"] == {
+            "state": "unknown",
+            "reason": (
+                "awaiting_control_observation"
+            ),
+            "details": {},
+        }
+        assert layers["media"] == {
+            "state": "unknown",
+            "reason": (
+                "awaiting_media_observation"
+            ),
+            "details": {},
+        }
+        assert layers["recording"] == {
+            "state": "unknown",
+            "reason": (
+                "awaiting_recording_observation"
+            ),
+            "details": {},
+        }
+        assert layers["events"] == {
+            "state": "healthy",
+            "reason": None,
+            "details": {},
+        }
+        assert layers["ptz"] == {
+            "state": "unknown",
+            "reason": (
+                "awaiting_ptz_observation"
+            ),
+            "details": {},
+        }
+        assert layers["clock"]["state"] == (
+            "healthy"
+        )
+        assert layers["clock"]["details"][
+            "quality"
+        ] == "good"
+
+        with app.state.database.session() as session:
+            profile = session.get(
+                CameraStreamProfile,
+                record_profile_id,
+            )
+            assert profile is not None
+            profile.status = (
+                "unavailable"
+            )
+            session.commit()
+
+        degraded = client.get(
+            f"/api/v1/cameras/{camera_id}/health"
+        )
+        assert degraded.status_code == 200
+        degraded_layers = (
+            degraded.json()
+        )
+        assert degraded_layers["media"][
+            "state"
+        ] == "degraded"
+        assert degraded_layers["media"][
+            "reason"
+        ] == "bound_stream_unavailable"
+        assert degraded_layers[
+            "recording"
+        ]["state"] == "degraded"
+        assert degraded_layers[
+            "recording"
+        ]["reason"] == (
+            "recording_stream_unavailable"
+        )
+        assert degraded_layers["events"][
+            "state"
+        ] == "healthy"
+        assert degraded_layers["clock"][
+            "state"
+        ] == "healthy"
+        assert degraded_layers["ptz"][
+            "state"
+        ] == "unknown"
 
 
 def test_onvif_capability_refresh_preserves_missing_channel_identity(

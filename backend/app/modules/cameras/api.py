@@ -37,6 +37,10 @@ from app.modules.system.settings import (
     RuntimeTuningSettingsService,
 )
 
+from .capability_health import (
+    CameraCapabilityHealthService,
+    CapabilityHealthLayer,
+)
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
 from .live_transcode import LiveTranscodeError
@@ -57,6 +61,8 @@ from .models import (
     DiscoverySession,
 )
 from .schemas import (
+    CameraCapabilityHealthLayerView,
+    CameraCapabilityHealthView,
     CameraClockProjectionView,
     CameraCreate,
     CameraDetail,
@@ -1132,6 +1138,72 @@ def get_camera(
     return _camera_detail(
         session,
         CameraService.get_camera(session, camera_id),
+    )
+
+
+def _capability_health_layer_view(
+    layer: CapabilityHealthLayer,
+) -> CameraCapabilityHealthLayerView:
+    return CameraCapabilityHealthLayerView(
+        state=layer.state,
+        reason=layer.reason,
+        details=layer.details,
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/health",
+    response_model=CameraCapabilityHealthView,
+)
+def get_camera_capability_health(
+    camera_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraCapabilityHealthView:
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    projection = (
+        CameraCapabilityHealthService
+        .project(
+            session,
+            camera=camera,
+            clock_store=(
+                request.app.state
+                .camera_clock_projections
+            ),
+            event_runtime=(
+                request.app.state
+                .onvif_events
+            ),
+        )
+    )
+    return CameraCapabilityHealthView(
+        camera_id=projection.camera_id,
+        control=_capability_health_layer_view(
+            projection.control
+        ),
+        media=_capability_health_layer_view(
+            projection.media
+        ),
+        recording=(
+            _capability_health_layer_view(
+                projection.recording
+            )
+        ),
+        events=_capability_health_layer_view(
+            projection.events
+        ),
+        ptz=_capability_health_layer_view(
+            projection.ptz
+        ),
+        clock=_capability_health_layer_view(
+            projection.clock
+        ),
     )
 
 

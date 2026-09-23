@@ -24,6 +24,13 @@ from .events import OnvifEventSubscription
 
 
 @dataclass(frozen=True, slots=True)
+class OnvifEventRuntimeStatus:
+    device_id: uuid.UUID
+    state: str
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class OnvifEventTarget:
     device_id: uuid.UUID
     host: str
@@ -78,6 +85,45 @@ class OnvifEventRuntime:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._wake: asyncio.Event | None = None
         self._stopping = threading.Event()
+        self._states: dict[
+            uuid.UUID,
+            OnvifEventRuntimeStatus,
+        ] = {}
+
+    def status(
+        self,
+        device_id: uuid.UUID,
+    ) -> OnvifEventRuntimeStatus | None:
+        with self._lock:
+            return self._states.get(
+                device_id
+            )
+
+    def _set_status(
+        self,
+        device_id: uuid.UUID,
+        *,
+        state: str,
+        error_code: str | None = None,
+    ) -> None:
+        with self._lock:
+            self._states[
+                device_id
+            ] = OnvifEventRuntimeStatus(
+                device_id=device_id,
+                state=state,
+                error_code=error_code,
+            )
+
+    def _clear_status(
+        self,
+        device_id: uuid.UUID,
+    ) -> None:
+        with self._lock:
+            self._states.pop(
+                device_id,
+                None,
+            )
 
     def _load_targets(
         self,
@@ -329,6 +375,9 @@ class OnvifEventRuntime:
                     task,
                     return_exceptions=True,
                 )
+                self._clear_status(
+                    device_id
+                )
 
             for (
                 device_id,
@@ -336,6 +385,10 @@ class OnvifEventRuntime:
             ) in desired.items():
                 if device_id in tasks:
                     continue
+                self._set_status(
+                    device_id,
+                    state="starting",
+                )
                 task = asyncio.create_task(
                     self._run_target(
                         target
@@ -368,6 +421,12 @@ class OnvifEventRuntime:
                     ),
                     return_exceptions=True,
                 )
+            for device_id in tuple(
+                tasks
+            ):
+                self._clear_status(
+                    device_id
+                )
 
     async def _run_target(
         self,
@@ -385,6 +444,10 @@ class OnvifEventRuntime:
             )
             try:
                 await subscription.open()
+                self._set_status(
+                    target.device_id,
+                    state="healthy",
+                )
                 while (
                     not self._stopping
                     .is_set()
@@ -409,7 +472,19 @@ class OnvifEventRuntime:
                             await result
             except asyncio.CancelledError:
                 raise
-            except Exception:
+            except Exception as exc:
+                self._set_status(
+                    target.device_id,
+                    state="degraded",
+                    error_code=(
+                        getattr(
+                            exc,
+                            "code",
+                            None,
+                        )
+                        or "onvif_event_subscription_failed"
+                    ),
+                )
                 self.logger.warning(
                     "ONVIF event subscription will be recreated",
                     extra={

@@ -193,7 +193,7 @@ Acceptance:
 - [x] planned recording-profile switch at a safe segment boundary where practical.
 - [x] ONVIF event-subscription lifecycle using mature client-library facilities.
 - [x] multi-channel missing/return lifecycle without Camera identity loss.
-- [ ] capability-specific health projection: control / media / recording / events / PTZ / clock.
+- [x] capability-specific health projection: control / media / recording / events / PTZ / clock.
 - [x] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
 - [ ] consume ZLM registration/unregistration/recorder signals for observed media health.
 - [x] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
