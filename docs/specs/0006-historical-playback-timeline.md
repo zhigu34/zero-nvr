@@ -666,21 +666,49 @@ This prevents one slow/remote channel from freezing a 4/9-camera review.
 
 ### strict
 
-Optimized for forensic comparison.
+Optimized for forensic comparison and explicitly optional. Tolerant mode remains
+the default.
 
-When a participating camera that should be playing buffers significantly:
+Every participating tile publishes one synchronization state:
 
-- pause Master Clock;
-- pause healthy playable channels;
-- recover/prebuffer delayed channel;
-- align all participating playable channels;
-- resume together.
+```text
+resolving
+ready
+buffering
+pending
+gap
+unavailable
+```
 
-A camera with a legitimate gap at `global_time_ms` does not participate in the strict buffering barrier and does not block other cameras.
+The strict barrier treats `resolving`, `buffering`, `pending`, and
+`unavailable` as blockers. `ready` does not block. A canonical `gap`
+never blocks because there is no media that camera is expected to present at
+that absolute time.
 
-Only a camera that is expected to have playable media at the current absolute time can acquire the strict-mode barrier.
+During a strict barrier:
 
-The user may switch modes.
+- the user's play intent remains recorded even though actual playback is paused;
+- Master Clock freezes at one absolute time;
+- healthy playable tiles pause at that same time;
+- pending remote media may continue restoring in the background;
+- buffering/resolving tiles continue preparing media;
+- when the last blocker reports ready or canonical gap, all playable tiles
+  realign to the frozen Master Clock time before playback resumes together.
+
+A newly selected absolute time first marks participating tiles unresolved, so
+strict playback cannot race ahead using stale readiness from the previous seek.
+Once a resolver classifies a camera as a legitimate gap, that camera is removed
+from the barrier immediately.
+
+Resolver/integration errors remain blockers in strict forensic review because
+synchronized evidence cannot be guaranteed while the channel state is
+unknown. The operator can remove that camera or switch back to tolerant mode;
+switching to tolerant immediately releases the barrier and preserves the
+user's prior play intent.
+
+The Playback toolbar exposes `Tolerant / Strict` only while more than one
+camera participates. Strict is UI/runtime synchronization state only; it adds
+no persistence table and does not change RecordingSegment/Event truth.
 
 ## Playback speed
 
