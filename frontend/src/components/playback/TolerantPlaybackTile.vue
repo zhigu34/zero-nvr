@@ -16,6 +16,20 @@ import {
 } from "../../api/playback"
 import { PlaybackDriftController } from "../../playback/driftController"
 
+type SyncTileStateName =
+  | "resolving"
+  | "ready"
+  | "buffering"
+  | "pending"
+  | "gap"
+  | "unavailable"
+
+interface SyncTileState {
+  cameraId: string
+  state: SyncTileStateName
+  blocksStrict: boolean
+}
+
 const props = defineProps<{
   cameraId: string
   cameraName: string
@@ -27,11 +41,16 @@ const props = defineProps<{
   focused: boolean
 }>()
 
+const emit = defineEmits<{
+  "sync-state": [state: SyncTileState]
+}>()
+
 const video = ref<HTMLVideoElement | null>(null)
 const playback = ref<PlaybackResolve | null>(null)
 const mediaUrl = ref<string | null>(null)
 const loading = ref(false)
 const buffering = ref(false)
+const mediaReady = ref(false)
 const failure = ref<string | null>(null)
 
 const driftController = new PlaybackDriftController()
@@ -40,6 +59,65 @@ let mediaAnchorMs: number | null = null
 let resolveGeneration = 0
 let retryTimer: number | null = null
 let gapWakeAtMs: number | null = null
+
+const syncState = computed<SyncTileState>(() => {
+  if (failure.value) {
+    return {
+      cameraId: props.cameraId,
+      state: "unavailable",
+      blocksStrict: true
+    }
+  }
+
+  if (loading.value) {
+    return {
+      cameraId: props.cameraId,
+      state: "resolving",
+      blocksStrict: true
+    }
+  }
+
+  if (playback.value?.status === "pending") {
+    return {
+      cameraId: props.cameraId,
+      state: "pending",
+      blocksStrict: true
+    }
+  }
+
+  if (playback.value?.status === "gap") {
+    return {
+      cameraId: props.cameraId,
+      state: "gap",
+      blocksStrict: false
+    }
+  }
+
+  if (buffering.value) {
+    return {
+      cameraId: props.cameraId,
+      state: "buffering",
+      blocksStrict: true
+    }
+  }
+
+  if (
+    playback.value?.status === "playable" &&
+    mediaReady.value
+  ) {
+    return {
+      cameraId: props.cameraId,
+      state: "ready",
+      blocksStrict: false
+    }
+  }
+
+  return {
+    cameraId: props.cameraId,
+    state: "resolving",
+    blocksStrict: true
+  }
+})
 
 const statusLabel = computed(() => {
   if (failure.value) return "Unavailable"
@@ -86,6 +164,7 @@ function clearMedia(): void {
   mediaUrl.value = null
   mediaAnchorMs = null
   buffering.value = false
+  mediaReady.value = false
   resetDrift()
 }
 
@@ -229,6 +308,7 @@ async function resolveAtMaster(): Promise<void> {
 
 function handleCanPlay(): void {
   buffering.value = false
+  mediaReady.value = true
   alignToMaster()
   const element = video.value
   if (
@@ -243,10 +323,12 @@ function handleCanPlay(): void {
 
 function handleWaiting(): void {
   buffering.value = true
+  mediaReady.value = false
 }
 
 function handlePlaying(): void {
   buffering.value = false
+  mediaReady.value = true
 }
 
 function handleEnded(): void {
@@ -305,6 +387,14 @@ function handleTimeUpdate(): void {
     targetSeconds
   )
 }
+
+watch(
+  syncState,
+  (state) => {
+    emit("sync-state", state)
+  },
+  { immediate: true }
+)
 
 watch(
   () => props.playing,
