@@ -154,6 +154,12 @@ function gapColor(reason: string): string {
   return "rgba(93, 99, 108, 0.13)"
 }
 
+const PLAYABLE_AVAILABILITY = new Set([
+  "local",
+  "remote",
+  "cached_remote"
+])
+
 function recordingColor(availability: string): string {
   switch (availability) {
     case "local":
@@ -168,6 +174,99 @@ function recordingColor(availability: string): string {
     case "purged":
     default:
       return "#5c626b"
+  }
+}
+
+function seamBridgeForGap(
+  gap: {
+    start_at: string
+    end_at: string
+    reason: string
+  },
+  width: number,
+  dpr: number
+): {
+  x1: number
+  x2: number
+  leftAvailability: string
+  rightAvailability: string
+} | null {
+  if (
+    gap.reason !== "unknown" ||
+    !props.timeline
+  ) {
+    return null
+  }
+
+  const startMs = new Date(
+    gap.start_at
+  ).getTime()
+  const endMs = new Date(
+    gap.end_at
+  ).getTime()
+  const gapMs = endMs - startMs
+  if (
+    !Number.isFinite(gapMs) ||
+    gapMs <= 0 ||
+    gapMs > 500
+  ) {
+    return null
+  }
+
+  const left = props.timeline.recording_ranges.find(
+    (item) =>
+      new Date(item.end_at).getTime() === startMs
+  )
+  const right = props.timeline.recording_ranges.find(
+    (item) =>
+      new Date(item.start_at).getTime() === endMs
+  )
+  if (
+    !left ||
+    !right ||
+    !PLAYABLE_AVAILABILITY.has(
+      left.availability
+    ) ||
+    !PLAYABLE_AVAILABILITY.has(
+      right.availability
+    )
+  ) {
+    return null
+  }
+
+  const x1 = xForTime(
+    startMs,
+    width
+  )
+  const x2 = xForTime(
+    endMs,
+    width
+  )
+  const visibleWidth = Math.abs(
+    x2 - x1
+  )
+  const maxVisualWidth =
+    1 / Math.max(1, dpr)
+
+  if (visibleWidth > maxVisualWidth) {
+    return null
+  }
+
+  if (
+    x2 < 0 ||
+    x1 > width
+  ) {
+    return null
+  }
+
+  return {
+    x1: Math.max(0, x1),
+    x2: Math.min(
+      width,
+      Math.max(x1, x2)
+    ),
+    leftAvailability: left.availability,
+    rightAvailability: right.availability
   }
 }
 
@@ -275,6 +374,16 @@ function draw(): void {
     context.fillText(formatClock(time), x, 11)
   }
 
+  const smoothedSeams = new Map<
+    string,
+    {
+      x1: number
+      x2: number
+      leftAvailability: string
+      rightAvailability: string
+    }
+  >()
+
   for (const gap of props.timeline?.gaps ?? []) {
     const range = clippedRange(
       new Date(gap.start_at).getTime(),
@@ -283,12 +392,25 @@ function draw(): void {
     )
     if (!range) continue
     const [x1, x2] = range
-    drawHatchedRange(
-      context,
-      x1,
-      x2,
-      gapColor(gap.reason)
+    const seam = seamBridgeForGap(
+      gap,
+      width,
+      dpr
     )
+    if (seam) {
+      smoothedSeams.set(
+        `${gap.start_at}|${gap.end_at}`,
+        seam
+      )
+    } else {
+      drawHatchedRange(
+        context,
+        x1,
+        x2,
+        gapColor(gap.reason)
+      )
+    }
+
     hitTargets.push({
       kind: "gap",
       x1,
@@ -327,6 +449,53 @@ function draw(): void {
         " "
       )} · ${formatTimestamp(startMs)}`
     })
+  }
+
+  for (const seam of smoothedSeams.values()) {
+    const y = LANE_TOP + 17
+    const height = 11
+    const widthPx = Math.max(
+      1 / Math.max(1, dpr),
+      seam.x2 - seam.x1
+    )
+
+    if (
+      seam.leftAvailability ===
+      seam.rightAvailability
+    ) {
+      context.fillStyle = recordingColor(
+        seam.leftAvailability
+      )
+    } else {
+      const gradient = (
+        context.createLinearGradient(
+          seam.x1,
+          0,
+          seam.x1 + widthPx,
+          0
+        )
+      )
+      gradient.addColorStop(
+        0,
+        recordingColor(
+          seam.leftAvailability
+        )
+      )
+      gradient.addColorStop(
+        1,
+        recordingColor(
+          seam.rightAvailability
+        )
+      )
+      context.fillStyle = gradient
+    }
+
+    context.fillRect(
+      seam.x1,
+      y,
+      widthPx,
+      height
+    )
   }
 
   for (const item of props.protections) {

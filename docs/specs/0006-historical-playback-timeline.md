@@ -237,16 +237,26 @@ Interaction keeps media truth separate from viewport navigation:
 - `currentAt` remains the single playhead input shared by playback and the
   Canvas renderer.
 
-The later event-aggregation, segment-detail lookup, seam-smoothing, and
-multi-camera synchronization roadmap items remain separate from this renderer
-conversion.
+The later multi-camera synchronization roadmap items remain separate from this
+renderer conversion.
 
 
 ### Visual seam smoothing
 
 Adjacent RecordingSegments may have tiny timestamp differences caused by timestamp rounding, container metadata, or capture jitter.
 
-At wide zoom, if the real gap projects to less than approximately one display pixel, the renderer may visually join the adjacent recording blocks to avoid flickering hairline seams.
+At wide zoom, the V1 Canvas renderer visually joins a gap only when all of the
+following are true:
+
+- the gap reason is `unknown` rather than an explicit semantic outage;
+- both immediate neighboring recording ranges are playable
+  (`local`, `remote`, or `cached_remote`);
+- the real gap duration is no more than 500 ms;
+- the projected width is no more than one physical display pixel at the current
+  device-pixel ratio.
+
+Explicit `source_lost`, `storage_failure`, `missing_media`, `purged`,
+`not_scheduled`, and `no_event` gaps are never visually hidden by this rule.
 
 Conceptually:
 
@@ -260,9 +270,16 @@ draw as visually continuous coverage
 
 This is **rendering only**.
 
+The renderer suppresses the gap hatch and paints a narrow bridge between the two
+recording bars; it still keeps the original gap hit target/tool-tip and never
+changes `timeline.gaps`, `recording_ranges`, RecordingSegment timestamps, or
+playback seek behavior. When zoom makes the same gap wider than the pixel
+threshold, the hatch becomes visible again automatically.
+
 The backend/database gap must never be deleted, rounded away, or rewritten merely because it is too small to see at the current zoom. If the user zooms in far enough, the real gap becomes visible again.
 
-Any fixed tolerance such as 500ms is an implementation tuning ceiling, not a rule that converts missing media into continuous media.
+The 500 ms tolerance is an implementation ceiling, not a rule that converts
+missing media into continuous media.
 
 ## Time-to-pixel model
 
