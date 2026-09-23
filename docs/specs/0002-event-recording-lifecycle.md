@@ -22,6 +22,12 @@ Possible event sources include:
 - Webhook/API;
 - zero-nvr manual/system source.
 
+For the V1 blocking execution path, RecordingTrigger lifecycle entry points are
+ONVIF and explicit authorized API/manual requests. Frigate/AI and Home
+Assistant trigger entry points remain V1.1/non-blocking unless explicitly
+re-prioritized. All provider adapters reuse the same RecordingTrigger service
+contract rather than owning recorder state.
+
 No source is allowed to directly:
 
 - call ZLM recorder APIs as recording authority;

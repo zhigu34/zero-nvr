@@ -32,6 +32,10 @@ from app.modules.cameras.models import (
 )
 from app.modules.events.models import Event
 from app.modules.events.onvif import OnvifEventIngestService
+from app.modules.recordings.models import (
+    RecordingPolicy,
+    RecordingTrigger,
+)
 
 
 def settings(
@@ -57,12 +61,29 @@ def test_app_wires_onvif_notifications_into_event_ingest(
     app = create_app(
         settings(tmp_path)
     )
-    assert (
+    handler = (
         app.state.onvif_events
         ._notification_handler
-        is not None
+    )
+    assert handler is not None
+    assert (
+        handler.__self__.recording_tasks
+        is app.state.recording_tasks
     )
     app.state.database.close()
+
+
+class FakeRecordingTasks:
+    def __init__(self) -> None:
+        self.camera_ids: list[
+            uuid.UUID
+        ] = []
+
+    def reconcile_camera(
+        self,
+        camera_id: uuid.UUID,
+    ) -> None:
+        self.camera_ids.append(camera_id)
 
 
 class FakePullPoint:
@@ -610,6 +631,16 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
                     metadata_json={},
                 )
             )
+            session.add(
+                RecordingPolicy(
+                    camera_id=second.id,
+                    baseline_mode="disabled",
+                    event_recording_enabled=True,
+                    pre_roll_seconds=10,
+                    post_roll_seconds=15,
+                    enabled=True,
+                )
+            )
             session.commit()
             device_id = device.id
             second_id = second.id
@@ -617,9 +648,11 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
         logger = logging.getLogger(
             "test-onvif-event-ingest"
         )
+        recording_tasks = FakeRecordingTasks()
         service = OnvifEventIngestService(
             database,
             logger=logger,
+            recording_tasks=recording_tasks,
         )
         started = datetime(
             2026,
@@ -663,6 +696,34 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
             source_event_id = (
                 event.source_event_id
             )
+            trigger = session.scalar(
+                select(RecordingTrigger)
+            )
+            assert trigger is not None
+            assert (
+                trigger.camera_id
+                == second_id
+            )
+            assert (
+                trigger.type
+                == "ONVIF_EVENT"
+            )
+            assert trigger.source == "onvif"
+            assert trigger.state == "ACTIVE"
+            assert (
+                trigger.planned_start_at
+                == started
+                - timedelta(seconds=10)
+            )
+            assert (
+                trigger.planned_end_at
+                is None
+            )
+            trigger_id = trigger.id
+
+        assert recording_tasks.camera_ids == [
+            second_id
+        ]
 
         ended = started + timedelta(
             seconds=9
@@ -701,6 +762,32 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
                 "state"
             ] is False
 
+            trigger = session.get(
+                RecordingTrigger,
+                trigger_id,
+            )
+            assert trigger is not None
+            assert (
+                trigger.state
+                == "COMPLETED"
+            )
+            assert (
+                trigger.planned_end_at
+                == ended
+                + timedelta(seconds=15)
+            )
+            assert session.scalar(
+                select(func.count())
+                .select_from(
+                    RecordingTrigger
+                )
+            ) == 1
+
+        assert recording_tasks.camera_ids == [
+            second_id,
+            second_id,
+        ]
+
         replay_result = service.handle(
             device_id,
             (start_notification,),
@@ -718,6 +805,21 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
             assert event.metadata_json[
                 "replayed_after_close"
             ] is True
+            trigger = session.get(
+                RecordingTrigger,
+                trigger_id,
+            )
+            assert trigger is not None
+            assert (
+                trigger.planned_end_at
+                == ended
+                + timedelta(seconds=15)
+            )
+
+        assert recording_tasks.camera_ids == [
+            second_id,
+            second_id,
+        ]
     finally:
         database.close()
 

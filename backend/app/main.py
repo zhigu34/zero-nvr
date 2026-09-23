@@ -96,6 +96,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     onvif_event_ingest = OnvifEventIngestService(
         database,
         logger=logger,
+        recording_tasks=recording_tasks,
     )
     onvif_events = OnvifEventRuntime(
         resolved_settings,

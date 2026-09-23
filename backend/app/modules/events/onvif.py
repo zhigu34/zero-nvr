@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -18,9 +18,19 @@ from app.modules.cameras.models import (
     CameraStreamProfile,
     Device,
 )
+from app.modules.recordings.triggers import (
+    RecordingTriggerService,
+)
 
 from .models import Event
 from .service import EventIngest, EventService
+
+
+class RecordingTaskReconciler(Protocol):
+    def reconcile_camera(
+        self,
+        camera_id: uuid.UUID,
+    ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +49,13 @@ class OnvifEventIngestService:
         database: Database,
         *,
         logger: logging.Logger,
+        recording_tasks: (
+            RecordingTaskReconciler | None
+        ) = None,
     ) -> None:
         self.database = database
         self.logger = logger
+        self.recording_tasks = recording_tasks
 
     @staticmethod
     def _source_instance_id(
@@ -341,6 +355,60 @@ class OnvifEventIngestService:
             result.event,
         )
 
+    @classmethod
+    def _sync_recording_trigger(
+        cls,
+        session: Session,
+        *,
+        event: Event,
+    ) -> tuple[uuid.UUID | None, bool]:
+        if (
+            event.camera_id is None
+            or event.source_instance_id is None
+            or event.source_event_id is None
+        ):
+            return None, False
+
+        zones = (
+            [event.zone]
+            if event.zone
+            else []
+        )
+        trigger, changed = (
+            RecordingTriggerService.upsert_provider(
+                session,
+                camera_id=event.camera_id,
+                source=cls.SOURCE,
+                source_instance_id=(
+                    event.source_instance_id
+                ),
+                source_event_id=(
+                    event.source_event_id
+                ),
+                event_started_at=event.started_at,
+                event_ended_at=event.ended_at,
+                trigger_type="ONVIF_EVENT",
+                reason=(
+                    event.label
+                    or event.category
+                ),
+                label=event.label,
+                confidence=event.confidence,
+                zones=zones,
+                metadata={
+                    "event_id": str(event.id),
+                    "category": event.category,
+                    "label": event.label,
+                },
+            )
+        )
+        return (
+            trigger.camera_id
+            if trigger is not None
+            else None,
+            changed,
+        )
+
     def handle(
         self,
         device_id: uuid.UUID,
@@ -352,6 +420,9 @@ class OnvifEventIngestService:
             "closed": 0,
             "ignored": 0,
         }
+        trigger_camera_ids: set[
+            uuid.UUID
+        ] = set()
         with self.database.session() as session:
             if session.get(
                 Device,
@@ -370,7 +441,7 @@ class OnvifEventIngestService:
                 if normalized is None:
                     counters["ignored"] += 1
                     continue
-                outcome, _event = (
+                outcome, event = (
                     self._ingest_one(
                         session,
                         device_id=device_id,
@@ -378,7 +449,46 @@ class OnvifEventIngestService:
                     )
                 )
                 counters[outcome] += 1
+
+                if event is not None:
+                    (
+                        trigger_camera_id,
+                        trigger_changed,
+                    ) = self._sync_recording_trigger(
+                        session,
+                        event=event,
+                    )
+                    if (
+                        trigger_changed
+                        and trigger_camera_id
+                        is not None
+                    ):
+                        trigger_camera_ids.add(
+                            trigger_camera_id
+                        )
             session.commit()
+
+        if self.recording_tasks is not None:
+            for camera_id in sorted(
+                trigger_camera_ids,
+                key=str,
+            ):
+                try:
+                    self.recording_tasks.reconcile_camera(
+                        camera_id
+                    )
+                except Exception:
+                    self.logger.warning(
+                        "ONVIF recording trigger reconciliation could not be queued",
+                        extra={
+                            "camera_id": str(
+                                camera_id
+                            ),
+                            "device_id": str(
+                                device_id
+                            ),
+                        },
+                    )
 
         if any(
             counters[key]
