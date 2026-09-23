@@ -406,7 +406,7 @@ Acceptance:
 - [x] StorageTarget / RecordingLocation persistence.
 - [x] local retention using RetentionPolicy + RecordingProtection.
 - [x] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
-- [~] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
+- [x] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
 - [x] remote RecordingLocation lifecycle: ARCHIVING -> AVAILABLE / FAILED.
 - [x] remote verification before archive-required local deletion.
 - [x] safe local RecordingLocation deletion: AVAILABLE -> DELETING -> DELETED.
@@ -417,7 +417,7 @@ Acceptance:
 ## Phase 8 — Historical Playback
 
 - [x] timezone-aware ISO 8601 PlaybackTimeline query API; frontend converts to milliseconds internally.
-- [ ] range/detail-level timeline responses for day/hour/minute zoom.
+- [~] range/detail-level timeline responses for day/hour/minute zoom.
 - [ ] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
 - [ ] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
 - [ ] Canvas timeline with pan/zoom/shared playhead.
