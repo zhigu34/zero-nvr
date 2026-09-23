@@ -528,7 +528,6 @@ def test_event_recordings_are_linked_by_wall_clock_overlap(
         assert body["next_cursor"] is None
 
 
-
 def test_timeline_overlays_events_that_overlap_requested_window(
     tmp_path: Path,
 ) -> None:

@@ -17,8 +17,8 @@ from app.integrations.frigate import (
     FrigateHttpAdapter,
     FrigateIntegrationError,
 )
-from app.modules.system.frigate import FrigateProviderSettingsService
 from app.modules.recordings.query import RecordingCatalogQueryService
+from app.modules.system.frigate import FrigateProviderSettingsService
 
 from .models import Event
 from .query import EventQueryService
@@ -187,7 +187,10 @@ def list_event_recordings(
 
     range_start = event.started_at
     if event.ended_at is None:
-        range_end = datetime.now(UTC)
+        range_end = max(
+            datetime.now(UTC),
+            event.started_at + timedelta(microseconds=1),
+        )
     elif event.ended_at <= event.started_at:
         range_end = event.started_at + timedelta(
             microseconds=1
