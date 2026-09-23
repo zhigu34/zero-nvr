@@ -302,20 +302,27 @@ def test_pending_playback_queues_restore(tmp_path: Path) -> None:
             camera_id = camera.id
             segment_id = segment.id
 
-        response = client.post(
-            f"/api/v1/cameras/{camera_id}/playback/resolve",
-            json={
-                "at": (
-                    started_at + timedelta(seconds=30)
-                ).isoformat()
-            },
+        by_segment = client.post(
+            (
+                f"/api/v1/recordings/"
+                f"{segment_id}/playback/resolve"
+            ),
+            json={"offset_ms": 30_000},
         )
-        assert response.status_code == 200
-        assert response.json()["status"] == "pending"
-        assert response.json()["segment_id"] == str(segment_id)
-        assert fake_tasks.segment_ids == [segment_id]
+        assert by_segment.status_code == 200
+        assert (
+            by_segment.json()["status"]
+            == "pending"
+        )
+        assert (
+            by_segment.json()["segment_id"]
+            == str(segment_id)
+        )
+        assert fake_tasks.segment_ids == [
+            segment_id
+        ]
 
-        again = client.post(
+        by_time = client.post(
             f"/api/v1/cameras/{camera_id}/playback/resolve",
             json={
                 "at": (
@@ -323,9 +330,14 @@ def test_pending_playback_queues_restore(tmp_path: Path) -> None:
                 ).isoformat()
             },
         )
-        assert again.status_code == 200
-        assert again.json()["status"] == "pending"
-        assert fake_tasks.segment_ids == [segment_id]
+        assert by_time.status_code == 200
+        assert (
+            by_time.json()["status"]
+            == "pending"
+        )
+        assert fake_tasks.segment_ids == [
+            segment_id
+        ]
 
 
 
