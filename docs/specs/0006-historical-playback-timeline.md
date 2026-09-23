@@ -205,6 +205,27 @@ interaction overlay
 
 Exact colors remain a UI/theme decision.
 
+The V1 single-camera implementation uses one `PlaybackTimelineCanvas` drawing
+surface for the ruler, gaps, recording availability, protection ranges, event
+markers, and the vertical playhead. Every layer uses the same absolute
+time-to-pixel transform. DOM remains responsible for the legend, controls, and
+tooltips.
+
+Interaction keeps media truth separate from viewport navigation:
+
+- click/keyboard seek selects an absolute time;
+- pointer drag pans the viewport without changing the selected playback time;
+- horizontal trackpad/wheel motion pans after a short debounce;
+- vertical wheel zooms through the current 24h / 6h / 1h detail levels;
+- wheel zoom preserves the cursor's absolute-time anchor where practical;
+- toolbar zoom recenters around the current playback time;
+- `currentAt` remains the single playhead input shared by playback and the
+  Canvas renderer.
+
+The later event-aggregation, segment-detail lookup, seam-smoothing, and
+multi-camera synchronization roadmap items remain separate from this renderer
+conversion.
+
 
 ### Visual seam smoothing
 

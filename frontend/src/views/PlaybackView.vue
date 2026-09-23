@@ -40,11 +40,9 @@ import {
   type PlaybackGap,
   type PlaybackResolve,
   type PlaybackTimeline,
-  type TimelineDetailLevel,
-  type TimelineEvent,
-  type TimelineGap,
-  type TimelineRecordingRange
+  type TimelineDetailLevel
 } from "../api/playback"
+import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
 
@@ -63,6 +61,7 @@ const timeline = ref<PlaybackTimeline | null>(null)
 const zoomHours = ref<ZoomHours>(24)
 const selectedDate = ref(formatDateInput(new Date()))
 const currentAt = ref(new Date())
+const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
 const playbackResult = ref<PlaybackResolve | null>(null)
 const playbackUrl = ref<string | null>(null)
@@ -130,27 +129,6 @@ const timelineEndMs = computed(() =>
 const timelineDurationMs = computed(() =>
   Math.max(1, timelineEndMs.value - timelineStartMs.value)
 )
-
-const playheadPercent = computed(() =>
-  clampPercent(
-    ((currentAt.value.getTime() - timelineStartMs.value) /
-      timelineDurationMs.value) *
-      100
-  )
-)
-
-const ticks = computed(() => {
-  const count = zoomHours.value === 24 ? 8 : 6
-  return Array.from({ length: count + 1 }, (_, index) => {
-    const ratio = index / count
-    const time =
-      timelineStartMs.value + timelineDurationMs.value * ratio
-    return {
-      left: ratio * 100,
-      label: formatClock(new Date(time))
-    }
-  })
-})
 
 const cameraProtections = computed(() =>
   protections.value
@@ -233,92 +211,40 @@ function localDayStart(): Date {
 
 function rangeWindow(): [Date, Date] {
   const dayStart = localDayStart()
-  if (zoomHours.value === 24) {
+  const duration =
+    zoomHours.value * 60 * 60 * 1000
+
+  if (
+    zoomHours.value === 24 &&
+    timelineCenterMs.value === null
+  ) {
     return [
       dayStart,
-      new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
+      new Date(dayStart.getTime() + duration)
     ]
   }
 
-  const dayEnd = dayStart.getTime() + 24 * 60 * 60 * 1000
-  let center = currentAt.value.getTime()
-  if (formatDateInput(currentAt.value) !== selectedDate.value) {
-    center = dayStart.getTime() + 12 * 60 * 60 * 1000
+  let center =
+    timelineCenterMs.value ??
+    currentAt.value.getTime()
+  if (
+    timelineCenterMs.value === null &&
+    formatDateInput(currentAt.value) !==
+      selectedDate.value
+  ) {
+    center =
+      dayStart.getTime() +
+      12 * 60 * 60 * 1000
   }
 
-  const halfWindow = (zoomHours.value * 60 * 60 * 1000) / 2
-  let start = center - halfWindow
-  let end = center + halfWindow
-
-  if (start < dayStart.getTime()) {
-    start = dayStart.getTime()
-    end = start + halfWindow * 2
-  }
-  if (end > dayEnd) {
-    end = dayEnd
-    start = end - halfWindow * 2
-  }
-
-  return [new Date(start), new Date(end)]
+  return [
+    new Date(center - duration / 2),
+    new Date(center + duration / 2)
+  ]
 }
 
-function clampPercent(value: number): number {
-  return Math.max(0, Math.min(100, value))
-}
-
-function rangeStyle(
-  item: TimelineRecordingRange | TimelineGap
-): Record<string, string> {
-  const start = new Date(item.start_at).getTime()
-  const end = new Date(item.end_at).getTime()
-  const left =
-    ((start - timelineStartMs.value) / timelineDurationMs.value) * 100
-  const width =
-    ((end - start) / timelineDurationMs.value) * 100
-  return {
-    left: `${clampPercent(left)}%`,
-    width: `${Math.max(0.15, Math.min(100, width))}%`
-  }
-}
-
-function protectionStyle(
-  item: RecordingProtection
-): Record<string, string> {
-  const start = new Date(item.started_at).getTime()
-  const end = new Date(item.ended_at).getTime()
-  const left =
-    ((start - timelineStartMs.value) / timelineDurationMs.value) * 100
-  const width =
-    ((end - start) / timelineDurationMs.value) * 100
-  return {
-    left: `${clampPercent(left)}%`,
-    width: `${Math.max(0.15, Math.min(100, width))}%`
-  }
-}
-
-function protectionTitle(item: RecordingProtection): string {
-  const expiry = item.expires_at
-    ? ` · expires ${formatTimestamp(new Date(item.expires_at))}`
-    : ""
-  return `${item.reason} · protected ${formatTimestamp(
-    new Date(item.started_at)
-  )} → ${formatTimestamp(new Date(item.ended_at))}${expiry}`
-}
-
-function eventStyle(item: TimelineEvent): Record<string, string> {
-  const at = new Date(item.start_at).getTime()
-  return {
-    left: `${clampPercent(
-      ((at - timelineStartMs.value) / timelineDurationMs.value) * 100
-    )}%`
-  }
-}
-
-function eventTitle(item: TimelineEvent): string {
-  const label = item.label ? ` · ${item.label}` : ""
-  return `${item.category}${label} · ${formatTimestamp(
-    new Date(item.start_at)
-  )}`
+function clampRatio(value: number): number {
+  return Math.max(0, Math.min(1, value))
 }
 
 function clearExportPoll(): void {
@@ -393,6 +319,7 @@ async function refreshCameras(): Promise<void> {
 
     if (hasRouteAt && routeAt) {
       currentAt.value = routeAt
+      timelineCenterMs.value = routeAt.getTime()
       selectedDate.value = formatDateInput(routeAt)
       zoomHours.value = 6
       await refreshTimeline(false)
@@ -540,32 +467,87 @@ function handleDateChange(): void {
     formatDateInput(now) === selectedDate.value
       ? now
       : new Date(start.getTime() + 12 * 60 * 60 * 1000)
+  timelineCenterMs.value = null
   void refreshTimeline(false)
 }
 
 function setZoom(hours: ZoomHours): void {
   zoomHours.value = hours
+  timelineCenterMs.value = currentAt.value.getTime()
+  selectedDate.value = formatDateInput(
+    currentAt.value
+  )
   void refreshTimeline(false)
 }
 
-function handleTimelineClick(event: MouseEvent): void {
-  const target = event.currentTarget as HTMLElement
-  const rect = target.getBoundingClientRect()
-  if (!rect.width) return
-
-  const ratio = clampPercent(
-    ((event.clientX - rect.left) / rect.width) * 100
-  ) / 100
-  const at = new Date(
-    timelineStartMs.value + timelineDurationMs.value * ratio
-  )
+function handleTimelineSeek(at: Date): void {
   void resolveAt(at, true)
+}
+
+function handleTimelinePan(deltaMs: number): void {
+  const [from, to] = timeline.value
+    ? [
+        new Date(timeline.value.range.start_at),
+        new Date(timeline.value.range.end_at)
+      ]
+    : rangeWindow()
+  const center =
+    (from.getTime() + to.getTime()) / 2 +
+    deltaMs
+
+  timelineCenterMs.value = center
+  selectedDate.value = formatDateInput(
+    new Date(center)
+  )
+  void refreshTimeline(false)
+}
+
+function handleTimelineZoom(payload: {
+  direction: "in" | "out"
+  anchor: Date
+}): void {
+  const ordered: ZoomHours[] = [1, 6, 24]
+  const index = ordered.indexOf(zoomHours.value)
+  const nextIndex =
+    payload.direction === "in"
+      ? Math.max(0, index - 1)
+      : Math.min(ordered.length - 1, index + 1)
+  const nextZoom = ordered[nextIndex]
+  if (nextZoom === zoomHours.value) return
+
+  const [from, to] = timeline.value
+    ? [
+        new Date(timeline.value.range.start_at),
+        new Date(timeline.value.range.end_at)
+      ]
+    : rangeWindow()
+  const duration = Math.max(
+    1,
+    to.getTime() - from.getTime()
+  )
+  const anchorMs = payload.anchor.getTime()
+  const ratio = clampRatio(
+    (anchorMs - from.getTime()) / duration
+  )
+  const nextDuration =
+    nextZoom * 60 * 60 * 1000
+  const nextStart =
+    anchorMs - ratio * nextDuration
+
+  zoomHours.value = nextZoom
+  timelineCenterMs.value =
+    nextStart + nextDuration / 2
+  selectedDate.value = formatDateInput(
+    payload.anchor
+  )
+  void refreshTimeline(false)
 }
 
 function jumpTo(value: string | null): void {
   if (!value) return
   const at = new Date(value)
   currentAt.value = at
+  timelineCenterMs.value = at.getTime()
   selectedDate.value = formatDateInput(at)
   void refreshTimeline(false).then(() => resolveAt(at, true))
 }
@@ -1200,86 +1182,19 @@ onBeforeUnmount(() => {
           <span v-if="loadingTimeline">Updating…</span>
         </div>
 
-        <div
-          class="playback-timeline"
-          role="slider"
-          tabindex="0"
-          aria-label="Recording timeline"
-          @click="handleTimelineClick"
-        >
-          <div class="playback-timeline__ticks">
-            <span
-              v-for="tick in ticks"
-              :key="`${tick.left}-${tick.label}`"
-              class="playback-tick"
-              :style="{ left: `${tick.left}%` }"
-            >
-              <i />
-              <small>{{ tick.label }}</small>
-            </span>
-          </div>
-
-          <div class="playback-timeline__lane">
-            <span
-              v-for="gap in timeline?.gaps || []"
-              :key="`gap-${gap.start_at}-${gap.end_at}`"
-              class="timeline-gap-range"
-              :class="`timeline-gap-range--${gap.reason}`"
-              :style="rangeStyle(gap)"
-              :title="gap.reason.replaceAll('_', ' ')"
-            />
-
-            <button
-              v-for="range in timeline?.recording_ranges || []"
-              :key="`recording-${range.start_at}-${range.end_at}`"
-              class="timeline-recording-range"
-              :class="`timeline-recording-range--${range.availability}`"
-              :style="rangeStyle(range)"
-              type="button"
-              :title="`${range.availability} · ${formatTimestamp(
-                new Date(range.start_at)
-              )}`"
-              tabindex="-1"
-            />
-
-            <button
-              v-for="item in timelineProtections"
-              :key="`protection-${item.id}`"
-              class="timeline-protection-range"
-              :class="{
-                'timeline-protection-range--readonly':
-                  !auth.hasPermission('recording.protect')
-              }"
-              :style="protectionStyle(item)"
-              type="button"
-              :title="protectionTitle(item)"
-              tabindex="-1"
-              @click.stop="openProtectionFromTimeline(item)"
-            >
-              <span />
-            </button>
-
-            <button
-              v-for="item in timeline?.events || []"
-              :key="item.id"
-              class="timeline-event-marker"
-              :style="eventStyle(item)"
-              type="button"
-              :title="eventTitle(item)"
-              tabindex="-1"
-              @click.stop="resolveAt(new Date(item.start_at), true)"
-            >
-              <span />
-            </button>
-
-            <span
-              class="playback-playhead"
-              :style="{ left: `${playheadPercent}%` }"
-            >
-              <i />
-            </span>
-          </div>
-        </div>
+        <PlaybackTimelineCanvas
+          :timeline="timeline"
+          :protections="timelineProtections"
+          :current-at="currentAt"
+          :zoom-hours="zoomHours"
+          :can-protect="
+            auth.hasPermission('recording.protect')
+          "
+          @seek="handleTimelineSeek"
+          @pan="handleTimelinePan"
+          @zoom="handleTimelineZoom"
+          @protect="openProtectionFromTimeline"
+        />
       </div>
 
       <aside
