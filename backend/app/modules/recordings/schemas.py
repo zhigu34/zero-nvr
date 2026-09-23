@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 TimelineAvailability = Literal[
@@ -89,6 +89,34 @@ class PlaybackTimelineView(BaseModel):
     recording_ranges: list[TimelineRecordingRangeView]
     gaps: list[TimelineGapView]
     events: list[TimelineEventView]
+
+
+class PlaybackAlignedTimelineRequest(BaseModel):
+    camera_ids: list[uuid.UUID] = Field(
+        min_length=2,
+        max_length=9,
+    )
+    from_at: datetime = Field(alias="from")
+    to_at: datetime = Field(alias="to")
+    detail: TimelineDetailLevel = "minute"
+
+    @model_validator(mode="after")
+    def validate_unique_cameras(
+        self,
+    ) -> "PlaybackAlignedTimelineRequest":
+        if len(set(self.camera_ids)) != len(
+            self.camera_ids
+        ):
+            raise ValueError(
+                "camera_ids must be unique."
+            )
+        return self
+
+
+class PlaybackAlignedTimelineView(BaseModel):
+    detail: TimelineDetailLevel
+    range: TimelineRangeView
+    tracks: list[PlaybackTimelineView]
 
 
 

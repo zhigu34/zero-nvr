@@ -43,6 +43,8 @@ from .protection import RecordingProtectionService
 from .query import RecordingCatalogQueryService
 from .runtime import RecordingRuntimeService
 from .schemas import (
+    PlaybackAlignedTimelineRequest,
+    PlaybackAlignedTimelineView,
     PlaybackGapView,
     PlaybackPendingView,
     PlaybackPlayableView,
@@ -51,6 +53,7 @@ from .schemas import (
     PlaybackResolveView,
     PlaybackTimelineView,
     TimelineDetailLevel,
+    TimelineRangeView,
     RecordingPolicyPut,
     RecordingLocationView,
     RecordingProtectionCreate,
@@ -1098,6 +1101,73 @@ def resolve_camera_playback(
         plan=plan,
         request=request,
         session=session,
+    )
+
+
+@router.post(
+    "/playback/timeline",
+    response_model=PlaybackAlignedTimelineView,
+)
+def aligned_playback_timeline(
+    body: PlaybackAlignedTimelineRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> PlaybackAlignedTimelineView:
+    start_at = _normalized_utc(
+        body.from_at,
+        field_name="from",
+    )
+    end_at = _normalized_utc(
+        body.to_at,
+        field_name="to",
+    )
+    if end_at <= start_at:
+        raise ApiError(
+            status_code=422,
+            code="invalid_time_range",
+            message=(
+                "Timeline range end must be "
+                "after range start."
+            ),
+        )
+
+    scope = get_effective_camera_scope(
+        context,
+        session,
+    )
+    for camera_id in body.camera_ids:
+        if not scope.allows(camera_id):
+            raise ApiError(
+                status_code=404,
+                code="camera_not_found",
+                message="Camera was not found.",
+            )
+        CameraService.get_camera(
+            session,
+            camera_id,
+        )
+
+    tracks = [
+        PlaybackTimelineService.build(
+            session,
+            camera_id=camera_id,
+            start_at=start_at,
+            end_at=end_at,
+            detail=body.detail,
+            settings=request.app.state.settings,
+        )
+        for camera_id in body.camera_ids
+    ]
+    return PlaybackAlignedTimelineView(
+        detail=body.detail,
+        range=TimelineRangeView(
+            start_at=start_at,
+            end_at=end_at,
+        ),
+        tracks=tracks,
     )
 
 

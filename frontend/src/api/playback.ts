@@ -65,6 +65,12 @@ export interface PlaybackTimeline {
   events: TimelineEvent[]
 }
 
+export interface PlaybackAlignedTimeline {
+  detail: TimelineDetailLevel
+  range: TimelineRange
+  tracks: PlaybackTimeline[]
+}
+
 export interface PlaybackPlayable {
   status: "playable"
   segment_id: string
@@ -94,6 +100,26 @@ export type PlaybackResolve =
   | PlaybackPlayable
   | PlaybackPending
   | PlaybackGap
+
+export function getAlignedCameraTimelines(
+  cameraIds: string[],
+  from: Date,
+  to: Date,
+  detail: TimelineDetailLevel = "minute"
+): Promise<PlaybackAlignedTimeline> {
+  return apiRequest<PlaybackAlignedTimeline>(
+    "/playback/timeline",
+    {
+      method: "POST",
+      json: {
+        camera_ids: cameraIds,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        detail
+      }
+    }
+  )
+}
 
 export function getCameraTimeline(
   cameraId: string,

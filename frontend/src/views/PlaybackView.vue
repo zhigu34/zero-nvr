@@ -36,6 +36,7 @@ import {
 } from "../api/recordings"
 import {
   findTimelineSegmentAt,
+  getAlignedCameraTimelines,
   getCameraTimeline,
   resolveCameraPlayback,
   resolveRecordingSegment,
@@ -87,6 +88,9 @@ const syncTileStates = ref<
 const cameraPanelOpen = ref(true)
 const search = ref("")
 const timeline = ref<PlaybackTimeline | null>(null)
+const alignedTimelineTracks = ref<
+  Record<string, PlaybackTimeline>
+>({})
 const zoomHours = ref<ZoomHours>(24)
 const selectedDate = ref(formatDateInput(new Date()))
 const currentAt = ref(new Date())
@@ -511,16 +515,59 @@ async function refreshTimeline(resolveCurrent = false): Promise<void> {
         : "minute"
 
   try {
-    const value = await getCameraTimeline(
-      cameraId,
-      from,
-      to,
-      detail
-    )
-    if (generation !== timelineGeneration) return
-    timeline.value = value
+    if (
+      multiCameraMode.value &&
+      playbackParticipants.value.length >= 2
+    ) {
+      const aligned =
+        await getAlignedCameraTimelines(
+          playbackParticipants.value.map(
+            (camera) => camera.id
+          ),
+          from,
+          to,
+          detail
+        )
+      if (
+        generation !== timelineGeneration
+      ) {
+        return
+      }
+
+      alignedTimelineTracks.value =
+        Object.fromEntries(
+          aligned.tracks.map(
+            (track) => [
+              track.camera_id,
+              track
+            ]
+          )
+        )
+      timeline.value =
+        alignedTimelineTracks.value[
+          cameraId
+        ] ?? null
+    } else {
+      const value = await getCameraTimeline(
+        cameraId,
+        from,
+        to,
+        detail
+      )
+      if (
+        generation !== timelineGeneration
+      ) {
+        return
+      }
+      alignedTimelineTracks.value = {}
+      timeline.value = value
+    }
+
     if (resolveCurrent) {
-      await resolveAt(currentAt.value, false)
+      await resolveAt(
+        currentAt.value,
+        false
+      )
     }
   } catch (caught) {
     if (generation === timelineGeneration) {

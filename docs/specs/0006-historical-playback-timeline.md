@@ -626,6 +626,50 @@ The shared playhead remains 14:05:00 for all channels.
 
 A missing camera never shifts another camera to a different time.
 
+## Aligned multi-camera timeline query
+
+Multi-camera review uses one bounded batch read model:
+
+```text
+POST /api/v1/playback/timeline
+
+{
+  "camera_ids": ["...", "..."],
+  "from": "<timezone-aware ISO8601>",
+  "to": "<timezone-aware ISO8601>",
+  "detail": "day | hour | minute"
+}
+```
+
+The request accepts 2–9 unique Camera IDs. The backend applies
+`recording.view` plus effective Camera scope to **every** requested Camera
+before producing any tracks. If any Camera is missing or out of scope, the
+whole batch fails rather than returning a partial response that could reveal a
+hidden Camera.
+
+The response contains one shared `range` / `detail` plus ordered
+`tracks[]`. Each track is the same existing `PlaybackTimeline` read model,
+built by `PlaybackTimelineService.build()`; availability, gaps, physical
+segments, and event aggregation therefore have one implementation for both
+single- and multi-camera playback.
+
+```text
+{
+  "detail": "hour",
+  "range": { ... },
+  "tracks": [
+    { "camera_id": "A", ...PlaybackTimeline },
+    { "camera_id": "B", ...PlaybackTimeline }
+  ]
+}
+```
+
+Track order follows request order. The browser keeps the aligned tracks by
+Camera ID and feeds the focused Camera's track to the existing Canvas timeline.
+Media resolution remains independent per Camera and still uses absolute-time /
+RecordingSegment-ID resolvers; the batch timeline endpoint never returns media
+URLs or creates a persistent multi-camera playback session.
+
 ## Synchronization modes
 
 ### tolerant — default
@@ -656,11 +700,11 @@ control. Explicit timeline seek/date navigation increments a synchronization
 generation so every participating tile re-resolves the new absolute time
 together.
 
-Until the later aligned-timeline API item is implemented, V1 intentionally
-fans out the existing per-camera playback resolver from the browser. The
-focused camera's existing single-camera timeline remains authoritative for
-timeline rendering. This avoids inventing a temporary multi-camera persistence
-model or blocking tolerant playback on the future aligned-track response.
+The browser fetches the participating Cameras' timeline tracks in one aligned
+batch request. The focused track remains authoritative for the visible Canvas,
+while all tracks retain the same absolute range for synchronization and later
+gap-skipping decisions. Media resolve remains per-Camera so a remote restore or
+slow channel stays isolated to that tile.
 
 This prevents one slow/remote channel from freezing a 4/9-camera review.
 

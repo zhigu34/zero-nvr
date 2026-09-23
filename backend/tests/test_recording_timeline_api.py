@@ -758,3 +758,129 @@ def test_timeline_segments_are_canonical_and_ordered_for_binary_lookup(
             == base
             + timedelta(minutes=10)
         )
+
+
+
+def test_aligned_timeline_returns_tracks_in_requested_order(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        (
+            first_camera_id,
+            _event_id,
+            base,
+        ) = seed_timeline(app)
+
+        with app.state.database.session() as session:
+            second = CameraService(
+                app.state.settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Back Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://camera.local/back"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+            session.commit()
+            second_camera_id = second.id
+
+        response = client.post(
+            "/api/v1/playback/timeline",
+            json={
+                "camera_ids": [
+                    str(second_camera_id),
+                    str(first_camera_id),
+                ],
+                "from": base.isoformat(),
+                "to": (
+                    base
+                    + timedelta(minutes=10)
+                ).isoformat(),
+                "detail": "minute",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+
+        assert body["detail"] == "minute"
+        assert (
+            datetime.fromisoformat(
+                body["range"]["start_at"]
+            )
+            == base
+        )
+        assert (
+            datetime.fromisoformat(
+                body["range"]["end_at"]
+            )
+            == base
+            + timedelta(minutes=10)
+        )
+        assert [
+            track["camera_id"]
+            for track in body["tracks"]
+        ] == [
+            str(second_camera_id),
+            str(first_camera_id),
+        ]
+        assert all(
+            track["detail"] == "minute"
+            for track in body["tracks"]
+        )
+        assert all(
+            track["range"]
+            == body["range"]
+            for track in body["tracks"]
+        )
+        assert (
+            body["tracks"][0]["gaps"][0][
+                "reason"
+            ]
+            == "not_scheduled"
+        )
+        assert (
+            body["tracks"][1][
+                "recording_ranges"
+            ][0]["availability"]
+            == "local"
+        )
+
+        duplicate = client.post(
+            "/api/v1/playback/timeline",
+            json={
+                "camera_ids": [
+                    str(first_camera_id),
+                    str(first_camera_id),
+                ],
+                "from": base.isoformat(),
+                "to": (
+                    base
+                    + timedelta(minutes=10)
+                ).isoformat(),
+                "detail": "minute",
+            },
+        )
+        assert duplicate.status_code == 422
+
+        too_small = client.post(
+            "/api/v1/playback/timeline",
+            json={
+                "camera_ids": [
+                    str(first_camera_id),
+                ],
+                "from": base.isoformat(),
+                "to": (
+                    base
+                    + timedelta(minutes=10)
+                ).isoformat(),
+            },
+        )
+        assert too_small.status_code == 422
