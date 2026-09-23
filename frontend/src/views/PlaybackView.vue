@@ -658,7 +658,7 @@ function standbyCanSwitch(): boolean {
     standbyReady.value &&
     element &&
     element.readyState >=
-      HTMLMediaElement.HAVE_FUTURE_DATA
+      element.HAVE_FUTURE_DATA
   )
 }
 
@@ -722,9 +722,14 @@ async function switchToStandbyAtBoundary(
   )
 
   boundarySwitching = false
-  void preloadNextSegment(
-    standby.segment_id
-  )
+  if (
+    activePlayerSlot.value === nextSlot &&
+    activeSegmentId.value === standby.segment_id
+  ) {
+    void preloadNextSegment(
+      standby.segment_id
+    )
+  }
 }
 
 function requestBoundarySwitch(
@@ -749,7 +754,6 @@ function requestBoundarySwitch(
   }
 
   boundaryWaiting = true
-  activeVideo()?.pause()
 
   if (
     standbyBoundaryMs.value === boundaryMs &&
@@ -759,7 +763,10 @@ function requestBoundarySwitch(
       slot,
       boundaryMs
     )
+    return
   }
+
+  activeVideo()?.pause()
 }
 
 function scheduleBoundarySwitch(
@@ -828,7 +835,7 @@ function handlePlayerCanPlay(
     standbySegment.value &&
     element &&
     element.readyState >=
-      HTMLMediaElement.HAVE_FUTURE_DATA
+      element.HAVE_FUTURE_DATA
   )
 
   if (
@@ -1338,6 +1345,19 @@ function exportStateClass(state: string): string {
 }
 
 function togglePlayback(): void {
+  if (boundaryWaiting) {
+    if (
+      standbyBoundaryMs.value !== null &&
+      standbyCanSwitch()
+    ) {
+      void switchToStandbyAtBoundary(
+        activePlayerSlot.value,
+        standbyBoundaryMs.value
+      )
+    }
+    return
+  }
+
   const element = activeVideo()
   if (!element) {
     void resolveAt(currentAt.value, true)
@@ -1459,6 +1479,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearPendingRetry()
   clearPreloadRetry()
+  clearBoundarySwitchTimer()
   clearExportPoll()
   resolveGeneration += 1
   timelineGeneration += 1
