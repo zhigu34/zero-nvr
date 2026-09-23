@@ -6,7 +6,11 @@ import {
   discoverOnvif,
   importOnvif,
   inspectOnvif,
+  listCameraGroups,
   testManualCamera,
+  updateCamera,
+  updateCameraGroup,
+  type CameraGroup,
   type CameraProbeResult,
   type DiscoveryCandidate,
   type DiscoverySession,
@@ -14,17 +18,29 @@ import {
   type OnvifInspection
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
+import {
+  putRecordingPolicy,
+  type RecordingPolicyPut
+} from "../../api/recordings"
+import {
+  listStorageTargets,
+  type StorageTarget
+} from "../../api/storage"
+import { useAuthStore } from "../../stores/auth"
 
 const emit = defineEmits<{
   created: []
   close: []
 }>()
 
+const auth = useAuthStore()
+
 type Mode = "onvif" | "rtsp"
 type WorkingAction =
   | "discover"
   | "inspect"
   | "import"
+  | "batch"
   | "test"
   | "create"
   | null
@@ -59,6 +75,44 @@ const inspectionFingerprint = ref<string | null>(null)
 const selectedProfiles = ref<string[]>([])
 const confirmExistingIdentity = ref(false)
 
+type BatchResultState =
+  | "pending"
+  | "running"
+  | "success"
+  | "partial"
+  | "review"
+  | "failed"
+
+interface BatchResult {
+  candidate_id: string
+  label: string
+  state: BatchResultState
+  message: string
+  camera_ids: string[]
+}
+
+interface BatchCredentialOverride {
+  username: string
+  password: string
+}
+
+const batchSelectedIds = ref<string[]>([])
+const batchUsername = ref("")
+const batchPassword = ref("")
+const batchNameTemplate = ref("{name}")
+const batchGroupId = ref("")
+const batchRecordingMode = ref<"continuous" | "events" | "off">(
+  "continuous"
+)
+const batchStorageTargetId = ref("")
+const batchTimeSyncMode = ref<
+  "monitor" | "manage_ntp" | "ignore"
+>("monitor")
+const batchGroups = ref<CameraGroup[]>([])
+const batchStorageTargets = ref<StorageTarget[]>([])
+const batchOverrides = ref<Record<string, BatchCredentialOverride>>({})
+const batchResults = ref<BatchResult[]>([])
+
 const identity = computed(() => inspection.value?.identity ?? null)
 const identityRequiresConfirmation = computed(
   () => identity.value?.state === "probable_match_requires_confirmation"
@@ -72,6 +126,30 @@ const importActionLabel = computed(() => {
   if (identityRequiresConfirmation.value) return "Confirm & refresh device"
   return "Import device"
 })
+
+const batchCandidates = computed(() => {
+  const selected = new Set(batchSelectedIds.value)
+  return (discovery.value?.candidates ?? []).filter(
+    (candidate) => selected.has(candidate.id)
+  )
+})
+
+const canBatchImport = computed(
+  () =>
+    batchCandidates.value.length > 0 &&
+    batchCandidates.value.every((candidate) => Boolean(candidate.host)) &&
+    working.value === null
+)
+
+const batchResultMap = computed(
+  () =>
+    new Map(
+      batchResults.value.map((result) => [
+        result.candidate_id,
+        result
+      ])
+    )
+)
 
 const canCreateManual = computed(
   () =>
@@ -153,12 +231,62 @@ async function createRtsp(): Promise<void> {
   }
 }
 
+async function loadBatchDefaults(): Promise<void> {
+  const groupsPromise = listCameraGroups()
+  const targetsPromise = auth.hasPermission("storage.manage")
+    ? listStorageTargets()
+    : Promise.resolve([] as StorageTarget[])
+
+  const [groupResult, targetResult] = await Promise.allSettled([
+    groupsPromise,
+    targetsPromise
+  ])
+
+  if (groupResult.status === "fulfilled") {
+    batchGroups.value = groupResult.value
+  }
+  if (targetResult.status === "fulfilled") {
+    batchStorageTargets.value = targetResult.value.filter(
+      (item) =>
+        item.type === "local" &&
+        item.role === "recording" &&
+        item.enabled
+    )
+    if (
+      !batchStorageTargetId.value &&
+      batchStorageTargets.value.length
+    ) {
+      batchStorageTargetId.value =
+        batchStorageTargets.value[0]?.id ?? ""
+    }
+  }
+}
+
+function initializeBatchCandidates(
+  candidates: DiscoveryCandidate[]
+): void {
+  batchSelectedIds.value = []
+  batchResults.value = []
+  batchOverrides.value = Object.fromEntries(
+    candidates.map((candidate) => [
+      candidate.id,
+      {
+        username: "",
+        password: ""
+      }
+    ])
+  )
+}
+
 async function runDiscovery(): Promise<void> {
   clearMessages()
   discovery.value = null
   working.value = "discover"
   try {
-    discovery.value = await discoverOnvif()
+    const result = await discoverOnvif()
+    discovery.value = result
+    initializeBatchCandidates(result.candidates)
+    await loadBatchDefaults()
   } catch (caught) {
     requestError.value = errorMessage(caught)
   } finally {
@@ -251,6 +379,226 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
   ]
   return parts.filter(Boolean).join(" · ") || "Profile details unavailable"
 }
+
+function candidateName(candidate: DiscoveryCandidate): string {
+  const discoveredName = candidate.display_info.name
+  if (
+    typeof discoveredName === "string" &&
+    discoveredName.trim()
+  ) {
+    return discoveredName.trim()
+  }
+  return candidate.host || "ONVIF device"
+}
+
+function batchDeviceName(
+  candidate: DiscoveryCandidate,
+  result: OnvifInspection
+): string {
+  const baseName =
+    candidateName(candidate) ||
+    result.device.model ||
+    result.device.manufacturer ||
+    candidate.host ||
+    "ONVIF device"
+  const rendered = batchNameTemplate.value
+    .replaceAll("{name}", baseName)
+    .replaceAll("{host}", candidate.host ?? "")
+    .trim()
+  return (rendered || baseName).slice(0, 128)
+}
+
+function batchPolicy(): RecordingPolicyPut {
+  const eventsOnly = batchRecordingMode.value === "events"
+  const disabled = batchRecordingMode.value === "off"
+
+  return {
+    baseline_mode:
+      eventsOnly || disabled ? "disabled" : "continuous",
+    schedule: {},
+    schedule_timezone: null,
+    event_recording_enabled: eventsOnly,
+    event_filter: {},
+    segment_target_seconds: 300,
+    pre_roll_seconds: 10,
+    post_roll_seconds: 10,
+    storage_target_id: batchStorageTargetId.value || null,
+    retention_policy_id: null,
+    enabled: !disabled
+  }
+}
+
+function setBatchResult(
+  candidate: DiscoveryCandidate,
+  state: BatchResultState,
+  message: string,
+  cameraIds: string[] = []
+): void {
+  const next: BatchResult = {
+    candidate_id: candidate.id,
+    label: candidateName(candidate),
+    state,
+    message,
+    camera_ids: cameraIds
+  }
+  const index = batchResults.value.findIndex(
+    (item) => item.candidate_id === candidate.id
+  )
+  if (index >= 0) {
+    batchResults.value.splice(index, 1, next)
+  } else {
+    batchResults.value.push(next)
+  }
+}
+
+async function applyBatchGroup(cameraIds: string[]): Promise<void> {
+  if (!batchGroupId.value || !cameraIds.length) return
+
+  const group = batchGroups.value.find(
+    (item) => item.id === batchGroupId.value
+  )
+  if (!group) {
+    throw new Error("Selected camera group is no longer available.")
+  }
+
+  const merged = Array.from(
+    new Set([...group.camera_ids, ...cameraIds])
+  )
+  const updated = await updateCameraGroup(group.id, {
+    camera_ids: merged
+  })
+  batchGroups.value = batchGroups.value.map((item) =>
+    item.id === updated.id ? updated : item
+  )
+}
+
+async function runBatchImport(): Promise<void> {
+  if (!canBatchImport.value) return
+
+  clearMessages()
+  working.value = "batch"
+  batchResults.value = []
+
+  let changed = false
+  try {
+    for (const candidate of batchCandidates.value) {
+      setBatchResult(
+        candidate,
+        "running",
+        "Inspecting device identity and media profiles…"
+      )
+
+      const host = candidate.host
+      if (!host) {
+        setBatchResult(
+          candidate,
+          "failed",
+          "Candidate has no usable host address."
+        )
+        continue
+      }
+
+      const override = batchOverrides.value[candidate.id] ?? {
+        username: "",
+        password: ""
+      }
+      const credentials = {
+        host,
+        port: candidate.port ?? 80,
+        username:
+          override.username.trim() || batchUsername.value.trim(),
+        password: override.password || batchPassword.value
+      }
+
+      let importedCameraIds: string[] = []
+      try {
+        const inspected = await inspectOnvif(credentials)
+
+        if (inspected.identity.state !== "new_device") {
+          const message =
+            inspected.identity.state === "identity_conflict"
+              ? "Identity conflict requires manual resolution."
+              : inspected.identity.state ===
+                  "probable_match_requires_confirmation"
+                ? "Weak identity match requires explicit single-device confirmation."
+                : "Existing device detected; review it individually before changing defaults."
+          setBatchResult(candidate, "review", message)
+          continue
+        }
+
+        const profileTokens = inspected.profiles
+          .filter((profile) => profile.stream_uri_available)
+          .map((profile) => profile.token)
+        if (!profileTokens.length) {
+          setBatchResult(
+            candidate,
+            "failed",
+            "No usable RTSP profiles were reported."
+          )
+          continue
+        }
+
+        const imported = await importOnvif({
+          ...credentials,
+          name: batchDeviceName(candidate, inspected),
+          location: null,
+          storage_label: null,
+          profile_tokens: profileTokens,
+          discovery_candidate_id: candidate.id
+        })
+        importedCameraIds = imported.cameras.map(
+          (camera) => camera.id
+        )
+        changed = true
+
+        for (const camera of imported.cameras) {
+          await updateCamera(camera.id, {
+            time_sync_mode: batchTimeSyncMode.value
+          })
+          await putRecordingPolicy(camera.id, batchPolicy())
+        }
+        await applyBatchGroup(importedCameraIds)
+
+        setBatchResult(
+          candidate,
+          "success",
+          `Imported ${importedCameraIds.length} camera channel(s) and applied batch defaults.`,
+          importedCameraIds
+        )
+      } catch (caught) {
+        setBatchResult(
+          candidate,
+          importedCameraIds.length ? "partial" : "failed",
+          importedCameraIds.length
+            ? `Device was imported, but one or more defaults failed: ${errorMessage(caught)}`
+            : errorMessage(caught),
+          importedCameraIds
+        )
+      }
+    }
+
+    const successful = batchResults.value.filter(
+      (item) => item.state === "success"
+    ).length
+    const partial = batchResults.value.filter(
+      (item) => item.state === "partial"
+    ).length
+    const review = batchResults.value.filter(
+      (item) => item.state === "review"
+    ).length
+    successMessage.value =
+      `Batch onboarding finished: ${successful} complete, ${partial} partial, ${review} require review.`
+    batchPassword.value = ""
+    for (const override of Object.values(batchOverrides.value)) {
+      override.password = ""
+    }
+    if (changed) {
+      emit("created")
+    }
+  } finally {
+    working.value = null
+  }
+}
 </script>
 
 <template>
@@ -342,6 +690,168 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
         >
           No ONVIF devices were discovered. Manual host entry remains available.
         </p>
+
+        <div
+          v-if="discovery && discovery.candidates.length"
+          class="onboarding-step"
+        >
+          <div class="step-heading">
+            <span>B</span>
+            <div>
+              <strong>Batch onboarding</strong>
+              <p>
+                Select newly discovered devices, share default credentials,
+                then apply group, recording/storage and time-sync defaults.
+                Existing or ambiguous identities are left for manual review.
+              </p>
+            </div>
+          </div>
+
+          <div class="profile-list">
+            <div
+              v-for="candidate in discovery.candidates"
+              :key="`batch-${candidate.id}`"
+              class="probe-card"
+            >
+              <label class="check-row">
+                <input
+                  v-model="batchSelectedIds"
+                  type="checkbox"
+                  :value="candidate.id"
+                  :disabled="!candidate.host || working !== null"
+                />
+                <span>
+                  <strong>{{ candidateName(candidate) }}</strong>
+                  · {{ candidate.host || "address unavailable" }}
+                </span>
+              </label>
+
+              <div
+                v-if="batchSelectedIds.includes(candidate.id)"
+                class="form-grid"
+              >
+                <label class="field">
+                  <span>Username override <small>optional</small></span>
+                  <input
+                    v-model="batchOverrides[candidate.id].username"
+                    autocomplete="off"
+                    placeholder="Use shared username"
+                  />
+                </label>
+                <label class="field">
+                  <span>Password override <small>optional</small></span>
+                  <input
+                    v-model="batchOverrides[candidate.id].password"
+                    type="password"
+                    autocomplete="new-password"
+                    placeholder="Use shared password"
+                  />
+                </label>
+              </div>
+
+              <p
+                v-if="batchResultMap.get(candidate.id)"
+                class="field-hint"
+              >
+                <strong>
+                  {{ batchResultMap.get(candidate.id)?.state }}
+                </strong>
+                · {{ batchResultMap.get(candidate.id)?.message }}
+              </p>
+            </div>
+          </div>
+
+          <div class="form-grid form-grid--three">
+            <label class="field">
+              <span>Shared username</span>
+              <input
+                v-model="batchUsername"
+                autocomplete="username"
+              />
+            </label>
+            <label class="field">
+              <span>Shared password</span>
+              <input
+                v-model="batchPassword"
+                type="password"
+                autocomplete="new-password"
+              />
+            </label>
+            <label class="field">
+              <span>Name template</span>
+              <input
+                v-model="batchNameTemplate"
+                placeholder="{name}"
+              />
+              <small>Supports {name} and {host}.</small>
+            </label>
+          </div>
+
+          <div class="form-grid form-grid--three">
+            <label class="field">
+              <span>Camera group <small>optional</small></span>
+              <select v-model="batchGroupId">
+                <option value="">No group</option>
+                <option
+                  v-for="group in batchGroups"
+                  :key="group.id"
+                  :value="group.id"
+                >
+                  {{ group.name }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Recording default</span>
+              <select v-model="batchRecordingMode">
+                <option value="continuous">Continuous</option>
+                <option value="events">Events only</option>
+                <option value="off">Off</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Storage target</span>
+              <select
+                v-model="batchStorageTargetId"
+                :disabled="!auth.hasPermission('storage.manage')"
+              >
+                <option value="">System default</option>
+                <option
+                  v-for="target in batchStorageTargets"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ target.name }}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          <div class="form-grid form-grid--three">
+            <label class="field">
+              <span>Time sync default</span>
+              <select v-model="batchTimeSyncMode">
+                <option value="monitor">Monitor only</option>
+                <option value="manage_ntp">Manage NTP</option>
+                <option value="ignore">Ignore</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="onboarding-actions">
+            <span class="field-hint">
+              {{ batchSelectedIds.length }} device(s) selected
+            </span>
+            <button
+              class="button button--primary"
+              type="button"
+              :disabled="!canBatchImport"
+              @click="runBatchImport"
+            >
+              {{ working === "batch" ? "Batch importing…" : "Import selected devices" }}
+            </button>
+          </div>
+        </div>
 
         <div class="form-grid form-grid--three">
           <label class="field field--grow">
