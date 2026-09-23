@@ -742,6 +742,42 @@ class AlertEvaluationService:
         return "\n".join(parts)
 
     @classmethod
+    def resolve_event_alerts(
+        cls,
+        session: Session,
+        *,
+        event: Event,
+        resolved_at: datetime | None = None,
+    ) -> tuple[Alert, ...]:
+        """Resolve active Alerts when their bounded health Event recovers."""
+
+        instant = (
+            resolved_at
+            or event.ended_at
+            or utc_now()
+        )
+        if instant.tzinfo is None or instant.utcoffset() is None:
+            raise ValueError("alert resolution time must be timezone-aware")
+        instant = instant.astimezone(UTC)
+
+        alerts = list(
+            session.scalars(
+                select(Alert)
+                .where(
+                    Alert.event_id == event.id,
+                    Alert.state != "RESOLVED",
+                )
+                .order_by(Alert.created_at, Alert.id)
+            )
+        )
+        for alert in alerts:
+            alert.state = "RESOLVED"
+            alert.resolved_at = instant
+        if alerts:
+            session.flush()
+        return tuple(alerts)
+
+    @classmethod
     def evaluate_event(
         cls,
         session: Session,

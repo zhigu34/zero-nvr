@@ -23,6 +23,7 @@ from app.modules.backups.execution import (
 )
 from app.modules.backups.models import BackupPolicy, BackupSet
 from app.modules.backups.service import BackupPolicyService
+from app.modules.alerts.service import AlertEvaluationService
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import (
     Camera,
@@ -30,6 +31,7 @@ from app.modules.cameras.models import (
     CameraStreamProfile,
 )
 from app.modules.events.frigate import FrigateEventIngestService
+from app.modules.events.system import SystemEventService
 from app.modules.exports.execution import (
     ExportCleanupService,
     ExportExecutionService,
@@ -609,11 +611,12 @@ def reconcile_manual_recording_boundary(
 )
 def periodic_recording_capacity_guard(
 ) -> dict[str, int]:
-    """Reconcile every enabled recording policy against current disk capacity.
+    """Reconcile recorder capacity and persist meaningful storage health.
 
-    Critical local targets drive persistent recorders to off. Once capacity
-    recovers, the same policy reconciliation restores the recorder without
-    mutating the persisted RecordingPolicy.
+    Storage observations become bounded canonical Events. Matching Phase 6
+    AlertPolicy rows may create Alerts/NotificationDelivery work; recovery
+    closes the Event and resolves its active Alerts. Cloud archive targets are
+    never selected as an implicit hot-recording fallback.
     """
     settings = Settings()
     database = _database(settings)
@@ -648,21 +651,28 @@ def periodic_recording_capacity_guard(
             )
             session.commit()
 
+        observed_at = datetime.now(UTC)
+        observations: list[dict[str, object]] = []
         pressure_detected = False
         for target in targets:
-            config = (
-                target.config_json
-                or {}
-            )
+            config = target.config_json or {}
             raw_path = config.get("path")
+            observation: dict[str, object] = {
+                "target_id": target.id,
+                "target_name": target.name,
+                "observed_at": observed_at,
+                "level": "unavailable",
+            }
             if (
-                not isinstance(
-                    raw_path,
-                    str,
-                )
+                not isinstance(raw_path, str)
                 or not raw_path
             ):
+                observation["error_code"] = (
+                    "recording_storage_path_unconfigured"
+                )
+                observations.append(observation)
                 continue
+
             try:
                 capacity = (
                     LocalStorageCapacityService
@@ -671,14 +681,96 @@ def periodic_recording_capacity_guard(
                         config=config,
                     )
                 )
-            except ApiError:
+            except ApiError as exc:
+                observation["error_code"] = exc.code
+                observations.append(observation)
                 continue
+
+            observation.update(
+                {
+                    "level": capacity.level,
+                    "used_percent": capacity.used_percent,
+                    "free_bytes": capacity.free_bytes,
+                    "total_bytes": capacity.total_bytes,
+                }
+            )
+            observations.append(observation)
             if capacity.level in {
                 "high",
                 "critical",
             }:
                 pressure_detected = True
-                break
+
+        delivery_ids: set[uuid.UUID] = set()
+        health_events_opened = 0
+        health_alerts_resolved = 0
+        with database.session() as session:
+            for observation in observations:
+                transition = (
+                    SystemEventService
+                    .storage_health_transition(
+                        session,
+                        target_id=observation["target_id"],
+                        target_name=str(
+                            observation["target_name"]
+                        ),
+                        observed_at=observation["observed_at"],
+                        level=str(observation["level"]),
+                        error_code=(
+                            str(observation["error_code"])
+                            if observation.get("error_code")
+                            is not None
+                            else None
+                        ),
+                        used_percent=(
+                            float(observation["used_percent"])
+                            if observation.get("used_percent")
+                            is not None
+                            else None
+                        ),
+                        free_bytes=(
+                            int(observation["free_bytes"])
+                            if observation.get("free_bytes")
+                            is not None
+                            else None
+                        ),
+                        total_bytes=(
+                            int(observation["total_bytes"])
+                            if observation.get("total_bytes")
+                            is not None
+                            else None
+                        ),
+                    )
+                )
+                if transition.closed is not None:
+                    health_alerts_resolved += len(
+                        AlertEvaluationService
+                        .resolve_event_alerts(
+                            session,
+                            event=transition.closed,
+                        )
+                    )
+                if transition.opened is not None:
+                    health_events_opened += 1
+                    evaluated = (
+                        AlertEvaluationService
+                        .evaluate_event(
+                            session,
+                            event=transition.opened,
+                        )
+                    )
+                    delivery_ids.update(
+                        evaluated.delivery_ids
+                    )
+            session.commit()
+
+        for delivery_id in sorted(
+            delivery_ids,
+            key=str,
+        ):
+            deliver_notification(
+                str(delivery_id)
+            )
 
         queued = 0
         for camera_id in camera_ids:
@@ -697,6 +789,9 @@ def periodic_recording_capacity_guard(
                 if pressure_detected
                 else 0
             ),
+            "health_events_opened": health_events_opened,
+            "health_alerts_resolved": health_alerts_resolved,
+            "notifications_queued": len(delivery_ids),
         }
     finally:
         database.close()

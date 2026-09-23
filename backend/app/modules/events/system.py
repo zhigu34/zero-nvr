@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -8,6 +9,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from .models import Event
+
+
+@dataclass(frozen=True, slots=True)
+class SystemHealthTransition:
+    opened: Event | None = None
+    closed: Event | None = None
 
 
 class SystemEventService:
@@ -22,6 +29,7 @@ class SystemEventService:
     SOURCE_INSTANCE_ID = "zero-nvr"
     SOURCE_CONNECTIVITY_CATEGORY = "source_connectivity"
     SOURCE_LOST_LABEL = "source_lost"
+    STORAGE_HEALTH_CATEGORY = "storage_health"
 
     @staticmethod
     def _instant(value: datetime) -> datetime:
@@ -75,6 +83,137 @@ class SystemEventService:
             "source_stream": stream,
             "source_vhost": vhost,
         }
+
+    @classmethod
+    def _open_storage_health(
+        cls,
+        session: Session,
+        *,
+        target_id: uuid.UUID,
+    ) -> Event | None:
+        return session.scalar(
+            select(Event)
+            .where(
+                Event.source == cls.SOURCE,
+                Event.source_instance_id
+                == f"storage-target:{target_id}",
+                Event.category == cls.STORAGE_HEALTH_CATEGORY,
+                Event.ended_at.is_(None),
+            )
+            .order_by(
+                Event.started_at.desc(),
+                Event.id.desc(),
+            )
+            .limit(1)
+        )
+
+    @classmethod
+    def storage_health_transition(
+        cls,
+        session: Session,
+        *,
+        target_id: uuid.UUID,
+        target_name: str,
+        observed_at: datetime,
+        level: str,
+        error_code: str | None = None,
+        used_percent: float | None = None,
+        free_bytes: int | None = None,
+        total_bytes: int | None = None,
+    ) -> SystemHealthTransition:
+        """Persist only meaningful local-storage health transitions.
+
+        Repeated observations at the same level are intentionally no-ops so
+        periodic health checks do not become high-frequency database history.
+        """
+
+        normalized = level.strip().lower()
+        if normalized not in {
+            "ok",
+            "warning",
+            "high",
+            "critical",
+            "unavailable",
+        }:
+            raise ValueError("unsupported storage health level")
+
+        observed = cls._instant(observed_at)
+        existing = cls._open_storage_health(
+            session,
+            target_id=target_id,
+        )
+
+        closed: Event | None = None
+        if existing is not None and (
+            normalized == "ok"
+            or existing.label != f"storage_{normalized}"
+        ):
+            existing.ended_at = max(
+                existing.started_at,
+                observed,
+            )
+            existing.metadata_json = {
+                **(existing.metadata_json or {}),
+                "recovered_at": existing.ended_at.isoformat(),
+                "next_level": normalized,
+            }
+            closed = existing
+            session.flush()
+
+        if normalized == "ok":
+            return SystemHealthTransition(
+                closed=closed,
+            )
+
+        label = f"storage_{normalized}"
+        if (
+            existing is not None
+            and closed is None
+            and existing.label == label
+        ):
+            return SystemHealthTransition()
+
+        metadata: dict[str, Any] = {
+            "observer": "recording_capacity_guard",
+            "storage_target_id": str(target_id),
+            "storage_target_name": target_name,
+            "level": normalized,
+        }
+        if error_code is not None:
+            metadata["error_code"] = error_code
+        if used_percent is not None:
+            metadata["used_percent"] = round(
+                float(used_percent),
+                3,
+            )
+        if free_bytes is not None:
+            metadata["free_bytes"] = int(free_bytes)
+        if total_bytes is not None:
+            metadata["total_bytes"] = int(total_bytes)
+
+        event = Event(
+            source=cls.SOURCE,
+            source_instance_id=f"storage-target:{target_id}",
+            source_event_id=(
+                f"{label}:{uuid.uuid4()}"
+            ),
+            category=cls.STORAGE_HEALTH_CATEGORY,
+            label=label,
+            started_at=observed,
+            severity=(
+                "critical"
+                if normalized in {"critical", "unavailable"}
+                else "warning"
+            ),
+            correlation_id=f"storage-target:{target_id}",
+            metadata_json=metadata,
+        )
+        session.add(event)
+        session.flush()
+        return SystemHealthTransition(
+            opened=event,
+            closed=closed,
+        )
 
     @classmethod
     def source_lost(
