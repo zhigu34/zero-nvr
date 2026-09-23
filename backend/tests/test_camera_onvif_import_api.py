@@ -14,6 +14,7 @@ import app.modules.cameras.api as camera_api
 from app.core.config import Settings
 from app.core.db import Base
 from app.integrations.onvif import (
+    OnvifCapabilityProbe,
     OnvifDeviceInfo,
     OnvifInspection,
     OnvifProfileProbe,
@@ -269,7 +270,19 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
 
         async def inspect_device(self, **kwargs):
             adapter_calls.append(kwargs)
-            return inspection()
+            source = inspection()
+            return OnvifInspection(
+                device=source.device,
+                capabilities=source.capabilities,
+                profiles=source.profiles,
+                capability_probe=OnvifCapabilityProbe(
+                    supports_snapshot=True,
+                    supports_audio=True,
+                    supports_time_read=True,
+                    supports_time_write=True,
+                    supports_ntp_config=True,
+                ),
+            )
 
     monkeypatch.setattr(camera_api, "OnvifAdapter", FakeOnvifAdapter)
 
@@ -448,12 +461,12 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
             "event_types": None,
             "supports_ptz": True,
             "ptz_features": None,
-            "supports_snapshot": None,
+            "supports_snapshot": True,
             "supports_audio": True,
             "supports_two_way_audio": None,
-            "supports_time_read": None,
-            "supports_time_write": None,
-            "supports_ntp_config": None,
+            "supports_time_read": True,
+            "supports_time_write": True,
+            "supports_ntp_config": True,
             "supports_profile_management": None,
             "supports_reboot": None,
             "vendor_capabilities": {},
