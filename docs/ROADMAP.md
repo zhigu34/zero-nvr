@@ -434,8 +434,8 @@ Acceptance:
 - [x] tolerant multi-camera synchronization as default.
 - [x] optional strict forensic synchronization.
 - [x] multi-camera aligned timeline query/track response.
-- [~] optional skip-gaps playback.
-- [ ] playback speeds 0.5x / 1x / 2x / 4x / 8x.
+- [x] optional skip-gaps playback.
+- [~] playback speeds 0.5x / 1x / 2x / 4x / 8x.
 - [x] remote object resolver.
 - [x] playback cache.
 - [x] cloud-only playback.
