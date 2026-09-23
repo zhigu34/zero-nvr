@@ -95,8 +95,13 @@ recording.protect
 recording.delete
 
 event.view
+
+alert.view
 alert.acknowledge
 alert.manage
+
+notification.view
+notification.manage
 
 storage.manage
 system.view

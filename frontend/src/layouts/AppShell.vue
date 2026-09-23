@@ -26,7 +26,7 @@ const navigation = [
     to: "/alerts",
     label: "Alerts",
     icon: "bell",
-    permission: "event.view"
+    permission: "alert.view"
   },
   { to: "/cameras", label: "Cameras", icon: "cameras" },
   { to: "/storage", label: "Storage", icon: "storage" },

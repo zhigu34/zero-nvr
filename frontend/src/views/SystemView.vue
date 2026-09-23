@@ -239,7 +239,7 @@ const navigation = computed(() => {
       id: "notifications",
       label: "Notifications",
       icon: "bell",
-      visible: auth.hasPermission("alert.manage")
+      visible: auth.hasPermission("notification.view")
     },
     {
       id: "alerts",
@@ -619,7 +619,7 @@ async function loadBase(): Promise<void> {
 }
 
 async function loadNotifications(): Promise<void> {
-  if (!auth.hasPermission("alert.manage")) return
+  if (!auth.hasPermission("notification.view")) return
   try {
     ;[targets.value, deliveries.value] = await Promise.all([
       listNotificationTargets(),
@@ -2097,6 +2097,7 @@ onBeforeUnmount(() => {
             <span>Apprise targets for alerts, including SMTP and push services.</span>
           </div>
           <button
+            v-if="auth.hasPermission('notification.manage')"
             class="button button--primary"
             type="button"
             @click="openNotificationPanel"
@@ -2130,7 +2131,10 @@ onBeforeUnmount(() => {
             >
               {{ item.enabled ? "Enabled" : "Disabled" }}
             </span>
-            <div class="notification-card__actions">
+            <div
+              v-if="auth.hasPermission('notification.manage')"
+              class="notification-card__actions"
+            >
               <button
                 class="button button--ghost button--compact"
                 type="button"
@@ -2193,7 +2197,13 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <aside v-if="notificationPanelOpen" class="system-drawer">
+        <aside
+          v-if="
+            notificationPanelOpen &&
+            auth.hasPermission('notification.manage')
+          "
+          class="system-drawer"
+        >
           <header class="storage-editor__header">
             <div>
               <strong>

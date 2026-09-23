@@ -59,7 +59,7 @@ class AuthService:
         return not bool(user_count)
 
     @staticmethod
-    def _ensure_builtin_roles(session: Session) -> dict[str, Role]:
+    def ensure_builtin_roles(session: Session) -> dict[str, Role]:
         existing = {
             role.name: role
             for role in session.scalars(
@@ -124,7 +124,7 @@ class AuthService:
         )
 
         try:
-            roles = self._ensure_builtin_roles(session)
+            roles = self.ensure_builtin_roles(session)
             normalized_email = (
                 email.strip().lower()
                 if email

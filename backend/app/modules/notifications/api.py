@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request, Response
-from sqlalchemy import select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -17,8 +17,12 @@ from app.integrations.smtp import (
     SmtpAdapter,
     SmtpIntegrationError,
 )
+from app.modules.alerts.models import Alert
 from app.modules.audit.service import append_audit_event
-from app.modules.auth.dependencies import require_permission
+from app.modules.auth.dependencies import (
+    get_effective_camera_scope,
+    require_permission,
+)
 from app.modules.auth.service import AuthContext
 
 from .models import NotificationDelivery, NotificationTarget
@@ -105,7 +109,7 @@ def _delivery_view(
 )
 def list_notification_targets(
     _context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> list[NotificationTargetView]:
@@ -126,7 +130,7 @@ def create_notification_target(
     body: NotificationTargetCreate,
     request: Request,
     context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.manage")
     ),
     session: Session = Depends(get_db_session),
 ) -> NotificationTargetView:
@@ -205,7 +209,7 @@ def create_notification_target(
 )
 def get_security_email_target(
     _context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> SecurityEmailTargetView:
@@ -225,7 +229,7 @@ def set_security_email_target(
     body: SecurityEmailTargetUpdate,
     request: Request,
     context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.manage")
     ),
     session: Session = Depends(get_db_session),
 ) -> SecurityEmailTargetView:
@@ -276,7 +280,7 @@ def set_security_email_target(
 def get_notification_target(
     target_id: uuid.UUID,
     _context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> NotificationTargetView:
@@ -297,7 +301,7 @@ def update_notification_target(
     body: NotificationTargetUpdate,
     request: Request,
     context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.manage")
     ),
     session: Session = Depends(get_db_session),
 ) -> NotificationTargetView:
@@ -450,7 +454,7 @@ def delete_notification_target(
     target_id: uuid.UUID,
     request: Request,
     context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.manage")
     ),
     session: Session = Depends(get_db_session),
 ) -> Response:
@@ -491,7 +495,7 @@ def test_notification_target(
     request: Request,
     body: NotificationTargetTestRequest | None = None,
     _context: AuthContext = Depends(
-        require_permission("alert.manage")
+        require_permission("notification.manage")
     ),
     session: Session = Depends(get_db_session),
 ) -> NotificationTargetTestView:
@@ -578,8 +582,8 @@ def list_notification_deliveries(
     alert_id: uuid.UUID | None = None,
     target_id: uuid.UUID | None = None,
     limit: int = 100,
-    _context: AuthContext = Depends(
-        require_permission("alert.manage")
+    context: AuthContext = Depends(
+        require_permission("notification.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> list[NotificationDeliveryView]:
@@ -590,9 +594,56 @@ def list_notification_deliveries(
             message="Notification delivery limit is invalid.",
         )
 
-    statement = select(
-        NotificationDelivery
+    scope = get_effective_camera_scope(
+        context,
+        session,
     )
+    statement = (
+        select(NotificationDelivery)
+        .outerjoin(
+            Alert,
+            NotificationDelivery.alert_id
+            == Alert.id,
+        )
+    )
+
+    has_system_view = (
+        "system.view"
+        in context.permissions
+    )
+    if not (
+        scope.all_cameras
+        and has_system_view
+    ):
+        visible = []
+        if scope.all_cameras:
+            visible.append(
+                Alert.camera_id.is_not(None)
+            )
+        elif scope.camera_ids:
+            visible.append(
+                Alert.camera_id.in_(
+                    scope.camera_ids
+                )
+            )
+
+        if has_system_view:
+            visible.extend(
+                [
+                    and_(
+                        Alert.id.is_not(None),
+                        Alert.camera_id.is_(None),
+                    ),
+                    NotificationDelivery.alert_id.is_(None),
+                ]
+            )
+
+        statement = statement.where(
+            or_(*visible)
+            if visible
+            else false()
+        )
+
     if alert_id is not None:
         statement = statement.where(
             NotificationDelivery.alert_id

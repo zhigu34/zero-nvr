@@ -130,7 +130,7 @@ function deliveryClass(state: NotificationDelivery["state"]): string {
 }
 
 function deliverySummary(alertId: string): string {
-  if (!auth.hasPermission("alert.manage")) {
+  if (!auth.hasPermission("notification.view")) {
     return "Delivery details restricted"
   }
   const items = deliveriesByAlert.value.get(alertId) ?? []
@@ -143,7 +143,7 @@ function selectAlert(item: AlertItem): void {
 }
 
 async function refresh(): Promise<void> {
-  if (!auth.hasPermission("event.view")) return
+  if (!auth.hasPermission("alert.view")) return
 
   loading.value = true
   error.value = null
@@ -167,7 +167,7 @@ async function refresh(): Promise<void> {
       ? await listCameras({ includeRetired: true }).catch(() => [])
       : []
 
-    deliveries.value = auth.hasPermission("alert.manage")
+    deliveries.value = auth.hasPermission("notification.view")
       ? await listNotificationDeliveries({ limit: 500 }).catch(() => [])
       : []
   } catch (caught) {
@@ -391,7 +391,8 @@ onBeforeUnmount(() => {
             <button
               v-if="
                 item.camera_id &&
-                auth.hasPermission('recording.view')
+                auth.hasPermission('recording.view') &&
+                auth.hasPermission('event.view')
               "
               class="icon-button"
               type="button"
@@ -474,7 +475,8 @@ onBeforeUnmount(() => {
           <button
             v-if="
               selectedAlert.camera_id &&
-              auth.hasPermission('recording.view')
+              auth.hasPermission('recording.view') &&
+              auth.hasPermission('event.view')
             "
             class="button button--ghost"
             type="button"
@@ -532,7 +534,7 @@ onBeforeUnmount(() => {
             </article>
           </template>
           <div v-else class="alert-detail__muted">
-            Delivery details require alert management permission.
+            Delivery details require notification viewing permission.
           </div>
         </section>
       </aside>

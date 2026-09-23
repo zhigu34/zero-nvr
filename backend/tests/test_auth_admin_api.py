@@ -139,6 +139,11 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
         assert {
             "camera.view",
             "recording.view",
+            "alert.view",
+            "alert.acknowledge",
+            "alert.manage",
+            "notification.view",
+            "notification.manage",
             "user.manage",
         } <= set(permissions.json())
 
@@ -162,7 +167,9 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
             "recording.export",
             "recording.protect",
             "event.view",
+            "alert.view",
             "alert.acknowledge",
+            "notification.view",
             "system.view",
         }
         assert set(
@@ -171,6 +178,7 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
             "camera.view",
             "recording.view",
             "event.view",
+            "alert.view",
             "system.view",
         }
 
@@ -461,3 +469,85 @@ def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
         assert client.get(
             "/api/v1/oidc/providers"
         ).json() == []
+
+
+
+def test_builtin_role_permissions_reconcile_on_startup(
+    tmp_path: Path,
+) -> None:
+    from sqlalchemy import delete
+    from app.modules.auth.models import Role, RolePermission
+
+    app = make_app(tmp_path)
+    settings = app.state.settings
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+
+        with app.state.database.session() as session:
+            session.execute(
+                delete(RolePermission).where(
+                    RolePermission.permission.in_(
+                        [
+                            "alert.view",
+                            "notification.view",
+                            "notification.manage",
+                        ]
+                    )
+                )
+            )
+            session.commit()
+
+    replacement = create_app(settings)
+    with TestClient(replacement):
+        with replacement.state.database.session() as session:
+            roles = {
+                role.name: role
+                for role in session.scalars(
+                    select(Role)
+                )
+            }
+            admin_permissions = {
+                item.permission
+                for item in roles[
+                    "Administrator"
+                ].permissions
+            }
+            operator_permissions = {
+                item.permission
+                for item in roles[
+                    "Operator"
+                ].permissions
+            }
+            viewer_permissions = {
+                item.permission
+                for item in roles[
+                    "Viewer"
+                ].permissions
+            }
+
+            assert {
+                "alert.view",
+                "notification.view",
+                "notification.manage",
+            } <= admin_permissions
+            assert {
+                "alert.view",
+                "notification.view",
+            } <= operator_permissions
+            assert (
+                "notification.manage"
+                not in operator_permissions
+            )
+            assert "alert.view" in viewer_permissions
+            assert (
+                "notification.view"
+                not in viewer_permissions
+            )

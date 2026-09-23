@@ -83,6 +83,12 @@ def _alert_scope(
     alert: Alert,
 ) -> None:
     if alert.camera_id is None:
+        if "system.view" not in context.permissions:
+            raise ApiError(
+                status_code=404,
+                code="alert_not_found",
+                message="Alert was not found.",
+            )
         return
     scope = get_effective_camera_scope(
         context,
@@ -263,7 +269,7 @@ def list_alerts(
     cursor: str | None = None,
     limit: int = 100,
     context: AuthContext = Depends(
-        require_permission("event.view")
+        require_permission("alert.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> AlertPage:
@@ -288,6 +294,10 @@ def list_alerts(
             if scope.all_cameras
             else scope.camera_ids
         ),
+        include_system_alerts=(
+            "system.view"
+            in context.permissions
+        ),
         camera_id=camera_id,
         state=state,
         severity=severity,
@@ -310,7 +320,7 @@ def list_alerts(
 def get_alert(
     alert_id: uuid.UUID,
     context: AuthContext = Depends(
-        require_permission("event.view")
+        require_permission("alert.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> AlertView:

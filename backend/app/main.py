@@ -24,6 +24,7 @@ from app.integrations.zlm import (
     ZlmObservedHealthStore,
 )
 from app.modules.auth.rate_limit import AuthRateLimiter
+from app.modules.auth.service import AuthService
 from app.modules.cameras.clock_projection import (
     CameraClockProjectionStore,
 )
@@ -124,6 +125,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             assert_database_schema_current(
                 database
             )
+
+        with database.session() as session:
+            AuthService.ensure_builtin_roles(
+                session
+            )
+            session.commit()
+
+        if (
+            resolved_settings.environment.lower()
+            != "test"
+        ):
             try:
                 observed = zlm_runtime_observation.rebuild()
                 logger.info(

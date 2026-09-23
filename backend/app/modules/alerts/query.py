@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
@@ -88,6 +88,7 @@ class AlertQueryService:
         session: Session,
         *,
         allowed_camera_ids: frozenset[uuid.UUID] | None,
+        include_system_alerts: bool,
         camera_id: uuid.UUID | None,
         state: str | None,
         severity: str | None,
@@ -106,14 +107,27 @@ class AlertQueryService:
             statement = statement.where(
                 Alert.camera_id == camera_id
             )
-        elif allowed_camera_ids is not None:
-            statement = statement.where(
-                or_(
-                    Alert.camera_id.is_(None),
+        elif allowed_camera_ids is None:
+            if not include_system_alerts:
+                statement = statement.where(
+                    Alert.camera_id.is_not(None)
+                )
+        else:
+            visible = []
+            if allowed_camera_ids:
+                visible.append(
                     Alert.camera_id.in_(
                         allowed_camera_ids
-                    ),
+                    )
                 )
+            if include_system_alerts:
+                visible.append(
+                    Alert.camera_id.is_(None)
+                )
+            statement = statement.where(
+                or_(*visible)
+                if visible
+                else false()
             )
 
         if state:
