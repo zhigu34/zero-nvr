@@ -430,8 +430,8 @@ Acceptance:
 - [x] standby-player readiness gating and absolute-boundary source switching.
 - [x] sub-pixel visual seam smoothing without mutating real gap data.
 - [x] monotonic Master Clock.
-- [~] drift correction with bounded rate convergence, hysteresis/cooldown, and hard-seek recovery.
-- [ ] tolerant multi-camera synchronization as default.
+- [x] drift correction with bounded rate convergence, hysteresis/cooldown, and hard-seek recovery.
+- [~] tolerant multi-camera synchronization as default.
 - [ ] optional strict forensic synchronization.
 - [ ] multi-camera aligned timeline query/track response.
 - [ ] optional skip-gaps playback.
