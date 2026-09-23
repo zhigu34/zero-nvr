@@ -2,6 +2,8 @@
 
 This roadmap describes implementation sequencing, not separate product releases.
 
+Status markers: `[x]` accepted/complete, `[~]` implementation or verification in progress and **not yet accepted**, `[ ]` not started or still outstanding.
+
 Core lifecycle tasks in this roadmap belong to the first production-ready zero-nvr release. Items explicitly marked OPTIONAL / V1.1 / POST-V1 do not block V1.
 
 "Complete first release" means the supported NVR lifecycle has no dead end. It does not require every surveillance protocol, vendor SDK, observability stack, PITR engine, or multi-node feature to ship in V1.
@@ -283,10 +285,10 @@ Acceptance:
 - [x] optional per-camera/policy explicit storage_target_id routing.
 - [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
 - [x] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
-- [ ] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
+- [~] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
   - [x] System Health reports per-target availability and warning/high/critical capacity state.
   - [x] local recording failure/capacity pressure never implicitly falls back to cloud hot recording.
-  - [ ] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
+  - [~] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
 - [x] safe administrator target change/migration without losing historical RecordingLocations.
 - [x] cross-day segments without midnight force-split.
 - [x] source-loss finalized media tail is identified with `completion_reason = source_lost` without stretching media timing to the later unregister callback.
