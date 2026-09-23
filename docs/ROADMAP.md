@@ -321,10 +321,10 @@ Acceptance:
 - [x] ONVIF Media Profiles -> CameraStreamProfile normalization.
 - [x] stream URI retrieval without credential leakage.
 - [x] per-role stream selection and actual pull verification.
-- [~] DeviceCapabilitySnapshot persistence/refresh.
+- [x] DeviceCapabilitySnapshot persistence/refresh.
 - [x] ONVIF Events capability + subscription path.
 - [x] PTZ capability/control after Events.
-- [ ] snapshot/audio/time/NTP capability probing.
+- [~] snapshot/audio/time/NTP capability probing.
 - [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
 - [ ] identity-conflict UI instead of weak automatic merge.
 - [ ] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
