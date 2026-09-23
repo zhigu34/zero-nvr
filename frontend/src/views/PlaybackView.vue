@@ -54,6 +54,20 @@ import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
 
 type ZoomHours = 1 | 6 | 24
+type SyncMode = "tolerant" | "strict"
+type SyncTileStateName =
+  | "resolving"
+  | "ready"
+  | "buffering"
+  | "pending"
+  | "gap"
+  | "unavailable"
+
+interface SyncTileState {
+  cameraId: string
+  state: SyncTileStateName
+  blocksStrict: boolean
+}
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -65,6 +79,11 @@ const cameras = ref<CameraSummary[]>([])
 const activeCameraId = ref<string | null>(null)
 const syncedCameraIds = ref<string[]>([])
 const syncSeekGeneration = ref(0)
+const syncMode = ref<SyncMode>("tolerant")
+const strictPlaybackRequested = ref(false)
+const syncTileStates = ref<
+  Record<string, SyncTileState>
+>({})
 const cameraPanelOpen = ref(true)
 const search = ref("")
 const timeline = ref<PlaybackTimeline | null>(null)
@@ -166,6 +185,30 @@ const playbackGridClass = computed(
       9,
       playbackParticipants.value.length
     )}`
+)
+
+const strictBlockers = computed(() =>
+  playbackParticipants.value.filter(
+    (camera) =>
+      syncTileStates.value[camera.id]
+        ?.blocksStrict ?? true
+  )
+)
+
+const strictBarrierActive = computed(
+  () =>
+    multiCameraMode.value &&
+    syncMode.value === "strict" &&
+    strictPlaybackRequested.value &&
+    strictBlockers.value.length > 0
+)
+
+const playbackControlActive = computed(
+  () =>
+    multiCameraMode.value &&
+    syncMode.value === "strict"
+      ? strictPlaybackRequested.value
+      : playing.value
 )
 
 const filteredCameras = computed(() => {
@@ -408,7 +451,7 @@ async function refreshCameras(): Promise<void> {
       zoomHours.value = 6
 
       if (multiCameraMode.value) {
-        applyTolerantMasterTime(
+        applySynchronizedMasterTime(
           routeAt,
           true
         )
@@ -624,13 +667,136 @@ function isSyncParticipant(
   )
 }
 
-function applyTolerantMasterTime(
+function synchronizeTileStateMap(): void {
+  const next: Record<string, SyncTileState> = {}
+  for (const camera of playbackParticipants.value) {
+    next[camera.id] =
+      syncTileStates.value[camera.id] ?? {
+        cameraId: camera.id,
+        state: "resolving",
+        blocksStrict: true
+      }
+  }
+  syncTileStates.value = next
+}
+
+function markSyncTilesResolving(): void {
+  const next: Record<string, SyncTileState> = {}
+  for (const camera of playbackParticipants.value) {
+    next[camera.id] = {
+      cameraId: camera.id,
+      state: "resolving",
+      blocksStrict: true
+    }
+  }
+  syncTileStates.value = next
+}
+
+function pauseSynchronizedMaster(): void {
+  const timeMs = masterClock.currentTimeMs()
+  masterClock.pause(timeMs)
+  currentAt.value = new Date(timeMs)
+  playing.value = false
+  stopMasterClockFrame()
+}
+
+function resumeSynchronizedMaster(): void {
+  masterClock.play(
+    currentAt.value.getTime(),
+    masterClock.playbackRate
+  )
+  playing.value = true
+  startMasterClockFrame()
+}
+
+function reconcileStrictPlayback(): void {
+  if (
+    !multiCameraMode.value ||
+    syncMode.value !== "strict"
+  ) {
+    return
+  }
+
+  if (!strictPlaybackRequested.value) {
+    if (playing.value) {
+      pauseSynchronizedMaster()
+    }
+    return
+  }
+
+  if (strictBlockers.value.length > 0) {
+    if (playing.value) {
+      pauseSynchronizedMaster()
+    }
+    return
+  }
+
+  if (!playing.value) {
+    resumeSynchronizedMaster()
+  }
+}
+
+function handleSyncTileState(
+  state: SyncTileState
+): void {
+  if (!isSyncParticipant(state.cameraId)) {
+    return
+  }
+
+  syncTileStates.value = {
+    ...syncTileStates.value,
+    [state.cameraId]: state
+  }
+  reconcileStrictPlayback()
+}
+
+function setSyncMode(mode: SyncMode): void {
+  if (
+    !multiCameraMode.value ||
+    syncMode.value === mode
+  ) {
+    return
+  }
+
+  if (mode === "strict") {
+    syncMode.value = "strict"
+    strictPlaybackRequested.value =
+      playing.value
+    synchronizeTileStateMap()
+    reconcileStrictPlayback()
+    return
+  }
+
+  const shouldResume =
+    strictPlaybackRequested.value
+  syncMode.value = "tolerant"
+  strictPlaybackRequested.value = false
+
+  if (shouldResume && !playing.value) {
+    resumeSynchronizedMaster()
+  }
+}
+
+function applySynchronizedMasterTime(
   at: Date,
   autoplay: boolean
 ): void {
   stopMasterClockFrame()
   const timeMs = at.getTime()
+  currentAt.value = new Date(timeMs)
 
+  if (syncMode.value === "strict") {
+    masterClock.pause(timeMs)
+    playing.value = false
+    strictPlaybackRequested.value =
+      autoplay
+    markSyncTilesResolving()
+    syncSeekGeneration.value += 1
+    reconcileStrictPlayback()
+    return
+  }
+
+  strictPlaybackRequested.value = false
   if (autoplay) {
     masterClock.play(
       timeMs,
@@ -643,7 +809,6 @@ function applyTolerantMasterTime(
     playing.value = false
   }
 
-  currentAt.value = new Date(timeMs)
   syncSeekGeneration.value += 1
 }
 
@@ -670,14 +835,27 @@ function enterTolerantMode(): void {
   }
 
   currentAt.value = new Date(timeMs)
+  synchronizeTileStateMap()
   syncSeekGeneration.value += 1
+
+  if (syncMode.value === "strict") {
+    strictPlaybackRequested.value =
+      shouldPlay
+    reconcileStrictPlayback()
+  }
 }
 
 function leaveTolerantMode(): void {
   const at = new Date(
     masterClock.currentTimeMs()
   )
-  const shouldPlay = playing.value
+  const shouldPlay =
+    syncMode.value === "strict"
+      ? strictPlaybackRequested.value
+      : playing.value
+
+  strictPlaybackRequested.value = false
+  syncTileStates.value = {}
   syncSeekGeneration.value += 1
   void resolveAt(
     at,
@@ -713,6 +891,7 @@ function toggleSyncCamera(
   }
 
   syncedCameraIds.value = current
+  synchronizeTileStateMap()
   error.value = null
 
   if (
@@ -725,6 +904,11 @@ function toggleSyncCamera(
     !multiCameraMode.value
   ) {
     leaveTolerantMode()
+  } else if (
+    multiCameraMode.value &&
+    syncMode.value === "strict"
+  ) {
+    reconcileStrictPlayback()
   }
 }
 
@@ -1289,7 +1473,7 @@ function handleDateChange(): void {
       : new Date(start.getTime() + 12 * 60 * 60 * 1000)
 
   if (multiCameraMode.value) {
-    applyTolerantMasterTime(
+    applySynchronizedMasterTime(
       selectedTime,
       false
     )
@@ -1323,7 +1507,7 @@ function setZoom(hours: ZoomHours): void {
 
 function handleTimelineSeek(at: Date): void {
   if (multiCameraMode.value) {
-    applyTolerantMasterTime(
+    applySynchronizedMasterTime(
       at,
       true
     )
@@ -1386,7 +1570,7 @@ function jumpTo(value: string | null): void {
   const at = new Date(value)
 
   if (multiCameraMode.value) {
-    applyTolerantMasterTime(
+    applySynchronizedMasterTime(
       at,
       true
     )
@@ -1706,20 +1890,24 @@ function exportStateClass(state: string): string {
 
 function togglePlayback(): void {
   if (multiCameraMode.value) {
+    if (syncMode.value === "strict") {
+      if (strictPlaybackRequested.value) {
+        strictPlaybackRequested.value = false
+        if (playing.value) {
+          pauseSynchronizedMaster()
+        }
+      } else {
+        strictPlaybackRequested.value = true
+        synchronizeTileStateMap()
+        reconcileStrictPlayback()
+      }
+      return
+    }
+
     if (playing.value) {
-      masterClock.pause()
-      currentAt.value = new Date(
-        masterClock.currentTimeMs()
-      )
-      playing.value = false
-      stopMasterClockFrame()
+      pauseSynchronizedMaster()
     } else {
-      masterClock.play(
-        currentAt.value.getTime(),
-        masterClock.playbackRate
-      )
-      playing.value = true
-      startMasterClockFrame()
+      resumeSynchronizedMaster()
     }
     return
   }
@@ -2094,8 +2282,14 @@ onBeforeUnmount(() => {
             v-if="multiCameraMode"
             class="playback-sync-mode-badge"
           >
-            Tolerant ·
-            {{ playbackParticipants.length }}
+            {{
+              syncMode === "strict"
+                ? strictBarrierActive
+                  ? `Strict · waiting ${strictBlockers.length}`
+                  : "Strict"
+                : "Tolerant"
+            }}
+            · {{ playbackParticipants.length }}
           </span>
         </div>
 
@@ -2112,6 +2306,34 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="live-toolbar__actions">
+          <div
+            v-if="multiCameraMode"
+            class="playback-sync-switcher"
+          >
+            <button
+              class="media-button media-button--text"
+              :class="{
+                'media-button--active':
+                  syncMode === 'tolerant'
+              }"
+              type="button"
+              @click="setSyncMode('tolerant')"
+            >
+              Tolerant
+            </button>
+            <button
+              class="media-button media-button--text"
+              :class="{
+                'media-button--active':
+                  syncMode === 'strict'
+              }"
+              type="button"
+              @click="setSyncMode('strict')"
+            >
+              Strict
+            </button>
+          </div>
+
           <div class="playback-zoom-switcher">
             <button
               v-for="hours in zoomOptions"
@@ -2161,6 +2383,7 @@ onBeforeUnmount(() => {
           :focused="
             camera.id === activeCameraId
           "
+          @sync-state="handleSyncTileState"
         />
       </div>
 
@@ -2270,10 +2493,21 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          :aria-label="playing ? 'Pause' : 'Play'"
+          :aria-label="
+            playbackControlActive
+              ? 'Pause'
+              : 'Play'
+          "
           @click="togglePlayback"
         >
-          <UiIcon :name="playing ? 'pause' : 'play'" :size="16" />
+          <UiIcon
+            :name="
+              playbackControlActive
+                ? 'pause'
+                : 'play'
+            "
+            :size="16"
+          />
         </button>
 
         <button
