@@ -439,7 +439,7 @@ Acceptance:
 - [x] remote object resolver.
 - [x] playback cache.
 - [x] cloud-only playback.
-- [~] playback diagnostics.
+- [x] playback diagnostics.
 - [x] export.
 
 Acceptance:
@@ -456,7 +456,7 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
-- [ ] V1 RecordingTrigger lifecycle for ONVIF/API/manual event recording requests; AI/Home Assistant trigger entry points are V1.1 / non-blocking.
+- [~] V1 RecordingTrigger lifecycle for ONVIF/API/manual event recording requests; AI/Home Assistant trigger entry points are V1.1 / non-blocking.
 - [x] derive desired recording state from baseline policy + active trigger windows.
 - [x] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [x] continuous/scheduled/manual existing recording is annotated rather than restarted.
