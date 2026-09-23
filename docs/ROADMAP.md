@@ -418,8 +418,8 @@ Acceptance:
 
 - [x] timezone-aware ISO 8601 PlaybackTimeline query API; frontend converts to milliseconds internally.
 - [x] range/detail-level timeline responses for day/hour/minute zoom.
-- [~] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
-- [ ] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
+- [x] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
+- [~] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
 - [ ] Canvas timeline with pan/zoom/shared playhead.
 - [ ] event Marker ranges/points and zoom-aware aggregation.
 - [ ] PlaybackResolver by RecordingSegment ID.
