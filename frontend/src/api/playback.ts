@@ -30,12 +30,21 @@ export interface TimelineGap {
   reason: string
 }
 
+export type TimelineEventMarkerType =
+  | "point"
+  | "range"
+  | "aggregate"
+
 export interface TimelineEvent {
   id: string
+  marker_type: TimelineEventMarkerType
   category: string
   label: string | null
   start_at: string
   end_at: string | null
+  count: number
+  category_counts: Record<string, number>
+  label_counts: Record<string, number>
 }
 
 export interface PlaybackTimeline {

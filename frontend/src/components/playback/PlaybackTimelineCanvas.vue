@@ -29,7 +29,7 @@ type HitTarget =
       y1: number
       y2: number
       tooltip: string
-      at: number
+      at: number | null
     }
   | {
       kind: "protection"
@@ -362,8 +362,108 @@ function draw(): void {
   }
 
   for (const event of props.timeline?.events ?? []) {
-    const at = new Date(event.start_at).getTime()
-    const x = xForTime(at, width)
+    const startMs = new Date(event.start_at).getTime()
+    const label = event.label
+      ? ` · ${event.label}`
+      : ""
+
+    if (event.marker_type === "aggregate") {
+      const endMs = event.end_at
+        ? new Date(event.end_at).getTime()
+        : startMs
+      const range = clippedRange(
+        startMs,
+        Math.max(startMs + 1, endMs),
+        width
+      )
+      if (!range) continue
+      const [x1, x2] = range
+      const y = LANE_TOP + 3
+      const height = 10
+      context.fillStyle = "rgba(212, 154, 69, 0.42)"
+      context.fillRect(
+        x1,
+        y,
+        Math.max(2, x2 - x1),
+        height
+      )
+
+      const categoryBreakdown = Object.entries(
+        event.category_counts
+      )
+        .map(([name, count]) => `${name} ${count}`)
+        .join(" · ")
+      if (x2 - x1 >= 24) {
+        context.fillStyle = "#f5d39e"
+        context.font =
+          "7px ui-sans-serif, system-ui, -apple-system, sans-serif"
+        context.textAlign = "center"
+        context.textBaseline = "middle"
+        context.fillText(
+          String(event.count),
+          (x1 + x2) / 2,
+          y + height / 2
+        )
+      }
+
+      hitTargets.push({
+        kind: "event",
+        x1,
+        x2,
+        y1: LANE_TOP,
+        y2: LANE_TOP + 18,
+        at: startMs + (endMs - startMs) / 2,
+        tooltip: `${event.count} events${categoryBreakdown ? ` · ${categoryBreakdown}` : ""}`
+      })
+      continue
+    }
+
+    if (event.marker_type === "range") {
+      const [, timelineEnd] = bounds()
+      const endMs = event.end_at
+        ? new Date(event.end_at).getTime()
+        : timelineEnd
+      const range = clippedRange(
+        startMs,
+        Math.max(startMs + 1, endMs),
+        width
+      )
+      if (!range) continue
+      const [x1, x2] = range
+      const y = LANE_TOP + 4
+      const height = 8
+
+      context.fillStyle = "rgba(212, 154, 69, 0.5)"
+      context.fillRect(
+        x1,
+        y,
+        Math.max(2, x2 - x1),
+        height
+      )
+      context.strokeStyle = "rgba(212, 154, 69, 0.9)"
+      context.lineWidth = 1
+      context.strokeRect(
+        x1 + 0.5,
+        y + 0.5,
+        Math.max(1, x2 - x1 - 1),
+        Math.max(1, height - 1)
+      )
+
+      hitTargets.push({
+        kind: "event",
+        x1,
+        x2,
+        y1: LANE_TOP,
+        y2: LANE_TOP + 18,
+        at: null,
+        tooltip: `${event.category}${label} · ${formatTimestamp(
+          startMs
+        )} → ${event.end_at ? formatTimestamp(endMs) : "ongoing"}`
+      })
+      continue
+    }
+
+    const x = xForTime(startMs, width)
     if (x < -6 || x > width + 6) continue
 
     context.strokeStyle = "rgba(212, 154, 69, 0.72)"
@@ -380,18 +480,15 @@ function draw(): void {
     context.fill()
     context.stroke()
 
-    const label = event.label
-      ? ` · ${event.label}`
-      : ""
     hitTargets.push({
       kind: "event",
       x1: x - 6,
       x2: x + 6,
       y1: LANE_TOP,
       y2: LANE_BOTTOM,
-      at,
+      at: startMs,
       tooltip: `${event.category}${label} · ${formatTimestamp(
-        at
+        startMs
       )}`
     })
   }
@@ -534,7 +631,10 @@ function finishPointer(event: PointerEvent): void {
       if (props.canProtect) {
         emit("protect", target.item)
       }
-    } else if (target?.kind === "event") {
+    } else if (
+      target?.kind === "event" &&
+      target.at !== null
+    ) {
       emit("seek", new Date(target.at))
     } else {
       emit(

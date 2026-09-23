@@ -309,20 +309,33 @@ Render as a duration band/range.
 
 At wide zoom, hundreds of events must not become hundreds of overlapping marks.
 
-Conceptual behavior:
+V1 uses the timeline `detail` contract to select deterministic marker density:
 
 ```text
-24h view:
-  14:00 bucket → 38 events
+detail=day
+  -> 1-hour aggregate buckets
 
-medium zoom:
-  motion 12
-  person 3
-  vehicle 2
+detail=hour
+  -> 5-minute aggregate buckets
 
-close zoom:
-  individual events/ranges
+detail=minute
+  -> exact canonical Event markers
+     - ended_at == started_at -> point
+     - ended_at > started_at -> range
+     - ended_at is null -> ongoing range
 ```
+
+Aggregate markers include `count`, `category_counts`, and `label_counts`.
+A stateful Event contributes to every aggregate bucket it actually overlaps, so
+a long-running event remains visible throughout its duration instead of only in
+the bucket containing its start time. Bucket IDs are synthetic response IDs;
+they are never persisted and never replace canonical Event identity.
+
+The Canvas renderer draws individual points as vertical markers, individual
+stateful Events as duration bands, and aggregate buckets as count bands. Clicking
+a point jumps to the exact Event time, clicking a range seeks to the clicked
+absolute time inside that range, and clicking an aggregate bucket seeks near its
+center for drill-in navigation.
 
 Aggregation is only a query/render optimization. Canonical Events remain independent.
 

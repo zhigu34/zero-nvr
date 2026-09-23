@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from collections import Counter
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -361,6 +362,193 @@ class PlaybackTimelineService:
         # safe fallback. Other outage causes remain unknown until proven.
         return "unknown"
 
+    @staticmethod
+    def _individual_event_marker(
+        event: Event,
+    ) -> TimelineEventView:
+        marker_type = (
+            "range"
+            if (
+                event.ended_at is None
+                or event.ended_at
+                > event.started_at
+            )
+            else "point"
+        )
+        label_counts = (
+            {event.label: 1}
+            if event.label
+            else {}
+        )
+        return TimelineEventView(
+            id=str(event.id),
+            marker_type=marker_type,
+            category=event.category,
+            label=event.label,
+            start_at=event.started_at,
+            end_at=event.ended_at,
+            count=1,
+            category_counts={
+                event.category: 1
+            },
+            label_counts=label_counts,
+        )
+
+    @classmethod
+    def _event_markers(
+        cls,
+        events: list[Event],
+        *,
+        start_at: datetime,
+        end_at: datetime,
+        detail: TimelineDetailLevel,
+    ) -> list[TimelineEventView]:
+        if detail == "minute":
+            return [
+                cls._individual_event_marker(
+                    event
+                )
+                for event in events
+            ]
+
+        bucket_size = timedelta(
+            hours=1
+            if detail == "day"
+            else 0,
+            minutes=0
+            if detail == "day"
+            else 5,
+        )
+        bucket_seconds = int(
+            bucket_size.total_seconds()
+        )
+        start_epoch = int(
+            start_at.timestamp()
+        )
+        cursor_epoch = (
+            start_epoch
+            - (
+                start_epoch
+                % bucket_seconds
+            )
+        )
+        markers: list[
+            TimelineEventView
+        ] = []
+
+        while True:
+            bucket_start = datetime.fromtimestamp(
+                cursor_epoch,
+                tz=UTC,
+            )
+            if bucket_start >= end_at:
+                break
+
+            bucket_end = (
+                bucket_start
+                + bucket_size
+            )
+            matching: list[Event] = []
+            for event in events:
+                event_end = (
+                    event.ended_at
+                    if event.ended_at is not None
+                    else end_at
+                )
+                is_point = (
+                    event.ended_at is not None
+                    and event.ended_at
+                    <= event.started_at
+                )
+                if is_point:
+                    overlaps = (
+                        bucket_start
+                        <= event.started_at
+                        < bucket_end
+                    )
+                else:
+                    overlaps = (
+                        event.started_at
+                        < bucket_end
+                        and event_end
+                        > bucket_start
+                    )
+                if overlaps:
+                    matching.append(event)
+
+            if matching:
+                category_counts = Counter(
+                    event.category
+                    for event in matching
+                )
+                label_counts = Counter(
+                    event.label
+                    for event in matching
+                    if event.label
+                )
+                categories = sorted(
+                    category_counts
+                )
+                labels = sorted(
+                    label_counts
+                )
+                category = (
+                    categories[0]
+                    if len(categories) == 1
+                    else "events"
+                )
+                label = (
+                    labels[0]
+                    if (
+                        len(labels) == 1
+                        and sum(
+                            label_counts.values()
+                        )
+                        == len(matching)
+                    )
+                    else None
+                )
+                marker_start = max(
+                    bucket_start,
+                    start_at,
+                )
+                marker_end = min(
+                    bucket_end,
+                    end_at,
+                )
+                markers.append(
+                    TimelineEventView(
+                        id=(
+                            f"aggregate:{detail}:"
+                            f"{cursor_epoch}"
+                        ),
+                        marker_type="aggregate",
+                        category=category,
+                        label=label,
+                        start_at=marker_start,
+                        end_at=marker_end,
+                        count=len(matching),
+                        category_counts=dict(
+                            sorted(
+                                category_counts
+                                .items()
+                            )
+                        ),
+                        label_counts=dict(
+                            sorted(
+                                label_counts
+                                .items()
+                            )
+                        ),
+                    )
+                )
+
+            cursor_epoch += (
+                bucket_seconds
+            )
+
+        return markers
+
     @classmethod
     def build(
         cls,
@@ -400,6 +588,7 @@ class PlaybackTimelineService:
                     Event.camera_id == camera_id,
                     Event.started_at < end_at,
                     or_(
+                        Event.started_at >= start_at,
                         Event.ended_at.is_(None),
                         Event.ended_at > start_at,
                     ),
@@ -599,14 +788,10 @@ class PlaybackTimelineService:
             ),
             recording_ranges=recording_ranges,
             gaps=gaps,
-            events=[
-                TimelineEventView(
-                    id=str(event.id),
-                    category=event.category,
-                    label=event.label,
-                    start_at=event.started_at,
-                    end_at=event.ended_at,
-                )
-                for event in timeline_events
-            ],
+            events=cls._event_markers(
+                timeline_events,
+                start_at=start_at,
+                end_at=end_at,
+                detail=detail,
+            ),
         )

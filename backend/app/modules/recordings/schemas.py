@@ -33,6 +33,12 @@ TimelineDetailLevel = Literal[
     "minute",
 ]
 
+TimelineEventMarkerType = Literal[
+    "point",
+    "range",
+    "aggregate",
+]
+
 
 class TimelineRangeView(BaseModel):
     start_at: datetime
@@ -53,10 +59,18 @@ class TimelineGapView(BaseModel):
 
 class TimelineEventView(BaseModel):
     id: str
+    marker_type: TimelineEventMarkerType
     category: str
     label: str | None = None
     start_at: datetime
     end_at: datetime | None = None
+    count: int = 1
+    category_counts: dict[str, int] = Field(
+        default_factory=dict
+    )
+    label_counts: dict[str, int] = Field(
+        default_factory=dict
+    )
 
 
 class PlaybackTimelineView(BaseModel):

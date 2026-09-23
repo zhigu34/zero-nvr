@@ -323,6 +323,17 @@ def test_timeline_api_normalizes_timezone_and_projects_ranges(
         assert marker["label"] == (
             "person"
         )
+        assert (
+            marker["marker_type"]
+            == "range"
+        )
+        assert marker["count"] == 1
+        assert marker["category_counts"] == {
+            "object": 1
+        }
+        assert marker["label_counts"] == {
+            "person": 1
+        }
 
 
 def test_timeline_api_rejects_naive_and_invalid_ranges(
@@ -425,3 +436,166 @@ def test_timeline_api_exposes_explicit_detail_levels(
             },
         )
         assert invalid.status_code == 422
+
+
+
+def test_timeline_event_markers_aggregate_by_zoom_level(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id, _, base = (
+            seed_timeline(app)
+        )
+
+        with app.state.database.session() as session:
+            session.add_all(
+                [
+                    Event(
+                        source="onvif",
+                        source_instance_id="marker-test",
+                        source_event_id="point-at-start",
+                        camera_id=camera_id,
+                        category="motion",
+                        label="motion",
+                        started_at=base,
+                        ended_at=base,
+                        severity="info",
+                        metadata_json={},
+                    ),
+                    Event(
+                        source="onvif",
+                        source_instance_id="marker-test",
+                        source_event_id="point-near",
+                        camera_id=camera_id,
+                        category="motion",
+                        label="motion",
+                        started_at=(
+                            base
+                            + timedelta(minutes=3)
+                        ),
+                        ended_at=(
+                            base
+                            + timedelta(minutes=3)
+                        ),
+                        severity="info",
+                        metadata_json={},
+                    ),
+                    Event(
+                        source="onvif",
+                        source_instance_id="marker-test",
+                        source_event_id="point-later",
+                        camera_id=camera_id,
+                        category="line_crossing",
+                        label="line_1",
+                        started_at=(
+                            base
+                            + timedelta(minutes=7)
+                        ),
+                        ended_at=(
+                            base
+                            + timedelta(minutes=7)
+                        ),
+                        severity="info",
+                        metadata_json={},
+                    ),
+                ]
+            )
+            session.commit()
+
+        path = (
+            f"/api/v1/cameras/"
+            f"{camera_id}/timeline"
+        )
+        common = {
+            "from": base.isoformat(),
+            "to": (
+                base
+                + timedelta(minutes=10)
+            ).isoformat(),
+        }
+
+        minute = client.get(
+            path,
+            params={
+                **common,
+                "detail": "minute",
+            },
+        )
+        assert minute.status_code == 200
+        minute_events = (
+            minute.json()["events"]
+        )
+        assert len(minute_events) == 4
+        assert [
+            item["marker_type"]
+            for item in minute_events
+        ] == [
+            "point",
+            "range",
+            "point",
+            "point",
+        ]
+        assert (
+            minute_events[0]["start_at"]
+            == base.isoformat()
+        )
+
+        hour = client.get(
+            path,
+            params={
+                **common,
+                "detail": "hour",
+            },
+        )
+        assert hour.status_code == 200
+        hour_events = (
+            hour.json()["events"]
+        )
+        assert len(hour_events) == 2
+        assert [
+            item["count"]
+            for item in hour_events
+        ] == [3, 1]
+        assert all(
+            item["marker_type"]
+            == "aggregate"
+            for item in hour_events
+        )
+        assert hour_events[0][
+            "category_counts"
+        ] == {
+            "motion": 2,
+            "object": 1,
+        }
+        assert hour_events[1][
+            "category_counts"
+        ] == {
+            "line_crossing": 1,
+        }
+
+        day = client.get(
+            path,
+            params={
+                **common,
+                "detail": "day",
+            },
+        )
+        assert day.status_code == 200
+        day_events = (
+            day.json()["events"]
+        )
+        assert len(day_events) == 1
+        assert day_events[0][
+            "marker_type"
+        ] == "aggregate"
+        assert day_events[0]["count"] == 4
+        assert day_events[0][
+            "category_counts"
+        ] == {
+            "line_crossing": 1,
+            "motion": 2,
+            "object": 1,
+        }
