@@ -230,8 +230,12 @@ async function resolveAtMaster(): Promise<void> {
 function handleCanPlay(): void {
   buffering.value = false
   alignToMaster()
-  if (props.playing) {
-    void video.value?.play().catch(
+  const element = video.value
+  if (
+    props.playing &&
+    element
+  ) {
+    void element.play().catch(
       () => undefined
     )
   }
