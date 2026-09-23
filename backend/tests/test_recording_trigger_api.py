@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -11,7 +11,11 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
 from app.modules.cameras.service import CameraService
-from app.modules.recordings.models import RecordingPolicy, RecordingTrigger
+from app.modules.recordings.models import (
+    RecordingPolicy,
+    RecordingSegment,
+    RecordingTrigger,
+)
 from app.modules.storage.models import StorageTarget
 
 
@@ -153,6 +157,8 @@ def test_manual_trigger_is_idempotent_and_stop_adds_postroll(
         assert first_body["planned_end_at"] is None
         assert first_body["pre_roll_seconds"] == 10
         assert first_body["post_roll_seconds"] == 15
+        assert first_body["pre_roll_status"] == "pending"
+        assert first_body["pre_roll_available_seconds"] == 0.0
 
         retry = client.post(
             f"/api/v1/cameras/{camera_id}/recording-triggers",
@@ -208,6 +214,110 @@ def test_manual_trigger_is_idempotent_and_stop_adds_postroll(
         dispatcher.manual_boundaries[0][0]
         == camera_id
     )
+
+
+def test_trigger_pre_roll_status_uses_catalog_coverage(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_event_camera(app)
+        now = datetime.now(UTC)
+        degraded_at = now - timedelta(seconds=60)
+        complete_at = now - timedelta(seconds=120)
+
+        with app.state.database.session() as session:
+            degraded = RecordingTrigger(
+                camera_id=camera_id,
+                type="MANUAL",
+                source="api",
+                source_event_id=None,
+                requested_at=degraded_at,
+                pre_roll_seconds=10,
+                post_roll_seconds=15,
+                planned_start_at=(
+                    degraded_at - timedelta(seconds=10)
+                ),
+                planned_end_at=None,
+                state="ACTIVE",
+                reason="missing-pre-roll",
+                correlation_id=uuid.uuid4().hex,
+                metadata_json={},
+            )
+            complete = RecordingTrigger(
+                camera_id=camera_id,
+                type="MANUAL",
+                source="api",
+                source_event_id=None,
+                requested_at=complete_at,
+                pre_roll_seconds=10,
+                post_roll_seconds=15,
+                planned_start_at=(
+                    complete_at - timedelta(seconds=10)
+                ),
+                planned_end_at=None,
+                state="ACTIVE",
+                reason="covered-pre-roll",
+                correlation_id=uuid.uuid4().hex,
+                metadata_json={},
+            )
+            session.add_all([degraded, complete])
+            session.flush()
+
+            session.add(
+                RecordingSegment(
+                    camera_id=camera_id,
+                    stream_profile_id=None,
+                    started_at=(
+                        complete_at - timedelta(seconds=10)
+                    ),
+                    ended_at=complete_at,
+                    duration_ms=10000,
+                    timing_status="FINAL",
+                    timing_source="EXPLICIT_STOP",
+                    recording_reasons_json=["event"],
+                    size_bytes=1024,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream="profile-test",
+                    integrity_status="OK",
+                    completion_reason="PROMOTED_EVENT",
+                )
+            )
+            session.commit()
+            degraded_id = str(degraded.id)
+            complete_id = str(complete.id)
+
+        response = client.get(
+            f"/api/v1/cameras/{camera_id}/recording-triggers"
+        )
+        assert response.status_code == 200
+        items = {
+            item["id"]: item
+            for item in response.json()
+        }
+
+        assert (
+            items[degraded_id]["pre_roll_status"]
+            == "degraded"
+        )
+        assert (
+            items[degraded_id]["pre_roll_available_seconds"]
+            == 0.0
+        )
+        assert (
+            items[complete_id]["pre_roll_status"]
+            == "complete"
+        )
+        assert (
+            items[complete_id]["pre_roll_available_seconds"]
+            == 10.0
+        )
+
 
 
 def test_provider_trigger_cannot_be_stopped_by_manual_api(

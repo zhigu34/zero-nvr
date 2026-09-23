@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -9,7 +11,21 @@ from sqlalchemy.orm import Session
 from app.core.errors import ApiError
 from app.modules.cameras.models import Camera
 
-from .models import RecordingPolicy, RecordingTrigger
+from .models import RecordingPolicy, RecordingSegment, RecordingTrigger
+
+
+PreRollStatus = Literal[
+    "not_requested",
+    "pending",
+    "complete",
+    "degraded",
+]
+
+
+@dataclass(frozen=True, slots=True)
+class PreRollCoverage:
+    status: PreRollStatus
+    available_seconds: float
 
 
 class RecordingTriggerService:
@@ -355,6 +371,116 @@ class RecordingTriggerService:
         trigger.state = "COMPLETED"
         session.flush()
         return trigger
+
+    @staticmethod
+    def pre_roll_coverage(
+        session: Session,
+        *,
+        trigger: RecordingTrigger,
+        now: datetime | None = None,
+        finalization_grace_seconds: int = 10,
+    ) -> PreRollCoverage:
+        required_seconds = max(
+            0,
+            trigger.pre_roll_seconds,
+        )
+        if required_seconds == 0:
+            return PreRollCoverage(
+                status="not_requested",
+                available_seconds=0.0,
+            )
+
+        window_start = trigger.planned_start_at
+        window_end = trigger.requested_at
+        if window_end <= window_start:
+            return PreRollCoverage(
+                status="not_requested",
+                available_seconds=0.0,
+            )
+
+        segments = list(
+            session.scalars(
+                select(RecordingSegment)
+                .where(
+                    RecordingSegment.camera_id
+                    == trigger.camera_id,
+                    RecordingSegment.started_at
+                    < window_end,
+                    RecordingSegment.ended_at
+                    > window_start,
+                    RecordingSegment.integrity_status
+                    != "CORRUPTED",
+                )
+                .order_by(
+                    RecordingSegment.started_at,
+                    RecordingSegment.ended_at,
+                    RecordingSegment.id,
+                )
+            )
+        )
+
+        covered_seconds = 0.0
+        covered_until: datetime | None = None
+        for segment in segments:
+            start_at = max(
+                segment.started_at,
+                window_start,
+            )
+            end_at = min(
+                segment.ended_at,
+                window_end,
+            )
+            if end_at <= start_at:
+                continue
+
+            if (
+                covered_until is None
+                or start_at > covered_until
+            ):
+                covered_seconds += (
+                    end_at - start_at
+                ).total_seconds()
+                covered_until = end_at
+                continue
+
+            if end_at > covered_until:
+                covered_seconds += (
+                    end_at - covered_until
+                ).total_seconds()
+                covered_until = end_at
+
+        available_seconds = round(
+            min(
+                float(required_seconds),
+                max(0.0, covered_seconds),
+            ),
+            3,
+        )
+
+        # A small tolerance absorbs sub-second hook/timestamp rounding while
+        # still reporting a genuinely missing pre-roll interval as degraded.
+        if available_seconds + 0.1 >= required_seconds:
+            return PreRollCoverage(
+                status="complete",
+                available_seconds=available_seconds,
+            )
+
+        instant = now or datetime.now(UTC)
+        grace_seconds = max(
+            1,
+            finalization_grace_seconds,
+        )
+        if instant < window_end + timedelta(
+            seconds=grace_seconds
+        ):
+            status: PreRollStatus = "pending"
+        else:
+            status = "degraded"
+
+        return PreRollCoverage(
+            status=status,
+            available_seconds=available_seconds,
+        )
 
     @staticmethod
     def active_at(

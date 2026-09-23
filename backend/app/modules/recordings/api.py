@@ -231,7 +231,47 @@ def _protection_audit_snapshot(
 
 def _trigger_view(
     trigger: RecordingTrigger,
+    *,
+    session: Session,
+    settings,
+    policy: RecordingPolicy | None = None,
 ) -> RecordingTriggerView:
+    runtime_tuning = RuntimeTuningSettingsService.get(
+        session,
+        settings=settings,
+    )
+    trigger_policy = policy
+    if trigger_policy is None:
+        trigger_policy = RecordingPolicyService.get(
+            session,
+            camera_id=trigger.camera_id,
+        )
+
+    finalization_grace_seconds = max(
+        1,
+        runtime_tuning.prebuffer_fragment_seconds * 2,
+    )
+    if (
+        trigger_policy is not None
+        and RecordingPolicyService.baseline_should_record(
+            trigger_policy,
+            at=trigger.requested_at,
+        )
+    ):
+        finalization_grace_seconds = max(
+            finalization_grace_seconds,
+            trigger_policy.segment_target_seconds
+            + runtime_tuning.prebuffer_fragment_seconds,
+        )
+
+    pre_roll = RecordingTriggerService.pre_roll_coverage(
+        session,
+        trigger=trigger,
+        finalization_grace_seconds=(
+            finalization_grace_seconds
+        ),
+    )
+
     return RecordingTriggerView(
         id=trigger.id,
         camera_id=trigger.camera_id,
@@ -240,6 +280,10 @@ def _trigger_view(
         requested_at=trigger.requested_at,
         pre_roll_seconds=trigger.pre_roll_seconds,
         post_roll_seconds=trigger.post_roll_seconds,
+        pre_roll_status=pre_roll.status,
+        pre_roll_available_seconds=(
+            pre_roll.available_seconds
+        ),
         planned_start_at=trigger.planned_start_at,
         planned_end_at=trigger.planned_end_at,
         state=trigger.state,
@@ -762,7 +806,12 @@ def create_recording_trigger(
             },
         ) from exc
 
-    return _trigger_view(trigger)
+    return _trigger_view(
+        trigger,
+        session=session,
+        settings=request.app.state.settings,
+        policy=policy,
+    )
 
 
 @router.get(
@@ -771,14 +820,24 @@ def create_recording_trigger(
 )
 def list_recording_triggers(
     camera_id: uuid.UUID,
+    request: Request,
     _context: AuthContext = Depends(
         require_camera_permission("recording.view")
     ),
     session: Session = Depends(get_db_session),
 ) -> list[RecordingTriggerView]:
     CameraService.get_camera(session, camera_id)
+    policy = RecordingPolicyService.get(
+        session,
+        camera_id=camera_id,
+    )
     return [
-        _trigger_view(item)
+        _trigger_view(
+            item,
+            session=session,
+            settings=request.app.state.settings,
+            policy=policy,
+        )
         for item in RecordingTriggerService.list_for_camera(
             session,
             camera_id=camera_id,
@@ -867,8 +926,11 @@ def stop_recording_trigger(
             },
         ) from exc
 
-    return _trigger_view(trigger)
-
+    return _trigger_view(
+        trigger,
+        session=session,
+        settings=request.app.state.settings,
+    )
 
 
 

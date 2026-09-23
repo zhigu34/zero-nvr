@@ -171,6 +171,13 @@ class RecordingTriggerView(BaseModel):
     requested_at: datetime
     pre_roll_seconds: int
     post_roll_seconds: int
+    pre_roll_status: Literal[
+        "not_requested",
+        "pending",
+        "complete",
+        "degraded",
+    ]
+    pre_roll_available_seconds: float
     planned_start_at: datetime
     planned_end_at: datetime | None
     state: str

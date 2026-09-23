@@ -28,6 +28,13 @@ Assistant trigger entry points remain V1.1/non-blocking unless explicitly
 re-prioritized. All provider adapters reuse the same RecordingTrigger service
 contract rather than owning recorder state.
 
+RecordingTrigger API views expose pre-roll coverage as `not_requested`,
+`pending`, `complete`, or `degraded`, plus the currently cataloged
+pre-roll seconds. A trigger remains `pending` while its active ZLM fragment
+may still be finalizing; after the applicable finalize window expires,
+incomplete catalog coverage is reported as `degraded` rather than being
+silently treated as successful pre-roll.
+
 No source is allowed to directly:
 
 - call ZLM recorder APIs as recording authority;

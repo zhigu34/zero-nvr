@@ -456,13 +456,13 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
-- [~] V1 RecordingTrigger lifecycle for ONVIF/API/manual event recording requests; AI/Home Assistant trigger entry points are V1.1 / non-blocking.
+- [x] V1 RecordingTrigger lifecycle for ONVIF/API/manual event recording requests; AI/Home Assistant trigger entry points are V1.1 / non-blocking.
 - [x] derive desired recording state from baseline policy + active trigger windows.
 - [x] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [x] continuous/scheduled/manual existing recording is annotated rather than restarted.
 - [x] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.
 - [x] configurable pre_roll_seconds / post_roll_seconds.
-- [ ] honest degraded-pre-roll state when required past coverage is unavailable.
+- [~] honest degraded-pre-roll state when required past coverage is unavailable.
 - [x] actual ZLM segment finalize hooks feed RecordingSegment catalog.
 - [ ] Event -> RecordingSegment wall-clock linkage at query time.
 - [x] asynchronous explicit Export job for a single clip/file when requested.
