@@ -59,6 +59,12 @@ export function listEvents(query: EventQuery = {}): Promise<EventPage> {
   return apiRequest<EventPage>(`/events?${params}`)
 }
 
+export function getEvent(eventId: string): Promise<EventItem> {
+  return apiRequest<EventItem>(
+    `/events/${encodeURIComponent(eventId)}`
+  )
+}
+
 export function eventSnapshotUrl(eventId: string): string {
   return `/api/v1/events/${encodeURIComponent(eventId)}/snapshot`
 }

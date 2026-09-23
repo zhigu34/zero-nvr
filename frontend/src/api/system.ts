@@ -595,9 +595,17 @@ export function testNotificationTarget(
   )
 }
 
-export function listNotificationDeliveries(): Promise<NotificationDelivery[]> {
+export function listNotificationDeliveries(query: {
+  alertId?: string | null
+  targetId?: string | null
+  limit?: number
+} = {}): Promise<NotificationDelivery[]> {
+  const params = new URLSearchParams()
+  if (query.alertId) params.set("alert_id", query.alertId)
+  if (query.targetId) params.set("target_id", query.targetId)
+  params.set("limit", String(query.limit ?? 30))
   return apiRequest<NotificationDelivery[]>(
-    "/notification-deliveries?limit=30"
+    `/notification-deliveries?${params}`
   )
 }
 

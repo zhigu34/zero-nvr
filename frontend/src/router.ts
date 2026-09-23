@@ -5,6 +5,7 @@ import {
 } from "vue-router"
 
 import AppShell from "./layouts/AppShell.vue"
+import AlertsView from "./views/AlertsView.vue"
 import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
 import EventsView from "./views/EventsView.vue"
@@ -62,6 +63,14 @@ const routes: RouteRecordRaw[] = [
         component: EventsView,
         meta: {
           title: "Events"
+        }
+      },
+      {
+        path: "alerts",
+        name: "alerts",
+        component: AlertsView,
+        meta: {
+          title: "Alerts"
         }
       },
       {

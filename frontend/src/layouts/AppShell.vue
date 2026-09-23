@@ -22,10 +22,25 @@ const navigation = [
   { to: "/live", label: "Live", icon: "live" },
   { to: "/playback", label: "Playback", icon: "playback" },
   { to: "/events", label: "Events", icon: "events" },
+  {
+    to: "/alerts",
+    label: "Alerts",
+    icon: "bell",
+    permission: "event.view"
+  },
   { to: "/cameras", label: "Cameras", icon: "cameras" },
   { to: "/storage", label: "Storage", icon: "storage" },
   { to: "/system", label: "System", icon: "system" }
 ]
+
+const visibleNavigation = computed(() =>
+  navigation.filter(
+    (item) =>
+      !("permission" in item) ||
+      !item.permission ||
+      auth.hasPermission(item.permission)
+  )
+)
 
 const pageTitle = computed(() => String(route.meta.title ?? "zero-nvr"))
 const userInitial = computed(() => {
@@ -106,7 +121,7 @@ onBeforeUnmount(() => {
 
       <nav class="primary-nav" aria-label="Primary navigation">
         <RouterLink
-          v-for="item in navigation"
+          v-for="item in visibleNavigation"
           :key="item.to"
           :to="item.to"
           class="primary-nav__item"
