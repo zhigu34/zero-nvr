@@ -1570,6 +1570,269 @@ def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
         assert len(audits) == 2
 
 
+def test_onvif_capability_refresh_preserves_missing_channel_identity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    refresh_state = "initial"
+    returned_uri = (
+        "rtsp://192.168.70.20:554/"
+        "channel/b/main-returned"
+        "?token=main-b-returned"
+    )
+
+    def refreshed_inspection() -> OnvifInspection:
+        source = inspection()
+        if refresh_state == "initial":
+            return source
+
+        profiles: list[OnvifProfileProbe] = []
+        for item in source.profiles:
+            if item.video_source_token == "source-b":
+                if refresh_state == "missing":
+                    continue
+                profiles.append(
+                    OnvifProfileProbe(
+                        token=item.token,
+                        name=item.name,
+                        video_source_token=(
+                            item.video_source_token
+                        ),
+                        codec=item.codec,
+                        width=item.width,
+                        height=item.height,
+                        fps=item.fps,
+                        bitrate_kbps=(
+                            item.bitrate_kbps
+                        ),
+                        gop_seconds=(
+                            item.gop_seconds
+                        ),
+                        audio_codec=(
+                            item.audio_codec
+                        ),
+                        has_audio=item.has_audio,
+                        stream_uri_available=True,
+                        stream_uri=returned_uri,
+                    )
+                )
+                continue
+            profiles.append(item)
+
+        return OnvifInspection(
+            device=source.device,
+            capabilities=source.capabilities,
+            profiles=tuple(profiles),
+        )
+
+    class FakeOnvifAdapter:
+        def __init__(
+            self,
+            _settings,
+        ) -> None:
+            pass
+
+        async def inspect_device(
+            self,
+            **_kwargs,
+        ):
+            return refreshed_inspection()
+
+    monkeypatch.setattr(
+        camera_api,
+        "OnvifAdapter",
+        FakeOnvifAdapter,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/cameras/onvif/import",
+            json={
+                "host": "192.168.70.20",
+                "port": 80,
+                "username": CAMERA_USERNAME,
+                "password": CAMERA_PASSWORD,
+            },
+        )
+        assert created.status_code == 201
+
+        source_b = next(
+            camera
+            for camera in created.json()[
+                "cameras"
+            ]
+            if {
+                item["adapter_profile_key"]
+                for item in camera["streams"]
+            }
+            == {"main-b"}
+        )
+        source_b_id = uuid.UUID(
+            source_b["id"]
+        )
+        main_b_id = uuid.UUID(
+            source_b["streams"][0]["id"]
+        )
+        original_bindings = {
+            item["purpose"]: item[
+                "stream_profile_id"
+            ]
+            for item in source_b["bindings"]
+        }
+
+        refresh_state = "missing"
+        probes_before_missing = len(
+            PROBED_URIS
+        )
+        missing = client.post(
+            (
+                f"/api/v1/cameras/{source_b['id']}"
+                "/onvif/refresh"
+            )
+        )
+        assert missing.status_code == 200
+        missing_body = missing.json()
+        assert missing_body["diff"][
+            "profiles_missing"
+        ] == ["main-b"]
+        assert missing_body["diff"][
+            "profiles_recovered"
+        ] == []
+        assert len(PROBED_URIS) == (
+            probes_before_missing
+        )
+
+        missing_b = next(
+            camera
+            for camera
+            in missing_body["cameras"]
+            if camera["id"] == source_b["id"]
+        )
+        assert missing_b["streams"][0][
+            "status"
+        ] == "unavailable"
+        assert {
+            item["purpose"]: item[
+                "stream_profile_id"
+            ]
+            for item in missing_b["bindings"]
+        } == original_bindings
+
+        with app.state.database.session() as session:
+            assert session.scalar(
+                select(func.count())
+                .select_from(Camera)
+            ) == 2
+            persisted = session.get(
+                Camera,
+                source_b_id,
+            )
+            assert persisted is not None
+            assert (
+                persisted.channel_key
+                == "source-b"
+            )
+
+        refresh_state = "returned"
+        probes_before_return = len(
+            PROBED_URIS
+        )
+        returned = client.post(
+            (
+                f"/api/v1/cameras/{source_b['id']}"
+                "/onvif/refresh"
+            )
+        )
+        assert returned.status_code == 200
+        returned_body = returned.json()
+        assert returned_body["diff"][
+            "profiles_recovered"
+        ] == ["main-b"]
+        assert returned_body["diff"][
+            "profiles_changed"
+        ] == ["main-b"]
+        assert returned_body["diff"][
+            "profiles_missing"
+        ] == []
+        assert len(PROBED_URIS) == (
+            probes_before_return + 1
+        )
+        assert PROBED_URIS[-1].endswith(
+            (
+                "/channel/b/main-returned"
+                "?token=main-b-returned"
+            )
+        )
+
+        returned_b = next(
+            camera
+            for camera
+            in returned_body["cameras"]
+            if camera["id"] == source_b["id"]
+        )
+        assert uuid.UUID(
+            returned_b["id"]
+        ) == source_b_id
+        assert uuid.UUID(
+            returned_b["streams"][0]["id"]
+        ) == main_b_id
+        assert returned_b["streams"][0][
+            "status"
+        ] == "available"
+        assert {
+            item["purpose"]: item[
+                "stream_profile_id"
+            ]
+            for item in returned_b["bindings"]
+        } == original_bindings
+        assert (
+            app.state.recording_tasks
+            .runtime_reconciles
+        ) == [
+            (
+                source_b_id,
+                False,
+                (main_b_id,),
+            )
+        ]
+
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count())
+            .select_from(Camera)
+        ) == 2
+        persisted = session.get(
+            Camera,
+            source_b_id,
+        )
+        assert persisted is not None
+        profile = session.get(
+            CameraStreamProfile,
+            main_b_id,
+        )
+        assert profile is not None
+        assert profile.camera_id == (
+            source_b_id
+        )
+        assert "capability_drift" not in (
+            profile.metadata_json or {}
+        )
+        resolved = CameraService(
+            app.state.settings
+        ).resolve_stream_uri(
+            session,
+            profile,
+        )
+        assert resolved.endswith(
+            (
+                "/channel/b/main-returned"
+                "?token=main-b-returned"
+            )
+        )
+
+
 def test_onvif_reconfigure_rejects_topology_change_before_mutation(
     tmp_path: Path,
     monkeypatch,

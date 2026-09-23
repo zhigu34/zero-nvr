@@ -192,7 +192,7 @@ Acceptance:
 - [x] CameraStreamProfile refresh/diff and capability-drift detection.
 - [x] planned recording-profile switch at a safe segment boundary where practical.
 - [x] ONVIF event-subscription lifecycle using mature client-library facilities.
-- [ ] multi-channel missing/return lifecycle without Camera identity loss.
+- [x] multi-channel missing/return lifecycle without Camera identity loss.
 - [ ] capability-specific health projection: control / media / recording / events / PTZ / clock.
 - [x] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
 - [ ] consume ZLM registration/unregistration/recorder signals for observed media health.
