@@ -464,7 +464,7 @@ Acceptance:
 - [x] configurable pre_roll_seconds / post_roll_seconds.
 - [x] honest degraded-pre-roll state when required past coverage is unavailable.
 - [x] actual ZLM segment finalize hooks feed RecordingSegment catalog.
-- [~] Event -> RecordingSegment wall-clock linkage at query time.
+- [x] Event -> RecordingSegment wall-clock linkage at query time.
 - [x] asynchronous explicit Export job for a single clip/file when requested.
 - [x] event-driven RecordingProtection action where policy requires it.
 - [x] no mandatory RecordingSession / RecordingIntent / PrebufferFragment / RecordingSessionSegment tables.
@@ -510,7 +510,7 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 
 ## Phase 11 — Operations, Backup, Recovery, and Release
 
-- [ ] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
+- [~] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
 - [x] lightweight BackupPolicy / BackupSet persistence and APIs; BackupManifest remains a versioned artifact inside backup payloads.
 - [x] SQLite Online Backup API consistent snapshot backend.
 - [x] PostgreSQL pg_dump backup backend.

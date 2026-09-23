@@ -47,6 +47,18 @@ class SecretRotationResult:
     primary_key_id: str
 
 
+@dataclass(frozen=True, slots=True)
+class SecretStoreHealth:
+    status: str
+    total_records: int
+    current_records: int
+    stale_records: int
+    unreadable_records: int
+    previous_key_count: int
+    primary_key_id: str
+    rotation_ready: bool
+
+
 class SecretStore:
     """Authenticated encryption keyring for recoverable product secrets.
 
@@ -373,6 +385,62 @@ class SecretStore:
             owner_id=owner_id,
         )
 
+
+    def inspect_records(
+        self,
+        session: Session,
+    ) -> SecretStoreHealth:
+        record_type = self._secret_record_type()
+        records = list(
+            session.scalars(
+                select(record_type).order_by(
+                    record_type.id
+                )
+            )
+        )
+
+        current = 0
+        stale = 0
+        unreadable = 0
+
+        for record in records:
+            if record.key_id == self.primary_key_id:
+                current += 1
+            else:
+                stale += 1
+
+            try:
+                self.decrypt_bytes(
+                    key_id=record.key_id,
+                    ciphertext=record.encrypted_payload,
+                    version=record.version,
+                )
+            except (KeyError, ValueError):
+                unreadable += 1
+
+        if unreadable:
+            status = "ERROR"
+        elif stale:
+            status = "ROTATION_REQUIRED"
+        else:
+            status = "OK"
+
+        return SecretStoreHealth(
+            status=status,
+            total_records=len(records),
+            current_records=current,
+            stale_records=stale,
+            unreadable_records=unreadable,
+            previous_key_count=max(
+                0,
+                len(self._keys) - 1,
+            ),
+            primary_key_id=self.primary_key_id,
+            rotation_ready=(
+                stale > 0
+                and unreadable == 0
+            ),
+        )
 
     def rotate_records(
         self,

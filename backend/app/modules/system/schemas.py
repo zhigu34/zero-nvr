@@ -226,6 +226,28 @@ class SystemHealthView(BaseModel):
     components: dict[str, HealthComponentView]
 
 
+class SecretStoreHealthView(BaseModel):
+    status: Literal[
+        "OK",
+        "ROTATION_REQUIRED",
+        "ERROR",
+    ]
+    total_records: int
+    current_records: int
+    stale_records: int
+    unreadable_records: int
+    previous_key_count: int
+    primary_key_id: str
+    rotation_ready: bool
+
+
+class SecretStoreRotationView(BaseModel):
+    total_records: int
+    rotated_records: int
+    already_current_records: int
+    health: SecretStoreHealthView
+
+
 
 class CameraNtpDeviceResultView(BaseModel):
     device_id: uuid.UUID

@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.core.security import SecretStore
 from app.integrations.frigate import (
     FrigateHttpAdapter,
     FrigateIntegrationError,
@@ -77,6 +78,8 @@ from .schemas import (
     ReleaseValidationArtifactView,
     ReleaseValidationView,
     RuntimeTuningSettingsView,
+    SecretStoreHealthView,
+    SecretStoreRotationView,
     SystemHealthView,
     SystemSettingsPatch,
     SystemSettingsView,
@@ -204,6 +207,106 @@ def system_info(
             request.app.state.database.url.get_backend_name()
         ),
     }
+
+
+def _secret_store_health_view(
+    report,
+) -> SecretStoreHealthView:
+    return SecretStoreHealthView(
+        status=report.status,
+        total_records=report.total_records,
+        current_records=report.current_records,
+        stale_records=report.stale_records,
+        unreadable_records=report.unreadable_records,
+        previous_key_count=report.previous_key_count,
+        primary_key_id=report.primary_key_id,
+        rotation_ready=report.rotation_ready,
+    )
+
+
+@router.get(
+    "/secret-store",
+    response_model=SecretStoreHealthView,
+)
+def secret_store_health(
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SecretStoreHealthView:
+    report = SecretStore(
+        request.app.state.settings
+    ).inspect_records(session)
+    return _secret_store_health_view(report)
+
+
+@router.post(
+    "/secret-store/rotate",
+    response_model=SecretStoreRotationView,
+)
+def rotate_secret_store(
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> SecretStoreRotationView:
+    store = SecretStore(
+        request.app.state.settings
+    )
+    before = store.inspect_records(session)
+
+    try:
+        result = store.rotate_records(session)
+        after = store.inspect_records(session)
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="system.secret_store.rotate",
+            resource_type="secret_store",
+            before={
+                "status": before.status,
+                "total_records": before.total_records,
+                "current_records": before.current_records,
+                "stale_records": before.stale_records,
+                "unreadable_records": before.unreadable_records,
+                "previous_key_count": before.previous_key_count,
+                "primary_key_id": before.primary_key_id,
+            },
+            after={
+                "status": after.status,
+                "total_records": after.total_records,
+                "current_records": after.current_records,
+                "stale_records": after.stale_records,
+                "unreadable_records": after.unreadable_records,
+                "previous_key_count": after.previous_key_count,
+                "primary_key_id": after.primary_key_id,
+            },
+        )
+        session.commit()
+    except (KeyError, ValueError) as exc:
+        session.rollback()
+        raise ApiError(
+            status_code=409,
+            code="secret_store_rotation_unavailable",
+            message=(
+                "SecretStore rotation cannot proceed because one or "
+                "more records are not decryptable with the configured "
+                "keyring."
+            ),
+        ) from exc
+    except Exception:
+        session.rollback()
+        raise
+
+    return SecretStoreRotationView(
+        total_records=result.total_records,
+        rotated_records=result.rotated_records,
+        already_current_records=result.current_records,
+        health=_secret_store_health_view(after),
+    )
 
 
 
