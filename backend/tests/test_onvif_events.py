@@ -17,6 +17,7 @@ from app.integrations.onvif import (
     OnvifEventTarget,
     OnvifIntegrationError,
 )
+from app.modules.auth.models import SecretRecord  # noqa: F401
 from app.modules.cameras.models import (
     Camera,
     Device,
