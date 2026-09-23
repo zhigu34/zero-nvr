@@ -756,7 +756,7 @@ no persistence table and does not change RecordingSegment/Event truth.
 
 ## Playback speed
 
-Initial review speeds:
+V1 review speeds are:
 
 ```text
 0.5x
@@ -766,14 +766,28 @@ Initial review speeds:
 8x
 ```
 
-Higher speeds may be added later.
+The selected rate is a Master Clock property rather than a per-video truth.
+Changing speed re-anchors the monotonic clock at the current absolute media
+time before applying the new rate, so the playhead never jumps merely because
+the rate changed. Single-camera active/standby players and every synchronized
+tile receive the same base rate; drift correction may still apply its bounded
+temporary convergence adjustment around that base.
 
-At elevated rates:
+At 4x and 8x, playback audio is automatically muted. This high-speed mute is
+derived runtime state and does not overwrite the user's normal mute preference;
+returning to 0.5x/1x/2x restores the previous user audio intent.
 
-- audio may be muted above a product-defined threshold;
-- sync correction accounts for selected rate;
-- preload distance increases;
-- event timing remains absolute.
+The dual-player implementation already resolves and loads the next contiguous
+segment immediately when the active segment becomes playable. That is the
+earliest possible one-standby-slot preload point, so elevated playback rates do
+not add a competing third media player or separate preload engine. Remote-only
+next segments likewise begin the existing restore/cache flow as soon as the
+current segment activates.
+
+Boundary timers divide remaining absolute media time by the selected playback
+rate, drift correction uses the selected rate as its convergence baseline, and
+all Event/Timeline timestamps remain absolute. Higher speeds may be added later
+only after browser/resource validation.
 
 ## Gap skipping
 

@@ -56,6 +56,7 @@ import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
 
 type ZoomHours = 1 | 6 | 24
+type PlaybackRate = 0.5 | 1 | 2 | 4 | 8
 type SyncMode = "tolerant" | "strict"
 type SyncTileStateName =
   | "resolving"
@@ -93,6 +94,14 @@ const alignedTimelineTracks = ref<
   Record<string, PlaybackTimeline>
 >({})
 const zoomHours = ref<ZoomHours>(24)
+const playbackRate = ref<PlaybackRate>(1)
+const playbackRateOptions: PlaybackRate[] = [
+  0.5,
+  1,
+  2,
+  4,
+  8
+]
 const selectedDate = ref(formatDateInput(new Date()))
 const currentAt = ref(new Date())
 const masterClock = new MasterPlaybackClock(
@@ -215,6 +224,16 @@ const playbackControlActive = computed(
     syncMode.value === "strict"
       ? strictPlaybackRequested.value
       : playing.value
+)
+
+const highSpeedMuted = computed(
+  () => playbackRate.value >= 4
+)
+
+const effectiveMuted = computed(
+  () =>
+    muted.value ||
+    highSpeedMuted.value
 )
 
 const filteredCameras = computed(() => {
@@ -786,7 +805,7 @@ function resetDriftCorrection(): void {
   const element = activeVideo()
   if (element) {
     element.playbackRate =
-      masterClock.playbackRate
+      playbackRate.value
   }
 }
 
@@ -837,7 +856,7 @@ function pauseSynchronizedMaster(): void {
 function resumeSynchronizedMaster(): void {
   masterClock.play(
     currentAt.value.getTime(),
-    masterClock.playbackRate
+    playbackRate.value
   )
   playing.value = true
   startMasterClockFrame()
@@ -934,7 +953,7 @@ function applySynchronizedMasterTime(
   if (autoplay) {
     masterClock.play(
       timeMs,
-      masterClock.playbackRate
+      playbackRate.value
     )
     playing.value = true
     startMasterClockFrame()
@@ -959,7 +978,7 @@ function enterTolerantMode(): void {
   if (shouldPlay) {
     masterClock.play(
       timeMs,
-      masterClock.playbackRate
+      playbackRate.value
     )
     playing.value = true
     startMasterClockFrame()
@@ -1208,9 +1227,9 @@ async function preloadNextSegment(
       standbySlot()
     )
     if (standby) {
-      standby.muted = muted.value
+      standby.muted = effectiveMuted.value
       standby.playbackRate =
-        masterClock.playbackRate
+        playbackRate.value
       standby.load()
     }
   } catch {
@@ -1279,7 +1298,7 @@ async function switchToStandbyAtBoundary(
     previousSlot
   )
   const playbackRate =
-    masterClock.playbackRate
+    playbackRate.value
 
   activePlayerSlot.value = nextSlot
   activeSegmentId.value = standby.segment_id
@@ -1302,7 +1321,7 @@ async function switchToStandbyAtBoundary(
 
   await nextTick()
   clearVideoElement(previousElement)
-  nextElement.muted = muted.value
+  nextElement.muted = effectiveMuted.value
   nextElement.playbackRate = playbackRate
   await nextElement.play().catch(
     () => undefined
@@ -1410,7 +1429,7 @@ function scheduleBoundarySwitch(
       16,
       Math.ceil(
         remaining /
-          masterClock.playbackRate
+          playbackRate.value
       )
     )
   )
@@ -1560,7 +1579,7 @@ async function resolveAt(
 
     const element = activeVideo()
     if (element) {
-      element.muted = muted.value
+      element.muted = effectiveMuted.value
       element.load()
       if (autoplay) {
         await element.play().catch(() => undefined)
@@ -2092,13 +2111,52 @@ function togglePlayback(): void {
   }
 }
 
+function setPlaybackRate(
+  rate: PlaybackRate
+): void {
+  if (playbackRate.value === rate) {
+    return
+  }
+
+  masterClock.setPlaybackRate(rate)
+  playbackRate.value = rate
+  driftController.reset(
+    performance.now()
+  )
+
+  for (const element of [
+    videoA.value,
+    videoB.value
+  ]) {
+    if (!element) continue
+    element.playbackRate = rate
+    element.muted =
+      effectiveMuted.value
+  }
+
+  if (
+    !multiCameraMode.value &&
+    playing.value
+  ) {
+    scheduleBoundarySwitch(
+      activePlayerSlot.value
+    )
+  }
+}
+
 function toggleMute(): void {
+  if (highSpeedMuted.value) {
+    return
+  }
+
   muted.value = !muted.value
   if (videoA.value) {
-    videoA.value.muted = muted.value
+    videoA.value.muted =
+      effectiveMuted.value
   }
   if (videoB.value) {
-    videoB.value.muted = muted.value
+    videoB.value.muted =
+      effectiveMuted.value
   }
 }
 
@@ -2113,11 +2171,11 @@ function handlePlayerPlay(
     )
     if (element) {
       element.playbackRate =
-        masterClock.playbackRate
+        playbackRate.value
     }
     masterClock.play(
       masterClock.currentTimeMs(),
-      masterClock.playbackRate
+      playbackRate.value
     )
     playing.value = true
     startMasterClockFrame()
@@ -2144,7 +2202,7 @@ function handlePlayerPause(
     const element = videoForSlot(slot)
     if (element) {
       element.playbackRate =
-        masterClock.playbackRate
+        playbackRate.value
     }
     stopMasterClockFrame()
     playing.value = false
@@ -2196,7 +2254,7 @@ function handleTimeUpdate(
     mediaTimeMs - masterTimeMs
   const action = driftController.evaluate(
     driftMs,
-    masterClock.playbackRate,
+    playbackRate.value,
     performance.now()
   )
 
@@ -2218,7 +2276,7 @@ function handleTimeUpdate(
   }
 
   element.playbackRate =
-    masterClock.playbackRate
+    playbackRate.value
   const targetSeconds = Math.max(
     0,
     (masterTimeMs -
@@ -2541,10 +2599,10 @@ onBeforeUnmount(() => {
           :camera-name="camera.name"
           :master-time-ms="currentAt.getTime()"
           :playing="playing"
-          :playback-rate="masterClock.playbackRate"
+          :playback-rate="playbackRate"
           :muted="
             camera.id === activeCameraId
-              ? muted
+              ? effectiveMuted
               : true
           "
           :seek-generation="syncSeekGeneration"
@@ -2569,7 +2627,7 @@ onBeforeUnmount(() => {
           }"
           :src="playerAUrl"
           playsinline
-          :muted="muted"
+          :muted="effectiveMuted"
           preload="auto"
           @play="handlePlayerPlay('a')"
           @pause="handlePlayerPause('a')"
@@ -2587,7 +2645,7 @@ onBeforeUnmount(() => {
           }"
           :src="playerBUrl"
           playsinline
-          :muted="muted"
+          :muted="effectiveMuted"
           preload="auto"
           @play="handlePlayerPlay('b')"
           @pause="handlePlayerPause('b')"
@@ -2681,14 +2739,51 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          :aria-label="muted ? 'Unmute' : 'Mute'"
+          :disabled="highSpeedMuted"
+          :title="
+            highSpeedMuted
+              ? 'Audio is muted at 4x and 8x playback'
+              : effectiveMuted
+                ? 'Unmute'
+                : 'Mute'
+          "
+          :aria-label="
+            highSpeedMuted
+              ? 'Audio muted at high playback speed'
+              : effectiveMuted
+                ? 'Unmute'
+                : 'Mute'
+          "
           @click="toggleMute"
         >
           <UiIcon
-            :name="muted ? 'volume-off' : 'volume'"
+            :name="
+              effectiveMuted
+                ? 'volume-off'
+                : 'volume'
+            "
             :size="16"
           />
         </button>
+
+        <div class="playback-speed-switcher">
+          <button
+            v-for="rate in playbackRateOptions"
+            :key="rate"
+            class="media-button media-button--text"
+            :class="{
+              'media-button--active':
+                playbackRate === rate
+            }"
+            type="button"
+            :aria-pressed="
+              playbackRate === rate
+            "
+            @click="setPlaybackRate(rate)"
+          >
+            {{ rate }}x
+          </button>
+        </div>
 
         <span class="playback-current-time">
           {{ formatTimestamp(currentAt) }}

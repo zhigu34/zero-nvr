@@ -2209,7 +2209,8 @@ strong {
 }
 
 .playback-zoom-switcher,
-.playback-sync-switcher {
+.playback-sync-switcher,
+.playback-speed-switcher {
   display: flex;
   gap: 2px;
   padding: 2px;
