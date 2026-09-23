@@ -13,6 +13,13 @@ export type TimelineAvailability =
   | "corrupted"
   | "purged"
 
+const PLAYABLE_TIMELINE_AVAILABILITY =
+  new Set<TimelineAvailability>([
+    "local",
+    "remote",
+    "cached_remote"
+  ])
+
 export interface TimelineRange {
   start_at: string
   end_at: string
@@ -135,6 +142,62 @@ export function getCameraTimeline(
   return apiRequest<PlaybackTimeline>(
     `/cameras/${encodeURIComponent(cameraId)}/timeline?${params}`
   )
+}
+
+export function timelineHasPlayableAt(
+  timeline: PlaybackTimeline,
+  atMs: number
+): boolean {
+  return timeline.recording_ranges.some(
+    (range) =>
+      PLAYABLE_TIMELINE_AVAILABILITY.has(
+        range.availability
+      ) &&
+      new Date(range.start_at).getTime() <= atMs &&
+      atMs < new Date(range.end_at).getTime()
+  )
+}
+
+export function findNextPlayableTimelineTime(
+  timelines: PlaybackTimeline[],
+  afterMs: number
+): number | null {
+  if (
+    timelines.some((timeline) =>
+      timelineHasPlayableAt(
+        timeline,
+        afterMs
+      )
+    )
+  ) {
+    return null
+  }
+
+  let next: number | null = null
+  for (const timeline of timelines) {
+    for (const range of timeline.recording_ranges) {
+      if (
+        !PLAYABLE_TIMELINE_AVAILABILITY.has(
+          range.availability
+        )
+      ) {
+        continue
+      }
+
+      const startMs = new Date(
+        range.start_at
+      ).getTime()
+      if (
+        startMs <= afterMs ||
+        (next !== null && startMs >= next)
+      ) {
+        continue
+      }
+      next = startMs
+    }
+  }
+
+  return next
 }
 
 export function findTimelineSegmentAt(

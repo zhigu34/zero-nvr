@@ -35,6 +35,7 @@ import {
   type RecordingProtection
 } from "../api/recordings"
 import {
+  findNextPlayableTimelineTime,
   findTimelineSegmentAt,
   getAlignedCameraTimelines,
   getCameraTimeline,
@@ -117,6 +118,7 @@ const error = ref<string | null>(null)
 const playing = ref(false)
 const muted = ref(true)
 const fullscreen = ref(false)
+const skipGaps = ref(false)
 const actionPanelOpen = ref(false)
 const actionMode = ref<"protect" | "export">("export")
 const actionStart = ref("")
@@ -608,10 +610,89 @@ function stopMasterClockFrame(): void {
   masterClockFrame = null
 }
 
+function synchronizedTimelines():
+  PlaybackTimeline[] {
+  if (!multiCameraMode.value) {
+    return timeline.value
+      ? [timeline.value]
+      : []
+  }
+
+  return playbackParticipants.value
+    .map(
+      (camera) =>
+        alignedTimelineTracks.value[
+          camera.id
+        ]
+    )
+    .filter(
+      (
+        track
+      ): track is PlaybackTimeline =>
+        Boolean(track)
+    )
+}
+
+function findSkipGapTarget(
+  timeMs: number
+): number | null {
+  if (!skipGaps.value) return null
+
+  const tracks = synchronizedTimelines()
+  if (
+    !tracks.length ||
+    (
+      multiCameraMode.value &&
+      tracks.length !==
+        playbackParticipants.value.length
+    )
+  ) {
+    return null
+  }
+
+  return findNextPlayableTimelineTime(
+    tracks,
+    timeMs
+  )
+}
+
+function skipSynchronizedGap(
+  timeMs: number
+): boolean {
+  if (
+    !multiCameraMode.value ||
+    !playing.value
+  ) {
+    return false
+  }
+
+  const target = findSkipGapTarget(
+    timeMs
+  )
+  if (
+    target === null ||
+    target <= timeMs
+  ) {
+    return false
+  }
+
+  applySynchronizedMasterTime(
+    new Date(target),
+    true
+  )
+  return true
+}
+
 function renderMasterClock(): void {
   masterClockFrame = null
   const timeMs = masterClock.currentTimeMs()
   currentAt.value = new Date(timeMs)
+
+  if (
+    skipSynchronizedGap(timeMs)
+  ) {
+    return
+  }
 
   const segment = activeTimelineSegment.value
   if (!multiCameraMode.value && segment) {
@@ -1409,6 +1490,26 @@ async function resolveAt(
     playbackResult.value = result
 
     if (result.status === "gap") {
+      if (
+        skipGaps.value &&
+        autoplay
+      ) {
+        const target =
+          findSkipGapTarget(
+            at.getTime()
+          )
+        if (
+          target !== null &&
+          target > at.getTime()
+        ) {
+          void resolveAt(
+            new Date(target),
+            true
+          )
+          return
+        }
+      }
+
       setMasterClockTime(
         at.getTime(),
         "paused"
@@ -2386,6 +2487,20 @@ onBeforeUnmount(() => {
               Strict
             </button>
           </div>
+
+          <button
+            class="media-button media-button--text"
+            :class="{
+              'media-button--active':
+                skipGaps
+            }"
+            type="button"
+            :aria-pressed="skipGaps"
+            title="Skip periods where no selected camera has playable recording"
+            @click="skipGaps = !skipGaps"
+          >
+            Skip gaps
+          </button>
 
           <div class="playback-zoom-switcher">
             <button

@@ -777,16 +777,44 @@ At elevated rates:
 
 ## Gap skipping
 
-Optional:
+Gap skipping is an optional runtime playback control and is off by default:
 
 ```text
 skip_gaps = off | on
 ```
 
-When enabled:
+It never changes canonical time, RecordingSegment boundaries, `gaps`, or
+Canvas rendering. It changes only where the playback controller seeks next.
 
-- if every selected camera is in a non-playable gap, jump to the earliest next playable time;
-- in multi-camera playback, do not skip time merely because one camera has a gap while another has media.
+A timeline range is considered playable only for
+`local / remote / cached_remote` availability. `missing`, `corrupted`,
+and `purged` ranges are not valid skip targets.
+
+Single-camera behavior:
+
+- when resolver playback lands in a gap while autoplay is requested, inspect the
+  loaded timeline for the earliest later playable range;
+- jump to that range's absolute `start_at` when one exists;
+- a paused/manual gap view is left in place rather than unexpectedly moving the
+  user's playhead.
+
+Multi-camera behavior:
+
+- use the aligned tracks for every current participant;
+- if any selected Camera is playable at `global_time_ms`, do **not** skip;
+- only when every selected Camera is non-playable, jump to the earliest future
+  playable range across all tracks;
+- the jump goes through the shared Master Clock path, so tolerant mode resumes
+  immediately while strict mode re-enters its normal readiness barrier at the
+  new absolute time.
+
+The loaded timeline/aligned-track window is authoritative for an automatic
+skip decision. If no later playable range is present in that read model, the
+player does not guess from filenames or jump into an unverified catalog segment;
+the user may pan/change range or use normal timeline navigation.
+
+Gap skipping never compresses or rewrites the visible timeline: skipped periods
+remain visible and can still be selected explicitly with the control disabled.
 
 ## Remote-only playback
 
