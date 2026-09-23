@@ -427,8 +427,8 @@ Acceptance:
 - [x] local playback.
 - [x] ordered detailed segment ranges + binary absolute-time segment lookup.
 - [x] dual-player preload/ping-pong cross-segment continuation.
-- [~] standby-player readiness gating and absolute-boundary source switching.
-- [ ] sub-pixel visual seam smoothing without mutating real gap data.
+- [x] standby-player readiness gating and absolute-boundary source switching.
+- [~] sub-pixel visual seam smoothing without mutating real gap data.
 - [ ] monotonic Master Clock.
 - [ ] drift correction with bounded rate convergence, hysteresis/cooldown, and hard-seek recovery.
 - [ ] tolerant multi-camera synchronization as default.
