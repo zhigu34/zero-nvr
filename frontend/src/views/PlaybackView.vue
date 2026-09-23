@@ -73,8 +73,11 @@ const playerAUrl = ref<string | null>(null)
 const playerBUrl = ref<string | null>(null)
 const activePlayerSlot = ref<"a" | "b">("a")
 const activeSegmentId = ref<string | null>(null)
+const activeTimelineSegment = ref<TimelineSegment | null>(null)
 const standbyPlayback = ref<PlaybackPlayable | null>(null)
 const standbySegment = ref<TimelineSegment | null>(null)
+const standbyBoundaryMs = ref<number | null>(null)
+const standbyReady = ref(false)
 const loadingCameras = ref(false)
 const loadingTimeline = ref(false)
 const resolving = ref(false)
@@ -109,6 +112,9 @@ let timelineGeneration = 0
 let pendingRetryTimer: number | null = null
 let preloadRetryTimer: number | null = null
 let preloadGeneration = 0
+let boundarySwitchTimer: number | null = null
+let boundaryWaiting = false
+let boundarySwitching = false
 let exportPollTimer: number | null = null
 
 const activeCamera = computed(() =>
@@ -402,6 +408,12 @@ function clearPreloadRetry(): void {
   }
 }
 
+function clearBoundarySwitchTimer(): void {
+  if (boundarySwitchTimer === null) return
+  window.clearTimeout(boundarySwitchTimer)
+  boundarySwitchTimer = null
+}
+
 function videoForSlot(
   slot: "a" | "b"
 ): HTMLVideoElement | null {
@@ -442,40 +454,71 @@ function clearVideoElement(
 
 function clearPlayers(): void {
   clearPreloadRetry()
+  clearBoundarySwitchTimer()
   clearVideoElement(videoA.value)
   clearVideoElement(videoB.value)
   playerAUrl.value = null
   playerBUrl.value = null
   activePlayerSlot.value = "a"
   activeSegmentId.value = null
+  activeTimelineSegment.value = null
   standbyPlayback.value = null
   standbySegment.value = null
+  standbyBoundaryMs.value = null
+  standbyReady.value = false
+  boundaryWaiting = false
+  boundarySwitching = false
   playbackAnchorMs.value = null
 }
 
-function nextContiguousSegment(
+function nextContinuationSegment(
   segmentId: string
-): TimelineSegment | null {
+): {
+  segment: TimelineSegment
+  boundaryMs: number
+  offsetMs: number
+} | null {
   const segments = timeline.value?.segments ?? []
   const index = segments.findIndex(
     (item) => item.id === segmentId
   )
-  if (index < 0 || index + 1 >= segments.length) {
-    return null
+  if (index < 0) return null
+
+  const currentEnd = new Date(
+    segments[index].end_at
+  ).getTime()
+
+  for (
+    let nextIndex = index + 1;
+    nextIndex < segments.length;
+    nextIndex += 1
+  ) {
+    const next = segments[nextIndex]
+    const nextStart = new Date(
+      next.start_at
+    ).getTime()
+    const nextEnd = new Date(
+      next.end_at
+    ).getTime()
+
+    if (nextStart > currentEnd) {
+      return null
+    }
+    if (nextEnd <= currentEnd) {
+      continue
+    }
+
+    return {
+      segment: next,
+      boundaryMs: currentEnd,
+      offsetMs: Math.max(
+        0,
+        currentEnd - nextStart
+      )
+    }
   }
 
-  const current = segments[index]
-  const next = segments[index + 1]
-  const currentEnd = new Date(
-    current.end_at
-  ).getTime()
-  const nextStart = new Date(
-    next.start_at
-  ).getTime()
-
-  return nextStart <= currentEnd
-    ? next
-    : null
+  return null
 }
 
 async function preloadNextSegment(
@@ -483,20 +526,28 @@ async function preloadNextSegment(
 ): Promise<void> {
   clearPreloadRetry()
   const generation = preloadGeneration
-  const next = nextContiguousSegment(
+  const continuation = nextContinuationSegment(
     segmentId
   )
-  if (!next) {
+  if (!continuation) {
     standbyPlayback.value = null
     standbySegment.value = null
+    standbyBoundaryMs.value = null
+    standbyReady.value = false
     setPlayerUrl(standbySlot(), null)
     return
   }
 
+  const {
+    segment: next,
+    boundaryMs,
+    offsetMs
+  } = continuation
+
   try {
     const result = await resolveRecordingSegment(
       next.playback_ref,
-      0
+      offsetMs
     )
     if (
       generation !== preloadGeneration ||
@@ -529,12 +580,22 @@ async function preloadNextSegment(
     if (result.status !== "playable") {
       standbyPlayback.value = null
       standbySegment.value = null
+      standbyBoundaryMs.value = null
+      standbyReady.value = false
       setPlayerUrl(standbySlot(), null)
+      if (boundaryWaiting) {
+        void resolveAt(
+          new Date(boundaryMs),
+          true
+        )
+      }
       return
     }
 
     standbyPlayback.value = result
     standbySegment.value = next
+    standbyBoundaryMs.value = boundaryMs
+    standbyReady.value = false
     setPlayerUrl(
       standbySlot(),
       browserMediaUrl(result.url)
@@ -546,14 +607,239 @@ async function preloadNextSegment(
     )
     if (standby) {
       standby.muted = muted.value
+      standby.playbackRate = (
+        activeVideo()?.playbackRate ?? 1
+      )
       standby.load()
     }
   } catch {
     if (generation === preloadGeneration) {
       standbyPlayback.value = null
       standbySegment.value = null
+      standbyBoundaryMs.value = null
+      standbyReady.value = false
       setPlayerUrl(standbySlot(), null)
+      if (boundaryWaiting) {
+        void resolveAt(
+          new Date(boundaryMs),
+          true
+        )
+      }
     }
+  }
+}
+
+function activeAbsoluteTimeMs(
+  slot: "a" | "b"
+): number | null {
+  if (
+    slot !== activePlayerSlot.value ||
+    playbackAnchorMs.value === null
+  ) {
+    return null
+  }
+
+  const element = videoForSlot(slot)
+  if (!element) return null
+
+  return (
+    playbackAnchorMs.value +
+    element.currentTime * 1000
+  )
+}
+
+function standbyCanSwitch(): boolean {
+  const element = videoForSlot(
+    standbySlot()
+  )
+  return Boolean(
+    standbyPlayback.value &&
+    standbySegment.value &&
+    standbyReady.value &&
+    element &&
+    element.readyState >=
+      HTMLMediaElement.HAVE_FUTURE_DATA
+  )
+}
+
+async function switchToStandbyAtBoundary(
+  slot: "a" | "b",
+  boundaryMs: number
+): Promise<void> {
+  if (
+    boundarySwitching ||
+    slot !== activePlayerSlot.value ||
+    standbyBoundaryMs.value !== boundaryMs ||
+    !standbyCanSwitch()
+  ) {
+    return
+  }
+
+  const standby = standbyPlayback.value
+  const nextSegment = standbySegment.value
+  const nextSlot = standbySlot()
+  const nextElement = videoForSlot(
+    nextSlot
+  )
+  if (
+    !standby ||
+    !nextSegment ||
+    !nextElement
+  ) {
+    return
+  }
+
+  boundarySwitching = true
+  clearBoundarySwitchTimer()
+
+  const previousSlot = activePlayerSlot.value
+  const previousElement = videoForSlot(
+    previousSlot
+  )
+  const playbackRate = (
+    previousElement?.playbackRate ?? 1
+  )
+
+  activePlayerSlot.value = nextSlot
+  activeSegmentId.value = standby.segment_id
+  activeTimelineSegment.value = nextSegment
+  playbackResult.value = standby
+  playbackAnchorMs.value = boundaryMs
+  currentAt.value = new Date(boundaryMs)
+  standbyPlayback.value = null
+  standbySegment.value = null
+  standbyBoundaryMs.value = null
+  standbyReady.value = false
+  boundaryWaiting = false
+  setPlayerUrl(previousSlot, null)
+
+  await nextTick()
+  clearVideoElement(previousElement)
+  nextElement.muted = muted.value
+  nextElement.playbackRate = playbackRate
+  await nextElement.play().catch(
+    () => undefined
+  )
+
+  boundarySwitching = false
+  void preloadNextSegment(
+    standby.segment_id
+  )
+}
+
+function requestBoundarySwitch(
+  slot: "a" | "b",
+  boundaryMs: number
+): void {
+  if (slot !== activePlayerSlot.value) return
+
+  clearBoundarySwitchTimer()
+  currentAt.value = new Date(boundaryMs)
+
+  const segmentId = activeSegmentId.value
+  if (
+    !segmentId ||
+    !nextContinuationSegment(segmentId)
+  ) {
+    void resolveAt(
+      new Date(boundaryMs),
+      true
+    )
+    return
+  }
+
+  boundaryWaiting = true
+  activeVideo()?.pause()
+
+  if (
+    standbyBoundaryMs.value === boundaryMs &&
+    standbyCanSwitch()
+  ) {
+    void switchToStandbyAtBoundary(
+      slot,
+      boundaryMs
+    )
+  }
+}
+
+function scheduleBoundarySwitch(
+  slot: "a" | "b"
+): void {
+  clearBoundarySwitchTimer()
+  if (slot !== activePlayerSlot.value) {
+    return
+  }
+
+  const segment = activeTimelineSegment.value
+  const element = videoForSlot(slot)
+  const absolute = activeAbsoluteTimeMs(slot)
+  if (
+    !segment ||
+    !element ||
+    absolute === null ||
+    element.paused
+  ) {
+    return
+  }
+
+  const boundaryMs = new Date(
+    segment.end_at
+  ).getTime()
+  const remaining = boundaryMs - absolute
+
+  if (remaining <= 0) {
+    requestBoundarySwitch(
+      slot,
+      boundaryMs
+    )
+    return
+  }
+
+  boundarySwitchTimer = window.setTimeout(
+    () => {
+      boundarySwitchTimer = null
+      const actual = activeAbsoluteTimeMs(
+        slot
+      )
+      if (
+        actual !== null &&
+        actual >= boundaryMs
+      ) {
+        requestBoundarySwitch(
+          slot,
+          boundaryMs
+        )
+      } else {
+        scheduleBoundarySwitch(slot)
+      }
+    },
+    Math.max(16, Math.ceil(remaining))
+  )
+}
+
+function handlePlayerCanPlay(
+  slot: "a" | "b"
+): void {
+  if (slot !== standbySlot()) return
+
+  const element = videoForSlot(slot)
+  standbyReady.value = Boolean(
+    standbyPlayback.value &&
+    standbySegment.value &&
+    element &&
+    element.readyState >=
+      HTMLMediaElement.HAVE_FUTURE_DATA
+  )
+
+  if (
+    standbyReady.value &&
+    boundaryWaiting &&
+    standbyBoundaryMs.value !== null
+  ) {
+    void switchToStandbyAtBoundary(
+      activePlayerSlot.value,
+      standbyBoundaryMs.value
+    )
   }
 }
 
@@ -617,8 +903,24 @@ async function resolveAt(
 
     if (result.status !== "playable") return
 
-    playbackAnchorMs.value = at.getTime()
+    const canonicalSegment = (
+      segment ??
+      timeline.value?.segments.find(
+        (item) => item.id === result.segment_id
+      ) ??
+      null
+    )
+    playbackAnchorMs.value = (
+      new Date(
+        result.segment_start_at
+      ).getTime() +
+      result.offset_ms
+    )
+    currentAt.value = new Date(
+      playbackAnchorMs.value
+    )
     activeSegmentId.value = result.segment_id
+    activeTimelineSegment.value = canonicalSegment
     setPlayerUrl(
       activePlayerSlot.value,
       browserMediaUrl(result.url)
@@ -1064,6 +1366,7 @@ function handlePlayerPlay(
 ): void {
   if (slot === activePlayerSlot.value) {
     playing.value = true
+    scheduleBoundarySwitch(slot)
   }
 }
 
@@ -1072,6 +1375,7 @@ function handlePlayerPause(
 ): void {
   if (slot === activePlayerSlot.value) {
     playing.value = false
+    clearBoundarySwitchTimer()
   }
 }
 
@@ -1085,58 +1389,40 @@ function handleTimeUpdate(
     return
   }
 
-  const element = videoForSlot(slot)
-  if (!element) return
-  currentAt.value = new Date(
-    playbackAnchorMs.value +
-      element.currentTime * 1000
+  const absolute = activeAbsoluteTimeMs(
+    slot
   )
+  if (absolute === null) return
+
+  const segment = activeTimelineSegment.value
+  if (segment) {
+    const boundaryMs = new Date(
+      segment.end_at
+    ).getTime()
+    if (absolute >= boundaryMs) {
+      requestBoundarySwitch(
+        slot,
+        boundaryMs
+      )
+      return
+    }
+  }
+
+  currentAt.value = new Date(absolute)
 }
 
-async function handleEnded(
+function handleEnded(
   slot: "a" | "b"
-): Promise<void> {
+): void {
   if (slot !== activePlayerSlot.value) return
 
-  const standby = standbyPlayback.value
-  const nextSegment = standbySegment.value
-  const nextSlot = standbySlot()
-  const nextElement = videoForSlot(
-    nextSlot
-  )
-
-  if (
-    standby &&
-    nextSegment &&
-    nextElement
-  ) {
-    const previousSlot = activePlayerSlot.value
-    const previousElement = videoForSlot(
-      previousSlot
-    )
-
-    activePlayerSlot.value = nextSlot
-    activeSegmentId.value = standby.segment_id
-    playbackResult.value = standby
-    playbackAnchorMs.value = new Date(
-      nextSegment.start_at
-    ).getTime()
-    currentAt.value = new Date(
-      nextSegment.start_at
-    )
-    standbyPlayback.value = null
-    standbySegment.value = null
-    setPlayerUrl(previousSlot, null)
-
-    await nextTick()
-    clearVideoElement(previousElement)
-    nextElement.muted = muted.value
-    await nextElement.play().catch(
-      () => undefined
-    )
-
-    void preloadNextSegment(
-      standby.segment_id
+  const segment = activeTimelineSegment.value
+  if (segment) {
+    requestBoundarySwitch(
+      slot,
+      new Date(
+        segment.end_at
+      ).getTime()
     )
     return
   }
@@ -1327,6 +1613,7 @@ onBeforeUnmount(() => {
           preload="auto"
           @play="handlePlayerPlay('a')"
           @pause="handlePlayerPause('a')"
+          @canplay="handlePlayerCanPlay('a')"
           @timeupdate="handleTimeUpdate('a')"
           @ended="handleEnded('a')"
         />
@@ -1344,6 +1631,7 @@ onBeforeUnmount(() => {
           preload="auto"
           @play="handlePlayerPlay('b')"
           @pause="handlePlayerPause('b')"
+          @canplay="handlePlayerCanPlay('b')"
           @timeupdate="handleTimeUpdate('b')"
           @ended="handleEnded('b')"
         />

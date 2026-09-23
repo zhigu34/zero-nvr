@@ -442,10 +442,27 @@ canonical start is not after the current segment end, so the player never
 silently crosses a real timeline gap. Remote-only next segments may start their
 existing bounded-cache restore while the current segment is still playing.
 
-This item intentionally switches on the active player's `ended` event only.
-Readiness qualification and switching against the absolute canonical boundary
-are handled by the following roadmap item rather than being hidden inside the
-basic ping-pong implementation.
+The standby player is not considered switchable merely because its signed URL
+was resolved. The browser must report at least `HAVE_FUTURE_DATA` for the
+standby element. If the canonical boundary arrives first, the active player is
+paused at that absolute instant and the logical playhead remains on the boundary
+until the standby element becomes ready.
+
+Source switching is driven by the active RecordingSegment's canonical
+`end_at`. The implementation schedules a boundary check from media-relative
+`currentTime`, re-checks the absolute media time when the timer fires, and also
+checks on `timeupdate`; browser `ended` is only a fallback signal. It does
+not use `video.duration` as recording truth.
+
+When adjacent physical segments overlap slightly, the next segment is resolved
+with the offset corresponding to the current segment's canonical `end_at`.
+Segments fully covered by the current segment are skipped. A candidate whose
+`start_at` is after the boundary is a real gap and is never crossed by the
+ping-pong player.
+
+This readiness/boundary layer still uses the active media element clock. The
+later Master Clock and drift-correction roadmap items replace that timing source
+without changing the segment or resolver contracts.
 
 Requirements:
 
