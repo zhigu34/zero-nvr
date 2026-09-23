@@ -328,6 +328,16 @@ class RecordingTriggerService:
         trigger: RecordingTrigger,
         stopped_at: datetime | None = None,
     ) -> RecordingTrigger:
+        if trigger.type.upper() != "MANUAL":
+            raise ApiError(
+                status_code=409,
+                code="recording_trigger_not_manual",
+                message=(
+                    "Only manual recording triggers can be "
+                    "stopped explicitly."
+                ),
+            )
+
         if trigger.state in {"CANCELLED", "FAILED"}:
             raise ApiError(
                 status_code=409,

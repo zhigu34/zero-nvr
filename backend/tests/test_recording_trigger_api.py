@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -207,6 +208,60 @@ def test_manual_trigger_is_idempotent_and_stop_adds_postroll(
         dispatcher.manual_boundaries[0][0]
         == camera_id
     )
+
+
+def test_provider_trigger_cannot_be_stopped_by_manual_api(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_event_camera(app)
+        instant = datetime.now(UTC)
+
+        with app.state.database.session() as session:
+            trigger = RecordingTrigger(
+                camera_id=camera_id,
+                type="ONVIF_EVENT",
+                source="onvif",
+                source_event_id="device-1:motion-1",
+                requested_at=instant,
+                pre_roll_seconds=10,
+                post_roll_seconds=15,
+                planned_start_at=instant,
+                planned_end_at=None,
+                state="ACTIVE",
+                reason="motion",
+                correlation_id=uuid.uuid4().hex,
+                metadata_json={},
+            )
+            session.add(trigger)
+            session.commit()
+            trigger_id = trigger.id
+
+        response = client.post(
+            f"/api/v1/recording-triggers/{trigger_id}/stop"
+        )
+        assert response.status_code == 409
+        assert (
+            response.json()["error"]["code"]
+            == "recording_trigger_not_manual"
+        )
+
+        with app.state.database.session() as session:
+            trigger = session.get(
+                RecordingTrigger,
+                trigger_id,
+            )
+            assert trigger is not None
+            assert trigger.state == "ACTIVE"
+            assert trigger.planned_end_at is None
+
+    dispatcher = app.state.recording_tasks
+    assert dispatcher.camera_ids == []
+    assert dispatcher.runtime_calls == []
+    assert dispatcher.manual_boundaries == []
 
 
 def test_trigger_requires_event_recording_enabled(
