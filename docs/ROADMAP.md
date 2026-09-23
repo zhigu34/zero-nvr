@@ -285,10 +285,10 @@ Acceptance:
 - [x] optional per-camera/policy explicit storage_target_id routing.
 - [x] per-target filesystem health/free-space and configurable warning/high/critical watermarks.
 - [x] host-managed ZFS/Btrfs/LVM/mergerfs/RAID/NAS guidance instead of zero-nvr disk pooling.
-- [~] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
+- [x] local target failure health/alert behavior; no implicit cloud hot-recording fallback.
   - [x] System Health reports per-target availability and warning/high/critical capacity state.
   - [x] local recording failure/capacity pressure never implicitly falls back to cloud hot recording.
-  - [~] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
+  - [x] health transitions can create/resolve Alerts through the unified Phase 6 alert pipeline.
 - [x] safe administrator target change/migration without losing historical RecordingLocations.
 - [x] cross-day segments without midnight force-split.
 - [x] source-loss finalized media tail is identified with `completion_reason = source_lost` without stretching media timing to the later unregister callback.
@@ -321,7 +321,7 @@ Acceptance:
 - [x] ONVIF Media Profiles -> CameraStreamProfile normalization.
 - [x] stream URI retrieval without credential leakage.
 - [x] per-role stream selection and actual pull verification.
-- [ ] DeviceCapabilitySnapshot persistence/refresh.
+- [~] DeviceCapabilitySnapshot persistence/refresh.
 - [x] ONVIF Events capability + subscription path.
 - [x] PTZ capability/control after Events.
 - [ ] snapshot/audio/time/NTP capability probing.
