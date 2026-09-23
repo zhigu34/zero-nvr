@@ -2208,7 +2208,8 @@ strong {
   color-scheme: dark;
 }
 
-.playback-zoom-switcher {
+.playback-zoom-switcher,
+.playback-sync-switcher {
   display: flex;
   gap: 2px;
   padding: 2px;
