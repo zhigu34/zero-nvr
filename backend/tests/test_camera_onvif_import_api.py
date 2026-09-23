@@ -1732,7 +1732,9 @@ def test_camera_health_projects_capabilities_independently(
             "reason": (
                 "awaiting_recording_observation"
             ),
-            "details": {},
+            "details": {
+                "mode": "persistent",
+            },
         }
         assert layers["events"] == {
             "state": "healthy",
