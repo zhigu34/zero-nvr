@@ -422,10 +422,10 @@ Acceptance:
 - [x] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
 - [x] Canvas timeline with pan/zoom/shared playhead.
 - [x] event Marker ranges/points and zoom-aware aggregation.
-- [~] PlaybackResolver by RecordingSegment ID.
+- [x] PlaybackResolver by RecordingSegment ID.
 - [x] playback/timeline camera-scope authorization and short-lived media access.
 - [x] local playback.
-- [ ] ordered detailed segment ranges + binary absolute-time segment lookup.
+- [~] ordered detailed segment ranges + binary absolute-time segment lookup.
 - [ ] dual-player preload/ping-pong cross-segment continuation.
 - [ ] standby-player readiness gating and absolute-boundary source switching.
 - [ ] sub-pixel visual seam smoothing without mutating real gap data.
