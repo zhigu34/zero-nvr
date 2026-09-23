@@ -431,8 +431,8 @@ Acceptance:
 - [x] sub-pixel visual seam smoothing without mutating real gap data.
 - [x] monotonic Master Clock.
 - [x] drift correction with bounded rate convergence, hysteresis/cooldown, and hard-seek recovery.
-- [~] tolerant multi-camera synchronization as default.
-- [ ] optional strict forensic synchronization.
+- [x] tolerant multi-camera synchronization as default.
+- [~] optional strict forensic synchronization.
 - [ ] multi-camera aligned timeline query/track response.
 - [ ] optional skip-gaps playback.
 - [ ] playback speeds 0.5x / 1x / 2x / 4x / 8x.
