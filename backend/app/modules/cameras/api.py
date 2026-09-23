@@ -1180,6 +1180,10 @@ def get_camera_capability_health(
                 request.app.state
                 .onvif_events
             ),
+            zlm_health=(
+                request.app.state
+                .zlm_health
+            ),
         )
     )
     return CameraCapabilityHealthView(

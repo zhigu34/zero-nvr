@@ -7,6 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.modules.recordings.arbiter import (
+    RecordingArbiterService,
+)
 from app.modules.recordings.models import RecordingPolicy
 
 from .models import (
@@ -135,8 +138,10 @@ class CameraCapabilityHealthService:
     @classmethod
     def _media(
         cls,
+        session: Session,
         *,
         camera: Camera,
+        zlm_health: Any | None,
     ) -> CapabilityHealthLayer:
         disabled = cls._disabled(camera)
         if disabled is not None:
@@ -193,6 +198,123 @@ class CameraCapabilityHealthService:
                     ),
                 },
             )
+
+        observed: list[
+            tuple[str, Any]
+        ] = []
+        if (
+            zlm_health is not None
+            and hasattr(
+                zlm_health,
+                "media",
+            )
+        ):
+            for binding in (
+                camera.stream_bindings
+            ):
+                item = zlm_health.media(
+                    binding.stream_profile_id
+                )
+                if item is not None:
+                    observed.append(
+                        (
+                            binding.purpose,
+                            item,
+                        )
+                    )
+
+        online = sorted(
+            purpose
+            for purpose, item
+            in observed
+            if bool(
+                getattr(
+                    item,
+                    "online",
+                    False,
+                )
+            )
+        )
+        if online:
+            return CapabilityHealthLayer(
+                state="healthy",
+                details={
+                    "online_purposes": online,
+                },
+            )
+
+        policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id
+                == camera.id
+            )
+        )
+        record_binding = next(
+            (
+                item
+                for item
+                in camera.stream_bindings
+                if item.purpose == "RECORD"
+            ),
+            None,
+        )
+        recording_required = False
+        if (
+            policy is not None
+            and record_binding is not None
+        ):
+            decision = (
+                RecordingArbiterService
+                .evaluate(
+                    session,
+                    camera_id=camera.id,
+                    camera_enabled=(
+                        camera.enabled
+                    ),
+                    policy=policy,
+                )
+            )
+            recording_required = (
+                decision.mode != "off"
+            )
+
+        record_observation = (
+            zlm_health.media(
+                record_binding.stream_profile_id
+            )
+            if (
+                recording_required
+                and record_binding is not None
+                and zlm_health is not None
+                and hasattr(
+                    zlm_health,
+                    "media",
+                )
+            )
+            else None
+        )
+        if (
+            record_observation is not None
+            and not bool(
+                getattr(
+                    record_observation,
+                    "online",
+                    False,
+                )
+            )
+        ):
+            return CapabilityHealthLayer(
+                state="degraded",
+                reason="recording_media_offline",
+                details={
+                    "observed_at": (
+                        record_observation
+                        .observed_at
+                        .isoformat()
+                    ),
+                },
+            )
+
         return CapabilityHealthLayer(
             state="unknown",
             reason="awaiting_media_observation",
@@ -204,6 +326,7 @@ class CameraCapabilityHealthService:
         session: Session,
         *,
         camera: Camera,
+        zlm_health: Any | None,
     ) -> CapabilityHealthLayer:
         disabled = cls._disabled(camera)
         if disabled is not None:
@@ -268,9 +391,115 @@ class CameraCapabilityHealthService:
                 state="degraded",
                 reason="recording_stream_unavailable",
             )
+
+        decision = (
+            RecordingArbiterService
+            .evaluate(
+                session,
+                camera_id=camera.id,
+                camera_enabled=(
+                    camera.enabled
+                ),
+                policy=policy,
+            )
+        )
+        if decision.mode == "off":
+            return CapabilityHealthLayer(
+                state="disabled",
+                reason="recording_not_currently_required",
+            )
+
+        media_observation = (
+            zlm_health.media(
+                profile.id
+            )
+            if (
+                zlm_health is not None
+                and hasattr(
+                    zlm_health,
+                    "media",
+                )
+            )
+            else None
+        )
+        if (
+            media_observation is not None
+            and not bool(
+                getattr(
+                    media_observation,
+                    "online",
+                    False,
+                )
+            )
+        ):
+            return CapabilityHealthLayer(
+                state="degraded",
+                reason="recording_source_offline",
+                details={
+                    "observed_at": (
+                        media_observation
+                        .observed_at
+                        .isoformat()
+                    ),
+                },
+            )
+
+        recording_observation = (
+            zlm_health.recording(
+                profile.id
+            )
+            if (
+                zlm_health is not None
+                and hasattr(
+                    zlm_health,
+                    "recording",
+                )
+            )
+            else None
+        )
+        if recording_observation is not None:
+            registered_at = (
+                getattr(
+                    media_observation,
+                    "observed_at",
+                    None,
+                )
+                if (
+                    media_observation is not None
+                    and bool(
+                        getattr(
+                            media_observation,
+                            "online",
+                            False,
+                        )
+                    )
+                )
+                else None
+            )
+            if (
+                registered_at is None
+                or recording_observation
+                .finalized_at
+                >= registered_at
+            ):
+                return CapabilityHealthLayer(
+                    state="healthy",
+                    details={
+                        "last_finalized_at": (
+                            recording_observation
+                            .finalized_at
+                            .isoformat()
+                        ),
+                        "mode": decision.mode,
+                    },
+                )
+
         return CapabilityHealthLayer(
             state="unknown",
             reason="awaiting_recording_observation",
+            details={
+                "mode": decision.mode,
+            },
         )
 
     @classmethod
@@ -492,6 +721,7 @@ class CameraCapabilityHealthService:
         camera: Camera,
         clock_store: Any | None = None,
         event_runtime: Any | None = None,
+        zlm_health: Any | None = None,
     ) -> CameraCapabilityHealth:
         device = (
             session.get(
@@ -513,11 +743,14 @@ class CameraCapabilityHealthService:
                 device=device,
             ),
             media=cls._media(
+                session,
                 camera=camera,
+                zlm_health=zlm_health,
             ),
             recording=cls._recording(
                 session,
                 camera=camera,
+                zlm_health=zlm_health,
             ),
             events=cls._events(
                 camera=camera,

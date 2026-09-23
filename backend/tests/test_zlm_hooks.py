@@ -12,7 +12,13 @@ from app.core.config import Settings
 from app.core.db import Base
 from app.integrations.zlm import ZlmMediaAccess
 from app.main import create_app
-from app.modules.cameras.models import CameraStreamProfile
+from app.modules.cameras.capability_health import (
+    CameraCapabilityHealthService,
+)
+from app.modules.cameras.models import (
+    Camera,
+    CameraStreamProfile,
+)
 from app.modules.cameras.service import CameraService
 from app.modules.events.models import Event
 from app.modules.recordings.models import RecordingPolicy, RecordingSegment
@@ -236,6 +242,172 @@ def test_non_rtsp_or_unmanaged_stream_change_does_not_create_continuity(
         app="zero-nvr",
         stream=stream,
     ) is None
+
+
+def test_zlm_hooks_project_media_and_recording_health(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    camera_id_text, stream = (
+        seed_recording_camera(app)
+    )
+    camera_id = uuid.UUID(
+        camera_id_text
+    )
+    profile_id = uuid.UUID(
+        hex=stream.removeprefix(
+            "profile-"
+        )
+    )
+
+    boundaries = iter(
+        [
+            dt(900),
+            dt(920),
+        ]
+    )
+    monkeypatch.setattr(
+        zlm_hooks,
+        "utc_now",
+        lambda: next(boundaries),
+    )
+
+    with TestClient(app) as client:
+        registered = client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=True,
+            ),
+        )
+        assert registered.status_code == 200
+
+        media = (
+            app.state.zlm_health
+            .media(profile_id)
+        )
+        assert media is not None
+        assert media.online is True
+        assert media.observed_at == dt(900)
+
+        with app.state.database.session() as session:
+            camera = session.get(
+                Camera,
+                camera_id,
+            )
+            assert camera is not None
+            projected = (
+                CameraCapabilityHealthService
+                .project(
+                    session,
+                    camera=camera,
+                    zlm_health=(
+                        app.state.zlm_health
+                    ),
+                )
+            )
+            assert (
+                projected.media.state
+                == "healthy"
+            )
+            assert (
+                projected.recording.state
+                == "unknown"
+            )
+
+        recorded = client.post(
+            "/internal/hooks/zlm/record-mp4",
+            json=record_payload(
+                stream=stream,
+                start=901,
+                duration=8,
+                name="health.mp4",
+            ),
+        )
+        assert recorded.status_code == 200
+        recorder = (
+            app.state.zlm_health
+            .recording(profile_id)
+        )
+        assert recorder is not None
+
+        with app.state.database.session() as session:
+            camera = session.get(
+                Camera,
+                camera_id,
+            )
+            assert camera is not None
+            projected = (
+                CameraCapabilityHealthService
+                .project(
+                    session,
+                    camera=camera,
+                    zlm_health=(
+                        app.state.zlm_health
+                    ),
+                )
+            )
+            assert (
+                projected.media.state
+                == "healthy"
+            )
+            assert (
+                projected.recording.state
+                == "healthy"
+            )
+
+        unregistered = client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=False,
+            ),
+        )
+        assert (
+            unregistered.status_code
+            == 200
+        )
+        media = (
+            app.state.zlm_health
+            .media(profile_id)
+        )
+        assert media is not None
+        assert media.online is False
+        assert media.observed_at == dt(920)
+
+        with app.state.database.session() as session:
+            camera = session.get(
+                Camera,
+                camera_id,
+            )
+            assert camera is not None
+            projected = (
+                CameraCapabilityHealthService
+                .project(
+                    session,
+                    camera=camera,
+                    zlm_health=(
+                        app.state.zlm_health
+                    ),
+                )
+            )
+            assert (
+                projected.media.state
+                == "degraded"
+            )
+            assert (
+                projected.media.reason
+                == "recording_media_offline"
+            )
+            assert (
+                projected.recording.state
+                == "degraded"
+            )
+            assert (
+                projected.recording.reason
+                == "recording_source_offline"
+            )
 
 
 def test_record_hooks_normalize_only_with_proven_same_generation(

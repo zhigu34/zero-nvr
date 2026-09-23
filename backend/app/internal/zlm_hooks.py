@@ -165,7 +165,17 @@ def zlm_stream_changed(
         return _ack()
 
     tracker = request.app.state.zlm_continuity
+    health = request.app.state.zlm_health
     boundary_at = utc_now()
+    try:
+        profile_id = (
+            RecordingCatalogService
+            .profile_id_from_stream(
+                body.stream
+            )
+        )
+    except ApiError:
+        profile_id = None
 
     if body.regist:
         tracker.registered(
@@ -174,6 +184,11 @@ def zlm_stream_changed(
             stream=body.stream,
             at=boundary_at,
         )
+        if profile_id is not None:
+            health.stream_registered(
+                profile_id,
+                at=boundary_at,
+            )
     else:
         tracker.unregistered(
             vhost=body.vhost,
@@ -181,6 +196,11 @@ def zlm_stream_changed(
             stream=body.stream,
             at=boundary_at,
         )
+        if profile_id is not None:
+            health.stream_unregistered(
+                profile_id,
+                at=boundary_at,
+            )
 
     # Persist only meaningful RECORD-source transitions. The canonical Event
     # interval is intentionally separate from high-frequency runtime telemetry:
@@ -330,6 +350,9 @@ def zlm_record_mp4(
             request.app.state.recording_tasks.finalized_prebuffer_fragment(
                 fragment
             )
+            request.app.state.zlm_health.recording_finalized(
+                profile.id
+            )
             return _ack()
 
         result = RecordingCatalogService.ingest_finalized(
@@ -382,6 +405,10 @@ def zlm_record_mp4(
                 )
 
         session.commit()
+        if result.segment is not None:
+            request.app.state.zlm_health.recording_finalized(
+                result.segment.stream_profile_id
+            )
     except Exception:
         session.rollback()
         raise

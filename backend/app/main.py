@@ -19,7 +19,10 @@ from app.core.logging import configure_logging
 from app.frontend import mount_frontend
 from app.integrations.frigate import FrigateMqttRuntime
 from app.integrations.onvif import OnvifEventRuntime
-from app.integrations.zlm import ZlmContinuityTracker
+from app.integrations.zlm import (
+    ZlmContinuityTracker,
+    ZlmObservedHealthStore,
+)
 from app.modules.auth.rate_limit import AuthRateLimiter
 from app.modules.cameras.clock_projection import (
     CameraClockProjectionStore,
@@ -47,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     event_bus = RuntimeEventBus()
     auth_rate_limiter = AuthRateLimiter()
     zlm_continuity = ZlmContinuityTracker()
+    zlm_health = ZlmObservedHealthStore()
     recorder_modes = RecorderModeTracker()
     camera_clock_projections = (
         CameraClockProjectionStore()
@@ -150,6 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.database = database
     app.state.logger = logger
     app.state.zlm_continuity = zlm_continuity
+    app.state.zlm_health = zlm_health
     app.state.recorder_modes = recorder_modes
     app.state.camera_clock_projections = (
         camera_clock_projections
