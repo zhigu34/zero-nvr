@@ -195,7 +195,7 @@ class PlaybackTimelineService:
         camera_id: uuid.UUID,
         start_at: datetime,
         end_at: datetime,
-        detail: TimelineDetailLevel,
+        detail: TimelineDetailLevel = "minute",
     ) -> PlaybackTimelineView:
         segments = list(
             session.scalars(
