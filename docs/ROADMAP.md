@@ -347,7 +347,7 @@ delay the V1 sequence defined above.
 
 - [x] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
 - [x] idempotent UPSERT for provider new/update/end messages.
-- [~] native ONVIF event adapter using mature library subscription mechanisms.
+- [x] native ONVIF event adapter using mature library subscription mechanisms.
 - [ ] V1.1 / non-blocking: optional vendor-native event adapter only where ONVIF is insufficient.
 - [ ] V1.1 / non-blocking: Frigate AIProviderInstance + Camera binding.
 - [x] Managed Frigate stream path through ZLM internal AI_DETECT stream.
@@ -374,7 +374,7 @@ V1.1 / non-blocking AI acceptance:
 
 ## Phase 6 — Alerting and Notifications
 
-- [ ] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
+- [~] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
 - [x] Alert persistence with active / acknowledged / resolved states.
 - [ ] source-recovery handling for health Alerts.
 - [x] NotificationTarget persistence with SecretStore-backed credentials/config.
