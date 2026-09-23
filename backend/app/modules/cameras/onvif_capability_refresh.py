@@ -13,6 +13,9 @@ from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.onvif import OnvifInspection, OnvifProfileProbe
 
+from .onvif_capability_snapshot import (
+    build_onvif_capability_snapshot,
+)
 from .models import (
     Camera,
     CameraStreamProfile,
@@ -431,9 +434,11 @@ class OnvifCapabilityRefreshService:
         device.serial_number = inspection.device.serial_number
         if inspection.device.hardware_id:
             device.hardware_id = inspection.device.hardware_id
-        device.capabilities_json = {
-            "onvif_services": sorted(current_services),
-        }
+        device.capabilities_json = (
+            build_onvif_capability_snapshot(
+                inspection
+            )
+        )
         device.capabilities_updated_at = now
 
         missing: list[str] = []

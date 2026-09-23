@@ -13,6 +13,9 @@ from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.onvif import OnvifInspection, OnvifProfileProbe
 
+from .onvif_capability_snapshot import (
+    build_onvif_capability_snapshot,
+)
 from .models import (
     Camera,
     CameraStreamBinding,
@@ -375,9 +378,11 @@ class OnvifOnboardingService:
         device.hardware_id = (
             inspection.device.hardware_id or device.hardware_id
         )
-        device.capabilities_json = {
-            "onvif_services": list(inspection.capabilities),
-        }
+        device.capabilities_json = (
+            build_onvif_capability_snapshot(
+                inspection
+            )
+        )
         device.capabilities_updated_at = now
 
         endpoint = next(
@@ -783,9 +788,11 @@ class OnvifOnboardingService:
             hardware_id=device_info.hardware_id,
             adapter_type="onvif",
             enabled=True,
-            capabilities_json={
-                "onvif_services": list(inspection.capabilities),
-            },
+            capabilities_json=(
+                build_onvif_capability_snapshot(
+                    inspection
+                )
+            ),
             capabilities_updated_at=utc_now(),
         )
         session.add(device)

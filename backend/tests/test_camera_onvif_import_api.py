@@ -437,6 +437,29 @@ def test_onvif_import_creates_device_multichannel_cameras_and_runtime_auth(
         assert candidate is not None
         assert candidate.state == "imported"
 
+        device = session.scalar(select(Device))
+        assert device is not None
+        assert device.capabilities_updated_at is not None
+        assert device.capabilities_json == {
+            "schema_version": 1,
+            "adapter": "onvif",
+            "onvif_services": ["Media", "PTZ"],
+            "supports_events": False,
+            "event_types": None,
+            "supports_ptz": True,
+            "ptz_features": None,
+            "supports_snapshot": None,
+            "supports_audio": True,
+            "supports_two_way_audio": None,
+            "supports_time_read": None,
+            "supports_time_write": None,
+            "supports_ntp_config": None,
+            "supports_profile_management": None,
+            "supports_reboot": None,
+            "vendor_capabilities": {},
+            "adapter_version": None,
+        }
+
         secret_rows = list(session.scalars(select(SecretRecord)))
         assert all(
             CAMERA_PASSWORD.encode() not in row.encrypted_payload
@@ -1476,6 +1499,17 @@ def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
             "capabilities_added": [],
             "capabilities_removed": ["PTZ"],
         }
+        with app.state.database.session() as session:
+            persisted_device = session.scalar(
+                select(Device)
+            )
+            assert persisted_device is not None
+            assert persisted_device.capabilities_json[
+                "supports_ptz"
+            ] is False
+            assert persisted_device.capabilities_json[
+                "supports_audio"
+            ] is True
         assert len(PROBED_URIS) == (
             probes_before_refresh + 1
         )
@@ -1567,6 +1601,24 @@ def test_onvif_capability_refresh_preserves_missing_profile_and_adds_new(
                 "onvif_services"
             ]
         ) == {"Media", "PTZ"}
+        assert device.capabilities_json[
+            "schema_version"
+        ] == 1
+        assert device.capabilities_json[
+            "supports_ptz"
+        ] is True
+        assert device.capabilities_json[
+            "supports_events"
+        ] is False
+        assert device.capabilities_json[
+            "supports_snapshot"
+        ] is None
+        assert device.capabilities_json[
+            "supports_time_read"
+        ] is None
+        assert device.capabilities_json[
+            "supports_ntp_config"
+        ] is None
         audits = list(
             session.scalars(
                 select(AuditEvent).where(
