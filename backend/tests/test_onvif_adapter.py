@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+import inspect
 import asyncio
 from types import SimpleNamespace
 
@@ -12,6 +13,26 @@ from app.integrations.onvif import OnvifAdapter, OnvifIntegrationError
 
 USERNAME = "admin"
 PASSWORD = "camera-super-secret"
+
+
+def test_adapter_defaults_to_mature_onvif_libraries() -> None:
+    import app.integrations.onvif.adapter as onvif_adapter
+
+    signature = inspect.signature(
+        onvif_adapter.OnvifAdapter.__init__
+    )
+    assert (
+        signature.parameters[
+            "camera_factory"
+        ].default
+        is onvif_adapter.ONVIFCamera
+    )
+    assert (
+        signature.parameters[
+            "discovery_factory"
+        ].default
+        is onvif_adapter.ThreadedWSDiscovery
+    )
 
 
 def settings(**overrides) -> Settings:

@@ -275,7 +275,7 @@ Acceptance:
 
 ## Phase 4 — ONVIF Device Plane
 
-- [ ] Integrate mature ONVIF library.
+- [x] Integrate mature ONVIF library.
 - [ ] ONVIF WS-Discovery on selected local interfaces.
 - [ ] stable device-identity correlation/deduplication independent from IP address.
 - [ ] Device information + firmware/serial/stable identifier probe.
