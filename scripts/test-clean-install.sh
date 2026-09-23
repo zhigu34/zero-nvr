@@ -55,6 +55,7 @@ mediaServerId=original-media-server
 enable=0
 on_play=
 on_record_mp4=
+on_server_started=
 on_stream_changed=
 stream_changed_schemas=
 
