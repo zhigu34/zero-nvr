@@ -2,9 +2,45 @@
 
 This roadmap describes implementation sequencing, not separate product releases.
 
-Core lifecycle tasks in this roadmap belong to the first production-ready zero-nvr release. Items explicitly marked OPTIONAL / POST-V1 do not block V1.
+Core lifecycle tasks in this roadmap belong to the first production-ready zero-nvr release. Items explicitly marked OPTIONAL / V1.1 / POST-V1 do not block V1.
 
 "Complete first release" means the supported NVR lifecycle has no dead end. It does not require every surveillance protocol, vendor SDK, observability stack, PITR engine, or multi-node feature to ship in V1.
+
+## V1 execution-order guard
+
+This section is the authoritative continuation order for future development sessions.
+Do **not** pick the first unchecked checkbox globally. Unless the user explicitly
+changes priority, always continue with the first unfinished **V1-blocking** item
+in the sequence below, and keep each session narrow.
+
+1. **Finish Phase 3 — Recording Plane**: close local-storage failure -> health
+   -> Alert create/resolve behavior; never add implicit cloud hot-recording
+   fallback.
+2. **Finish Phase 4 — ONVIF Device Plane**: capability snapshot/probing,
+   identity-conflict handling, and batch onboarding.
+3. **Finish the non-AI core of Phase 5** needed by V1: native ONVIF camera
+   events may normalize into the canonical Event model. Frigate/AI event work
+   is explicitly deferred and must be skipped.
+4. **Finish Phase 6 — Alerting and Notifications**, especially health-alert
+   recovery/resolve, authorization, and the normal Alert Center workflow.
+5. **Finish Phase 7 then Phase 8 — Storage/Cloud and Historical Playback**.
+6. **Finish Phase 9 — Event Recording using non-AI sources first**:
+   ONVIF/manual/API/system-health flows and remaining pre-roll/linkage gaps.
+   AI-trigger entry points are not a V1 release gate.
+7. **Finish Phase 11 — Operations, Backup, Recovery, and Release**, followed by
+   the remaining real-host/camera acceptance and resource-budget validation.
+
+Continuation rule:
+
+- AI detection/events are **not required for V1**.
+- Unfinished Frigate/AI-provider items are **V1.1 / non-blocking** even when
+  they appear earlier numerically in the roadmap.
+- Do not resume Frigate DetectionProvider, AI event ingestion/UI, AI liveness,
+  AI-trigger recording, or additional AI providers until the V1-blocking
+  sequence above is complete, unless the user explicitly asks for them.
+- Existing completed Frigate/AI infrastructure may remain in the repository;
+  this decision only changes release gating and implementation priority.
+- OPTIONAL / V1.1 / POST-V1 items must never interrupt the sequence above.
 
 
 ## Design-freeze gate
@@ -300,20 +336,25 @@ Acceptance:
 - source profiles map into canonical recording/live/preview/detection roles.
 - bad credentials or unpullable media fail onboarding without leaving silent half-configured cameras.
 
-## Phase 5 — Events and Optional AI
+## Phase 5 — Core Events and Deferred AI
+
+V1 scope in this phase is intentionally narrow: preserve the canonical Event
+model and complete the native/non-AI event path needed by the NVR lifecycle.
+Frigate/AI detection-event productization is V1.1 / non-blocking and must not
+delay the V1 sequence defined above.
 
 - [x] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
 - [x] idempotent UPSERT for provider new/update/end messages.
 - [ ] native ONVIF event adapter using mature library subscription mechanisms.
-- [ ] optional vendor-native event adapter only where ONVIF is insufficient.
-- [ ] Frigate AIProviderInstance + Camera binding.
+- [ ] V1.1 / non-blocking: optional vendor-native event adapter only where ONVIF is insufficient.
+- [ ] V1.1 / non-blocking: Frigate AIProviderInstance + Camera binding.
 - [x] Managed Frigate stream path through ZLM internal AI_DETECT stream.
 - [x] External Frigate connection/mapping mode.
 - [x] Frigate event/snapshot normalization without copying its full internal event schema.
-- [ ] provider liveness/health transitions without high-frequency DB heartbeat rows.
-- [ ] Event Center filters: camera / source / category / label / zone / confidence / date.
-- [ ] Event detail drawer with snapshot, metadata, playback jump, protect/export actions.
-- [ ] event snapshot priority: provider snapshot -> ZLM current snapshot -> FFmpeg historical fallback.
+- [ ] V1.1 / non-blocking: AI/provider liveness/health transitions without high-frequency DB heartbeat rows.
+- [ ] V1.1 / non-blocking: full AI-aware Event Center filters: camera / source / category / label / zone / confidence / date.
+- [ ] V1.1 / non-blocking: full AI event detail drawer with snapshot, metadata, playback jump, protect/export actions.
+- [ ] V1.1 / non-blocking: AI/provider event snapshot priority: provider snapshot -> ZLM current snapshot -> FFmpeg historical fallback.
 
 Acceptance:
 
@@ -433,12 +474,16 @@ Acceptance:
 
 ## Phase 10 — Optional integrations and extensions
 
-### V1 optional integrations
+### Optional integrations (non-blocking for V1)
+
+Everything in this subsection is skipped while the V1 execution-order guard
+still has unfinished blocking work. Frigate/AI additions are targeted at V1.1
+unless explicitly re-prioritized.
 
 - [ ] Home Assistant REST/Webhook integration where useful.
 - [ ] RecordingTrigger external automation flow.
 - [ ] MQTT integration / Home Assistant MQTT Discovery.
-- [ ] Frigate DetectionProvider with Managed and External modes.
+- [ ] V1.1 / non-blocking: Frigate DetectionProvider with Managed and External modes.
 - [x] optional TURN support for remote WebRTC when deployment requires it.
 
 Acceptance:
