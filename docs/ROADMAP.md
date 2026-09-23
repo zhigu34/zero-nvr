@@ -356,16 +356,19 @@ delay the V1 sequence defined above.
 - [ ] V1.1 / non-blocking: full AI event detail drawer with snapshot, metadata, playback jump, protect/export actions.
 - [ ] V1.1 / non-blocking: AI/provider event snapshot priority: provider snapshot -> ZLM current snapshot -> FFmpeg historical fallback.
 
-Acceptance:
+V1 acceptance:
 
-- replayed provider messages do not create duplicate Events;
+- replayed native/provider messages do not create duplicate canonical Events;
+- ONVIF camera events use the same Event API;
+- AI disabled means the V1 core neither pulls nor requires Frigate;
+- no generic EventFusion/DetectionObservation storage is required for V1.
+
+V1.1 / non-blocking AI acceptance:
+
 - Frigate new/update/end updates one Event;
-- ONVIF events use the same Event API;
 - Frigate/AI failure never interrupts healthy live/recording;
 - Managed Frigate consumes the ZLM internal AI_DETECT stream and does not add a direct source-camera RTSP pull;
-- source-facing camera reader/session count is unchanged when Managed Frigate is enabled;
-- users with AI disabled do not need to pull or run Frigate;
-- no generic EventFusion/DetectionObservation storage is required for V1.
+- source-facing camera reader/session count is unchanged when Managed Frigate is enabled.
 
 ## Phase 6 — Alerting and Notifications
 
@@ -451,7 +454,7 @@ Acceptance:
 
 ## Phase 9 — Event Recording
 
-- [ ] RecordingTrigger lifecycle for AI/ONVIF/HA/API/manual event recording requests.
+- [ ] V1 RecordingTrigger lifecycle for ONVIF/API/manual event recording requests; AI/Home Assistant trigger entry points are V1.1 / non-blocking.
 - [x] derive desired recording state from baseline policy + active trigger windows.
 - [x] overlapping triggers extend one effective required-coverage/promotion interval without duplicate event recorders.
 - [x] continuous/scheduled/manual existing recording is annotated rather than restarted.
