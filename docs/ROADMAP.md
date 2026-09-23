@@ -279,7 +279,7 @@ Acceptance:
 - [x] ONVIF WS-Discovery on selected local interfaces.
 - [x] stable device-identity correlation/deduplication independent from IP address.
 - [x] Device information + firmware/serial/stable identifier probe.
-- [ ] multi-channel/video-source enumeration for NVR/DVR/multi-sensor devices.
+- [x] multi-channel/video-source enumeration for NVR/DVR/multi-sensor devices.
 - [ ] ONVIF Media Profiles -> CameraStreamProfile normalization.
 - [ ] stream URI retrieval without credential leakage.
 - [ ] per-role stream selection and actual pull verification.
