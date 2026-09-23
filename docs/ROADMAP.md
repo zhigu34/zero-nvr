@@ -374,9 +374,9 @@ V1.1 / non-blocking AI acceptance:
 
 ## Phase 6 — Alerting and Notifications
 
-- [~] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
+- [x] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
 - [x] Alert persistence with active / acknowledged / resolved states.
-- [ ] source-recovery handling for health Alerts.
+- [~] source-recovery handling for health Alerts.
 - [x] NotificationTarget persistence with SecretStore-backed credentials/config.
 - [x] NotificationDelivery persistence: pending / sending / sent / failed / suppressed.
 - [x] Huey-backed delivery retry with transient/permanent/rate-limited classification.
