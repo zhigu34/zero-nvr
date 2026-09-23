@@ -29,3 +29,21 @@ class EventView(BaseModel):
 class EventPage(BaseModel):
     items: list[EventView]
     next_cursor: str | None = None
+
+
+class EventRecordingSegmentLinkView(BaseModel):
+    recording_segment_id: uuid.UUID
+    playback_ref: uuid.UUID
+    segment_start_at: datetime
+    segment_end_at: datetime
+    overlap_start_at: datetime
+    overlap_end_at: datetime
+
+
+class EventRecordingSegmentPage(BaseModel):
+    event_id: uuid.UUID
+    camera_id: uuid.UUID | None
+    range_start_at: datetime
+    range_end_at: datetime
+    items: list[EventRecordingSegmentLinkView]
+    next_cursor: str | None = None

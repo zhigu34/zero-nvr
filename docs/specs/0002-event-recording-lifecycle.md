@@ -186,6 +186,12 @@ If CONTINUOUS, SCHEDULE, or MANUAL already keeps the camera recording:
 
 Playback resolves Event time against the existing RecordingSegments.
 
+The API derives this linkage at query time from the Event camera and actual UTC
+wall-clock overlap. It does not persist an Event-to-RecordingSegment join table
+and does not depend on filenames or recording mode. The event-recordings query
+returns the matching segment/playback references plus each segment's actual
+overlap with the Event window.
+
 ## Pre-roll and post-roll
 
 Default product target may be approximately:

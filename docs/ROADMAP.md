@@ -462,9 +462,9 @@ Acceptance:
 - [x] continuous/scheduled/manual existing recording is annotated rather than restarted.
 - [x] Implement the POC-approved ZLM EVENT_ONLY rolling tmpfs + whole-fragment promotion mechanism.
 - [x] configurable pre_roll_seconds / post_roll_seconds.
-- [~] honest degraded-pre-roll state when required past coverage is unavailable.
+- [x] honest degraded-pre-roll state when required past coverage is unavailable.
 - [x] actual ZLM segment finalize hooks feed RecordingSegment catalog.
-- [ ] Event -> RecordingSegment wall-clock linkage at query time.
+- [~] Event -> RecordingSegment wall-clock linkage at query time.
 - [x] asynchronous explicit Export job for a single clip/file when requested.
 - [x] event-driven RecordingProtection action where policy requires it.
 - [x] no mandatory RecordingSession / RecordingIntent / PrebufferFragment / RecordingSessionSegment tables.

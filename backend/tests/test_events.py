@@ -15,7 +15,10 @@ from app.modules.auth.models import Role
 from app.modules.cameras.service import CameraService
 from app.modules.events.models import Event
 from app.modules.events.service import EventIngest, EventService
-from app.modules.recordings.models import RecordingPolicy
+from app.modules.recordings.models import (
+    RecordingPolicy,
+    RecordingSegment,
+)
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -381,6 +384,149 @@ def test_event_api_cursor_filters_and_camera_scope(
             f"/api/v1/events/{global_event}"
         )
         assert global_detail.status_code == 200
+
+
+def test_event_recordings_are_linked_by_wall_clock_overlap(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera(app, "Front Door")
+        other_camera_id = seed_camera(app, "Back Door")
+        base = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+        event_id = ingest(
+            app,
+            source_event_id="recording-link",
+            camera_id=camera_id,
+            started_at=base + timedelta(seconds=10),
+            ended_at=base + timedelta(seconds=25),
+        )
+
+        with app.state.database.session() as session:
+            segments = [
+                RecordingSegment(
+                    camera_id=camera_id,
+                    stream_profile_id=None,
+                    started_at=base,
+                    ended_at=base + timedelta(seconds=15),
+                    duration_ms=15000,
+                    timing_status="FINAL",
+                    timing_source="EXPLICIT_STOP",
+                    recording_reasons_json=["continuous"],
+                    size_bytes=1000,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream="profile-a",
+                    integrity_status="OK",
+                    completion_reason="NORMAL",
+                ),
+                RecordingSegment(
+                    camera_id=camera_id,
+                    stream_profile_id=None,
+                    started_at=base + timedelta(seconds=15),
+                    ended_at=base + timedelta(seconds=30),
+                    duration_ms=15000,
+                    timing_status="FINAL",
+                    timing_source="EXPLICIT_STOP",
+                    recording_reasons_json=["continuous"],
+                    size_bytes=1000,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream="profile-a",
+                    integrity_status="OK",
+                    completion_reason="NORMAL",
+                ),
+                RecordingSegment(
+                    camera_id=camera_id,
+                    stream_profile_id=None,
+                    started_at=base - timedelta(seconds=20),
+                    ended_at=base,
+                    duration_ms=20000,
+                    timing_status="FINAL",
+                    timing_source="EXPLICIT_STOP",
+                    recording_reasons_json=["continuous"],
+                    size_bytes=1000,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream="profile-a",
+                    integrity_status="OK",
+                    completion_reason="NORMAL",
+                ),
+                RecordingSegment(
+                    camera_id=other_camera_id,
+                    stream_profile_id=None,
+                    started_at=base + timedelta(seconds=12),
+                    ended_at=base + timedelta(seconds=20),
+                    duration_ms=8000,
+                    timing_status="FINAL",
+                    timing_source="EXPLICIT_STOP",
+                    recording_reasons_json=["continuous"],
+                    size_bytes=1000,
+                    codec="h264",
+                    container="fmp4",
+                    source_media_server_id="default",
+                    source_app="zero-nvr",
+                    source_stream="profile-b",
+                    integrity_status="OK",
+                    completion_reason="NORMAL",
+                ),
+            ]
+            session.add_all(segments)
+            session.commit()
+            first_id = str(segments[0].id)
+            second_id = str(segments[1].id)
+
+        response = client.get(
+            f"/api/v1/events/{event_id}/recordings"
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["event_id"] == str(event_id)
+        assert body["camera_id"] == str(camera_id)
+        assert body["range_start_at"] == (
+            "2026-09-20T12:00:10Z"
+        )
+        assert body["range_end_at"] == (
+            "2026-09-20T12:00:25Z"
+        )
+        assert [
+            item["recording_segment_id"]
+            for item in body["items"]
+        ] == [
+            second_id,
+            first_id,
+        ]
+        assert body["items"][0]["overlap_start_at"] == (
+            "2026-09-20T12:00:15Z"
+        )
+        assert body["items"][0]["overlap_end_at"] == (
+            "2026-09-20T12:00:25Z"
+        )
+        assert body["items"][0]["playback_ref"] == second_id
+        assert body["items"][1]["overlap_start_at"] == (
+            "2026-09-20T12:00:10Z"
+        )
+        assert body["items"][1]["overlap_end_at"] == (
+            "2026-09-20T12:00:15Z"
+        )
+        assert body["items"][1]["playback_ref"] == first_id
+        assert body["next_cursor"] is None
+
 
 
 def test_timeline_overlays_events_that_overlap_requested_window(

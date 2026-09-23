@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
@@ -18,10 +18,16 @@ from app.integrations.frigate import (
     FrigateIntegrationError,
 )
 from app.modules.system.frigate import FrigateProviderSettingsService
+from app.modules.recordings.query import RecordingCatalogQueryService
 
 from .models import Event
 from .query import EventQueryService
-from .schemas import EventPage, EventView
+from .schemas import (
+    EventPage,
+    EventRecordingSegmentLinkView,
+    EventRecordingSegmentPage,
+    EventView,
+)
 
 
 router = APIRouter()
@@ -142,6 +148,95 @@ def get_event(
             )
     return _event_view(event)
 
+
+@router.get(
+    "/events/{event_id}/recordings",
+    response_model=EventRecordingSegmentPage,
+)
+def list_event_recordings(
+    event_id: uuid.UUID,
+    cursor: str | None = None,
+    limit: int = 100,
+    context: AuthContext = Depends(
+        require_permission("event.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> EventRecordingSegmentPage:
+    if "recording.view" not in context.permissions:
+        raise ApiError(
+            status_code=403,
+            code="permission_denied",
+            message=(
+                "You do not have permission to view recordings."
+            ),
+            details={"permission": "recording.view"},
+        )
+
+    event = EventQueryService.get(session, event_id)
+    if event.camera_id is not None:
+        scope = get_effective_camera_scope(
+            context,
+            session,
+        )
+        if not scope.allows(event.camera_id):
+            raise ApiError(
+                status_code=404,
+                code="event_not_found",
+                message="Event was not found.",
+            )
+
+    range_start = event.started_at
+    if event.ended_at is None:
+        range_end = datetime.now(UTC)
+    elif event.ended_at <= event.started_at:
+        range_end = event.started_at + timedelta(
+            microseconds=1
+        )
+    else:
+        range_end = event.ended_at
+
+    if event.camera_id is None:
+        return EventRecordingSegmentPage(
+            event_id=event.id,
+            camera_id=None,
+            range_start_at=range_start,
+            range_end_at=range_end,
+            items=[],
+            next_cursor=None,
+        )
+
+    page = RecordingCatalogQueryService.list_camera(
+        session,
+        camera_id=event.camera_id,
+        start_at=range_start,
+        end_at=range_end,
+        cursor=cursor,
+        limit=limit,
+    )
+    return EventRecordingSegmentPage(
+        event_id=event.id,
+        camera_id=event.camera_id,
+        range_start_at=range_start,
+        range_end_at=range_end,
+        items=[
+            EventRecordingSegmentLinkView(
+                recording_segment_id=item.id,
+                playback_ref=item.id,
+                segment_start_at=item.started_at,
+                segment_end_at=item.ended_at,
+                overlap_start_at=max(
+                    item.started_at,
+                    range_start,
+                ),
+                overlap_end_at=min(
+                    item.ended_at,
+                    range_end,
+                ),
+            )
+            for item in page.items
+        ],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get("/events/{event_id}/snapshot")
