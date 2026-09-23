@@ -280,7 +280,7 @@ Acceptance:
 - [x] stable device-identity correlation/deduplication independent from IP address.
 - [x] Device information + firmware/serial/stable identifier probe.
 - [x] multi-channel/video-source enumeration for NVR/DVR/multi-sensor devices.
-- [ ] ONVIF Media Profiles -> CameraStreamProfile normalization.
+- [x] ONVIF Media Profiles -> CameraStreamProfile normalization.
 - [ ] stream URI retrieval without credential leakage.
 - [ ] per-role stream selection and actual pull verification.
 - [ ] DeviceCapabilitySnapshot persistence/refresh.
