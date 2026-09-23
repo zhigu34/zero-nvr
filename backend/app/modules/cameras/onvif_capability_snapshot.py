@@ -20,6 +20,15 @@ def build_onvif_capability_snapshot(
 
     services = sorted(set(inspection.capabilities))
     service_set = set(services)
+    probe = inspection.capability_probe
+    supports_audio = (
+        probe.supports_audio
+        if probe.supports_audio is not None
+        else any(
+            profile.has_audio
+            for profile in inspection.profiles
+        )
+    )
     return {
         "schema_version": CAPABILITY_SNAPSHOT_SCHEMA_VERSION,
         "adapter": "onvif",
@@ -28,15 +37,12 @@ def build_onvif_capability_snapshot(
         "event_types": None,
         "supports_ptz": "PTZ" in service_set,
         "ptz_features": None,
-        "supports_snapshot": None,
-        "supports_audio": any(
-            profile.has_audio
-            for profile in inspection.profiles
-        ),
+        "supports_snapshot": probe.supports_snapshot,
+        "supports_audio": supports_audio,
         "supports_two_way_audio": None,
-        "supports_time_read": None,
-        "supports_time_write": None,
-        "supports_ntp_config": None,
+        "supports_time_read": probe.supports_time_read,
+        "supports_time_write": probe.supports_time_write,
+        "supports_ntp_config": probe.supports_ntp_config,
         "supports_profile_management": None,
         "supports_reboot": None,
         "vendor_capabilities": {},

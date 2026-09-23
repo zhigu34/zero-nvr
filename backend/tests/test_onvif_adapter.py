@@ -96,10 +96,38 @@ class FakeDeviceManagement:
             HardwareId="HW-ABC",
         )
 
+    async def GetSystemDateAndTime(self):
+        return SimpleNamespace(
+            DateTimeType="NTP",
+            TimeZone=SimpleNamespace(TZ="UTC0"),
+            UTCDateTime=SimpleNamespace(
+                Date=SimpleNamespace(
+                    Year=2026,
+                    Month=9,
+                    Day=23,
+                ),
+                Time=SimpleNamespace(
+                    Hour=9,
+                    Minute=30,
+                    Second=0,
+                ),
+            ),
+        )
+
+    async def SetSystemDateAndTime(self, _request):
+        return None
+
+    async def GetNTP(self):
+        return SimpleNamespace(FromDHCP=True)
+
+    async def SetNTP(self, _request):
+        return None
+
 
 class FakeMedia:
     def __init__(self) -> None:
         self.requests = []
+        self.snapshot_requests = []
 
     async def GetProfiles(self):
         main = SimpleNamespace(
@@ -141,8 +169,33 @@ class FakeMedia:
         return [main, sub]
 
     def create_type(self, name: str):
-        assert name == "GetStreamUri"
-        return SimpleNamespace(StreamSetup=None, ProfileToken=None)
+        if name == "GetStreamUri":
+            return SimpleNamespace(
+                StreamSetup=None,
+                ProfileToken=None,
+            )
+        if name == "GetSnapshotUri":
+            return SimpleNamespace(
+                ProfileToken=None,
+            )
+        raise AssertionError(
+            f"unexpected media request type: {name}"
+        )
+
+    async def GetSnapshotUri(self, request):
+        self.snapshot_requests.append(
+            request.ProfileToken
+        )
+        if request.ProfileToken == "main-token":
+            return SimpleNamespace(
+                Uri=(
+                    "http://192.168.10.20/"
+                    "snapshot.jpg?token=private"
+                )
+            )
+        raise RuntimeError(
+            f"vendor snapshot error {PASSWORD}"
+        )
 
     async def GetStreamUri(self, request):
         self.requests.append(request)
@@ -217,6 +270,11 @@ async def test_inspect_device_parses_profiles_closes_and_hides_stream_uri() -> N
     assert result.device.hardware_id == "HW-ABC"
     assert result.capabilities == ("Media", "PTZ")
     assert len(result.profiles) == 2
+    assert result.capability_probe.supports_snapshot is True
+    assert result.capability_probe.supports_audio is True
+    assert result.capability_probe.supports_time_read is True
+    assert result.capability_probe.supports_time_write is True
+    assert result.capability_probe.supports_ntp_config is True
 
     main, sub = result.profiles
 
@@ -240,6 +298,8 @@ async def test_inspect_device_parses_profiles_closes_and_hides_stream_uri() -> N
     assert "stream-password" not in rendered
     assert "stream-secret" not in rendered
     assert "rtsp://" not in rendered
+    assert "snapshot.jpg" not in rendered
+    assert "private" not in rendered
 
     # One profile failing GetStreamUri must not discard the valid profile.
     assert sub.codec == "h264"
@@ -252,6 +312,77 @@ async def test_inspect_device_parses_profiles_closes_and_hides_stream_uri() -> N
     assert camera.kwargs["nat_override"] is True
     assert camera.kwargs["no_cache"] is True
     assert camera.closed is True
+
+
+class OptionalProbeFailureDeviceManagement(
+    FakeDeviceManagement
+):
+    async def GetSystemDateAndTime(self):
+        raise RuntimeError(
+            f"clock failure {PASSWORD}"
+        )
+
+    async def GetNTP(self):
+        raise RuntimeError(
+            f"ntp failure {PASSWORD}"
+        )
+
+
+class OptionalProbeFailureMedia(FakeMedia):
+    async def GetSnapshotUri(self, request):
+        self.snapshot_requests.append(
+            request.ProfileToken
+        )
+        raise RuntimeError(
+            f"snapshot failure {PASSWORD}"
+        )
+
+
+class OptionalProbeFailureCamera(FakeCamera):
+    def __init__(
+        self,
+        host,
+        port,
+        username,
+        password,
+        **kwargs,
+    ) -> None:
+        super().__init__(
+            host,
+            port,
+            username,
+            password,
+            **kwargs,
+        )
+        self.devicemgmt = (
+            OptionalProbeFailureDeviceManagement()
+        )
+        self.media = OptionalProbeFailureMedia()
+
+
+@pytest.mark.asyncio
+async def test_inspect_device_keeps_optional_probe_failures_non_fatal() -> None:
+    OptionalProbeFailureCamera.instances = []
+    adapter = OnvifAdapter(
+        settings(),
+        camera_factory=OptionalProbeFailureCamera,
+    )
+
+    result = await adapter.inspect_device(
+        host="192.168.10.20",
+        port=80,
+        username=USERNAME,
+        password=PASSWORD,
+    )
+
+    assert result.device.model == "Cam X"
+    assert len(result.profiles) == 2
+    assert result.capability_probe.supports_snapshot is None
+    assert result.capability_probe.supports_audio is True
+    assert result.capability_probe.supports_time_read is None
+    assert result.capability_probe.supports_time_write is None
+    assert result.capability_probe.supports_ntp_config is None
+    assert OptionalProbeFailureCamera.instances[-1].closed is True
 
 
 class FailingCamera(FakeCamera):

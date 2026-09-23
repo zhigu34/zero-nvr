@@ -6,6 +6,7 @@ from .event_runtime import (
 from .events import OnvifEventSubscription
 from .adapter import (
     OnvifAdapter,
+    OnvifCapabilityProbe,
     OnvifClockReading,
     OnvifDeviceInfo,
     OnvifDiscoveryCandidate,
@@ -20,6 +21,7 @@ __all__ = [
     "OnvifEventSubscription",
     "OnvifEventTarget",
     "OnvifAdapter",
+    "OnvifCapabilityProbe",
     "OnvifClockReading",
     "OnvifDeviceInfo",
     "OnvifDiscoveryCandidate",

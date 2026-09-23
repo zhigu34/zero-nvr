@@ -57,10 +57,22 @@ class OnvifProfileProbe:
 
 
 @dataclass(frozen=True, slots=True)
+class OnvifCapabilityProbe:
+    supports_snapshot: bool | None = None
+    supports_audio: bool | None = None
+    supports_time_read: bool | None = None
+    supports_time_write: bool | None = None
+    supports_ntp_config: bool | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class OnvifInspection:
     device: OnvifDeviceInfo
     capabilities: tuple[str, ...]
     profiles: tuple[OnvifProfileProbe, ...]
+    capability_probe: OnvifCapabilityProbe = field(
+        default_factory=OnvifCapabilityProbe
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +154,17 @@ def _number(value: Any, cast: Callable[[Any], Any]) -> Any:
         return None
 
 
+def _service_operation(
+    service: Any,
+    name: str,
+) -> Callable[..., Any] | None:
+    try:
+        operation = getattr(service, name)
+    except Exception:
+        return None
+    return operation if callable(operation) else None
+
+
 def _source_address_key(
     value: Any,
 ) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
@@ -207,6 +230,181 @@ class OnvifAdapter:
         )
         self._monotonic = monotonic
 
+    async def _probe_snapshot_capability(
+        self,
+        media: Any,
+        raw_profiles: list[Any],
+    ) -> bool | None:
+        operation = _service_operation(
+            media,
+            "GetSnapshotUri",
+        )
+        if operation is None:
+            return False
+
+        tokens = [
+            token
+            for raw_profile in raw_profiles
+            if (
+                token := _text(
+                    _read(raw_profile, "token")
+                    or _read(raw_profile, "Token")
+                )
+            )
+            is not None
+        ]
+        if not tokens:
+            return False
+
+        try:
+            async with asyncio.timeout(
+                min(
+                    3.0,
+                    self.settings.onvif_timeout_seconds,
+                )
+            ):
+                for token in tokens:
+                    try:
+                        request = media.create_type(
+                            "GetSnapshotUri"
+                        )
+                        request.ProfileToken = token
+                        response = await operation(
+                            request
+                        )
+                    except Exception:
+                        continue
+                    if _text(
+                        _read(response, "Uri")
+                    ) is not None:
+                        return True
+        except TimeoutError:
+            return None
+        return None
+
+    async def _probe_management_capabilities(
+        self,
+        devicemgmt: Any,
+    ) -> tuple[
+        bool | None,
+        bool | None,
+        bool | None,
+    ]:
+        get_time = _service_operation(
+            devicemgmt,
+            "GetSystemDateAndTime",
+        )
+        set_time = _service_operation(
+            devicemgmt,
+            "SetSystemDateAndTime",
+        )
+        get_ntp = _service_operation(
+            devicemgmt,
+            "GetNTP",
+        )
+        set_ntp = _service_operation(
+            devicemgmt,
+            "SetNTP",
+        )
+
+        supports_time_read: bool | None = (
+            False
+            if get_time is None
+            else None
+        )
+        supports_time_write: bool | None = (
+            False
+            if set_time is None
+            else None
+        )
+        supports_ntp_config: bool | None = (
+            False
+            if get_ntp is None
+            or set_ntp is None
+            else None
+        )
+
+        try:
+            async with asyncio.timeout(
+                min(
+                    3.0,
+                    self.settings.onvif_timeout_seconds,
+                )
+            ):
+                if get_time is not None:
+                    try:
+                        raw_clock = await get_time()
+                        self._parse_utc_datetime(
+                            raw_clock
+                        )
+                        supports_time_read = True
+                    except Exception:
+                        pass
+
+                if (
+                    set_time is not None
+                    and supports_time_read is True
+                ):
+                    # Do not mutate a device clock merely to probe a
+                    # capability. A reachable clock API plus an exposed
+                    # SetSystemDateAndTime operation is sufficient evidence;
+                    # the real write path still verifies the device response.
+                    supports_time_write = True
+
+                if (
+                    get_ntp is not None
+                    and set_ntp is not None
+                ):
+                    try:
+                        await get_ntp()
+                        supports_ntp_config = (
+                            True
+                        )
+                    except Exception:
+                        pass
+        except TimeoutError:
+            pass
+
+        return (
+            supports_time_read,
+            supports_time_write,
+            supports_ntp_config,
+        )
+
+    async def _probe_optional_capabilities(
+        self,
+        *,
+        devicemgmt: Any,
+        media: Any,
+        raw_profiles: list[Any],
+        profiles: list[OnvifProfileProbe],
+    ) -> OnvifCapabilityProbe:
+        supports_snapshot = (
+            await self._probe_snapshot_capability(
+                media,
+                raw_profiles,
+            )
+        )
+        (
+            supports_time_read,
+            supports_time_write,
+            supports_ntp_config,
+        ) = (
+            await self._probe_management_capabilities(
+                devicemgmt
+            )
+        )
+        return OnvifCapabilityProbe(
+            supports_snapshot=supports_snapshot,
+            supports_audio=any(
+                profile.has_audio
+                for profile in profiles
+            ),
+            supports_time_read=supports_time_read,
+            supports_time_write=supports_time_write,
+            supports_ntp_config=supports_ntp_config,
+        )
+
     async def inspect_device(
         self,
         *,
@@ -231,7 +429,9 @@ class OnvifAdapter:
                 raw_device = await camera.devicemgmt.GetDeviceInformation()
                 capabilities = await camera.get_capabilities()
                 media = camera.create_media_service()
-                raw_profiles = await media.GetProfiles()
+                raw_profiles = list(
+                    await media.GetProfiles() or []
+                )
 
                 device = OnvifDeviceInfo(
                     manufacturer=_text(_read(raw_device, "Manufacturer")),
@@ -254,16 +454,28 @@ class OnvifAdapter:
                     )
 
                 profiles: list[OnvifProfileProbe] = []
-                for raw_profile in raw_profiles or []:
-                    parsed = await self._inspect_profile(media, raw_profile)
+                for raw_profile in raw_profiles:
+                    parsed = await self._inspect_profile(
+                        media,
+                        raw_profile,
+                    )
                     if parsed is not None:
                         profiles.append(parsed)
 
-                return OnvifInspection(
-                    device=device,
-                    capabilities=capability_names,
-                    profiles=tuple(profiles),
+            capability_probe = (
+                await self._probe_optional_capabilities(
+                    devicemgmt=camera.devicemgmt,
+                    media=media,
+                    raw_profiles=raw_profiles,
+                    profiles=profiles,
                 )
+            )
+            return OnvifInspection(
+                device=device,
+                capabilities=capability_names,
+                profiles=tuple(profiles),
+                capability_probe=capability_probe,
+            )
         except TimeoutError as exc:
             raise OnvifIntegrationError(
                 "onvif_timeout",
