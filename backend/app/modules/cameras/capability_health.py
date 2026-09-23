@@ -458,30 +458,43 @@ class CameraCapabilityHealthService:
             else None
         )
         if recording_observation is not None:
-            registered_at = (
-                getattr(
-                    media_observation,
-                    "observed_at",
-                    None,
-                )
-                if (
-                    media_observation is not None
-                    and bool(
-                        getattr(
-                            media_observation,
-                            "online",
-                            False,
-                        )
+            media_online = (
+                media_observation is not None
+                and bool(
+                    getattr(
+                        media_observation,
+                        "online",
+                        False,
                     )
                 )
+            )
+            media_continuity = (
+                getattr(
+                    media_observation,
+                    "continuity_id",
+                    None,
+                )
+                if media_online
                 else None
             )
-            if (
-                registered_at is None
-                or recording_observation
-                .finalized_at
-                >= registered_at
-            ):
+            recording_continuity = (
+                getattr(
+                    recording_observation,
+                    "continuity_id",
+                    None,
+                )
+            )
+            same_generation = (
+                not media_online
+                or media_continuity is None
+                or (
+                    recording_continuity
+                    is not None
+                    and recording_continuity
+                    == media_continuity
+                )
+            )
+            if same_generation:
                 return CapabilityHealthLayer(
                     state="healthy",
                     details={

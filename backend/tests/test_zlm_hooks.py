@@ -575,6 +575,18 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
             ),
         ).status_code == 200
 
+        healthy_generation = (
+            app.state.zlm_health
+            .recording(
+                uuid.UUID(
+                    hex=stream.removeprefix(
+                        "profile-"
+                    )
+                )
+            )
+        )
+        assert healthy_generation is not None
+
         # Old generation hook arrives late after reconnect. Its start evidence
         # is before old unregister, so it must resolve to the closed generation.
         assert client.post(
@@ -586,6 +598,20 @@ def test_reconnect_late_old_hook_never_contaminates_new_generation(
                 name="old-2-late.mp4",
             ),
         ).status_code == 200
+        after_late_old = (
+            app.state.zlm_health
+            .recording(
+                uuid.UUID(
+                    hex=stream.removeprefix(
+                        "profile-"
+                    )
+                )
+            )
+        )
+        assert (
+            after_late_old
+            == healthy_generation
+        )
 
         # A second new-generation segment may normalize only new-1.
         assert client.post(

@@ -178,7 +178,7 @@ def zlm_stream_changed(
         profile_id = None
 
     if body.regist:
-        tracker.registered(
+        continuity_id = tracker.registered(
             vhost=body.vhost,
             app=body.app,
             stream=body.stream,
@@ -188,9 +188,12 @@ def zlm_stream_changed(
             health.stream_registered(
                 profile_id,
                 at=boundary_at,
+                continuity_id=(
+                    continuity_id
+                ),
             )
     else:
-        tracker.unregistered(
+        continuity_id = tracker.unregistered(
             vhost=body.vhost,
             app=body.app,
             stream=body.stream,
@@ -200,6 +203,9 @@ def zlm_stream_changed(
             health.stream_unregistered(
                 profile_id,
                 at=boundary_at,
+                continuity_id=(
+                    continuity_id
+                ),
             )
 
     # Persist only meaningful RECORD-source transitions. The canonical Event
@@ -351,7 +357,12 @@ def zlm_record_mp4(
                 fragment
             )
             request.app.state.zlm_health.recording_finalized(
-                profile.id
+                profile.id,
+                continuity_id=(
+                    resolution.continuity_id
+                    if resolution is not None
+                    else None
+                ),
             )
             return _ack()
 
@@ -407,7 +418,12 @@ def zlm_record_mp4(
         session.commit()
         if result.segment is not None:
             request.app.state.zlm_health.recording_finalized(
-                result.segment.stream_profile_id
+                result.segment.stream_profile_id,
+                continuity_id=(
+                    resolution.continuity_id
+                    if resolution is not None
+                    else None
+                ),
             )
     except Exception:
         session.rollback()

@@ -11,12 +11,14 @@ class ZlmMediaHealthObservation:
     profile_id: uuid.UUID
     online: bool
     observed_at: datetime
+    continuity_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class ZlmRecordingHealthObservation:
     profile_id: uuid.UUID
     finalized_at: datetime
+    continuity_id: uuid.UUID | None = None
 
 
 class ZlmObservedHealthStore:
@@ -47,6 +49,7 @@ class ZlmObservedHealthStore:
         profile_id: uuid.UUID,
         *,
         at: datetime | None = None,
+        continuity_id: uuid.UUID | None = None,
     ) -> None:
         observed_at = at or self._now()
         with self._lock:
@@ -56,6 +59,7 @@ class ZlmObservedHealthStore:
                 profile_id=profile_id,
                 online=True,
                 observed_at=observed_at,
+                continuity_id=continuity_id,
             )
 
     def stream_unregistered(
@@ -63,6 +67,7 @@ class ZlmObservedHealthStore:
         profile_id: uuid.UUID,
         *,
         at: datetime | None = None,
+        continuity_id: uuid.UUID | None = None,
     ) -> None:
         observed_at = at or self._now()
         with self._lock:
@@ -72,6 +77,7 @@ class ZlmObservedHealthStore:
                 profile_id=profile_id,
                 online=False,
                 observed_at=observed_at,
+                continuity_id=continuity_id,
             )
 
     def recording_finalized(
@@ -79,14 +85,29 @@ class ZlmObservedHealthStore:
         profile_id: uuid.UUID,
         *,
         at: datetime | None = None,
+        continuity_id: uuid.UUID | None = None,
     ) -> None:
         finalized_at = at or self._now()
         with self._lock:
+            current_media = self._media.get(
+                profile_id
+            )
+            if (
+                current_media is not None
+                and current_media.online
+                and current_media.continuity_id
+                is not None
+                and continuity_id is not None
+                and continuity_id
+                != current_media.continuity_id
+            ):
+                return
             self._recording[
                 profile_id
             ] = ZlmRecordingHealthObservation(
                 profile_id=profile_id,
                 finalized_at=finalized_at,
+                continuity_id=continuity_id,
             )
 
     def media(
