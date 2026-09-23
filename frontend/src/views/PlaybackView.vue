@@ -485,12 +485,7 @@ function handleTimelineSeek(at: Date): void {
 }
 
 function handleTimelinePan(deltaMs: number): void {
-  const [from, to] = timeline.value
-    ? [
-        new Date(timeline.value.range.start_at),
-        new Date(timeline.value.range.end_at)
-      ]
-    : rangeWindow()
+  const [from, to] = rangeWindow()
   const center =
     (from.getTime() + to.getTime()) / 2 +
     deltaMs
@@ -515,12 +510,7 @@ function handleTimelineZoom(payload: {
   const nextZoom = ordered[nextIndex]
   if (nextZoom === zoomHours.value) return
 
-  const [from, to] = timeline.value
-    ? [
-        new Date(timeline.value.range.start_at),
-        new Date(timeline.value.range.end_at)
-      ]
-    : rangeWindow()
+  const [from, to] = rangeWindow()
   const duration = Math.max(
     1,
     to.getTime() - from.getTime()

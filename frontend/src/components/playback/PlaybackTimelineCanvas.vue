@@ -530,11 +530,10 @@ function finishPointer(event: PointerEvent): void {
     }
   } else {
     const target = targetAt(x, y)
-    if (
-      target?.kind === "protection" &&
-      props.canProtect
-    ) {
-      emit("protect", target.item)
+    if (target?.kind === "protection") {
+      if (props.canProtect) {
+        emit("protect", target.item)
+      }
     } else if (target?.kind === "event") {
       emit("seek", new Date(target.at))
     } else {
@@ -549,6 +548,25 @@ function finishPointer(event: PointerEvent): void {
   pointerDragged = false
   pointerStartX = 0
   pointerLastX = 0
+}
+
+function cancelPointer(event: PointerEvent): void {
+  if (activePointerId !== event.pointerId) return
+  const host = root.value
+  if (host) {
+    try {
+      host.releasePointerCapture(event.pointerId)
+    } catch {
+      // Pointer capture can already be released by the browser.
+    }
+  }
+  activePointerId = null
+  pointerDragged = false
+  pointerStartX = 0
+  pointerLastX = 0
+  dragOffsetPx = 0
+  hoverText.value = null
+  scheduleDraw()
 }
 
 function handlePointerLeave(): void {
@@ -709,7 +727,7 @@ onBeforeUnmount(() => {
     @pointerdown="handlePointerDown"
     @pointermove="handlePointerMove"
     @pointerup="finishPointer"
-    @pointercancel="finishPointer"
+    @pointercancel="cancelPointer"
     @pointerleave="handlePointerLeave"
     @wheel.prevent="handleWheel"
     @keydown="handleKeydown"
