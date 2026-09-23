@@ -40,9 +40,11 @@ import {
   resolveCameraPlayback,
   resolveRecordingSegment,
   type PlaybackGap,
+  type PlaybackPlayable,
   type PlaybackResolve,
   type PlaybackTimeline,
-  type TimelineDetailLevel
+  type TimelineDetailLevel,
+  type TimelineSegment
 } from "../api/playback"
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
@@ -54,7 +56,8 @@ const auth = useAuthStore()
 const route = useRoute()
 const zoomOptions: ZoomHours[] = [1, 6, 24]
 const stage = ref<HTMLElement | null>(null)
-const video = ref<HTMLVideoElement | null>(null)
+const videoA = ref<HTMLVideoElement | null>(null)
+const videoB = ref<HTMLVideoElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const activeCameraId = ref<string | null>(null)
 const cameraPanelOpen = ref(true)
@@ -66,7 +69,12 @@ const currentAt = ref(new Date())
 const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
 const playbackResult = ref<PlaybackResolve | null>(null)
-const playbackUrl = ref<string | null>(null)
+const playerAUrl = ref<string | null>(null)
+const playerBUrl = ref<string | null>(null)
+const activePlayerSlot = ref<"a" | "b">("a")
+const activeSegmentId = ref<string | null>(null)
+const standbyPlayback = ref<PlaybackPlayable | null>(null)
+const standbySegment = ref<TimelineSegment | null>(null)
 const loadingCameras = ref(false)
 const loadingTimeline = ref(false)
 const resolving = ref(false)
@@ -99,6 +107,8 @@ const exportShares = ref<ExportShare[]>([])
 let resolveGeneration = 0
 let timelineGeneration = 0
 let pendingRetryTimer: number | null = null
+let preloadRetryTimer: number | null = null
+let preloadGeneration = 0
 let exportPollTimer: number | null = null
 
 const activeCamera = computed(() =>
@@ -384,6 +394,169 @@ function clearPendingRetry(): void {
   pendingRetryTimer = null
 }
 
+function clearPreloadRetry(): void {
+  preloadGeneration += 1
+  if (preloadRetryTimer !== null) {
+    window.clearTimeout(preloadRetryTimer)
+    preloadRetryTimer = null
+  }
+}
+
+function videoForSlot(
+  slot: "a" | "b"
+): HTMLVideoElement | null {
+  return slot === "a"
+    ? videoA.value
+    : videoB.value
+}
+
+function activeVideo(): HTMLVideoElement | null {
+  return videoForSlot(activePlayerSlot.value)
+}
+
+function standbySlot(): "a" | "b" {
+  return activePlayerSlot.value === "a"
+    ? "b"
+    : "a"
+}
+
+function setPlayerUrl(
+  slot: "a" | "b",
+  value: string | null
+): void {
+  if (slot === "a") {
+    playerAUrl.value = value
+  } else {
+    playerBUrl.value = value
+  }
+}
+
+function clearVideoElement(
+  element: HTMLVideoElement | null
+): void {
+  if (!element) return
+  element.pause()
+  element.removeAttribute("src")
+  element.load()
+}
+
+function clearPlayers(): void {
+  clearPreloadRetry()
+  clearVideoElement(videoA.value)
+  clearVideoElement(videoB.value)
+  playerAUrl.value = null
+  playerBUrl.value = null
+  activePlayerSlot.value = "a"
+  activeSegmentId.value = null
+  standbyPlayback.value = null
+  standbySegment.value = null
+  playbackAnchorMs.value = null
+}
+
+function nextContiguousSegment(
+  segmentId: string
+): TimelineSegment | null {
+  const segments = timeline.value?.segments ?? []
+  const index = segments.findIndex(
+    (item) => item.id === segmentId
+  )
+  if (index < 0 || index + 1 >= segments.length) {
+    return null
+  }
+
+  const current = segments[index]
+  const next = segments[index + 1]
+  const currentEnd = new Date(
+    current.end_at
+  ).getTime()
+  const nextStart = new Date(
+    next.start_at
+  ).getTime()
+
+  return nextStart <= currentEnd
+    ? next
+    : null
+}
+
+async function preloadNextSegment(
+  segmentId: string
+): Promise<void> {
+  clearPreloadRetry()
+  const generation = preloadGeneration
+  const next = nextContiguousSegment(
+    segmentId
+  )
+  if (!next) {
+    standbyPlayback.value = null
+    standbySegment.value = null
+    setPlayerUrl(standbySlot(), null)
+    return
+  }
+
+  try {
+    const result = await resolveRecordingSegment(
+      next.playback_ref,
+      0
+    )
+    if (
+      generation !== preloadGeneration ||
+      activeSegmentId.value !== segmentId
+    ) {
+      return
+    }
+
+    if (result.status === "pending") {
+      preloadRetryTimer = window.setTimeout(
+        () => {
+          preloadRetryTimer = null
+          if (
+            generation === preloadGeneration &&
+            activeSegmentId.value === segmentId
+          ) {
+            void preloadNextSegment(
+              segmentId
+            )
+          }
+        },
+        Math.max(
+          500,
+          result.retry_after_ms
+        )
+      )
+      return
+    }
+
+    if (result.status !== "playable") {
+      standbyPlayback.value = null
+      standbySegment.value = null
+      setPlayerUrl(standbySlot(), null)
+      return
+    }
+
+    standbyPlayback.value = result
+    standbySegment.value = next
+    setPlayerUrl(
+      standbySlot(),
+      browserMediaUrl(result.url)
+    )
+    await nextTick()
+
+    const standby = videoForSlot(
+      standbySlot()
+    )
+    if (standby) {
+      standby.muted = muted.value
+      standby.load()
+    }
+  } catch {
+    if (generation === preloadGeneration) {
+      standbyPlayback.value = null
+      standbySegment.value = null
+      setPlayerUrl(standbySlot(), null)
+    }
+  }
+}
+
 async function resolveAt(
   at: Date,
   autoplay = true
@@ -396,15 +569,8 @@ async function resolveAt(
   currentAt.value = new Date(at)
   resolving.value = true
   error.value = null
-  playbackUrl.value = null
-  playbackAnchorMs.value = null
+  clearPlayers()
   playing.value = false
-
-  if (video.value) {
-    video.value.pause()
-    video.value.removeAttribute("src")
-    video.value.load()
-  }
 
   try {
     const segment = (
@@ -452,15 +618,24 @@ async function resolveAt(
     if (result.status !== "playable") return
 
     playbackAnchorMs.value = at.getTime()
-    playbackUrl.value = browserMediaUrl(result.url)
+    activeSegmentId.value = result.segment_id
+    setPlayerUrl(
+      activePlayerSlot.value,
+      browserMediaUrl(result.url)
+    )
     await nextTick()
 
-    if (video.value) {
-      video.value.load()
+    const element = activeVideo()
+    if (element) {
+      element.muted = muted.value
+      element.load()
       if (autoplay) {
-        await video.value.play().catch(() => undefined)
+        await element.play().catch(() => undefined)
       }
     }
+    void preloadNextSegment(
+      result.segment_id
+    )
   } catch (caught) {
     if (generation === resolveGeneration) {
       error.value = errorMessage(caught)
@@ -476,10 +651,11 @@ async function resolveAt(
 function selectCamera(cameraId: string): void {
   if (cameraId === activeCameraId.value) return
   clearPendingRetry()
+  clearPreloadRetry()
   clearExportPoll()
   resolveGeneration += 1
   activeCameraId.value = cameraId
-  playbackUrl.value = null
+  clearPlayers()
   playbackResult.value = null
   actionPanelOpen.value = false
   void refreshTimeline(false)
@@ -860,8 +1036,8 @@ function exportStateClass(state: string): string {
 }
 
 function togglePlayback(): void {
-  const element = video.value
-  if (!element || !playbackUrl.value) {
+  const element = activeVideo()
+  if (!element) {
     void resolveAt(currentAt.value, true)
     return
   }
@@ -875,18 +1051,83 @@ function togglePlayback(): void {
 
 function toggleMute(): void {
   muted.value = !muted.value
-  if (video.value) video.value.muted = muted.value
+  if (videoA.value) {
+    videoA.value.muted = muted.value
+  }
+  if (videoB.value) {
+    videoB.value.muted = muted.value
+  }
 }
 
-function handleTimeUpdate(): void {
-  if (!video.value || playbackAnchorMs.value === null) return
+function handleTimeUpdate(
+  slot: "a" | "b"
+): void {
+  if (
+    slot !== activePlayerSlot.value ||
+    playbackAnchorMs.value === null
+  ) {
+    return
+  }
+
+  const element = videoForSlot(slot)
+  if (!element) return
   currentAt.value = new Date(
-    playbackAnchorMs.value + video.value.currentTime * 1000
+    playbackAnchorMs.value +
+      element.currentTime * 1000
   )
 }
 
-function handleEnded(): void {
-  const next = new Date(currentAt.value.getTime() + 250)
+async function handleEnded(
+  slot: "a" | "b"
+): Promise<void> {
+  if (slot !== activePlayerSlot.value) return
+
+  const standby = standbyPlayback.value
+  const nextSegment = standbySegment.value
+  const nextSlot = standbySlot()
+  const nextElement = videoForSlot(
+    nextSlot
+  )
+
+  if (
+    standby &&
+    nextSegment &&
+    nextElement
+  ) {
+    const previousSlot = activePlayerSlot.value
+    const previousElement = videoForSlot(
+      previousSlot
+    )
+
+    activePlayerSlot.value = nextSlot
+    activeSegmentId.value = standby.segment_id
+    playbackResult.value = standby
+    playbackAnchorMs.value = new Date(
+      nextSegment.start_at
+    ).getTime()
+    currentAt.value = new Date(
+      nextSegment.start_at
+    )
+    standbyPlayback.value = null
+    standbySegment.value = null
+    setPlayerUrl(previousSlot, null)
+
+    await nextTick()
+    clearVideoElement(previousElement)
+    nextElement.muted = muted.value
+    await nextElement.play().catch(
+      () => undefined
+    )
+
+    void preloadNextSegment(
+      standby.segment_id
+    )
+    return
+  }
+
+  const next = new Date(
+    currentAt.value.getTime() + 250
+  )
   void resolveAt(next, true)
 }
 
@@ -1056,21 +1297,58 @@ onBeforeUnmount(() => {
 
       <div class="playback-video-area">
         <video
-          v-if="playbackUrl"
-          ref="video"
-          class="playback-video"
-          :src="playbackUrl"
-          autoplay
+          v-if="playerAUrl"
+          ref="videoA"
+          class="playback-video playback-video--layer"
+          :class="{
+            'playback-video--active':
+              activePlayerSlot === 'a'
+          }"
+          :src="playerAUrl"
           playsinline
           :muted="muted"
-          @play="playing = true"
-          @pause="playing = false"
-          @timeupdate="handleTimeUpdate"
-          @ended="handleEnded"
+          preload="auto"
+          @play="
+            activePlayerSlot === 'a'
+              ? (playing = true)
+              : undefined
+          "
+          @pause="
+            activePlayerSlot === 'a'
+              ? (playing = false)
+              : undefined
+          "
+          @timeupdate="handleTimeUpdate('a')"
+          @ended="handleEnded('a')"
+        />
+        <video
+          v-if="playerBUrl"
+          ref="videoB"
+          class="playback-video playback-video--layer"
+          :class="{
+            'playback-video--active':
+              activePlayerSlot === 'b'
+          }"
+          :src="playerBUrl"
+          playsinline
+          :muted="muted"
+          preload="auto"
+          @play="
+            activePlayerSlot === 'b'
+              ? (playing = true)
+              : undefined
+          "
+          @pause="
+            activePlayerSlot === 'b'
+              ? (playing = false)
+              : undefined
+          "
+          @timeupdate="handleTimeUpdate('b')"
+          @ended="handleEnded('b')"
         />
 
         <div
-          v-if="!playbackUrl"
+          v-if="!playerAUrl && !playerBUrl"
           class="playback-video-state"
         >
           <UiIcon

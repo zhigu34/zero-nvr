@@ -423,20 +423,29 @@ An optional "skip gaps" mode may jump during playback, but explicit seeking rema
 
 ## Continuous cross-segment playback
 
-Initial V2 may use dual-player ping-pong:
+The V1 single-camera player uses two reusable HTML video elements in a
+ping-pong arrangement:
 
 ```text
-Player A = current segment
-Player B = preload next segment
+Player A = active segment
+Player B = resolved/preloaded next contiguous segment
 
-near boundary:
-  resolve/preload B
-
-boundary:
-  switch active player
-
-old A becomes next preload slot
+active segment ends:
+  swap A/B
+  old active slot is cleared
+  preload the following segment into the free slot
 ```
+
+Preloading uses the ordered timeline segment list and the stable
+RecordingSegment-ID resolver. A next segment is eligible only when its
+canonical start is not after the current segment end, so the player never
+silently crosses a real timeline gap. Remote-only next segments may start their
+existing bounded-cache restore while the current segment is still playing.
+
+This item intentionally switches on the active player's `ended` event only.
+Readiness qualification and switching against the absolute canonical boundary
+are handled by the following roadmap item rather than being hidden inside the
+basic ping-pong implementation.
 
 Requirements:
 

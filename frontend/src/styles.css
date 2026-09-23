@@ -2235,6 +2235,20 @@ strong {
   object-fit: contain;
 }
 
+.playback-video--layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.playback-video--active {
+  z-index: 2;
+  opacity: 1;
+  pointer-events: auto;
+}
+
 .playback-video-state {
   display: flex;
   align-items: center;
