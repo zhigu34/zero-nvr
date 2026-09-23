@@ -324,9 +324,9 @@ Acceptance:
 - [x] DeviceCapabilitySnapshot persistence/refresh.
 - [x] ONVIF Events capability + subscription path.
 - [x] PTZ capability/control after Events.
-- [~] snapshot/audio/time/NTP capability probing.
+- [x] snapshot/audio/time/NTP capability probing.
 - [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
-- [ ] identity-conflict UI instead of weak automatic merge.
+- [~] identity-conflict UI instead of weak automatic merge.
 - [ ] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
 
 Acceptance:
