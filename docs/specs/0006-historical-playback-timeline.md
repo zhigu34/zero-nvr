@@ -632,12 +632,35 @@ A missing camera never shifts another camera to a different time.
 
 Optimized for normal review.
 
+The V1 Playback view may select up to nine participating cameras. The focused
+camera remains the owner of the detailed timeline, protect/export actions, and
+date/zoom controls; additional cameras join a synchronized review grid.
+
+All tiles receive the same absolute Master Clock time and playback state. Each
+camera independently calls the existing camera playback resolver for that
+absolute time and owns its own remote-restore retry, media buffering state, and
+`PlaybackDriftController`.
+
 When one camera buffers:
 
 - Master Clock continues;
 - healthy cameras continue;
 - buffering camera shows loading;
-- when ready it seeks to current global time and rejoins.
+- remote-only restore remains local to that tile;
+- a legitimate gap remains a per-camera gap state;
+- when the delayed tile becomes playable it aligns its media to the **current**
+  Master Clock time and rejoins rather than rewinding the shared clock.
+
+Secondary tiles are muted by default; the focused camera follows the shared mute
+control. Explicit timeline seek/date navigation increments a synchronization
+generation so every participating tile re-resolves the new absolute time
+together.
+
+Until the later aligned-timeline API item is implemented, V1 intentionally
+fans out the existing per-camera playback resolver from the browser. The
+focused camera's existing single-camera timeline remains authoritative for
+timeline rendering. This avoids inventing a temporary multi-camera persistence
+model or blocking tolerant playback on the future aligned-track response.
 
 This prevents one slow/remote channel from freezing a 4/9-camera review.
 

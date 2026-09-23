@@ -47,6 +47,7 @@ import {
   type TimelineSegment
 } from "../api/playback"
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
+import TolerantPlaybackTile from "../components/playback/TolerantPlaybackTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { PlaybackDriftController } from "../playback/driftController"
 import { MasterPlaybackClock } from "../playback/masterClock"
@@ -62,6 +63,8 @@ const videoA = ref<HTMLVideoElement | null>(null)
 const videoB = ref<HTMLVideoElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const activeCameraId = ref<string | null>(null)
+const syncedCameraIds = ref<string[]>([])
+const syncSeekGeneration = ref(0)
 const cameraPanelOpen = ref(true)
 const search = ref("")
 const timeline = ref<PlaybackTimeline | null>(null)
@@ -127,6 +130,35 @@ let exportPollTimer: number | null = null
 const activeCamera = computed(() =>
   cameras.value.find((camera) => camera.id === activeCameraId.value) ?? null
 )
+
+const multiCameraMode = computed(
+  () => syncedCameraIds.value.length > 0
+)
+
+const playbackParticipants = computed(() => {
+  const ids = [
+    activeCameraId.value,
+    ...syncedCameraIds.value
+  ].filter(
+    (value): value is string =>
+      Boolean(value)
+  )
+  const unique = Array.from(
+    new Set(ids)
+  )
+  return unique
+    .map((id) =>
+      cameras.value.find(
+        (camera) => camera.id === id
+      )
+    )
+    .filter(
+      (
+        camera
+      ): camera is CameraSummary =>
+        Boolean(camera)
+    )
+})
 
 const filteredCameras = computed(() => {
   const needle = search.value.trim().toLowerCase()
@@ -438,7 +470,7 @@ function renderMasterClock(): void {
   currentAt.value = new Date(timeMs)
 
   const segment = activeTimelineSegment.value
-  if (segment) {
+  if (!multiCameraMode.value && segment) {
     const boundaryMs = new Date(
       segment.end_at
     ).getTime()
@@ -530,6 +562,121 @@ function resetDriftCorrection(): void {
   if (element) {
     element.playbackRate =
       masterClock.playbackRate
+  }
+}
+
+function isSyncParticipant(
+  cameraId: string
+): boolean {
+  return (
+    cameraId === activeCameraId.value ||
+    syncedCameraIds.value.includes(
+      cameraId
+    )
+  )
+}
+
+function applyTolerantMasterTime(
+  at: Date,
+  autoplay: boolean
+): void {
+  stopMasterClockFrame()
+  const timeMs = at.getTime()
+
+  if (autoplay) {
+    masterClock.play(
+      timeMs,
+      masterClock.playbackRate
+    )
+    playing.value = true
+    startMasterClockFrame()
+  } else {
+    masterClock.pause(timeMs)
+    playing.value = false
+  }
+
+  currentAt.value = new Date(timeMs)
+  syncSeekGeneration.value += 1
+}
+
+function enterTolerantMode(): void {
+  const timeMs =
+    masterClock.currentTimeMs()
+  const shouldPlay = playing.value
+
+  clearPendingRetry()
+  resolveGeneration += 1
+  clearPlayers()
+  playbackResult.value = null
+
+  if (shouldPlay) {
+    masterClock.play(
+      timeMs,
+      masterClock.playbackRate
+    )
+    playing.value = true
+    startMasterClockFrame()
+  } else {
+    masterClock.pause(timeMs)
+    playing.value = false
+  }
+
+  currentAt.value = new Date(timeMs)
+  syncSeekGeneration.value += 1
+}
+
+function leaveTolerantMode(): void {
+  const at = new Date(
+    masterClock.currentTimeMs()
+  )
+  const shouldPlay = playing.value
+  syncSeekGeneration.value += 1
+  void resolveAt(
+    at,
+    shouldPlay
+  )
+}
+
+function toggleSyncCamera(
+  cameraId: string
+): void {
+  if (cameraId === activeCameraId.value) {
+    return
+  }
+
+  const wasMulti =
+    multiCameraMode.value
+  const current = [
+    ...syncedCameraIds.value
+  ]
+  const existing = current.indexOf(
+    cameraId
+  )
+
+  if (existing >= 0) {
+    current.splice(existing, 1)
+  } else {
+    if (current.length >= 8) {
+      error.value =
+        "Tolerant playback supports up to 9 cameras."
+      return
+    }
+    current.push(cameraId)
+  }
+
+  syncedCameraIds.value = current
+  error.value = null
+
+  if (
+    !wasMulti &&
+    multiCameraMode.value
+  ) {
+    enterTolerantMode()
+  } else if (
+    wasMulti &&
+    !multiCameraMode.value
+  ) {
+    leaveTolerantMode()
   }
 }
 
@@ -1050,6 +1197,29 @@ async function resolveAt(
 
 function selectCamera(cameraId: string): void {
   if (cameraId === activeCameraId.value) return
+
+  if (multiCameraMode.value) {
+    const previous =
+      activeCameraId.value
+    const nextSynced = new Set(
+      syncedCameraIds.value
+    )
+    nextSynced.delete(cameraId)
+    if (previous) {
+      nextSynced.add(previous)
+    }
+
+    activeCameraId.value = cameraId
+    syncedCameraIds.value = Array.from(
+      nextSynced
+    ).slice(0, 8)
+    playbackResult.value = null
+    actionPanelOpen.value = false
+    void refreshTimeline(false)
+    void loadPlaybackActions()
+    return
+  }
+
   clearPendingRetry()
   clearPreloadRetry()
   clearExportPoll()
@@ -1069,6 +1239,17 @@ function handleDateChange(): void {
     formatDateInput(now) === selectedDate.value
       ? now
       : new Date(start.getTime() + 12 * 60 * 60 * 1000)
+
+  if (multiCameraMode.value) {
+    applyTolerantMasterTime(
+      selectedTime,
+      false
+    )
+    playbackResult.value = null
+    timelineCenterMs.value = null
+    void refreshTimeline(false)
+    return
+  }
 
   clearPendingRetry()
   resolveGeneration += 1
@@ -1093,6 +1274,13 @@ function setZoom(hours: ZoomHours): void {
 }
 
 function handleTimelineSeek(at: Date): void {
+  if (multiCameraMode.value) {
+    applyTolerantMasterTime(
+      at,
+      true
+    )
+    return
+  }
   void resolveAt(at, true)
 }
 
@@ -1148,6 +1336,20 @@ function handleTimelineZoom(payload: {
 function jumpTo(value: string | null): void {
   if (!value) return
   const at = new Date(value)
+
+  if (multiCameraMode.value) {
+    applyTolerantMasterTime(
+      at,
+      true
+    )
+    timelineCenterMs.value =
+      at.getTime()
+    selectedDate.value =
+      formatDateInput(at)
+    void refreshTimeline(false)
+    return
+  }
+
   clearPendingRetry()
   resolveGeneration += 1
   clearPlayers()
@@ -1455,6 +1657,25 @@ function exportStateClass(state: string): string {
 }
 
 function togglePlayback(): void {
+  if (multiCameraMode.value) {
+    if (playing.value) {
+      masterClock.pause()
+      currentAt.value = new Date(
+        masterClock.currentTimeMs()
+      )
+      playing.value = false
+      stopMasterClockFrame()
+    } else {
+      masterClock.play(
+        currentAt.value.getTime(),
+        masterClock.playbackRate
+      )
+      playing.value = true
+      startMasterClockFrame()
+    }
+    return
+  }
+
   if (boundaryWaiting) {
     if (
       standbyBoundaryMs.value !== null &&
@@ -1494,6 +1715,7 @@ function toggleMute(): void {
 function handlePlayerPlay(
   slot: "a" | "b"
 ): void {
+  if (multiCameraMode.value) return
   if (slot === activePlayerSlot.value) {
     const element = videoForSlot(slot)
     driftController.reset(
@@ -1516,6 +1738,7 @@ function handlePlayerPlay(
 function handlePlayerPause(
   slot: "a" | "b"
 ): void {
+  if (multiCameraMode.value) return
   if (slot === activePlayerSlot.value) {
     if (
       masterClock.state === "playing"
@@ -1721,37 +1944,80 @@ onBeforeUnmount(() => {
       </label>
 
       <div class="live-camera-list">
-        <button
+        <div
           v-for="camera in filteredCameras"
           :key="camera.id"
-          class="live-camera-row"
-          :class="{
-            'live-camera-row--selected':
-              activeCameraId === camera.id
-          }"
-          type="button"
-          @click="selectCamera(camera.id)"
+          class="playback-camera-select-row"
         >
-          <span
-            class="live-camera-row__status"
+          <button
+            class="live-camera-row playback-camera-select-row__primary"
             :class="{
-              'live-camera-row__status--enabled': camera.enabled
+              'live-camera-row--selected':
+                activeCameraId === camera.id
             }"
-          />
-          <span class="live-camera-row__copy">
-            <strong>{{ camera.name }}</strong>
-            <small>
-              {{ camera.location || camera.adapter_type || "Camera" }}
-            </small>
-          </span>
-          <span class="live-camera-row__check">
-            <UiIcon
-              v-if="activeCameraId === camera.id"
-              name="chevron-right"
-              :size="14"
+            type="button"
+            @click="selectCamera(camera.id)"
+          >
+            <span
+              class="live-camera-row__status"
+              :class="{
+                'live-camera-row__status--enabled':
+                  camera.enabled
+              }"
             />
-          </span>
-        </button>
+            <span class="live-camera-row__copy">
+              <strong>{{ camera.name }}</strong>
+              <small>
+                {{
+                  camera.location ||
+                  camera.adapter_type ||
+                  "Camera"
+                }}
+              </small>
+            </span>
+            <span class="live-camera-row__check">
+              <UiIcon
+                v-if="activeCameraId === camera.id"
+                name="chevron-right"
+                :size="14"
+              />
+            </span>
+          </button>
+
+          <button
+            class="playback-sync-toggle"
+            :class="{
+              'playback-sync-toggle--active':
+                isSyncParticipant(camera.id)
+            }"
+            type="button"
+            :disabled="
+              activeCameraId === camera.id
+            "
+            :title="
+              activeCameraId === camera.id
+                ? 'Primary sync camera'
+                : isSyncParticipant(camera.id)
+                  ? 'Remove from synchronized playback'
+                  : 'Add to tolerant synchronized playback'
+            "
+            :aria-label="
+              isSyncParticipant(camera.id)
+                ? 'Remove synchronized camera'
+                : 'Add synchronized camera'
+            "
+            @click="toggleSyncCamera(camera.id)"
+          >
+            <UiIcon
+              :name="
+                isSyncParticipant(camera.id)
+                  ? 'check'
+                  : 'plus'
+              "
+              :size="13"
+            />
+          </button>
+        </div>
 
         <div
           v-if="!filteredCameras.length && !loadingCameras"
@@ -1775,6 +2041,13 @@ onBeforeUnmount(() => {
           </button>
           <span class="live-toolbar__title">
             {{ activeCamera?.name || "Playback" }}
+          </span>
+          <span
+            v-if="multiCameraMode"
+            class="playback-sync-mode-badge"
+          >
+            Tolerant ·
+            {{ playbackParticipants.length }}
           </span>
         </div>
 
@@ -1818,7 +2091,38 @@ onBeforeUnmount(() => {
         </div>
       </header>
 
-      <div class="playback-video-area">
+      <div
+        v-if="multiCameraMode"
+        class="playback-video-grid"
+        :class="`playback-video-grid--${Math.min(
+          9,
+          playbackParticipants.length
+        )}`"
+      >
+        <TolerantPlaybackTile
+          v-for="camera in playbackParticipants"
+          :key="camera.id"
+          :camera-id="camera.id"
+          :camera-name="camera.name"
+          :master-time-ms="currentAt.getTime()"
+          :playing="playing"
+          :playback-rate="masterClock.playbackRate"
+          :muted="
+            camera.id === activeCameraId
+              ? muted
+              : true
+          "
+          :seek-generation="syncSeekGeneration"
+          :focused="
+            camera.id === activeCameraId
+          "
+        />
+      </div>
+
+      <div
+        v-else
+        class="playback-video-area"
+      >
         <video
           v-if="playerAUrl"
           ref="videoA"
@@ -1965,7 +2269,15 @@ onBeforeUnmount(() => {
         </div>
 
         <span
-          v-if="playbackResult?.status === 'playable'"
+          v-if="multiCameraMode"
+          class="playback-codec"
+        >
+          Tolerant sync
+        </span>
+        <span
+          v-else-if="
+            playbackResult?.status === 'playable'
+          "
           class="playback-codec"
         >
           {{ playbackResult.codec || "video" }}
