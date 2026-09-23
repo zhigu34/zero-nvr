@@ -48,6 +48,7 @@ import {
 } from "../api/playback"
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
+import { PlaybackDriftController } from "../playback/driftController"
 import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
 
@@ -70,6 +71,7 @@ const currentAt = ref(new Date())
 const masterClock = new MasterPlaybackClock(
   currentAt.value.getTime()
 )
+const driftController = new PlaybackDriftController()
 const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
 const playbackResult = ref<PlaybackResolve | null>(null)
@@ -520,7 +522,19 @@ function clearVideoElement(
   element.load()
 }
 
+function resetDriftCorrection(): void {
+  driftController.reset(
+    performance.now()
+  )
+  const element = activeVideo()
+  if (element) {
+    element.playbackRate =
+      masterClock.playbackRate
+  }
+}
+
 function clearPlayers(): void {
+  resetDriftCorrection()
   if (masterClock.state === "playing") {
     masterClock.pause()
     currentAt.value = new Date(
@@ -682,9 +696,8 @@ async function preloadNextSegment(
     )
     if (standby) {
       standby.muted = muted.value
-      standby.playbackRate = (
-        activeVideo()?.playbackRate ?? 1
-      )
+      standby.playbackRate =
+        masterClock.playbackRate
       standby.load()
     }
   } catch {
@@ -752,9 +765,8 @@ async function switchToStandbyAtBoundary(
   const previousElement = videoForSlot(
     previousSlot
   )
-  const playbackRate = (
-    previousElement?.playbackRate ?? 1
-  )
+  const playbackRate =
+    masterClock.playbackRate
 
   activePlayerSlot.value = nextSlot
   activeSegmentId.value = standby.segment_id
@@ -764,6 +776,9 @@ async function switchToStandbyAtBoundary(
   setMasterClockTime(
     boundaryMs,
     "seeking"
+  )
+  driftController.reset(
+    performance.now()
   )
   standbyPlayback.value = null
   standbySegment.value = null
@@ -1481,9 +1496,16 @@ function handlePlayerPlay(
 ): void {
   if (slot === activePlayerSlot.value) {
     const element = videoForSlot(slot)
+    driftController.reset(
+      performance.now()
+    )
+    if (element) {
+      element.playbackRate =
+        masterClock.playbackRate
+    }
     masterClock.play(
       masterClock.currentTimeMs(),
-      element?.playbackRate ?? 1
+      masterClock.playbackRate
     )
     playing.value = true
     startMasterClockFrame()
@@ -1503,6 +1525,14 @@ function handlePlayerPause(
         masterClock.currentTimeMs()
       )
     }
+    driftController.reset(
+      performance.now()
+    )
+    const element = videoForSlot(slot)
+    if (element) {
+      element.playbackRate =
+        masterClock.playbackRate
+    }
     stopMasterClockFrame()
     playing.value = false
     clearBoundarySwitchTimer()
@@ -1519,22 +1549,83 @@ function handleTimeUpdate(
     return
   }
 
-  if (slot !== activePlayerSlot.value) {
-    return
-  }
+  const element = videoForSlot(slot)
+  if (!element) return
 
-  const timeMs = masterClock.currentTimeMs()
+  const masterTimeMs =
+    masterClock.currentTimeMs()
   const segment = activeTimelineSegment.value
   if (segment) {
     const boundaryMs = new Date(
       segment.end_at
     ).getTime()
-    if (timeMs >= boundaryMs) {
+    if (masterTimeMs >= boundaryMs) {
       requestBoundarySwitch(
         slot,
         boundaryMs
       )
+      return
     }
+  }
+
+  if (
+    masterClock.state !== "playing" ||
+    element.paused ||
+    element.seeking
+  ) {
+    return
+  }
+
+  const mediaTimeMs =
+    playbackAnchorMs.value +
+    element.currentTime * 1000
+  const driftMs =
+    mediaTimeMs - masterTimeMs
+  const action = driftController.evaluate(
+    driftMs,
+    masterClock.playbackRate,
+    performance.now()
+  )
+
+  if (action.kind === "rate") {
+    if (
+      Math.abs(
+        element.playbackRate -
+          action.playbackRate
+      ) > 0.001
+    ) {
+      element.playbackRate =
+        action.playbackRate
+    }
+    return
+  }
+
+  if (action.kind !== "hard_seek") {
+    return
+  }
+
+  element.playbackRate =
+    masterClock.playbackRate
+  const targetSeconds = Math.max(
+    0,
+    (masterTimeMs -
+      playbackAnchorMs.value) /
+      1000
+  )
+  if (
+    Number.isFinite(element.duration) &&
+    element.duration > 0
+  ) {
+    element.currentTime = Math.min(
+      targetSeconds,
+      Math.max(
+        0,
+        element.duration - 0.01
+      )
+    )
+  } else {
+    element.currentTime =
+      targetSeconds
   }
 }
 

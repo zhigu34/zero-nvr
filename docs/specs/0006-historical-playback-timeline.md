@@ -553,27 +553,53 @@ Initial behavior:
 
 ```text
 |drift| < 250ms
-  → no correction
+  -> no correction
 
 250ms .. 1000ms
-  → gentle playback-rate correction where safe
+  -> bounded temporary playback-rate correction
 
-> 1000ms
-  → hard seek to global time
+>= 1000ms
+  -> hard seek media to the Master Clock
 ```
 
-These thresholds are tuning values, not domain constants.
+The V1 single-player controller uses a 250 ms soft-entry threshold and a
+150 ms soft-exit threshold, so playback-rate correction has hysteresis rather
+than toggling at one boundary. Temporary rate correction is bounded to roughly
+1.5%..4% around the Master Clock's logical playback rate and is re-evaluated no
+more often than every 750 ms.
 
+A hard seek has a 1000 ms threshold and a 1000 ms cooldown. Hard alignment
+changes only the active media element's `currentTime`; it never rewinds or
+advances the Master Clock to match a lagging decoder. Immediately after a hard
+seek the media rate returns to the Master Clock's base rate while the cooldown
+prevents repeated seeks from stale browser timing events.
 
-The initial values may be adjusted after real-browser 4/9-camera tests. The desired behavior is stable:
+The controller measures:
+
+```text
+media_time_ms =
+    playback_anchor_ms
+    + video.currentTime * 1000
+
+drift_ms =
+    media_time_ms - master_clock_time_ms
+```
+
+Positive drift means the media is ahead and is temporarily slowed; negative
+drift means it is behind and is temporarily accelerated. Explicit seek,
+source/segment replacement, pause/resume, and A/B player switching reset the
+controller and restore the media element to the Master Clock's base rate.
+
+These thresholds are tuning values, not domain constants. They may be adjusted
+after real-browser 4/9-camera tests, while preserving the stable policy:
 
 - small drift: leave decoder alone;
-- moderate drift: converge smoothly with a bounded temporary playback-rate adjustment;
-- large drift: hard align by absolute seek.
+- moderate drift: converge smoothly with bounded rate correction;
+- large drift: hard align media to absolute Master Clock time.
 
-Do not continuously oscillate playbackRate around the threshold; correction should use hysteresis/cooldown to avoid audible/visual hunting.
-
-Explicit seek, source replacement, segment change, or large gap may require immediate hard correction.
+This item corrects the active single-camera player only. The following tolerant
+and strict multi-camera items reuse the same per-player drift controller rather
+than redefining clock behavior.
 
 ## Multi-camera synchronized playback
 
