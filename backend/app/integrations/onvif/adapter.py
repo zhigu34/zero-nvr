@@ -142,6 +142,49 @@ def _number(value: Any, cast: Callable[[Any], Any]) -> Any:
         return None
 
 
+def _source_address_key(
+    value: Any,
+) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    # WSDiscovery represents IPv6 adapter addresses with a scope suffix.
+    # Selection is by the IP itself; the scoped object is retained only
+    # when the library opens the actual multicast socket.
+    return ipaddress.ip_address(str(value).split("%", 1)[0])
+
+
+class _SelectedSourceWSDiscovery(ThreadedWSDiscovery):
+    """WS-Discovery limited to explicitly selected local source addresses."""
+
+    def __init__(self, source_addresses: tuple[str, ...]) -> None:
+        self._selected_source_addresses = frozenset(
+            _source_address_key(value)
+            for value in source_addresses
+        )
+        self._active_source_addresses: set[
+            ipaddress.IPv4Address | ipaddress.IPv6Address
+        ] = set()
+        super().__init__()
+
+    @property
+    def missing_source_addresses(
+        self,
+    ) -> frozenset[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+        return self._selected_source_addresses.difference(
+            self._active_source_addresses
+        )
+
+    def _networkAddressAdded(self, addr: Any) -> None:
+        key = _source_address_key(addr)
+        if key in self._selected_source_addresses:
+            super()._networkAddressAdded(addr)
+            self._active_source_addresses.add(key)
+
+    def _networkAddressRemoved(self, addr: Any) -> None:
+        key = _source_address_key(addr)
+        if key in self._selected_source_addresses:
+            super()._networkAddressRemoved(addr)
+            self._active_source_addresses.discard(key)
+
+
 class OnvifAdapter:
     """Thin boundary around mature ONVIF and WS-Discovery libraries."""
 
@@ -691,9 +734,16 @@ class OnvifAdapter:
             stream_uri=stream_uri,
         )
 
-    async def discover(self) -> list[OnvifDiscoveryCandidate]:
+    async def discover(
+        self,
+        *,
+        source_addresses: tuple[str, ...] = (),
+    ) -> list[OnvifDiscoveryCandidate]:
         try:
-            return await asyncio.to_thread(self._discover_blocking)
+            return await asyncio.to_thread(
+                self._discover_blocking,
+                source_addresses,
+            )
         except OnvifIntegrationError:
             raise
         except Exception as exc:
@@ -703,10 +753,29 @@ class OnvifAdapter:
                 status_code=503,
             ) from exc
 
-    def _discover_blocking(self) -> list[OnvifDiscoveryCandidate]:
-        discovery = self._discovery_factory()
+    def _discover_blocking(
+        self,
+        source_addresses: tuple[str, ...],
+    ) -> list[OnvifDiscoveryCandidate]:
+        if (
+            source_addresses
+            and self._discovery_factory is ThreadedWSDiscovery
+        ):
+            discovery = _SelectedSourceWSDiscovery(source_addresses)
+        else:
+            discovery = self._discovery_factory()
         try:
             discovery.start()
+            if (
+                isinstance(discovery, _SelectedSourceWSDiscovery)
+                and discovery.missing_source_addresses
+            ):
+                raise OnvifIntegrationError(
+                    "onvif_discovery_source_address_unavailable",
+                    "A selected ONVIF discovery source address is not "
+                    "available on this host.",
+                    status_code=422,
+                )
             services = discovery.searchServices(
                 types=[
                     QName(

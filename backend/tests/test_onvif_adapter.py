@@ -35,6 +35,47 @@ def test_adapter_defaults_to_mature_onvif_libraries() -> None:
     )
 
 
+def test_selected_source_discovery_filters_address_callbacks(
+    monkeypatch,
+) -> None:
+    import app.integrations.onvif.adapter as onvif_adapter
+
+    added: list[str] = []
+    removed: list[str] = []
+    monkeypatch.setattr(
+        onvif_adapter.ThreadedWSDiscovery,
+        "_networkAddressAdded",
+        lambda _self, addr: added.append(str(addr)),
+    )
+    monkeypatch.setattr(
+        onvif_adapter.ThreadedWSDiscovery,
+        "_networkAddressRemoved",
+        lambda _self, addr: removed.append(str(addr)),
+    )
+
+    discovery = onvif_adapter._SelectedSourceWSDiscovery(
+        ("192.168.50.10", "2001:db8::10")
+    )
+    discovery._networkAddressAdded(
+        onvif_adapter.ipaddress.ip_address("192.168.50.10")
+    )
+    discovery._networkAddressAdded(
+        onvif_adapter.ipaddress.ip_address("192.168.60.10")
+    )
+    discovery._networkAddressAdded(
+        onvif_adapter.ipaddress.ip_address("2001:db8::10%4")
+    )
+    discovery._networkAddressRemoved(
+        onvif_adapter.ipaddress.ip_address("192.168.50.10")
+    )
+    discovery._networkAddressRemoved(
+        onvif_adapter.ipaddress.ip_address("192.168.60.10")
+    )
+
+    assert added == ["192.168.50.10", "2001:db8::10%4"]
+    assert removed == ["192.168.50.10"]
+
+
 def settings(**overrides) -> Settings:
     values = {
         "secret_key": "o" * 32,

@@ -62,12 +62,18 @@ def test_onvif_discovery_commits_running_session_before_network_and_persists(
     monkeypatch,
 ) -> None:
     app = make_app(tmp_path)
+    observed_source_addresses: list[tuple[str, ...]] = []
 
     class FakeOnvifAdapter:
         def __init__(self, _settings) -> None:
             pass
 
-        async def discover(self):
+        async def discover(
+            self,
+            *,
+            source_addresses: tuple[str, ...] = (),
+        ):
+            observed_source_addresses.append(source_addresses)
             # The discovery session must be visible from another SQLAlchemy
             # session before any network scan starts. This proves the request
             # is not holding the initial write transaction across network I/O.
@@ -122,8 +128,12 @@ def test_onvif_discovery_commits_running_session_before_network_and_persists(
     with TestClient(app) as client:
         setup_admin(client)
 
-        response = client.post("/api/v1/cameras/discovery")
+        response = client.post(
+            "/api/v1/cameras/discovery",
+            params={"source_address": "192.168.50.10"},
+        )
         assert response.status_code == 201
+        assert observed_source_addresses == [("192.168.50.10",)]
         body = response.json()
         assert body["method"] == "onvif_ws_discovery"
         assert body["status"] == "completed"
@@ -170,6 +180,29 @@ def test_onvif_discovery_commits_running_session_before_network_and_persists(
         assert audit.metadata_json["candidate_count"] == 2
 
 
+def test_onvif_discovery_rejects_ineligible_source_address(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        response = client.post(
+            "/api/v1/cameras/discovery",
+            params={"source_address": "127.0.0.1"},
+        )
+
+    assert response.status_code == 422
+    assert (
+        response.json()["error"]["code"]
+        == "onvif_discovery_source_address_invalid"
+    )
+    with app.state.database.session() as session:
+        assert session.scalar(
+            select(func.count()).select_from(DiscoverySession)
+        ) == 0
+
+
 def test_onvif_discovery_failure_is_persisted_and_sanitized(
     tmp_path: Path,
     monkeypatch,
@@ -180,7 +213,12 @@ def test_onvif_discovery_failure_is_persisted_and_sanitized(
         def __init__(self, _settings) -> None:
             pass
 
-        async def discover(self):
+        async def discover(
+            self,
+            *,
+            source_addresses: tuple[str, ...] = (),
+        ):
+            assert source_addresses == ()
             raise OnvifIntegrationError(
                 "onvif_discovery_failed",
                 "ONVIF device discovery failed.",

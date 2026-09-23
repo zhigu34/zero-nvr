@@ -1035,6 +1035,55 @@ async def test_onvif_camera(
     return _onvif_inspection_view(inspection)
 
 
+def _normalize_discovery_source_addresses(
+    values: list[str],
+) -> tuple[str, ...]:
+    if len(values) > 16:
+        raise ApiError(
+            status_code=422,
+            code="onvif_discovery_source_address_invalid",
+            message="At most 16 discovery source addresses may be selected.",
+            details={},
+        )
+
+    normalized: list[str] = []
+    for value in values:
+        candidate = value.strip()
+        try:
+            parsed = ipaddress.ip_address(
+                candidate.split("%", 1)[0]
+            )
+        except ValueError as exc:
+            raise ApiError(
+                status_code=422,
+                code="onvif_discovery_source_address_invalid",
+                message="Discovery source addresses must be IP addresses.",
+                details={"source_address": value},
+            ) from exc
+
+        if (
+            parsed.is_loopback
+            or parsed.is_link_local
+            or parsed.is_multicast
+            or parsed.is_unspecified
+        ):
+            raise ApiError(
+                status_code=422,
+                code="onvif_discovery_source_address_invalid",
+                message=(
+                    "Discovery source addresses must be eligible "
+                    "local unicast addresses."
+                ),
+                details={"source_address": value},
+            )
+
+        rendered = str(parsed)
+        if rendered not in normalized:
+            normalized.append(rendered)
+
+    return tuple(normalized)
+
+
 @router.post(
     "/cameras/discovery",
     response_model=DiscoverySessionView,
@@ -1042,9 +1091,13 @@ async def test_onvif_camera(
 )
 async def run_camera_discovery(
     request: Request,
+    source_address: list[str] = Query(default_factory=list),
     context: AuthContext = Depends(require_permission("camera.configure")),
     session: Session = Depends(get_db_session),
 ) -> DiscoverySessionView:
+    source_addresses = _normalize_discovery_source_addresses(
+        source_address
+    )
     try:
         discovery = CameraDiscoveryService.start(
             session,
@@ -1059,7 +1112,9 @@ async def run_camera_discovery(
     try:
         candidates = await OnvifAdapter(
             request.app.state.settings
-        ).discover()
+        ).discover(
+            source_addresses=source_addresses,
+        )
     except OnvifIntegrationError as exc:
         try:
             failed = CameraDiscoveryService.fail(
@@ -1075,7 +1130,10 @@ async def run_camera_discovery(
                 resource_id=failed.id,
                 result="failure",
                 reason=exc.code,
-                metadata={"method": "onvif_ws_discovery"},
+                metadata={
+                    "method": "onvif_ws_discovery",
+                    "source_addresses": list(source_addresses),
+                },
             )
             session.commit()
         except Exception:
@@ -1104,6 +1162,7 @@ async def run_camera_discovery(
             metadata={
                 "method": "onvif_ws_discovery",
                 "candidate_count": len(candidates),
+                "source_addresses": list(source_addresses),
             },
         )
         session.commit()
