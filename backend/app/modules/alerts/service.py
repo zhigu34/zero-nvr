@@ -26,6 +26,7 @@ _TIME_RE = re.compile(r"^(?:[01]\d|2[0-3]):[0-5]\d$")
 _ALLOWED_MATCH_KEYS = frozenset(
     {
         "camera_ids",
+        "sources",
         "categories",
         "labels",
         "zones",
@@ -213,6 +214,7 @@ class AlertPolicyService:
             ]
 
         for key, max_length in (
+            ("sources", 64),
             ("categories", 64),
             ("labels", 128),
             ("zones", 128),
@@ -634,6 +636,7 @@ class AlertEvaluationService:
                 return False
 
         mapping = (
+            ("sources", event.source),
             ("categories", event.category),
             ("labels", event.label),
             ("zones", event.zone),

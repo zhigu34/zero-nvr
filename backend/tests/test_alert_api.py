@@ -132,6 +132,7 @@ def test_notification_target_and_policy_management_hide_secrets(
                 "severity": "warning",
                 "match": {
                     "camera_ids": [camera_id],
+                    "sources": ["system"],
                     "labels": ["person"],
                     "min_confidence": 0.7,
                 },
@@ -149,6 +150,9 @@ def test_notification_target_and_policy_management_hide_secrets(
         assert policy.status_code == 201
         assert policy.json()["match"]["camera_ids"] == [
             camera_id
+        ]
+        assert policy.json()["match"]["sources"] == [
+            "system"
         ]
 
         invalid = client.post(

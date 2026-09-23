@@ -354,3 +354,113 @@ def test_min_duration_waits_for_event_end_update(tmp_path: Path) -> None:
             session.commit()
     finally:
         database.close()
+
+
+
+def test_alert_policy_source_predicate_filters_events(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        camera_id = seed_camera(
+            settings,
+            database,
+        )
+        with database.session() as session:
+            AlertPolicyService.create(
+                session,
+                name="Native camera events only",
+                enabled=True,
+                severity="warning",
+                match={
+                    "sources": ["onvif"],
+                    "categories": ["motion"],
+                },
+                actions={},
+                cooldown_seconds=0,
+            )
+            session.commit()
+
+        started = datetime(
+            2026,
+            9,
+            23,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+
+        with database.session() as session:
+            frigate_event = (
+                EventService.upsert_provider_event(
+                    session,
+                    item=EventIngest(
+                        source="frigate",
+                        source_instance_id=(
+                            "frigate-a"
+                        ),
+                        source_event_id=(
+                            "source-filter-frigate"
+                        ),
+                        camera_id=camera_id,
+                        category="motion",
+                        label="motion",
+                        started_at=started,
+                        ended_at=(
+                            started
+                            + timedelta(
+                                seconds=1
+                            )
+                        ),
+                    ),
+                ).event
+            )
+            assert (
+                AlertEvaluationService.evaluate_event(
+                    session,
+                    event=frigate_event,
+                ).alerts
+                == ()
+            )
+            session.commit()
+
+        with database.session() as session:
+            onvif_event = (
+                EventService.upsert_provider_event(
+                    session,
+                    item=EventIngest(
+                        source="onvif",
+                        source_instance_id=(
+                            "device:test"
+                        ),
+                        source_event_id=(
+                            "source-filter-onvif"
+                        ),
+                        camera_id=camera_id,
+                        category="motion",
+                        label="motion",
+                        started_at=(
+                            started
+                            + timedelta(
+                                seconds=2
+                            )
+                        ),
+                        ended_at=(
+                            started
+                            + timedelta(
+                                seconds=3
+                            )
+                        ),
+                    ),
+                ).event
+            )
+            result = (
+                AlertEvaluationService.evaluate_event(
+                    session,
+                    event=onvif_event,
+                )
+            )
+            assert len(result.alerts) == 1
+            session.commit()
+    finally:
+        database.close()
