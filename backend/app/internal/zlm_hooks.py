@@ -22,6 +22,7 @@ from app.modules.cameras.models import (
     CameraStreamBinding,
     CameraStreamProfile,
 )
+from app.modules.alerts.service import AlertEvaluationService
 from app.modules.events.system import SystemEventService
 from app.modules.recordings.catalog import (
     FinalizedRecordingEvidence,
@@ -254,25 +255,44 @@ def zlm_stream_changed(
     # interval is intentionally separate from high-frequency runtime telemetry:
     # unregister opens source_lost and the next registration closes it.
     camera_id = None
+    delivery_ids = ()
     try:
         camera_id = _recording_camera_id(
             session,
             stream=body.stream,
         )
         if camera_id is not None:
-            transition = (
-                SystemEventService.source_recovered
-                if body.regist
-                else SystemEventService.source_lost
-            )
-            transition(
-                session,
-                camera_id=camera_id,
-                observed_at=boundary_at,
-                stream=body.stream,
-                app=body.app,
-                vhost=body.vhost,
-            )
+            if body.regist:
+                recovered = (
+                    SystemEventService.source_recovered(
+                        session,
+                        camera_id=camera_id,
+                        observed_at=boundary_at,
+                        stream=body.stream,
+                        app=body.app,
+                        vhost=body.vhost,
+                    )
+                )
+                if recovered is not None:
+                    AlertEvaluationService.resolve_event_alerts(
+                        session,
+                        event=recovered,
+                    )
+            else:
+                lost = SystemEventService.source_lost(
+                    session,
+                    camera_id=camera_id,
+                    observed_at=boundary_at,
+                    stream=body.stream,
+                    app=body.app,
+                    vhost=body.vhost,
+                )
+                delivery_ids = (
+                    AlertEvaluationService.evaluate_event(
+                        session,
+                        event=lost,
+                    ).delivery_ids
+                )
         session.commit()
     except Exception:
         session.rollback()
@@ -287,6 +307,21 @@ def zlm_stream_changed(
                 ),
             },
         )
+        delivery_ids = ()
+
+    if delivery_ids:
+        try:
+            request.app.state.notification_tasks.deliver_many(
+                delivery_ids
+            )
+        except Exception:
+            request.app.state.logger.warning(
+                "recording source health notification enqueue failed",
+                extra={
+                    "stream": body.stream,
+                    "delivery_count": len(delivery_ids),
+                },
+            )
 
     if body.regist and camera_id is not None:
         # ZLM owns reconnect. Re-apply the still-persisted RecordingPolicy and

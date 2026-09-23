@@ -10,6 +10,8 @@ from sqlalchemy import func, select
 import app.internal.zlm_hooks as zlm_hooks
 from app.core.config import Settings
 from app.core.db import Base
+from app.modules.alerts.models import Alert
+from app.modules.alerts.service import AlertPolicyService
 from app.integrations.zlm import ZlmMediaAccess
 from app.main import create_app
 from app.modules.cameras.capability_health import (
@@ -1003,3 +1005,84 @@ def test_play_hook_rejects_revoked_live_media_session(
         )
         assert denied.status_code == 200
         assert denied.json()["code"] != 0
+
+
+
+def test_source_health_alert_resolves_on_stream_recovery(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    camera_id_text, stream = seed_recording_camera(app)
+    camera_id = uuid.UUID(camera_id_text)
+
+    with app.state.database.session() as session:
+        AlertPolicyService.create(
+            session,
+            name="Recording source connectivity",
+            enabled=True,
+            severity="warning",
+            match={
+                "camera_ids": [camera_id_text],
+                "sources": ["system"],
+                "categories": ["source_connectivity"],
+                "labels": ["source_lost"],
+            },
+            actions={},
+            cooldown_seconds=0,
+        )
+        session.commit()
+
+    boundaries = iter([
+        dt(9000),
+        dt(9010),
+        dt(9012),
+    ])
+    monkeypatch.setattr(
+        zlm_hooks,
+        "utc_now",
+        lambda: next(boundaries),
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=True,
+            ),
+        ).status_code == 200
+
+        assert client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=False,
+            ),
+        ).status_code == 200
+
+        with app.state.database.session() as session:
+            alerts = list(
+                session.scalars(
+                    select(Alert).where(
+                        Alert.camera_id == camera_id
+                    )
+                )
+            )
+            assert len(alerts) == 1
+            assert alerts[0].state == "OPEN"
+            alert_id = alerts[0].id
+
+        assert client.post(
+            "/internal/hooks/zlm/stream-changed",
+            json=stream_changed_payload(
+                stream=stream,
+                regist=True,
+            ),
+        ).status_code == 200
+
+    with app.state.database.session() as session:
+        alert = session.get(Alert, alert_id)
+        assert alert is not None
+        assert alert.state == "RESOLVED"
+        assert alert.resolved_at == dt(9012)
