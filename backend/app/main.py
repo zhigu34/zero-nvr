@@ -29,6 +29,9 @@ from app.modules.cameras.clock_projection import (
 )
 from app.modules.cameras.live_transcode import LiveTranscodeManager
 from app.modules.cameras.media_sessions import MediaSessionRegistry
+from app.modules.cameras.runtime_observation import (
+    ZlmRuntimeObservationService,
+)
 from app.modules.cameras.runtime_reconciler import (
     RuntimeReconciler,
 )
@@ -70,6 +73,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         reconcile_camera=(
             recording_tasks.reconcile_runtime
         ),
+        reconcile_prebuffer=(
+            recording_tasks.reconcile_camera
+        ),
+        reconcile_catalog=(
+            recording_tasks.reconcile_catalog
+        ),
+    )
+    zlm_runtime_observation = ZlmRuntimeObservationService(
+        resolved_settings,
+        database,
+        health=zlm_health,
+        continuity=zlm_continuity,
     )
     backup_tasks = BackupTaskDispatcher()
     export_tasks = ExportTaskDispatcher()
@@ -101,6 +116,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             assert_database_schema_current(
                 database
             )
+            try:
+                observed = zlm_runtime_observation.rebuild()
+                logger.info(
+                    "ZLM runtime observations rebuilt",
+                    extra={
+                        "profile_count": observed.profiles,
+                        "online_count": observed.online,
+                        "recording_count": observed.recording,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "ZLM runtime observation rebuild failed; "
+                    "normal reconciliation will retry runtime recovery"
+                )
             queued = (
                 runtime_reconciler.enqueue_all()
             )
@@ -164,6 +194,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.media_sessions = media_sessions
     app.state.recording_tasks = recording_tasks
     app.state.runtime_reconciler = runtime_reconciler
+    app.state.zlm_runtime_observation = (
+        zlm_runtime_observation
+    )
     app.state.backup_tasks = backup_tasks
     app.state.export_tasks = export_tasks
     app.state.notification_tasks = notification_tasks

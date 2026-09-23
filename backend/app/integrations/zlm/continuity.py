@@ -145,6 +145,13 @@ class ZlmContinuityTracker:
             state = self._active.get(identity)
             return state.continuity_id if state else None
 
+    def reset(self) -> None:
+        """Forget process-local generations after ZLM itself restarts."""
+
+        with self._lock:
+            self._active.clear()
+            self._closed.clear()
+
     def resolve_record(
         self,
         *,

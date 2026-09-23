@@ -23,9 +23,19 @@ class RuntimeReconciler:
         database: Database,
         *,
         reconcile_camera: Callable[[uuid.UUID], None],
+        reconcile_prebuffer: Callable[
+            [uuid.UUID],
+            None,
+        ] | None = None,
+        reconcile_catalog: Callable[
+            [],
+            None,
+        ] | None = None,
     ) -> None:
         self.database = database
         self._reconcile_camera = reconcile_camera
+        self._reconcile_prebuffer = reconcile_prebuffer
+        self._reconcile_catalog = reconcile_catalog
 
     def enqueue_all(self) -> int:
         with self.database.session() as session:
@@ -42,4 +52,12 @@ class RuntimeReconciler:
             self._reconcile_camera(
                 camera_id
             )
+            if self._reconcile_prebuffer is not None:
+                self._reconcile_prebuffer(
+                    camera_id
+                )
+
+        if self._reconcile_catalog is not None:
+            self._reconcile_catalog()
+
         return len(camera_ids)

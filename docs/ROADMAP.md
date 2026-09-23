@@ -197,7 +197,7 @@ Acceptance:
 - [x] ensure/remove ZLM stream proxy through a thin MediaPlane adapter.
 - [x] consume ZLM registration/unregistration/recorder signals for observed media health.
 - [x] configure ZLM-native pull/reconnect behavior; do not implement a competing RTSP reconnect/backoff engine.
-- [ ] recovery reconciliation after ZLM/API/control-plane restart.
+- [x] recovery reconciliation after ZLM/API/control-plane restart.
 - [x] MediaSession API with short-lived scoped authorization/revocation.
 - [x] Browser capability report and LivePlaybackResolver.
 - [x] WebRTC preferred transport with bounded fMP4/HLS fallback.

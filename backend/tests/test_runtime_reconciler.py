@@ -69,13 +69,23 @@ def test_runtime_reconciler_queues_all_persisted_cameras(
             }
 
         queued = []
+        prebuffer = []
+        catalog = []
         reconciler = RuntimeReconciler(
             database,
             reconcile_camera=queued.append,
+            reconcile_prebuffer=(
+                prebuffer.append
+            ),
+            reconcile_catalog=lambda: (
+                catalog.append(True)
+            ),
         )
 
         assert reconciler.enqueue_all() == 2
         assert set(queued) == expected
+        assert set(prebuffer) == expected
+        assert catalog == [True]
     finally:
         database.close()
 

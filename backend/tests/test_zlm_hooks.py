@@ -209,6 +209,64 @@ def test_hook_authentication_is_required_and_sanitized(tmp_path: Path) -> None:
         assert missing.json()["error"]["code"] == "zlm_hook_not_configured"
 
 
+def test_server_started_resets_generation_and_queues_recovery(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    profile_id = uuid.uuid4()
+    stream = f"profile-{profile_id.hex}"
+    app.state.zlm_continuity.registered(
+        vhost="__defaultVhost__",
+        app="zero-nvr",
+        stream=stream,
+        at=dt(800),
+    )
+    app.state.zlm_health.stream_registered(
+        profile_id,
+        at=dt(800),
+    )
+
+    class FakeRecovery:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def enqueue_all(self) -> int:
+            self.calls += 1
+            return 0
+
+    recovery = FakeRecovery()
+    app.state.runtime_reconciler = recovery
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/hooks/zlm/server-started",
+            json={
+                "general.mediaServerId": (
+                    HOOK_SECRET
+                ),
+                "hook.enable": "1",
+            },
+        )
+
+    assert response.status_code == 200
+    assert response.json()["code"] == 0
+    assert recovery.calls == 1
+    assert (
+        app.state.zlm_continuity.current(
+            vhost="__defaultVhost__",
+            app="zero-nvr",
+            stream=stream,
+        )
+        is None
+    )
+    assert (
+        app.state.zlm_health.media(
+            profile_id
+        )
+        is None
+    )
+
+
 def test_non_rtsp_or_unmanaged_stream_change_does_not_create_continuity(
     tmp_path: Path,
 ) -> None:

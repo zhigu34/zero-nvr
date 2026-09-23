@@ -17,7 +17,9 @@ class ZlmMediaHealthObservation:
 @dataclass(frozen=True, slots=True)
 class ZlmRecordingHealthObservation:
     profile_id: uuid.UUID
-    finalized_at: datetime
+    active: bool
+    observed_at: datetime
+    finalized_at: datetime | None = None
     continuity_id: uuid.UUID | None = None
 
 
@@ -80,6 +82,51 @@ class ZlmObservedHealthStore:
                 continuity_id=continuity_id,
             )
 
+    def recording_observed(
+        self,
+        profile_id: uuid.UUID,
+        *,
+        active: bool,
+        at: datetime | None = None,
+        continuity_id: uuid.UUID | None = None,
+    ) -> None:
+        observed_at = at or self._now()
+        with self._lock:
+            current_media = self._media.get(
+                profile_id
+            )
+            if (
+                current_media is not None
+                and current_media.online
+                and current_media.continuity_id
+                is not None
+                and continuity_id is not None
+                and continuity_id
+                != current_media.continuity_id
+            ):
+                return
+            previous = self._recording.get(
+                profile_id
+            )
+            finalized_at = (
+                previous.finalized_at
+                if (
+                    previous is not None
+                    and previous.continuity_id
+                    == continuity_id
+                )
+                else None
+            )
+            self._recording[
+                profile_id
+            ] = ZlmRecordingHealthObservation(
+                profile_id=profile_id,
+                active=active,
+                observed_at=observed_at,
+                finalized_at=finalized_at,
+                continuity_id=continuity_id,
+            )
+
     def recording_finalized(
         self,
         profile_id: uuid.UUID,
@@ -106,6 +153,8 @@ class ZlmObservedHealthStore:
                 profile_id
             ] = ZlmRecordingHealthObservation(
                 profile_id=profile_id,
+                active=True,
+                observed_at=finalized_at,
                 finalized_at=finalized_at,
                 continuity_id=continuity_id,
             )
@@ -127,3 +176,8 @@ class ZlmObservedHealthStore:
             return self._recording.get(
                 profile_id
             )
+
+    def clear(self) -> None:
+        with self._lock:
+            self._media.clear()
+            self._recording.clear()

@@ -65,6 +65,9 @@ awk '
   section=="hook" && /^on_record_mp4=/ {
     print "on_record_mp4=" ENVIRON["ZERO_NVR_ZLM_HOOK_BASE_URL"] "/record-mp4"; next
   }
+  section=="hook" && /^on_server_started=/ {
+    print "on_server_started=" ENVIRON["ZERO_NVR_ZLM_HOOK_BASE_URL"] "/server-started"; next
+  }
   section=="hook" && /^on_stream_changed=/ {
     print "on_stream_changed=" ENVIRON["ZERO_NVR_ZLM_HOOK_BASE_URL"] "/stream-changed"; next
   }
@@ -95,6 +98,7 @@ grep -Fxq "port=$webrtc_port" "$rendered"
 grep -Fxq "tcpPort=$webrtc_port" "$rendered"
 grep -Fxq "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" "$rendered"
 grep -Fxq "on_record_mp4=http://zero-nvr:8000/internal/hooks/zlm/record-mp4" "$rendered"
+grep -Fxq "on_server_started=http://zero-nvr:8000/internal/hooks/zlm/server-started" "$rendered"
 grep -Fxq "on_stream_changed=http://zero-nvr:8000/internal/hooks/zlm/stream-changed" "$rendered"
 
 chmod 600 "$rendered"

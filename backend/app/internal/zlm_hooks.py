@@ -5,7 +5,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -33,6 +38,22 @@ class ZlmHookBase(BaseModel):
 
     media_server_id: str = Field(
         alias="mediaServerId",
+        min_length=1,
+        max_length=512,
+    )
+
+
+class ZlmServerStartedHook(BaseModel):
+    model_config = ConfigDict(
+        extra="ignore",
+        populate_by_name=True,
+    )
+
+    media_server_id: str = Field(
+        validation_alias=AliasChoices(
+            "mediaServerId",
+            "general.mediaServerId",
+        ),
         min_length=1,
         max_length=512,
     )
@@ -111,6 +132,27 @@ def _recording_camera_id(
         )
     )
     return binding.camera_id if binding is not None else None
+
+
+@router.post("/server-started")
+def zlm_server_started(
+    body: ZlmServerStartedHook,
+    request: Request,
+) -> dict[str, object]:
+    _authenticate_hook(
+        request,
+        body.media_server_id,
+    )
+
+    request.app.state.zlm_continuity.reset()
+    request.app.state.zlm_health.clear()
+    try:
+        request.app.state.runtime_reconciler.enqueue_all()
+    except Exception:
+        request.app.state.logger.warning(
+            "ZLM restart recovery enqueue failed"
+        )
+    return _ack()
 
 
 @router.post("/play")

@@ -495,16 +495,42 @@ class CameraCapabilityHealthService:
                 )
             )
             if same_generation:
+                if not bool(
+                    getattr(
+                        recording_observation,
+                        "active",
+                        True,
+                    )
+                ):
+                    return CapabilityHealthLayer(
+                        state="degraded",
+                        reason="recording_inactive",
+                        details={
+                            "observed_at": (
+                                recording_observation
+                                .observed_at
+                                .isoformat()
+                            ),
+                            "mode": decision.mode,
+                        },
+                    )
+                details: dict[str, object] = {
+                    "observed_at": (
+                        recording_observation
+                        .observed_at
+                        .isoformat()
+                    ),
+                    "mode": decision.mode,
+                }
+                if recording_observation.finalized_at is not None:
+                    details["last_finalized_at"] = (
+                        recording_observation
+                        .finalized_at
+                        .isoformat()
+                    )
                 return CapabilityHealthLayer(
                     state="healthy",
-                    details={
-                        "last_finalized_at": (
-                            recording_observation
-                            .finalized_at
-                            .isoformat()
-                        ),
-                        "mode": decision.mode,
-                    },
+                    details=details,
                 )
 
         return CapabilityHealthLayer(
