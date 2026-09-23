@@ -5,8 +5,11 @@ import logging
 import threading
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
+
+from sqlalchemy import func, select
 
 from app.core.config import Settings
 from app.core.db import Base, Database
@@ -16,14 +19,18 @@ from app.integrations.onvif import (
     OnvifEventSubscription,
     OnvifEventTarget,
     OnvifIntegrationError,
+    normalize_onvif_notification,
 )
 from app.modules.auth.models import SecretRecord  # noqa: F401
 from app.modules.cameras.models import (
     Camera,
+    CameraStreamProfile,
     Device,
     DeviceCredential,
     DeviceEndpoint,
 )
+from app.modules.events.models import Event
+from app.modules.events.onvif import OnvifEventIngestService
 
 
 def settings(
@@ -455,4 +462,317 @@ def test_event_runtime_recreates_lost_subscription(
         )
     finally:
         runtime.stop()
+        database.close()
+
+
+def _motion_notification(
+    *,
+    source_token: str,
+    active: bool,
+    occurred_at: datetime,
+):
+    return SimpleNamespace(
+        Topic=SimpleNamespace(
+            _value_1=(
+                "tns1:RuleEngine/CellMotionDetector/Motion"
+            )
+        ),
+        Message=SimpleNamespace(
+            Message=SimpleNamespace(
+                UtcTime=occurred_at,
+                PropertyOperation="Changed",
+                Source=SimpleNamespace(
+                    SimpleItem=[
+                        SimpleNamespace(
+                            Name=(
+                                "VideoSourceConfigurationToken"
+                            ),
+                            Value=source_token,
+                        )
+                    ]
+                ),
+                Data=SimpleNamespace(
+                    SimpleItem=[
+                        SimpleNamespace(
+                            Name="IsMotion",
+                            Value=(
+                                "true"
+                                if active
+                                else "false"
+                            ),
+                        )
+                    ]
+                ),
+            )
+        ),
+    )
+
+
+def test_onvif_notification_normalizes_motion_state() -> None:
+    occurred_at = datetime(
+        2026,
+        9,
+        23,
+        10,
+        30,
+        tzinfo=UTC,
+    )
+    normalized = normalize_onvif_notification(
+        _motion_notification(
+            source_token="source-2",
+            active=True,
+            occurred_at=occurred_at,
+        )
+    )
+
+    assert normalized is not None
+    assert normalized.category == "motion"
+    assert normalized.label == "motion"
+    assert normalized.state is True
+    assert normalized.occurred_at == occurred_at
+    assert normalized.source_items == {
+        "VideoSourceConfigurationToken": "source-2"
+    }
+    assert normalized.data_items == {
+        "IsMotion": "true"
+    }
+    assert normalized.source_event_id.startswith(
+        "notification:"
+    )
+
+
+def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
+    tmp_path: Path,
+) -> None:
+    cfg = settings(tmp_path)
+    database = Database(cfg)
+    database.initialize_runtime()
+    Base.metadata.create_all(
+        database.engine
+    )
+
+    try:
+        with database.session() as session:
+            device = Device(
+                name="Two-channel recorder",
+                adapter_type="onvif",
+                enabled=True,
+                capabilities_json={
+                    "onvif_services": [
+                        "Events",
+                    ],
+                },
+            )
+            session.add(device)
+            session.flush()
+            first = Camera(
+                device_id=device.id,
+                channel_key="source-1",
+                name="Channel 1",
+                enabled=True,
+            )
+            second = Camera(
+                device_id=device.id,
+                channel_key="source-2",
+                name="Channel 2",
+                enabled=True,
+            )
+            session.add_all(
+                [first, second]
+            )
+            session.flush()
+            session.add(
+                CameraStreamProfile(
+                    camera_id=second.id,
+                    adapter_profile_key=(
+                        "profile-source-2"
+                    ),
+                    video_source_key="source-2",
+                    name="Main",
+                    codec="h264",
+                    has_audio=False,
+                    status="verified",
+                    metadata_json={},
+                )
+            )
+            session.commit()
+            device_id = device.id
+            second_id = second.id
+
+        logger = logging.getLogger(
+            "test-onvif-event-ingest"
+        )
+        service = OnvifEventIngestService(
+            database,
+            logger=logger,
+        )
+        started = datetime(
+            2026,
+            9,
+            23,
+            10,
+            31,
+            tzinfo=UTC,
+        )
+        start_notification = (
+            _motion_notification(
+                source_token="source-2",
+                active=True,
+                occurred_at=started,
+            )
+        )
+        service.handle(
+            device_id,
+            (
+                start_notification,
+                start_notification,
+            ),
+        )
+
+        with database.session() as session:
+            assert session.scalar(
+                select(func.count())
+                .select_from(Event)
+            ) == 1
+            event = session.scalar(
+                select(Event)
+            )
+            assert event is not None
+            assert event.source == "onvif"
+            assert event.camera_id == second_id
+            assert event.category == "motion"
+            assert event.label == "motion"
+            assert event.started_at == started
+            assert event.ended_at is None
+            event_id = event.id
+            source_event_id = (
+                event.source_event_id
+            )
+
+        ended = started + timedelta(
+            seconds=9
+        )
+        end_notification = (
+            _motion_notification(
+                source_token="source-2",
+                active=False,
+                occurred_at=ended,
+            )
+        )
+        service.handle(
+            device_id,
+            (
+                end_notification,
+                end_notification,
+            ),
+        )
+
+        with database.session() as session:
+            assert session.scalar(
+                select(func.count())
+                .select_from(Event)
+            ) == 1
+            event = session.get(
+                Event,
+                event_id,
+            )
+            assert event is not None
+            assert (
+                event.source_event_id
+                == source_event_id
+            )
+            assert event.ended_at == ended
+            assert event.metadata_json[
+                "state"
+            ] is False
+    finally:
+        database.close()
+
+
+def test_onvif_ingest_does_not_guess_multichannel_camera(
+    tmp_path: Path,
+) -> None:
+    cfg = settings(tmp_path)
+    database = Database(cfg)
+    database.initialize_runtime()
+    Base.metadata.create_all(
+        database.engine
+    )
+
+    try:
+        with database.session() as session:
+            device = Device(
+                name="Two-channel recorder",
+                adapter_type="onvif",
+                enabled=True,
+                capabilities_json={},
+            )
+            session.add(device)
+            session.flush()
+            session.add_all(
+                [
+                    Camera(
+                        device_id=device.id,
+                        channel_key="source-1",
+                        name="Channel 1",
+                        enabled=True,
+                    ),
+                    Camera(
+                        device_id=device.id,
+                        channel_key="source-2",
+                        name="Channel 2",
+                        enabled=True,
+                    ),
+                ]
+            )
+            session.commit()
+            device_id = device.id
+
+        notification = SimpleNamespace(
+            Topic=SimpleNamespace(
+                _value_1=(
+                    "tns1:Device/Trigger/DigitalInput"
+                )
+            ),
+            Message=SimpleNamespace(
+                Message=SimpleNamespace(
+                    UtcTime=datetime(
+                        2026,
+                        9,
+                        23,
+                        10,
+                        40,
+                        tzinfo=UTC,
+                    ),
+                    Data=SimpleNamespace(
+                        SimpleItem=[
+                            SimpleNamespace(
+                                Name="LogicalState",
+                                Value="true",
+                            )
+                        ]
+                    ),
+                )
+            ),
+        )
+        OnvifEventIngestService(
+            database,
+            logger=logging.getLogger(
+                "test-onvif-device-event"
+            ),
+        ).handle(
+            device_id,
+            (notification,),
+        )
+
+        with database.session() as session:
+            event = session.scalar(
+                select(Event)
+            )
+            assert event is not None
+            assert event.camera_id is None
+            assert event.category == (
+                "digital_input"
+            )
+    finally:
         database.close()

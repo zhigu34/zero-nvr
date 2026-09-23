@@ -37,6 +37,7 @@ from app.modules.cameras.runtime_reconciler import (
 )
 from app.modules.backups.dispatcher import BackupTaskDispatcher
 from app.modules.notifications.dispatcher import NotificationTaskDispatcher
+from app.modules.events.onvif import OnvifEventIngestService
 from app.modules.exports.dispatcher import ExportTaskDispatcher
 from app.modules.recordings.dispatcher import RecordingTaskDispatcher
 from app.modules.recordings.prebuffer import PrebufferFragmentTracker
@@ -91,10 +92,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     notification_tasks = NotificationTaskDispatcher()
     storage_tasks = StorageTaskDispatcher()
     frigate_tasks = FrigateTaskDispatcher()
+    onvif_event_ingest = OnvifEventIngestService(
+        database,
+        logger=logger,
+    )
     onvif_events = OnvifEventRuntime(
         resolved_settings,
         database,
         logger=logger,
+        notification_handler=(
+            onvif_event_ingest.handle
+        ),
     )
     frigate_mqtt = FrigateMqttRuntime(
         resolved_settings,
