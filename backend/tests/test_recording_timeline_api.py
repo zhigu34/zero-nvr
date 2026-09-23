@@ -270,6 +270,30 @@ def test_timeline_api_normalizes_timezone_and_projects_ranges(
             + timedelta(minutes=10)
         )
 
+        assert len(body["segments"]) == 1
+        detailed = body["segments"][0]
+        assert (
+            detailed["id"]
+            == detailed["playback_ref"]
+        )
+        assert (
+            detailed["availability"]
+            == "local"
+        )
+        assert (
+            datetime.fromisoformat(
+                detailed["start_at"]
+            )
+            == base
+        )
+        assert (
+            datetime.fromisoformat(
+                detailed["end_at"]
+            )
+            == base
+            + timedelta(minutes=5)
+        )
+
         assert len(
             body["recording_ranges"]
         ) == 1
@@ -603,3 +627,134 @@ def test_timeline_event_markers_aggregate_by_zoom_level(
             "motion": 2,
             "object": 1,
         }
+
+
+
+def test_timeline_segments_are_canonical_and_ordered_for_binary_lookup(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id, _, base = (
+            seed_timeline(app)
+        )
+
+        with app.state.database.session() as session:
+            first = session.scalar(
+                select(
+                    RecordingSegment
+                ).where(
+                    RecordingSegment.camera_id
+                    == camera_id
+                )
+            )
+            assert first is not None
+            location = session.scalar(
+                select(
+                    RecordingLocation
+                ).where(
+                    RecordingLocation
+                    .recording_segment_id
+                    == first.id
+                )
+            )
+            assert location is not None
+
+            second = RecordingSegment(
+                camera_id=camera_id,
+                stream_profile_id=(
+                    first.stream_profile_id
+                ),
+                started_at=(
+                    base
+                    + timedelta(minutes=5)
+                ),
+                ended_at=(
+                    base
+                    + timedelta(minutes=10)
+                ),
+                duration_ms=300_000,
+                timing_status="FINAL",
+                timing_source="RECOVERY",
+                recording_reasons_json=[
+                    "continuous"
+                ],
+                size_bytes=2000,
+                codec="h264",
+                container="fmp4",
+                source_media_server_id="default",
+                source_app="zero-nvr",
+                source_stream="ordered-second",
+                integrity_status="OK",
+                completion_reason="NORMAL",
+            )
+            session.add(second)
+            session.flush()
+            session.add(
+                RecordingLocation(
+                    recording_segment_id=second.id,
+                    storage_target_id=(
+                        location.storage_target_id
+                    ),
+                    object_path=(
+                        "record/front-door/"
+                        "segment-002.mp4"
+                    ),
+                    state="AVAILABLE",
+                    size_bytes=2000,
+                )
+            )
+            session.commit()
+            first_id = first.id
+            second_id = second.id
+
+        response = client.get(
+            (
+                f"/api/v1/cameras/"
+                f"{camera_id}/timeline"
+            ),
+            params={
+                "from": (
+                    base
+                    + timedelta(minutes=2)
+                ).isoformat(),
+                "to": (
+                    base
+                    + timedelta(minutes=8)
+                ).isoformat(),
+                "detail": "minute",
+            },
+        )
+        assert response.status_code == 200
+        segments = (
+            response.json()["segments"]
+        )
+        assert [
+            item["id"]
+            for item in segments
+        ] == [
+            str(first_id),
+            str(second_id),
+        ]
+        assert [
+            item["playback_ref"]
+            for item in segments
+        ] == [
+            str(first_id),
+            str(second_id),
+        ]
+        assert (
+            datetime.fromisoformat(
+                segments[0]["start_at"]
+            )
+            == base
+        )
+        assert (
+            datetime.fromisoformat(
+                segments[1]["end_at"]
+            )
+            == base
+            + timedelta(minutes=10)
+        )

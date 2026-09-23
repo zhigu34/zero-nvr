@@ -33,6 +33,7 @@ from .schemas import (
     TimelineGapView,
     TimelineRangeView,
     TimelineRecordingRangeView,
+    TimelineSegmentView,
 )
 
 
@@ -786,6 +787,16 @@ class PlaybackTimelineService:
                 start_at=start_at,
                 end_at=end_at,
             ),
+            segments=[
+                TimelineSegmentView(
+                    id=item.segment.id,
+                    playback_ref=item.segment.id,
+                    start_at=item.segment.started_at,
+                    end_at=item.segment.ended_at,
+                    availability=item.availability,
+                )
+                for item in projected
+            ],
             recording_ranges=recording_ranges,
             gaps=gaps,
             events=cls._event_markers(

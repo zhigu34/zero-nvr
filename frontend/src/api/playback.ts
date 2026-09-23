@@ -24,6 +24,14 @@ export interface TimelineRecordingRange {
   availability: TimelineAvailability
 }
 
+export interface TimelineSegment {
+  id: string
+  playback_ref: string
+  start_at: string
+  end_at: string
+  availability: TimelineAvailability
+}
+
 export interface TimelineGap {
   start_at: string
   end_at: string
@@ -51,6 +59,7 @@ export interface PlaybackTimeline {
   camera_id: string
   detail: TimelineDetailLevel
   range: TimelineRange
+  segments: TimelineSegment[]
   recording_ranges: TimelineRecordingRange[]
   gaps: TimelineGap[]
   events: TimelineEvent[]
@@ -100,6 +109,38 @@ export function getCameraTimeline(
   return apiRequest<PlaybackTimeline>(
     `/cameras/${encodeURIComponent(cameraId)}/timeline?${params}`
   )
+}
+
+export function findTimelineSegmentAt(
+  segments: TimelineSegment[],
+  at: Date
+): TimelineSegment | null {
+  const target = at.getTime()
+  let low = 0
+  let high = segments.length - 1
+  let candidate = -1
+
+  while (low <= high) {
+    const middle = (low + high) >>> 1
+    const start = new Date(
+      segments[middle].start_at
+    ).getTime()
+
+    if (start <= target) {
+      candidate = middle
+      low = middle + 1
+    } else {
+      high = middle - 1
+    }
+  }
+
+  if (candidate < 0) return null
+
+  const segment = segments[candidate]
+  const end = new Date(
+    segment.end_at
+  ).getTime()
+  return target < end ? segment : null
 }
 
 export function resolveRecordingSegment(

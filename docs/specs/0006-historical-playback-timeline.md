@@ -94,9 +94,16 @@ The frontend does not need local paths, S3/rclone/OpenList object keys, storage 
 
 ### Segment ordering and lookup
 
-Detailed timeline responses return playable segments ordered by `start_at` ascending.
+The V1 single-camera timeline returns canonical physical segment ranges in
+`segments`, ordered by `start_at`, then `end_at`, then stable segment ID.
+These ranges keep their full canonical boundaries even when the requested
+viewport clips through the middle of a segment. Each item exposes
+`playback_ref = RecordingSegment.id` plus availability; storage paths and
+object keys remain private. The merged `recording_ranges` array remains the
+compact visual coverage layer.
 
-The frontend/player maintains this ordered list and uses binary search (or an equivalent indexed lookup) for absolute-time seek:
+The frontend/player maintains this ordered segment list and uses binary search
+for absolute-time seek:
 
 ```text
 target T
@@ -110,9 +117,17 @@ resolve playback_ref
 seek relative media offset
 ```
 
-Do not linearly scan a full-day segment array for every playhead/synchronization tick.
+Do not linearly scan a full-day segment array for every playhead/synchronization
+tick. The lookup finds the rightmost segment whose `start_at <= T`, verifies
+`T < end_at`, derives `offset_ms = T - start_at`, and resolves that stable
+segment ID. If no segment contains T, the client uses the absolute-time resolver
+only to obtain the authoritative gap reason and neighboring-time metadata.
 
-For large ranges, the server may return compact coverage buckets rather than every physical segment; binary segment lookup applies to detailed playback ranges.
+The current single-camera V1 viewport returns physical segments even when
+`recording_ranges` and Event markers are aggregated for wider zoom levels.
+Future very-large or multi-camera overview APIs may omit physical segments and
+return compact coverage only, but detailed playback ranges must preserve this
+ordered lookup contract.
 
 ## Segment availability
 

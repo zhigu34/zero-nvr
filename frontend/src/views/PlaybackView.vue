@@ -35,8 +35,10 @@ import {
   type RecordingProtection
 } from "../api/recordings"
 import {
+  findTimelineSegmentAt,
   getCameraTimeline,
   resolveCameraPlayback,
+  resolveRecordingSegment,
   type PlaybackGap,
   type PlaybackResolve,
   type PlaybackTimeline,
@@ -405,7 +407,31 @@ async function resolveAt(
   }
 
   try {
-    const result = await resolveCameraPlayback(cameraId, at)
+    const segment = (
+      timeline.value?.camera_id === cameraId
+        ? findTimelineSegmentAt(
+            timeline.value.segments,
+            at
+          )
+        : null
+    )
+    const result = segment
+      ? await resolveRecordingSegment(
+          segment.playback_ref,
+          Math.max(
+            0,
+            Math.round(
+              at.getTime() -
+                new Date(
+                  segment.start_at
+                ).getTime()
+            )
+          )
+        )
+      : await resolveCameraPlayback(
+          cameraId,
+          at
+        )
     if (generation !== resolveGeneration) return
     playbackResult.value = result
 

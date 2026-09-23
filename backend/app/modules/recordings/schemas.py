@@ -51,6 +51,14 @@ class TimelineRecordingRangeView(BaseModel):
     availability: TimelineAvailability
 
 
+class TimelineSegmentView(BaseModel):
+    id: uuid.UUID
+    playback_ref: uuid.UUID
+    start_at: datetime
+    end_at: datetime
+    availability: TimelineAvailability
+
+
 class TimelineGapView(BaseModel):
     start_at: datetime
     end_at: datetime
@@ -77,6 +85,7 @@ class PlaybackTimelineView(BaseModel):
     camera_id: uuid.UUID
     detail: TimelineDetailLevel
     range: TimelineRangeView
+    segments: list[TimelineSegmentView]
     recording_ranges: list[TimelineRecordingRangeView]
     gaps: list[TimelineGapView]
     events: list[TimelineEventView]
