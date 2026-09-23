@@ -539,8 +539,12 @@ def test_timeline_event_markers_aggregate_by_zoom_level(
             "point",
         ]
         assert (
-            minute_events[0]["start_at"]
-            == base.isoformat()
+            datetime.fromisoformat(
+                minute_events[0][
+                    "start_at"
+                ]
+            )
+            == base
         )
 
         hour = client.get(
