@@ -350,10 +350,16 @@ async function refreshCameras(): Promise<void> {
   loadingCameras.value = true
   error.value = null
   try {
+    const wasMulti =
+      multiCameraMode.value
     cameras.value = await listCameras({
       includeRetired: true
     })
-    const validIds = new Set(cameras.value.map((camera) => camera.id))
+    const validIds = new Set(
+      cameras.value.map(
+        (camera) => camera.id
+      )
+    )
     const routeCamera =
       typeof route.query.camera === "string"
         ? route.query.camera
@@ -371,21 +377,55 @@ async function refreshCameras(): Promise<void> {
       !activeCameraId.value ||
       !validIds.has(activeCameraId.value)
     ) {
-      activeCameraId.value = cameras.value[0]?.id ?? null
+      activeCameraId.value =
+        cameras.value[0]?.id ?? null
     }
 
-    if (hasRouteAt && routeAt) {
-      setMasterClockTime(
-        routeAt.getTime(),
-        "seeking"
+    syncedCameraIds.value =
+      syncedCameraIds.value.filter(
+        (cameraId) =>
+          cameraId !==
+            activeCameraId.value &&
+          validIds.has(cameraId)
       )
-      timelineCenterMs.value = routeAt.getTime()
-      selectedDate.value = formatDateInput(routeAt)
+    const lostMulti =
+      wasMulti &&
+      !multiCameraMode.value
+
+    if (hasRouteAt && routeAt) {
+      timelineCenterMs.value =
+        routeAt.getTime()
+      selectedDate.value =
+        formatDateInput(routeAt)
       zoomHours.value = 6
-      await refreshTimeline(false)
-      await resolveAt(routeAt, true)
+
+      if (multiCameraMode.value) {
+        applyTolerantMasterTime(
+          routeAt,
+          true
+        )
+        await refreshTimeline(false)
+      } else {
+        setMasterClockTime(
+          routeAt.getTime(),
+          "seeking"
+        )
+        await refreshTimeline(false)
+        await resolveAt(routeAt, true)
+      }
     } else {
       await refreshTimeline(false)
+      if (
+        lostMulti &&
+        activeCameraId.value
+      ) {
+        await resolveAt(
+          new Date(
+            masterClock.currentTimeMs()
+          ),
+          playing.value
+        )
+      }
     }
     await loadPlaybackActions()
   } catch (caught) {
