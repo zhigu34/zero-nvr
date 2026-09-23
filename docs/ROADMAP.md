@@ -421,8 +421,8 @@ Acceptance:
 - [x] explicit segment availability: local / remote / cached_remote / missing / corrupted / purged.
 - [x] explicit gap reasons: not_scheduled / no_event / source_lost / runtime_restart / storage_failure / missing_media / purged / unknown.
 - [x] Canvas timeline with pan/zoom/shared playhead.
-- [~] event Marker ranges/points and zoom-aware aggregation.
-- [ ] PlaybackResolver by RecordingSegment ID.
+- [x] event Marker ranges/points and zoom-aware aggregation.
+- [~] PlaybackResolver by RecordingSegment ID.
 - [x] playback/timeline camera-scope authorization and short-lived media access.
 - [x] local playback.
 - [ ] ordered detailed segment ranges + binary absolute-time segment lookup.
