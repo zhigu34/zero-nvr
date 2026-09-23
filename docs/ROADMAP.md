@@ -326,8 +326,8 @@ Acceptance:
 - [x] PTZ capability/control after Events.
 - [x] snapshot/audio/time/NTP capability probing.
 - [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
-- [~] identity-conflict UI instead of weak automatic merge.
-- [ ] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
+- [x] identity-conflict UI instead of weak automatic merge.
+- [~] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
 
 Acceptance:
 
