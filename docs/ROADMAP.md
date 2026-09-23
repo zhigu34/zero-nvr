@@ -387,7 +387,7 @@ V1.1 / non-blocking AI acceptance:
 - [x] cooldown and notification-storm protection without dropping Events.
 - [x] optional RecordingProtection action for selected AlertPolicy.
 - [x] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
-- [~] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
+- [x] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
 - [x] audit for policy/target/human acknowledgement and configuration changes.
 
 Acceptance:
@@ -406,7 +406,7 @@ Acceptance:
 - [x] StorageTarget / RecordingLocation persistence.
 - [x] local retention using RetentionPolicy + RecordingProtection.
 - [x] rclone-backed archive target configuration for S3/WebDAV/SFTP/SMB/OneDrive/etc.
-- [ ] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
+- [~] OpenList integration through rclone WebDAV rather than a separate file-transfer implementation.
 - [x] remote RecordingLocation lifecycle: ARCHIVING -> AVAILABLE / FAILED.
 - [x] remote verification before archive-required local deletion.
 - [x] safe local RecordingLocation deletion: AVAILABLE -> DELETING -> DELETED.
