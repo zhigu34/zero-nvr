@@ -262,6 +262,20 @@ async function loadBatchDefaults(): Promise<void> {
   }
 }
 
+function batchCredential(
+  candidateId: string
+): BatchCredentialOverride {
+  const existing = batchOverrides.value[candidateId]
+  if (existing) return existing
+
+  const created: BatchCredentialOverride = {
+    username: "",
+    password: ""
+  }
+  batchOverrides.value[candidateId] = created
+  return created
+}
+
 function initializeBatchCandidates(
   candidates: DiscoveryCandidate[]
 ): void {
@@ -498,10 +512,7 @@ async function runBatchImport(): Promise<void> {
         continue
       }
 
-      const override = batchOverrides.value[candidate.id] ?? {
-        username: "",
-        password: ""
-      }
+      const override = batchCredential(candidate.id)
       const credentials = {
         host,
         port: candidate.port ?? 80,
@@ -733,7 +744,7 @@ async function runBatchImport(): Promise<void> {
                 <label class="field">
                   <span>Username override <small>optional</small></span>
                   <input
-                    v-model="batchOverrides[candidate.id].username"
+                    v-model="batchCredential(candidate.id).username"
                     autocomplete="off"
                     placeholder="Use shared username"
                   />
@@ -741,7 +752,7 @@ async function runBatchImport(): Promise<void> {
                 <label class="field">
                   <span>Password override <small>optional</small></span>
                   <input
-                    v-model="batchOverrides[candidate.id].password"
+                    v-model="batchCredential(candidate.id).password"
                     type="password"
                     autocomplete="new-password"
                     placeholder="Use shared password"
