@@ -435,11 +435,11 @@ Acceptance:
 - [x] optional strict forensic synchronization.
 - [x] multi-camera aligned timeline query/track response.
 - [x] optional skip-gaps playback.
-- [~] playback speeds 0.5x / 1x / 2x / 4x / 8x.
+- [x] playback speeds 0.5x / 1x / 2x / 4x / 8x.
 - [x] remote object resolver.
 - [x] playback cache.
 - [x] cloud-only playback.
-- [ ] playback diagnostics.
+- [~] playback diagnostics.
 - [x] export.
 
 Acceptance:
