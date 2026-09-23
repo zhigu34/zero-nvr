@@ -63,6 +63,7 @@ import SystemAccessControlPanel from "../components/system/SystemAccessControlPa
 import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
 import SystemOidcPanel from "../components/system/SystemOidcPanel.vue"
 import SystemReleaseValidationPanel from "../components/system/SystemReleaseValidationPanel.vue"
+import SystemSecretStorePanel from "../components/system/SystemSecretStorePanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -1485,6 +1486,10 @@ onBeforeUnmount(() => {
             </article>
           </div>
         </div>
+
+        <SystemSecretStorePanel
+          v-if="auth.hasPermission('system.view')"
+        />
       </template>
 
       <template v-else-if="tab === 'validation'">

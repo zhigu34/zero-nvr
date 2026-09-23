@@ -18,6 +18,24 @@ export interface SystemHealth {
   components: Record<string, HealthComponent>
 }
 
+export interface SecretStoreHealth {
+  status: "OK" | "ROTATION_REQUIRED" | "ERROR"
+  total_records: number
+  current_records: number
+  stale_records: number
+  unreadable_records: number
+  previous_key_count: number
+  primary_key_id: string
+  rotation_ready: boolean
+}
+
+export interface SecretStoreRotation {
+  total_records: number
+  rotated_records: number
+  already_current_records: number
+  health: SecretStoreHealth
+}
+
 export interface SystemSettings {
   general: {
     system_name: string
@@ -298,6 +316,19 @@ export function getSystemInfo(): Promise<SystemInfo> {
 
 export function getSystemHealth(): Promise<SystemHealth> {
   return apiRequest<SystemHealth>("/system/health")
+}
+
+export function getSecretStoreHealth(): Promise<SecretStoreHealth> {
+  return apiRequest<SecretStoreHealth>(
+    "/system/secret-store"
+  )
+}
+
+export function rotateSecretStore(): Promise<SecretStoreRotation> {
+  return apiRequest<SecretStoreRotation>(
+    "/system/secret-store/rotate",
+    { method: "POST" }
+  )
 }
 
 export function getSystemSettings(): Promise<SystemSettings> {

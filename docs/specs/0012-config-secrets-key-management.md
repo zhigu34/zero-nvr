@@ -139,6 +139,12 @@ background/admin rotation re-encrypts existing SecretRecords
 old key is removed only after verification and backup
 ~~~
 
+The System UI may expose SecretStore health and an administrator action that
+re-encrypts existing SecretRecords after the operator has already changed the
+deployment keyring. The browser must never accept, generate, return, or persist
+the master-key plaintext. Host/bootstrap configuration remains the authority
+for the active and previous keys.
+
 A per-record DEK/KEK envelope hierarchy is not required for V1.
 
 If a future external KMS/HSM deployment needs envelope encryption, add it behind SecretStore with an ADR rather than making every small installation pay the complexity cost.
