@@ -119,6 +119,157 @@ class PlaybackResolverService:
         return previous, next_at
 
     @classmethod
+    def _candidate_plan(
+        cls,
+        segment: RecordingSegment,
+        *,
+        offset_ms: int,
+        settings: Settings | None,
+    ) -> PlayablePlan | PendingPlan | None:
+        available = [
+            item
+            for item in segment.locations
+            if item.state == "AVAILABLE"
+        ]
+        available.sort(
+            key=lambda item: (
+                0
+                if item.storage_target.type == "local"
+                else 1,
+                str(item.id),
+            )
+        )
+
+        remote_available = False
+        for location in available:
+            path = cls.filesystem_path(location)
+            if path is not None:
+                return PlayablePlan(
+                    segment_id=segment.id,
+                    segment_start_at=segment.started_at,
+                    offset_ms=offset_ms,
+                    file_path=path,
+                    codec=segment.codec,
+                )
+
+            if location.storage_target.type == "rclone":
+                remote_available = True
+
+        if remote_available:
+            if settings is not None:
+                cached = PlaybackCacheService(
+                    settings
+                ).cached_file(
+                    segment_id=segment.id,
+                    expected_size=segment.size_bytes,
+                )
+                if cached is not None:
+                    return PlayablePlan(
+                        segment_id=segment.id,
+                        segment_start_at=segment.started_at,
+                        offset_ms=offset_ms,
+                        file_path=cached,
+                        codec=segment.codec,
+                    )
+
+            return PendingPlan(
+                segment_id=segment.id,
+                reason="remote_restore_required",
+            )
+
+        return None
+
+    @staticmethod
+    def _segment_gap_reason(
+        segment: RecordingSegment,
+    ) -> str:
+        availability = (
+            PlaybackTimelineService
+            ._availability(segment)
+        )
+        if availability == "corrupted":
+            return "storage_failure"
+        if availability == "purged":
+            return "purged"
+        if availability == "missing":
+            return "missing_media"
+        return "unknown"
+
+    @classmethod
+    def plan_segment(
+        cls,
+        session: Session,
+        *,
+        segment_id: uuid.UUID,
+        offset_ms: int = 0,
+        settings: Settings | None = None,
+    ) -> PlaybackPlan:
+        segment = session.scalar(
+            select(RecordingSegment)
+            .options(
+                selectinload(
+                    RecordingSegment.locations
+                ).joinedload(
+                    RecordingLocation.storage_target
+                )
+            )
+            .where(
+                RecordingSegment.id == segment_id
+            )
+        )
+        if segment is None:
+            raise ApiError(
+                status_code=404,
+                code="recording_not_found",
+                message="Recording segment was not found.",
+            )
+
+        duration_ms = max(
+            1,
+            int(
+                round(
+                    (
+                        segment.ended_at
+                        - segment.started_at
+                    ).total_seconds()
+                    * 1000
+                )
+            ),
+        )
+        if (
+            offset_ms < 0
+            or offset_ms >= duration_ms
+        ):
+            raise ApiError(
+                status_code=422,
+                code="playback_offset_invalid",
+                message=(
+                    "Playback offset must fall inside "
+                    "the recording segment."
+                ),
+                details={
+                    "segment_id": str(segment.id),
+                    "duration_ms": duration_ms,
+                },
+            )
+
+        candidate = cls._candidate_plan(
+            segment,
+            offset_ms=offset_ms,
+            settings=settings,
+        )
+        if candidate is not None:
+            return candidate
+
+        return GapPlan(
+            reason=cls._segment_gap_reason(
+                segment
+            ),
+            previous_at=None,
+            next_at=None,
+        )
+
+    @classmethod
     def plan(
         cls,
         session: Session,
@@ -131,7 +282,9 @@ class PlaybackResolverService:
             session.scalars(
                 select(RecordingSegment)
                 .options(
-                    selectinload(RecordingSegment.locations).joinedload(
+                    selectinload(
+                        RecordingSegment.locations
+                    ).joinedload(
                         RecordingLocation.storage_target
                     )
                 )
@@ -147,62 +300,23 @@ class PlaybackResolverService:
             )
         )
 
+        unavailable_reasons: list[str] = []
         for segment in segments:
-            if settings is not None:
-                cached = PlaybackCacheService(settings).cached_file(
-                    segment_id=segment.id,
-                    expected_size=segment.size_bytes,
-                )
-                if cached is not None:
-                    return PlayablePlan(
-                        segment_id=segment.id,
-                        segment_start_at=segment.started_at,
-                        offset_ms=cls._offset_ms(
-                            at=at,
-                            segment=segment,
-                        ),
-                        file_path=cached,
-                        codec=segment.codec,
-                    )
-
-            available = [
-                item
-                for item in segment.locations
-                if item.state == "AVAILABLE"
-            ]
-            available.sort(
-                key=lambda item: (
-                    0
-                    if item.storage_target.type == "local"
-                    else 1,
-                    str(item.id),
+            candidate = cls._candidate_plan(
+                segment,
+                offset_ms=cls._offset_ms(
+                    at=at,
+                    segment=segment,
+                ),
+                settings=settings,
+            )
+            if candidate is not None:
+                return candidate
+            unavailable_reasons.append(
+                cls._segment_gap_reason(
+                    segment
                 )
             )
-
-            remote_without_mount = False
-            for location in available:
-                path = cls.filesystem_path(location)
-                if path is not None:
-                    offset_ms = cls._offset_ms(
-                        at=at,
-                        segment=segment,
-                    )
-                    return PlayablePlan(
-                        segment_id=segment.id,
-                        segment_start_at=segment.started_at,
-                        offset_ms=offset_ms,
-                        file_path=path,
-                        codec=segment.codec,
-                    )
-
-                if location.storage_target.type == "rclone":
-                    remote_without_mount = True
-
-            if remote_without_mount:
-                return PendingPlan(
-                    segment_id=segment.id,
-                    reason="remote_restore_required",
-                )
 
         previous_at, next_at = cls._neighbors(
             session,
@@ -210,8 +324,15 @@ class PlaybackResolverService:
             at=at,
         )
 
-        if segments:
-            reason = "missing_media"
+        if unavailable_reasons:
+            if "storage_failure" in unavailable_reasons:
+                reason = "storage_failure"
+            elif "missing_media" in unavailable_reasons:
+                reason = "missing_media"
+            elif set(unavailable_reasons) == {"purged"}:
+                reason = "purged"
+            else:
+                reason = "unknown"
         else:
             # Reuse the same product gap semantics as Timeline rather than
             # inventing a second gap classifier.

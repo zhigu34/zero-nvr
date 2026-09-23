@@ -350,7 +350,7 @@ playback_ref = RecordingSegment.id
 Resolution:
 
 ```text
-PlaybackResolver(segment_id)
+PlaybackResolver(segment_id, offset_ms)
     ↓
 choose AVAILABLE RecordingLocation
     ├─ local/host-mounted -> ZLM VOD
@@ -360,6 +360,33 @@ short-lived authorized playback descriptor
 ```
 
 Timeline responses do not permanently embed storage-specific URLs. Playback URLs/tokens may expire independently.
+
+The stable public resolver is:
+
+```text
+POST /recordings/{segment_id}/playback/resolve
+{
+  "offset_ms": 0
+}
+```
+
+`offset_ms` must fall inside the segment's canonical wall-clock duration.
+Authorization is evaluated against the segment's Camera scope before storage
+resolution. The older absolute-time convenience endpoint remains available:
+
+```text
+POST /cameras/{camera_id}/playback/resolve
+{
+  "at": "<timezone-aware ISO8601>"
+}
+```
+
+It first selects the segment covering the requested absolute time, derives the
+relative offset, and then uses the same media-location resolver. Both paths
+therefore share local/remote/cache precedence, remote restore scheduling,
+short-lived ZLM authorization, and missing/purged media semantics. A leftover
+playback-cache file by itself is never sufficient to resurrect a segment whose
+canonical RecordingLocations are no longer AVAILABLE.
 
 ## Single-camera seek
 

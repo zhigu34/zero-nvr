@@ -102,6 +102,21 @@ export function getCameraTimeline(
   )
 }
 
+export function resolveRecordingSegment(
+  segmentId: string,
+  offsetMs = 0
+): Promise<PlaybackResolve> {
+  return apiRequest<PlaybackResolve>(
+    `/recordings/${encodeURIComponent(
+      segmentId
+    )}/playback/resolve`,
+    {
+      method: "POST",
+      json: { offset_ms: offsetMs }
+    }
+  )
+}
+
 export function resolveCameraPlayback(
   cameraId: string,
   at: Date

@@ -47,6 +47,7 @@ from .schemas import (
     PlaybackPendingView,
     PlaybackPlayableView,
     PlaybackResolveRequest,
+    PlaybackSegmentResolveRequest,
     PlaybackResolveView,
     PlaybackTimelineView,
     TimelineDetailLevel,
@@ -968,28 +969,12 @@ def get_recording_locations(
 
 
 
-@router.post(
-    "/cameras/{camera_id}/playback/resolve",
-    response_model=PlaybackResolveView,
-)
-def resolve_camera_playback(
-    camera_id: uuid.UUID,
-    body: PlaybackResolveRequest,
+def _resolve_playback_plan(
+    *,
+    plan,
     request: Request,
-    _context: AuthContext = Depends(
-        require_camera_permission("recording.view")
-    ),
-    session: Session = Depends(get_db_session),
+    session: Session,
 ) -> PlaybackResolveView:
-    at = _normalized_utc(body.at, field_name="at")
-    CameraService.get_camera(session, camera_id)
-
-    plan = PlaybackResolverService.plan(
-        session,
-        camera_id=camera_id,
-        at=at,
-        settings=request.app.state.settings,
-    )
     runtime_tuning = (
         RuntimeTuningSettingsService.get(
             session,
@@ -1049,6 +1034,70 @@ def resolve_camera_playback(
         url=url,
         expires_at=expires_at,
         codec=plan.codec,
+    )
+
+
+@router.post(
+    "/recordings/{segment_id}/playback/resolve",
+    response_model=PlaybackResolveView,
+)
+def resolve_recording_playback(
+    segment_id: uuid.UUID,
+    body: PlaybackSegmentResolveRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> PlaybackResolveView:
+    segment = RecordingCatalogQueryService.get_segment(
+        session,
+        segment_id,
+    )
+    _require_segment_scope(
+        context=context,
+        session=session,
+        camera_id=segment.camera_id,
+    )
+    plan = PlaybackResolverService.plan_segment(
+        session,
+        segment_id=segment_id,
+        offset_ms=body.offset_ms,
+        settings=request.app.state.settings,
+    )
+    return _resolve_playback_plan(
+        plan=plan,
+        request=request,
+        session=session,
+    )
+
+
+@router.post(
+    "/cameras/{camera_id}/playback/resolve",
+    response_model=PlaybackResolveView,
+)
+def resolve_camera_playback(
+    camera_id: uuid.UUID,
+    body: PlaybackResolveRequest,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_camera_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> PlaybackResolveView:
+    at = _normalized_utc(body.at, field_name="at")
+    CameraService.get_camera(session, camera_id)
+
+    plan = PlaybackResolverService.plan(
+        session,
+        camera_id=camera_id,
+        at=at,
+        settings=request.app.state.settings,
+    )
+    return _resolve_playback_plan(
+        plan=plan,
+        request=request,
+        session=session,
     )
 
 

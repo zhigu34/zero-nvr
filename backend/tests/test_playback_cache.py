@@ -15,7 +15,11 @@ from app.main import create_app
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import RecordingSegment
-from app.modules.recordings.playback import PlayablePlan, PlaybackResolverService
+from app.modules.recordings.playback import (
+    GapPlan,
+    PlayablePlan,
+    PlaybackResolverService,
+)
 from app.modules.recordings.playback_cache import PlaybackCacheService
 from app.modules.storage.models import RecordingLocation, StorageTarget
 from app.modules.storage.service import ResolvedRcloneTarget
@@ -519,6 +523,7 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
             )
             session.commit()
             camera_id = camera.id
+            segment_id = segment.id
 
         role = client.post(
             "/api/v1/roles",
@@ -562,6 +567,19 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
         assert (
             denied.json()["error"]["code"]
             == "camera_not_found"
+        )
+
+        denied_segment = client.post(
+            (
+                f"/api/v1/recordings/"
+                f"{segment_id}/playback/resolve"
+            ),
+            json={"offset_ms": 15_000},
+        )
+        assert denied_segment.status_code == 404
+        assert (
+            denied_segment.json()["error"]["code"]
+            == "recording_not_found"
         )
 
         client.cookies.clear()
@@ -620,7 +638,108 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
 
         assert loaded["app"] == "zero-nvr-vod"
         assert loaded["seek_ms"] == 15_000
-        serialized = str(body) + str(loaded)
+
+        by_segment = client.post(
+            (
+                f"/api/v1/recordings/"
+                f"{segment_id}/playback/resolve"
+            ),
+            json={"offset_ms": 30_000},
+        )
+        assert by_segment.status_code == 200
+        by_segment_body = by_segment.json()
+        assert (
+            by_segment_body["status"]
+            == "playable"
+        )
+        assert (
+            by_segment_body["segment_id"]
+            == str(segment_id)
+        )
+        assert (
+            by_segment_body["offset_ms"]
+            == 30_000
+        )
+        assert loaded["seek_ms"] == 30_000
+
+        invalid_offset = client.post(
+            (
+                f"/api/v1/recordings/"
+                f"{segment_id}/playback/resolve"
+            ),
+            json={"offset_ms": 300_000},
+        )
+        assert invalid_offset.status_code == 422
+        assert (
+            invalid_offset.json()["error"][
+                "code"
+            ]
+            == "playback_offset_invalid"
+        )
+
+        serialized = (
+            str(body)
+            + str(by_segment_body)
+            + str(loaded)
+        )
         assert "rtsp://" not in serialized
         assert "camera-secret" not in serialized
 
+
+
+
+def test_segment_resolver_does_not_play_purged_media_from_stale_cache(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(
+        tmp_path
+    )
+    try:
+        (
+            _camera_id,
+            segment_id,
+            _started_at,
+        ) = seed_remote_segment(
+            settings,
+            database,
+        )
+        cache = PlaybackCacheService(settings)
+        cache.root.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        stale = (
+            cache.root
+            / f"{segment_id.hex}.mp4"
+        )
+        stale.write_bytes(b"x" * 32)
+
+        with database.session() as session:
+            location = session.scalar(
+                select(
+                    RecordingLocation
+                ).where(
+                    RecordingLocation
+                    .recording_segment_id
+                    == segment_id
+                )
+            )
+            assert location is not None
+            location.state = "DELETED"
+            session.commit()
+
+        with database.session() as session:
+            plan = (
+                PlaybackResolverService
+                .plan_segment(
+                    session,
+                    segment_id=segment_id,
+                    offset_ms=0,
+                    settings=settings,
+                )
+            )
+
+        assert isinstance(plan, GapPlan)
+        assert plan.reason == "purged"
+    finally:
+        database.close()

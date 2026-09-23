@@ -186,6 +186,13 @@ class PlaybackResolveRequest(BaseModel):
     at: datetime
 
 
+class PlaybackSegmentResolveRequest(BaseModel):
+    offset_ms: int = Field(
+        default=0,
+        ge=0,
+    )
+
+
 class PlaybackPlayableView(BaseModel):
     status: Literal["playable"] = "playable"
     segment_id: uuid.UUID
