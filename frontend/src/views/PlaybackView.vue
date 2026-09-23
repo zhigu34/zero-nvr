@@ -128,6 +128,7 @@ const playing = ref(false)
 const muted = ref(true)
 const fullscreen = ref(false)
 const skipGaps = ref(false)
+const diagnosticsOpen = ref(false)
 const actionPanelOpen = ref(false)
 const actionMode = ref<"protect" | "export">("export")
 const actionStart = ref("")
@@ -297,6 +298,74 @@ const gapResult = computed<PlaybackGap | null>(() =>
     ? playbackResult.value
     : null
 )
+
+const diagnosticResolverState = computed(() => {
+  if (resolving.value) return "resolving"
+  return playbackResult.value?.status ?? "idle"
+})
+
+const diagnosticClock = computed(() => {
+  void currentAt.value
+  return masterClock.snapshot()
+})
+
+const activeMediaDiagnostics = computed(() => {
+  const masterTimeMs =
+    currentAt.value.getTime()
+  const element = activeVideo()
+  if (!element) return null
+
+  const mediaTimeMs =
+    playbackAnchorMs.value === null
+      ? null
+      : playbackAnchorMs.value +
+        element.currentTime * 1000
+
+  return {
+    readyState:
+      mediaReadyStateLabel(element),
+    currentTimeSeconds:
+      element.currentTime,
+    mediaTimeMs,
+    driftMs:
+      mediaTimeMs === null
+        ? null
+        : mediaTimeMs -
+          masterTimeMs,
+    playbackRate:
+      element.playbackRate,
+    paused: element.paused,
+    seeking: element.seeking
+  }
+})
+
+function mediaReadyStateLabel(
+  element: HTMLMediaElement
+): string {
+  switch (element.readyState) {
+    case element.HAVE_NOTHING:
+      return "nothing"
+    case element.HAVE_METADATA:
+      return "metadata"
+    case element.HAVE_CURRENT_DATA:
+      return "current-data"
+    case element.HAVE_FUTURE_DATA:
+      return "future-data"
+    case element.HAVE_ENOUGH_DATA:
+      return "enough-data"
+    default:
+      return String(element.readyState)
+  }
+}
+
+function formatDiagnosticMs(
+  value: number | null
+): string {
+  if (value === null || !Number.isFinite(value)) {
+    return "—"
+  }
+  return `${Math.round(value)} ms`
+}
 
 function toLocalDateTimeInput(date: Date): string {
   const offset = date.getTimezoneOffset() * 60_000
@@ -2786,6 +2855,22 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <button
+          class="media-button media-button--text"
+          :class="{
+            'media-button--active':
+              diagnosticsOpen
+          }"
+          type="button"
+          :aria-pressed="diagnosticsOpen"
+          @click="
+            diagnosticsOpen =
+              !diagnosticsOpen
+          "
+        >
+          Diagnostics
+        </button>
+
         <span class="playback-current-time">
           {{ formatTimestamp(currentAt) }}
         </span>
@@ -2826,6 +2911,231 @@ onBeforeUnmount(() => {
           {{ playbackResult.codec || "video" }}
         </span>
       </div>
+
+      <aside
+        v-if="diagnosticsOpen"
+        class="playback-diagnostics"
+      >
+        <header>
+          <div>
+            <strong>Playback diagnostics</strong>
+            <span>
+              Runtime state only · no media URLs
+            </span>
+          </div>
+          <button
+            class="media-button media-button--text"
+            type="button"
+            @click="diagnosticsOpen = false"
+          >
+            Close
+          </button>
+        </header>
+
+        <div class="playback-diagnostics__grid">
+          <section>
+            <strong>Master clock</strong>
+            <dl>
+              <div>
+                <dt>State</dt>
+                <dd>{{ diagnosticClock.state }}</dd>
+              </div>
+              <div>
+                <dt>Intent</dt>
+                <dd>
+                  {{
+                    playbackControlActive
+                      ? "play"
+                      : "pause"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Rate</dt>
+                <dd>{{ playbackRate }}x</dd>
+              </div>
+              <div>
+                <dt>Clock</dt>
+                <dd>
+                  {{
+                    formatTimestamp(
+                      new Date(
+                        diagnosticClock.currentTimeMs
+                      )
+                    )
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Sync</dt>
+                <dd>
+                  {{
+                    multiCameraMode
+                      ? `${syncMode} · ${playbackParticipants.length}`
+                      : "single"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Skip gaps</dt>
+                <dd>{{ skipGaps ? "on" : "off" }}</dd>
+              </div>
+            </dl>
+          </section>
+
+          <section>
+            <strong>Resolver</strong>
+            <dl>
+              <div>
+                <dt>Status</dt>
+                <dd>{{ diagnosticResolverState }}</dd>
+              </div>
+              <div>
+                <dt>Segment</dt>
+                <dd>
+                  {{ activeSegmentId || "—" }}
+                </dd>
+              </div>
+              <div>
+                <dt>Availability</dt>
+                <dd>
+                  {{
+                    activeTimelineSegment
+                      ?.availability || "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Standby</dt>
+                <dd>
+                  {{
+                    standbySegment
+                      ? standbyReady
+                        ? "ready"
+                        : "loading"
+                      : "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Transport</dt>
+                <dd>
+                  {{
+                    playbackResult?.status ===
+                    "playable"
+                      ? playbackResult.transport
+                      : "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Gap</dt>
+                <dd>
+                  {{
+                    gapResult?.reason || "—"
+                  }}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section v-if="!multiCameraMode">
+            <strong>Active media</strong>
+            <dl>
+              <div>
+                <dt>Ready</dt>
+                <dd>
+                  {{
+                    activeMediaDiagnostics
+                      ?.readyState || "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Media time</dt>
+                <dd>
+                  {{
+                    activeMediaDiagnostics
+                      ? `${activeMediaDiagnostics.currentTimeSeconds.toFixed(3)} s`
+                      : "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Drift</dt>
+                <dd>
+                  {{
+                    formatDiagnosticMs(
+                      activeMediaDiagnostics
+                        ?.driftMs ?? null
+                    )
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Media rate</dt>
+                <dd>
+                  {{
+                    activeMediaDiagnostics
+                      ? `${activeMediaDiagnostics.playbackRate.toFixed(3)}x`
+                      : "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Paused</dt>
+                <dd>
+                  {{
+                    activeMediaDiagnostics
+                      ? String(
+                          activeMediaDiagnostics.paused
+                        )
+                      : "—"
+                  }}
+                </dd>
+              </div>
+              <div>
+                <dt>Seeking</dt>
+                <dd>
+                  {{
+                    activeMediaDiagnostics
+                      ? String(
+                          activeMediaDiagnostics.seeking
+                        )
+                      : "—"
+                  }}
+                </dd>
+              </div>
+            </dl>
+          </section>
+
+          <section v-else>
+            <strong>Sync channels</strong>
+            <div class="playback-diagnostics__channels">
+              <div
+                v-for="camera in playbackParticipants"
+                :key="camera.id"
+              >
+                <span>{{ camera.name }}</span>
+                <strong>
+                  {{
+                    syncTileStates[camera.id]
+                      ?.state || "resolving"
+                  }}
+                </strong>
+                <small>
+                  {{
+                    syncTileStates[camera.id]
+                      ?.blocksStrict
+                      ? "strict blocker"
+                      : "non-blocking"
+                  }}
+                </small>
+              </div>
+            </div>
+          </section>
+        </div>
+      </aside>
 
       <div class="playback-timeline-shell">
         <div class="playback-timeline-legend">

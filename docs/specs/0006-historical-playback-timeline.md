@@ -830,6 +830,31 @@ the user may pan/change range or use normal timeline navigation.
 Gap skipping never compresses or rewrites the visible timeline: skipped periods
 remain visible and can still be selected explicitly with the control disabled.
 
+## Playback diagnostics
+
+V1 exposes an optional read-only diagnostics panel in the Playback view. It is
+runtime observability only: opening the panel does not alter resolver behavior,
+Master Clock state, synchronization policy, cache state, or media URLs.
+
+Single-camera diagnostics expose:
+
+- Master Clock state, absolute time, selected base playback rate, and user play
+  intent;
+- resolver state (`idle / resolving / playable / pending / gap`);
+- active RecordingSegment ID/availability and standby readiness;
+- active media `readyState`, media-relative current time, effective media
+  playback rate, paused/seeking state, and drift against the Master Clock;
+- current skip-gaps and synchronization mode state.
+
+Multi-camera diagnostics expose the same global Master Clock state plus each
+participating Camera's runtime synchronization state
+(`resolving / ready / buffering / pending / gap / unavailable`) and whether
+that Camera currently blocks strict forensic playback.
+
+Diagnostics intentionally do **not** display signed playback URLs or secret
+tokens. They use state already present in the browser and do not create a
+parallel diagnostics persistence model or a second source of playback truth.
+
 ## Remote-only playback
 
 Remote media stays on the same timeline:
