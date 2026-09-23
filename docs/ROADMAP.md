@@ -376,7 +376,7 @@ V1.1 / non-blocking AI acceptance:
 
 - [x] AlertPolicy persistence/API with NVR-specific predicates: camera/source/category/label/zone/confidence/duration/severity/schedule/cooldown.
 - [x] Alert persistence with active / acknowledged / resolved states.
-- [~] source-recovery handling for health Alerts.
+- [x] source-recovery handling for health Alerts.
 - [x] NotificationTarget persistence with SecretStore-backed credentials/config.
 - [x] NotificationDelivery persistence: pending / sending / sent / failed / suppressed.
 - [x] Huey-backed delivery retry with transient/permanent/rate-limited classification.
@@ -386,7 +386,7 @@ V1.1 / non-blocking AI acceptance:
 - [ ] optional snapshot/deep-link attachment without permanent public media URLs.
 - [x] cooldown and notification-storm protection without dropping Events.
 - [x] optional RecordingProtection action for selected AlertPolicy.
-- [ ] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
+- [~] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
 - [ ] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
 - [x] audit for policy/target/human acknowledgement and configuration changes.
 
