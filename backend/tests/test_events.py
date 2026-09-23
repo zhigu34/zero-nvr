@@ -421,9 +421,17 @@ def test_timeline_overlays_events_that_overlap_requested_window(
         assert events == [
             {
                 "id": str(event_id),
+                "marker_type": "range",
                 "category": "object",
                 "label": "person",
                 "start_at": "2026-09-20T11:59:55Z",
                 "end_at": "2026-09-20T12:00:10Z",
+                "count": 1,
+                "category_counts": {
+                    "object": 1,
+                },
+                "label_counts": {
+                    "person": 1,
+                },
             }
         ]
