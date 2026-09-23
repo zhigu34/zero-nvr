@@ -327,7 +327,7 @@ Acceptance:
 - [x] snapshot/audio/time/NTP capability probing.
 - [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
 - [x] identity-conflict UI instead of weak automatic merge.
-- [~] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
+- [x] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
 
 Acceptance:
 
@@ -347,7 +347,7 @@ delay the V1 sequence defined above.
 
 - [x] canonical Event persistence/API with source, source_event_id, camera, category, label, time range, confidence, zone, severity, snapshot_ref, metadata.
 - [x] idempotent UPSERT for provider new/update/end messages.
-- [ ] native ONVIF event adapter using mature library subscription mechanisms.
+- [~] native ONVIF event adapter using mature library subscription mechanisms.
 - [ ] V1.1 / non-blocking: optional vendor-native event adapter only where ONVIF is insufficient.
 - [ ] V1.1 / non-blocking: Frigate AIProviderInstance + Camera binding.
 - [x] Managed Frigate stream path through ZLM internal AI_DETECT stream.
