@@ -160,6 +160,14 @@ const playbackParticipants = computed(() => {
     )
 })
 
+const playbackGridClass = computed(
+  () =>
+    `playback-video-grid--${Math.min(
+      9,
+      playbackParticipants.value.length
+    )}`
+)
+
 const filteredCameras = computed(() => {
   const needle = search.value.trim().toLowerCase()
   if (!needle) return cameras.value
@@ -2134,10 +2142,7 @@ onBeforeUnmount(() => {
       <div
         v-if="multiCameraMode"
         class="playback-video-grid"
-        :class="`playback-video-grid--${Math.min(
-          9,
-          playbackParticipants.length
-        )}`"
+        :class="playbackGridClass"
       >
         <TolerantPlaybackTile
           v-for="camera in playbackParticipants"
