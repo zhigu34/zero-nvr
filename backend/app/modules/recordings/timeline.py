@@ -8,6 +8,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
+from app.core.errors import ApiError
 from app.modules.events.models import Event
 from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import (
@@ -118,6 +119,19 @@ class PlaybackTimelineService:
         *,
         camera_id: uuid.UUID,
     ) -> uuid.UUID | None:
+        policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id
+                == camera_id
+            )
+        )
+        if (
+            policy is not None
+            and policy.storage_target_id
+            is not None
+        ):
+            return policy.storage_target_id
+
         try:
             return (
                 RecordingStorageResolver
@@ -127,7 +141,7 @@ class PlaybackTimelineService:
                 )
                 .target.id
             )
-        except Exception:
+        except ApiError:
             return None
 
     @classmethod
