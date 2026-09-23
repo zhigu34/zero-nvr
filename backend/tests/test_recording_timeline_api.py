@@ -884,3 +884,40 @@ def test_aligned_timeline_returns_tracks_in_requested_order(
             },
         )
         assert too_small.status_code == 422
+
+        me = client.get("/api/v1/auth/me")
+        assert me.status_code == 200
+        scope = client.put(
+            (
+                f"/api/v1/users/"
+                f"{me.json()['id']}/camera-scope"
+            ),
+            json={
+                "mode": "selected",
+                "camera_ids": [
+                    str(first_camera_id),
+                ],
+            },
+        )
+        assert scope.status_code == 200
+
+        hidden_track = client.post(
+            "/api/v1/playback/timeline",
+            json={
+                "camera_ids": [
+                    str(first_camera_id),
+                    str(second_camera_id),
+                ],
+                "from": base.isoformat(),
+                "to": (
+                    base
+                    + timedelta(minutes=10)
+                ).isoformat(),
+                "detail": "minute",
+            },
+        )
+        assert hidden_track.status_code == 404
+        assert (
+            hidden_track.json()["error"]["code"]
+            == "camera_not_found"
+        )
