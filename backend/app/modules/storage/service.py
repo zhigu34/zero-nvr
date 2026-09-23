@@ -635,11 +635,17 @@ class StorageTargetService:
                 target=target,
                 config_text=rclone_config,
             )
-        elif rclone_config is not None:
+        elif (
+            rclone_config is not None
+            or openlist_webdav is not None
+        ):
             raise ApiError(
                 status_code=400,
                 code="storage_target_credentials_not_allowed",
-                message="Local storage target does not use rclone credentials.",
+                message=(
+                    "Local storage target does not use "
+                    "rclone/OpenList credentials."
+                ),
             )
 
         session.flush()
