@@ -386,8 +386,8 @@ V1.1 / non-blocking AI acceptance:
 - [ ] optional snapshot/deep-link attachment without permanent public media URLs.
 - [x] cooldown and notification-storm protection without dropping Events.
 - [x] optional RecordingProtection action for selected AlertPolicy.
-- [~] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
-- [ ] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
+- [x] Alert Center UI: active/recent/filter/acknowledge/playback/delivery state.
+- [~] alert.view / alert.acknowledge / alert.manage / notification.view / notification.manage authorization.
 - [x] audit for policy/target/human acknowledgement and configuration changes.
 
 Acceptance:
