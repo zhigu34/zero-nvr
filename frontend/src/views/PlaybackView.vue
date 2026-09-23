@@ -48,6 +48,7 @@ import {
 } from "../api/playback"
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
+import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
 
 type ZoomHours = 1 | 6 | 24
@@ -66,6 +67,9 @@ const timeline = ref<PlaybackTimeline | null>(null)
 const zoomHours = ref<ZoomHours>(24)
 const selectedDate = ref(formatDateInput(new Date()))
 const currentAt = ref(new Date())
+const masterClock = new MasterPlaybackClock(
+  currentAt.value.getTime()
+)
 const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
 const playbackResult = ref<PlaybackResolve | null>(null)
@@ -113,6 +117,7 @@ let pendingRetryTimer: number | null = null
 let preloadRetryTimer: number | null = null
 let preloadGeneration = 0
 let boundarySwitchTimer: number | null = null
+let masterClockFrame: number | null = null
 let boundaryWaiting = false
 let boundarySwitching = false
 let exportPollTimer: number | null = null
@@ -336,7 +341,10 @@ async function refreshCameras(): Promise<void> {
     }
 
     if (hasRouteAt && routeAt) {
-      currentAt.value = routeAt
+      setMasterClockTime(
+        routeAt.getTime(),
+        "seeking"
+      )
       timelineCenterMs.value = routeAt.getTime()
       selectedDate.value = formatDateInput(routeAt)
       zoomHours.value = 6
@@ -414,6 +422,66 @@ function clearBoundarySwitchTimer(): void {
   boundarySwitchTimer = null
 }
 
+function stopMasterClockFrame(): void {
+  if (masterClockFrame === null) return
+  window.cancelAnimationFrame(
+    masterClockFrame
+  )
+  masterClockFrame = null
+}
+
+function renderMasterClock(): void {
+  masterClockFrame = null
+  const timeMs = masterClock.currentTimeMs()
+  currentAt.value = new Date(timeMs)
+
+  const segment = activeTimelineSegment.value
+  if (segment) {
+    const boundaryMs = new Date(
+      segment.end_at
+    ).getTime()
+    if (timeMs >= boundaryMs) {
+      requestBoundarySwitch(
+        activePlayerSlot.value,
+        boundaryMs
+      )
+    }
+  }
+
+  if (masterClock.state === "playing") {
+    masterClockFrame =
+      window.requestAnimationFrame(
+        renderMasterClock
+      )
+  }
+}
+
+function startMasterClockFrame(): void {
+  if (
+    masterClockFrame !== null ||
+    masterClock.state !== "playing"
+  ) {
+    return
+  }
+  masterClockFrame =
+    window.requestAnimationFrame(
+      renderMasterClock
+    )
+}
+
+function setMasterClockTime(
+  timeMs: number,
+  state: "paused" | "seeking"
+): void {
+  stopMasterClockFrame()
+  if (state === "seeking") {
+    masterClock.seek(timeMs)
+  } else {
+    masterClock.pause(timeMs)
+  }
+  currentAt.value = new Date(timeMs)
+}
+
 function videoForSlot(
   slot: "a" | "b"
 ): HTMLVideoElement | null {
@@ -453,6 +521,13 @@ function clearVideoElement(
 }
 
 function clearPlayers(): void {
+  if (masterClock.state === "playing") {
+    masterClock.pause()
+    currentAt.value = new Date(
+      masterClock.currentTimeMs()
+    )
+  }
+  stopMasterClockFrame()
   clearPreloadRetry()
   clearBoundarySwitchTimer()
   clearVideoElement(videoA.value)
@@ -629,25 +704,6 @@ async function preloadNextSegment(
   }
 }
 
-function activeAbsoluteTimeMs(
-  slot: "a" | "b"
-): number | null {
-  if (
-    slot !== activePlayerSlot.value ||
-    playbackAnchorMs.value === null
-  ) {
-    return null
-  }
-
-  const element = videoForSlot(slot)
-  if (!element) return null
-
-  return (
-    playbackAnchorMs.value +
-    element.currentTime * 1000
-  )
-}
-
 function standbyCanSwitch(): boolean {
   const element = videoForSlot(
     standbySlot()
@@ -705,7 +761,10 @@ async function switchToStandbyAtBoundary(
   activeTimelineSegment.value = nextSegment
   playbackResult.value = standby
   playbackAnchorMs.value = boundaryMs
-  currentAt.value = new Date(boundaryMs)
+  setMasterClockTime(
+    boundaryMs,
+    "seeking"
+  )
   standbyPlayback.value = null
   standbySegment.value = null
   standbyBoundaryMs.value = null
@@ -739,6 +798,8 @@ function requestBoundarySwitch(
   if (slot !== activePlayerSlot.value) return
 
   clearBoundarySwitchTimer()
+  masterClock.pause(boundaryMs)
+  stopMasterClockFrame()
   currentAt.value = new Date(boundaryMs)
 
   const segmentId = activeSegmentId.value
@@ -779,11 +840,11 @@ function scheduleBoundarySwitch(
 
   const segment = activeTimelineSegment.value
   const element = videoForSlot(slot)
-  const absolute = activeAbsoluteTimeMs(slot)
+  const absolute = masterClock.currentTimeMs()
   if (
     !segment ||
     !element ||
-    absolute === null ||
+    masterClock.state !== "playing" ||
     element.paused
   ) {
     return
@@ -805,13 +866,10 @@ function scheduleBoundarySwitch(
   boundarySwitchTimer = window.setTimeout(
     () => {
       boundarySwitchTimer = null
-      const actual = activeAbsoluteTimeMs(
-        slot
+      const actual = (
+        masterClock.currentTimeMs()
       )
-      if (
-        actual !== null &&
-        actual >= boundaryMs
-      ) {
+      if (actual >= boundaryMs) {
         requestBoundarySwitch(
           slot,
           boundaryMs
@@ -820,7 +878,13 @@ function scheduleBoundarySwitch(
         scheduleBoundarySwitch(slot)
       }
     },
-    Math.max(16, Math.ceil(remaining))
+    Math.max(
+      16,
+      Math.ceil(
+        remaining /
+          masterClock.playbackRate
+      )
+    )
   )
 }
 
@@ -859,10 +923,13 @@ async function resolveAt(
   if (!cameraId) return
 
   const generation = ++resolveGeneration
-  currentAt.value = new Date(at)
+  clearPlayers()
+  setMasterClockTime(
+    at.getTime(),
+    "seeking"
+  )
   resolving.value = true
   error.value = null
-  clearPlayers()
   playing.value = false
 
   try {
@@ -894,6 +961,14 @@ async function resolveAt(
     if (generation !== resolveGeneration) return
     playbackResult.value = result
 
+    if (result.status === "gap") {
+      setMasterClockTime(
+        at.getTime(),
+        "paused"
+      )
+      return
+    }
+
     if (result.status === "pending") {
       const retryAt = new Date(at)
       pendingRetryTimer = window.setTimeout(() => {
@@ -923,8 +998,9 @@ async function resolveAt(
       ).getTime() +
       result.offset_ms
     )
-    currentAt.value = new Date(
-      playbackAnchorMs.value
+    setMasterClockTime(
+      playbackAnchorMs.value,
+      "seeking"
     )
     activeSegmentId.value = result.segment_id
     activeTimelineSegment.value = canonicalSegment
@@ -974,10 +1050,14 @@ function selectCamera(cameraId: string): void {
 function handleDateChange(): void {
   const start = localDayStart()
   const now = new Date()
-  currentAt.value =
+  const selectedTime =
     formatDateInput(now) === selectedDate.value
       ? now
       : new Date(start.getTime() + 12 * 60 * 60 * 1000)
+  setMasterClockTime(
+    selectedTime.getTime(),
+    "paused"
+  )
   timelineCenterMs.value = null
   void refreshTimeline(false)
 }
@@ -1047,7 +1127,10 @@ function handleTimelineZoom(payload: {
 function jumpTo(value: string | null): void {
   if (!value) return
   const at = new Date(value)
-  currentAt.value = at
+  setMasterClockTime(
+    at.getTime(),
+    "seeking"
+  )
   timelineCenterMs.value = at.getTime()
   selectedDate.value = formatDateInput(at)
   void refreshTimeline(false).then(() => resolveAt(at, true))
@@ -1385,7 +1468,13 @@ function handlePlayerPlay(
   slot: "a" | "b"
 ): void {
   if (slot === activePlayerSlot.value) {
+    const element = videoForSlot(slot)
+    masterClock.play(
+      masterClock.currentTimeMs(),
+      element?.playbackRate ?? 1
+    )
     playing.value = true
+    startMasterClockFrame()
     scheduleBoundarySwitch(slot)
   }
 }
@@ -1394,6 +1483,15 @@ function handlePlayerPause(
   slot: "a" | "b"
 ): void {
   if (slot === activePlayerSlot.value) {
+    if (
+      masterClock.state === "playing"
+    ) {
+      masterClock.pause()
+      currentAt.value = new Date(
+        masterClock.currentTimeMs()
+      )
+    }
+    stopMasterClockFrame()
     playing.value = false
     clearBoundarySwitchTimer()
   }
@@ -1409,26 +1507,23 @@ function handleTimeUpdate(
     return
   }
 
-  const absolute = activeAbsoluteTimeMs(
-    slot
-  )
-  if (absolute === null) return
+  if (slot !== activePlayerSlot.value) {
+    return
+  }
 
+  const timeMs = masterClock.currentTimeMs()
   const segment = activeTimelineSegment.value
   if (segment) {
     const boundaryMs = new Date(
       segment.end_at
     ).getTime()
-    if (absolute >= boundaryMs) {
+    if (timeMs >= boundaryMs) {
       requestBoundarySwitch(
         slot,
         boundaryMs
       )
-      return
     }
   }
-
-  currentAt.value = new Date(absolute)
 }
 
 function handleEnded(
@@ -1480,6 +1575,7 @@ onBeforeUnmount(() => {
   clearPendingRetry()
   clearPreloadRetry()
   clearBoundarySwitchTimer()
+  stopMasterClockFrame()
   clearExportPoll()
   resolveGeneration += 1
   timelineGeneration += 1

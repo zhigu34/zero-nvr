@@ -501,9 +501,9 @@ The timeline contracts must permit later replacement by MSE, fragmented MP4, vir
 
 Single- and multi-camera synchronized playback use one absolute Master Clock.
 
-Do not derive global time from whichever video currentTime event fired last.
+Do not derive global time from whichever video `currentTime` event fired last.
 
-Runtime clock:
+The V1 frontend implements a dedicated `MasterPlaybackClock` with:
 
 ```text
 anchor_media_time_ms
@@ -522,9 +522,19 @@ global_time_ms =
       * playback_rate
 ```
 
-Use a monotonic browser timer so operating-system wall-clock corrections cannot jump playback.
+`performance.now()` is the only advancing time source for the logical playback
+clock, so operating-system wall-clock corrections cannot jump playback. The
+clock is re-anchored only on explicit logical transitions such as seek,
+play/pause, and canonical segment-boundary switching.
 
-Refresh the visual playhead with requestAnimationFrame.
+`PlaybackView` refreshes `currentAt` and the Canvas playhead with
+`requestAnimationFrame`. Media `timeupdate` events no longer advance the
+global time; they remain available for boundary fallback and the following
+drift-correction item, where per-player media time is compared against this
+Master Clock.
+
+The clock already carries `playback_rate`, but the user-facing multi-speed
+controls remain a separate roadmap item.
 
 ## Player synchronization
 
