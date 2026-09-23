@@ -1059,6 +1059,22 @@ function toggleMute(): void {
   }
 }
 
+function handlePlayerPlay(
+  slot: "a" | "b"
+): void {
+  if (slot === activePlayerSlot.value) {
+    playing.value = true
+  }
+}
+
+function handlePlayerPause(
+  slot: "a" | "b"
+): void {
+  if (slot === activePlayerSlot.value) {
+    playing.value = false
+  }
+}
+
 function handleTimeUpdate(
   slot: "a" | "b"
 ): void {
@@ -1156,6 +1172,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   clearPendingRetry()
+  clearPreloadRetry()
   clearExportPoll()
   resolveGeneration += 1
   timelineGeneration += 1
@@ -1308,16 +1325,8 @@ onBeforeUnmount(() => {
           playsinline
           :muted="muted"
           preload="auto"
-          @play="
-            activePlayerSlot === 'a'
-              ? (playing = true)
-              : undefined
-          "
-          @pause="
-            activePlayerSlot === 'a'
-              ? (playing = false)
-              : undefined
-          "
+          @play="handlePlayerPlay('a')"
+          @pause="handlePlayerPause('a')"
           @timeupdate="handleTimeUpdate('a')"
           @ended="handleEnded('a')"
         />
@@ -1333,16 +1342,8 @@ onBeforeUnmount(() => {
           playsinline
           :muted="muted"
           preload="auto"
-          @play="
-            activePlayerSlot === 'b'
-              ? (playing = true)
-              : undefined
-          "
-          @pause="
-            activePlayerSlot === 'b'
-              ? (playing = false)
-              : undefined
-          "
+          @play="handlePlayerPlay('b')"
+          @pause="handlePlayerPause('b')"
           @timeupdate="handleTimeUpdate('b')"
           @ended="handleEnded('b')"
         />
