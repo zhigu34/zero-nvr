@@ -470,11 +470,17 @@ async function refreshCameras(): Promise<void> {
         lostMulti &&
         activeCameraId.value
       ) {
+        const shouldPlay =
+          syncMode.value === "strict"
+            ? strictPlaybackRequested.value
+            : playing.value
+        strictPlaybackRequested.value = false
+        syncTileStates.value = {}
         await resolveAt(
           new Date(
             masterClock.currentTimeMs()
           ),
-          playing.value
+          shouldPlay
         )
       }
     }
@@ -2235,7 +2241,7 @@ onBeforeUnmount(() => {
                 ? 'Primary sync camera'
                 : isSyncParticipant(camera.id)
                   ? 'Remove from synchronized playback'
-                  : 'Add to tolerant synchronized playback'
+                  : 'Add to synchronized playback'
             "
             :aria-label="
               isSyncParticipant(camera.id)
