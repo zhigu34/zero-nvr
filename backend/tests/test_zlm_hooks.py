@@ -1086,3 +1086,61 @@ def test_source_health_alert_resolves_on_stream_recovery(
         assert alert is not None
         assert alert.state == "RESOLVED"
         assert alert.resolved_at == dt(9012)
+
+
+
+def test_server_started_persists_runtime_restart_gap_evidence(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    camera_id_text, _stream = (
+        seed_recording_camera(app)
+    )
+    camera_id = uuid.UUID(
+        camera_id_text
+    )
+
+    class FakeRecovery:
+        def enqueue_all(self) -> int:
+            return 1
+
+    app.state.runtime_reconciler = (
+        FakeRecovery()
+    )
+    monkeypatch.setattr(
+        zlm_hooks,
+        "utc_now",
+        lambda: dt(850),
+    )
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/internal/hooks/zlm/server-started",
+            json={
+                "general.mediaServerId": (
+                    HOOK_SECRET
+                ),
+                "hook.enable": "1",
+            },
+        )
+
+    assert response.status_code == 200
+    with app.state.database.session() as session:
+        event = session.scalar(
+            select(Event).where(
+                Event.camera_id == camera_id,
+                Event.source == "system",
+                Event.category
+                == "runtime_health",
+                Event.label
+                == "runtime_restart",
+            )
+        )
+        assert event is not None
+        assert event.started_at == dt(850)
+        assert event.ended_at == dt(850)
+        assert (
+            event.metadata_json["observer"]
+            == "zlm_server_started"
+        )

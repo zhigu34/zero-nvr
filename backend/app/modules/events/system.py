@@ -30,6 +30,8 @@ class SystemEventService:
     SOURCE_CONNECTIVITY_CATEGORY = "source_connectivity"
     SOURCE_LOST_LABEL = "source_lost"
     STORAGE_HEALTH_CATEGORY = "storage_health"
+    RUNTIME_HEALTH_CATEGORY = "runtime_health"
+    RUNTIME_RESTART_LABEL = "runtime_restart"
 
     @staticmethod
     def _instant(value: datetime) -> datetime:
@@ -45,6 +47,49 @@ class SystemEventService:
             and event.category == cls.SOURCE_CONNECTIVITY_CATEGORY
             and event.label == cls.SOURCE_LOST_LABEL
         )
+
+    @classmethod
+    def is_runtime_restart(cls, event: Event) -> bool:
+        return (
+            event.source == cls.SOURCE
+            and event.source_instance_id == cls.SOURCE_INSTANCE_ID
+            and event.category == cls.RUNTIME_HEALTH_CATEGORY
+            and event.label == cls.RUNTIME_RESTART_LABEL
+        )
+
+    @classmethod
+    def runtime_restarted(
+        cls,
+        session: Session,
+        *,
+        camera_ids: list[uuid.UUID],
+        observed_at: datetime,
+    ) -> tuple[Event, ...]:
+        observed = cls._instant(observed_at)
+        created: list[Event] = []
+        for camera_id in sorted(
+            set(camera_ids),
+            key=str,
+        ):
+            event = Event(
+                source=cls.SOURCE,
+                source_instance_id=cls.SOURCE_INSTANCE_ID,
+                camera_id=camera_id,
+                category=cls.RUNTIME_HEALTH_CATEGORY,
+                label=cls.RUNTIME_RESTART_LABEL,
+                started_at=observed,
+                ended_at=observed,
+                severity="info",
+                metadata_json={
+                    "observer": "zlm_server_started",
+                },
+            )
+            session.add(event)
+            created.append(event)
+
+        if created:
+            session.flush()
+        return tuple(created)
 
     @classmethod
     def _open_source_loss(

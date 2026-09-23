@@ -10,6 +10,7 @@ from app.core.db import Base, Database
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
 from app.modules.events.models import Event
+from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import RecordingPolicy, RecordingSegment
 from app.modules.recordings.timeline import PlaybackTimelineService
 from app.modules.storage.models import RecordingLocation, StorageTarget
@@ -457,6 +458,206 @@ def test_timeline_exposes_all_segment_availability_states(
             "missing_media",
             "storage_failure",
             "purged",
+        ]
+    finally:
+        database.close()
+
+
+
+def test_timeline_projects_schedule_runtime_and_storage_gap_reasons(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Gap Reason Camera",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=(
+                    "rtsp://camera.local/gaps"
+                ),
+                secondary_name=None,
+                secondary_url=None,
+            )
+            target = StorageTarget(
+                name="Gap Reason Local",
+                type="local",
+                role="recording",
+                enabled=True,
+                config_json={
+                    "path": "/recordings",
+                    "default_recording": True,
+                },
+            )
+            session.add(target)
+            session.flush()
+
+            policy = RecordingPolicy(
+                camera_id=camera.id,
+                baseline_mode="schedule",
+                schedule_json={
+                    "weekly": [
+                        {
+                            "days": [0],
+                            "start": "00:00",
+                            "end": "23:59",
+                        }
+                    ]
+                },
+                schedule_timezone="UTC",
+                event_recording_enabled=False,
+                storage_target_id=target.id,
+                enabled=True,
+            )
+            session.add(policy)
+            session.commit()
+            camera_id = camera.id
+            target_id = target.id
+
+        base = datetime(
+            2026,
+            9,
+            20,
+            12,
+            0,
+            tzinfo=UTC,
+        )
+
+        with database.session() as session:
+            scheduled = (
+                PlaybackTimelineService.build(
+                    session,
+                    camera_id=camera_id,
+                    start_at=base,
+                    end_at=(
+                        base
+                        + timedelta(minutes=1)
+                    ),
+                )
+            )
+        assert [
+            item.reason
+            for item in scheduled.gaps
+        ] == ["not_scheduled"]
+
+        with database.session() as session:
+            policy = session.scalar(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.camera_id
+                    == camera_id
+                )
+            )
+            assert policy is not None
+            policy.baseline_mode = "disabled"
+            policy.schedule_json = {}
+            policy.schedule_timezone = None
+            policy.event_recording_enabled = True
+            session.commit()
+
+        with database.session() as session:
+            event_only = (
+                PlaybackTimelineService.build(
+                    session,
+                    camera_id=camera_id,
+                    start_at=base,
+                    end_at=(
+                        base
+                        + timedelta(minutes=1)
+                    ),
+                )
+            )
+        assert [
+            item.reason
+            for item in event_only.gaps
+        ] == ["no_event"]
+
+        with database.session() as session:
+            policy = session.scalar(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.camera_id
+                    == camera_id
+                )
+            )
+            assert policy is not None
+            policy.baseline_mode = "continuous"
+            policy.event_recording_enabled = False
+
+            SystemEventService.runtime_restarted(
+                session,
+                camera_ids=[camera_id],
+                observed_at=(
+                    base
+                    + timedelta(minutes=2)
+                ),
+            )
+            SystemEventService.storage_health_transition(
+                session,
+                target_id=target_id,
+                target_name="Gap Reason Local",
+                observed_at=(
+                    base
+                    + timedelta(minutes=4)
+                ),
+                level="critical",
+                used_percent=96.0,
+            )
+            SystemEventService.storage_health_transition(
+                session,
+                target_id=target_id,
+                target_name="Gap Reason Local",
+                observed_at=(
+                    base
+                    + timedelta(minutes=5)
+                ),
+                level="ok",
+                used_percent=70.0,
+            )
+            session.commit()
+
+        with database.session() as session:
+            explained = (
+                PlaybackTimelineService.build(
+                    session,
+                    camera_id=camera_id,
+                    start_at=(
+                        base
+                        + timedelta(minutes=1)
+                    ),
+                    end_at=(
+                        base
+                        + timedelta(minutes=6)
+                    ),
+                )
+            )
+
+        assert [
+            (
+                item.start_at,
+                item.end_at,
+                item.reason,
+            )
+            for item in explained.gaps
+        ] == [
+            (
+                base + timedelta(minutes=1),
+                base + timedelta(minutes=4),
+                "runtime_restart",
+            ),
+            (
+                base + timedelta(minutes=4),
+                base + timedelta(minutes=5),
+                "storage_failure",
+            ),
+            (
+                base + timedelta(minutes=5),
+                base + timedelta(minutes=6),
+                "unknown",
+            ),
         ]
     finally:
         database.close()

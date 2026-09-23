@@ -15,7 +15,13 @@ from app.modules.recordings.models import (
     RecordingSegment,
     RecordingTrigger,
 )
+from app.modules.recordings.policy import (
+    RecordingPolicyService,
+)
 from app.modules.storage.models import RecordingLocation
+from app.modules.storage.recording_resolver import (
+    RecordingStorageResolver,
+)
 
 from .playback_cache import PlaybackCacheService
 from .schemas import (
@@ -107,20 +113,132 @@ class PlaybackTimelineService:
         return "unknown"
 
     @staticmethod
-    def _empty_reason(
+    def _recording_target_id(
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+    ) -> uuid.UUID | None:
+        try:
+            return (
+                RecordingStorageResolver
+                .local_target_for_camera(
+                    session,
+                    camera_id=camera_id,
+                )
+                .target.id
+            )
+        except Exception:
+            return None
+
+    @classmethod
+    def _gap_evidence_events(
+        cls,
         session: Session,
         *,
         camera_id: uuid.UUID,
         start_at: datetime,
         end_at: datetime,
-    ) -> str:
-        policy = session.scalar(
-            select(RecordingPolicy).where(
-                RecordingPolicy.camera_id == camera_id
+    ) -> list[Event]:
+        camera_events = list(
+            session.scalars(
+                select(Event)
+                .where(
+                    Event.source
+                    == SystemEventService.SOURCE,
+                    Event.source_instance_id
+                    == SystemEventService.SOURCE_INSTANCE_ID,
+                    Event.camera_id == camera_id,
+                    Event.category.in_(
+                        [
+                            SystemEventService
+                            .SOURCE_CONNECTIVITY_CATEGORY,
+                            SystemEventService
+                            .RUNTIME_HEALTH_CATEGORY,
+                        ]
+                    ),
+                    Event.started_at <= end_at,
+                    or_(
+                        Event.ended_at.is_(None),
+                        Event.ended_at >= start_at,
+                    ),
+                )
+                .order_by(
+                    Event.started_at,
+                    Event.id,
+                )
             )
         )
+
+        target_id = cls._recording_target_id(
+            session,
+            camera_id=camera_id,
+        )
+        if target_id is None:
+            return camera_events
+
+        storage_events = list(
+            session.scalars(
+                select(Event)
+                .where(
+                    Event.source
+                    == SystemEventService.SOURCE,
+                    Event.source_instance_id
+                    == f"storage-target:{target_id}",
+                    Event.category
+                    == SystemEventService.STORAGE_HEALTH_CATEGORY,
+                    Event.started_at < end_at,
+                    or_(
+                        Event.ended_at.is_(None),
+                        Event.ended_at > start_at,
+                    ),
+                )
+                .order_by(
+                    Event.started_at,
+                    Event.id,
+                )
+            )
+        )
+        return sorted(
+            [*camera_events, *storage_events],
+            key=lambda event: (
+                event.started_at,
+                str(event.id),
+            ),
+        )
+
+    @classmethod
+    def _empty_reason(
+        cls,
+        session: Session,
+        *,
+        camera_id: uuid.UUID,
+        start_at: datetime,
+        end_at: datetime,
+        policy: RecordingPolicy | None = None,
+        evidence_events: list[Event] | None = None,
+    ) -> str:
+        if policy is None:
+            policy = session.scalar(
+                select(RecordingPolicy).where(
+                    RecordingPolicy.camera_id
+                    == camera_id
+                )
+            )
         if policy is None or not policy.enabled:
             return "not_scheduled"
+
+        if policy.baseline_mode == "schedule":
+            reference = start_at + (
+                end_at - start_at
+            ) / 2
+            if not (
+                RecordingPolicyService
+                .baseline_should_record(
+                    policy,
+                    at=reference,
+                )
+            ):
+                return "not_scheduled"
 
         if (
             policy.baseline_mode == "disabled"
@@ -129,51 +247,49 @@ class PlaybackTimelineService:
             trigger = session.scalar(
                 select(RecordingTrigger.id)
                 .where(
-                    RecordingTrigger.camera_id == camera_id,
-                    RecordingTrigger.state.notin_(["CANCELLED", "FAILED"]),
-                    RecordingTrigger.planned_start_at < end_at,
+                    RecordingTrigger.camera_id
+                    == camera_id,
+                    RecordingTrigger.state.notin_(
+                        ["CANCELLED", "FAILED"]
+                    ),
+                    RecordingTrigger.planned_start_at
+                    < end_at,
                     or_(
-                        RecordingTrigger.planned_end_at.is_(None),
-                        RecordingTrigger.planned_end_at > start_at,
+                        RecordingTrigger.planned_end_at
+                        .is_(None),
+                        RecordingTrigger.planned_end_at
+                        > start_at,
                     ),
                 )
                 .limit(1)
             )
-            return "unknown" if trigger is not None else "no_event"
-
-        if policy.baseline_mode == "disabled":
+            if trigger is None:
+                return "no_event"
+        elif policy.baseline_mode == "disabled":
             return "not_scheduled"
 
-        connectivity = session.scalar(
-            select(Event)
-            .where(
-                Event.source
-                == SystemEventService.SOURCE,
-                Event.source_instance_id
-                == SystemEventService.SOURCE_INSTANCE_ID,
-                Event.camera_id == camera_id,
-                Event.category
-                == SystemEventService.SOURCE_CONNECTIVITY_CATEGORY,
-                Event.label
-                == SystemEventService.SOURCE_LOST_LABEL,
-                Event.started_at < end_at,
+        evidence = (
+            evidence_events
+            if evidence_events is not None
+            else cls._gap_evidence_events(
+                session,
+                camera_id=camera_id,
+                start_at=start_at,
+                end_at=end_at,
             )
-            .order_by(
-                Event.started_at.desc(),
-                Event.id.desc(),
-            )
-            .limit(1)
         )
-        if connectivity is not None:
+
+        for event in evidence:
             if (
-                connectivity.ended_at is None
-                or connectivity.ended_at > start_at
+                SystemEventService
+                .is_source_loss(event)
+                and event.started_at < end_at
+                and (
+                    event.ended_at is None
+                    or event.ended_at > start_at
+                )
             ):
                 return "source_lost"
-
-            # A closed interval is explicit recovery evidence. Do not let an
-            # older segment completion marker stretch source_lost past recovery.
-            return "unknown"
 
         previous = session.scalar(
             select(RecordingSegment)
@@ -199,6 +315,33 @@ class PlaybackTimelineService:
             == "source_lost"
         ):
             return "source_lost"
+
+        for event in evidence:
+            if (
+                SystemEventService
+                .is_runtime_restart(event)
+                and start_at
+                <= event.started_at
+                <= end_at
+            ):
+                return "runtime_restart"
+
+        for event in evidence:
+            if (
+                event.category
+                == SystemEventService.STORAGE_HEALTH_CATEGORY
+                and event.label
+                in {
+                    "storage_critical",
+                    "storage_unavailable",
+                }
+                and event.started_at < end_at
+                and (
+                    event.ended_at is None
+                    or event.ended_at > start_at
+                )
+            ):
+                return "storage_failure"
 
         # When no transition event survived, finalized segment evidence is the
         # safe fallback. Other outage causes remain unknown until proven.
@@ -254,6 +397,21 @@ class PlaybackTimelineService:
             )
         )
 
+        policy = session.scalar(
+            select(RecordingPolicy).where(
+                RecordingPolicy.camera_id
+                == camera_id
+            )
+        )
+        gap_evidence_events = (
+            cls._gap_evidence_events(
+                session,
+                camera_id=camera_id,
+                start_at=start_at,
+                end_at=end_at,
+            )
+        )
+
         projected: list[_ProjectedSegment] = []
         cache = (
             PlaybackCacheService(settings)
@@ -283,6 +441,41 @@ class PlaybackTimelineService:
         for item in projected:
             boundaries.add(item.clipped_start)
             boundaries.add(item.clipped_end)
+
+        if (
+            policy is not None
+            and policy.enabled
+            and policy.baseline_mode
+            == "schedule"
+        ):
+            cursor = start_at
+            for _ in range(4096):
+                transition = (
+                    RecordingPolicyService
+                    .next_baseline_transition(
+                        policy,
+                        after=cursor,
+                    )
+                )
+                if (
+                    transition is None
+                    or transition >= end_at
+                ):
+                    break
+                if transition > start_at:
+                    boundaries.add(transition)
+                cursor = transition
+
+        for event in gap_evidence_events:
+            if start_at < event.started_at < end_at:
+                boundaries.add(event.started_at)
+            if (
+                event.ended_at is not None
+                and start_at
+                < event.ended_at
+                < end_at
+            ):
+                boundaries.add(event.ended_at)
 
         # Connectivity transitions split otherwise-empty ranges so a recovered
         # outage is not painted beyond its observed interval.
@@ -357,6 +550,10 @@ class PlaybackTimelineService:
                     camera_id=camera_id,
                     start_at=left,
                     end_at=right,
+                    policy=policy,
+                    evidence_events=(
+                        gap_evidence_events
+                    ),
                 )
 
             if (

@@ -166,13 +166,22 @@ unknown
 
 Examples:
 
-- schedule disabled → not_scheduled;
-- event-only mode without event → no_event;
-- RTSP/camera loss → source_lost;
-- runtime/media-service restart → runtime_restart;
-- failed persistence → storage_failure;
-- object unexpectedly absent → missing_media;
-- retention removed media → purged.
+- disabled policy or an interval outside an enabled recording schedule -> not_scheduled;
+- event-only mode without a matching active RecordingTrigger -> no_event;
+- RTSP/camera loss -> source_lost;
+- ZLMediaKit server-start/restart evidence inside an otherwise empty interval -> runtime_restart;
+- critical/unavailable health evidence for the camera's selected local recording StorageTarget -> storage_failure;
+- object unexpectedly absent -> missing_media;
+- retention removed media -> purged;
+- no reliable explanatory evidence -> unknown.
+
+Gap reasons are projections from persisted policy, segment/location truth, and
+meaningful System Events. They are not guessed from nominal five-minute file
+cadence. ZLM `server-started` persists an instantaneous per-camera
+`runtime_health/runtime_restart` System Event for enabled recording policies;
+storage failures reuse the existing bounded `storage_health` transition Event.
+Schedule transitions are included as timeline boundaries so one returned gap
+does not straddle scheduled and unscheduled wall-clock periods under one label.
 
 The UI renders these as distinct states/tooltips instead of one generic black area.
 

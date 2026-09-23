@@ -139,11 +139,37 @@ def _recording_camera_id(
 def zlm_server_started(
     body: ZlmServerStartedHook,
     request: Request,
+    session: Session = Depends(get_db_session),
 ) -> dict[str, object]:
     _authenticate_hook(
         request,
         body.media_server_id,
     )
+
+    observed_at = utc_now()
+    try:
+        camera_ids = list(
+            session.scalars(
+                select(
+                    RecordingPolicy.camera_id
+                ).where(
+                    RecordingPolicy.enabled.is_(
+                        True
+                    )
+                )
+            )
+        )
+        SystemEventService.runtime_restarted(
+            session,
+            camera_ids=camera_ids,
+            observed_at=observed_at,
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        request.app.state.logger.warning(
+            "ZLM restart evidence persistence failed"
+        )
 
     request.app.state.zlm_continuity.reset()
     request.app.state.zlm_health.clear()
