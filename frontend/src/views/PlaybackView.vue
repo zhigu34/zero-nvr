@@ -1054,6 +1054,12 @@ function handleDateChange(): void {
     formatDateInput(now) === selectedDate.value
       ? now
       : new Date(start.getTime() + 12 * 60 * 60 * 1000)
+
+  clearPendingRetry()
+  resolveGeneration += 1
+  clearPlayers()
+  playing.value = false
+  playbackResult.value = null
   setMasterClockTime(
     selectedTime.getTime(),
     "paused"
@@ -1127,13 +1133,19 @@ function handleTimelineZoom(payload: {
 function jumpTo(value: string | null): void {
   if (!value) return
   const at = new Date(value)
+  clearPendingRetry()
+  resolveGeneration += 1
+  clearPlayers()
+  playing.value = false
   setMasterClockTime(
     at.getTime(),
     "seeking"
   )
   timelineCenterMs.value = at.getTime()
   selectedDate.value = formatDateInput(at)
-  void refreshTimeline(false).then(() => resolveAt(at, true))
+  void refreshTimeline(false).then(
+    () => resolveAt(at, true)
+  )
 }
 
 function openActionPanel(mode: "protect" | "export"): void {
