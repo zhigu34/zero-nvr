@@ -23,6 +23,9 @@ import {
   type NotificationTarget
 } from "../../api/system"
 import UiIcon from "../ui/UiIcon.vue"
+import { useAuthStore } from "../../stores/auth"
+
+const auth = useAuthStore()
 
 const props = defineProps<{
   displayTimezone: string
@@ -137,7 +140,9 @@ async function refresh(): Promise<void> {
       await Promise.all([
         listAlertPolicies(),
         listCameras(),
-        listNotificationTargets()
+        auth.hasPermission("notification.view")
+          ? listNotificationTargets()
+          : Promise.resolve([])
       ])
   } catch (caught) {
     error.value = errorMessage(caught)
