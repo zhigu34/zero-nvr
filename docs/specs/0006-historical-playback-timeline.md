@@ -550,10 +550,32 @@ Timeline queries are range-based:
 camera_ids
 from=<ISO8601>
 to=<ISO8601>
-zoom/detail
+detail=day|hour|minute
 ```
 
-Large ranges return compact coverage/aggregation. Close zoom returns detailed events/segments.
+The V1 single-camera endpoint accepts the same explicit detail contract:
+
+```text
+GET /cameras/{camera_id}/timeline?from=...&to=...&detail=day|hour|minute
+```
+
+The response echoes the accepted `detail` value so frontend cache/render state
+cannot confuse a day overview with a minute inspection. Omitting `detail`
+defaults to `minute` for backward compatibility with the original detailed
+timeline behavior. The current day/hour/minute contract does not round or erase
+authoritative recording/gap boundaries. Later event aggregation and detailed
+physical-segment payloads build on this contract without changing the range
+semantics.
+
+The initial frontend mapping is:
+
+- 24-hour view -> `day`;
+- 6-hour view -> `hour`;
+- 1-hour view -> `minute`.
+
+Large ranges may return compact coverage/aggregation. Close zoom may return
+detailed events/segments as the later aggregation and segment-detail roadmap
+items are implemented.
 
 The frontend must not download a year of second-level markers merely to draw a daily overview.
 

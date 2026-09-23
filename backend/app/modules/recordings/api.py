@@ -49,6 +49,7 @@ from .schemas import (
     PlaybackResolveRequest,
     PlaybackResolveView,
     PlaybackTimelineView,
+    TimelineDetailLevel,
     RecordingPolicyPut,
     RecordingLocationView,
     RecordingProtectionCreate,
@@ -1059,6 +1060,9 @@ def camera_timeline(
     camera_id: uuid.UUID,
     from_at: datetime = Query(alias="from"),
     to_at: datetime = Query(alias="to"),
+    detail: TimelineDetailLevel = Query(
+        default="minute"
+    ),
     _context: AuthContext = Depends(
         require_camera_permission("recording.view")
     ),
@@ -1081,4 +1085,5 @@ def camera_timeline(
         camera_id=camera_id,
         start_at=start_at,
         end_at=end_at,
+        detail=detail,
     )

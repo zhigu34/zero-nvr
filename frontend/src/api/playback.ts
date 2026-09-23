@@ -1,5 +1,10 @@
 import { apiRequest } from "./client"
 
+export type TimelineDetailLevel =
+  | "day"
+  | "hour"
+  | "minute"
+
 export type TimelineAvailability =
   | "local"
   | "remote"
@@ -35,6 +40,7 @@ export interface TimelineEvent {
 
 export interface PlaybackTimeline {
   camera_id: string
+  detail: TimelineDetailLevel
   range: TimelineRange
   recording_ranges: TimelineRecordingRange[]
   gaps: TimelineGap[]
@@ -74,11 +80,13 @@ export type PlaybackResolve =
 export function getCameraTimeline(
   cameraId: string,
   from: Date,
-  to: Date
+  to: Date,
+  detail: TimelineDetailLevel = "minute"
 ): Promise<PlaybackTimeline> {
   const params = new URLSearchParams({
     from: from.toISOString(),
-    to: to.toISOString()
+    to: to.toISOString(),
+    detail
   })
   return apiRequest<PlaybackTimeline>(
     `/cameras/${encodeURIComponent(cameraId)}/timeline?${params}`

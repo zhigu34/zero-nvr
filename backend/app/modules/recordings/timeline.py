@@ -18,6 +18,7 @@ from app.modules.storage.models import RecordingLocation
 
 from .schemas import (
     PlaybackTimelineView,
+    TimelineDetailLevel,
     TimelineEventView,
     TimelineGapView,
     TimelineRangeView,
@@ -194,6 +195,7 @@ class PlaybackTimelineService:
         camera_id: uuid.UUID,
         start_at: datetime,
         end_at: datetime,
+        detail: TimelineDetailLevel,
     ) -> PlaybackTimelineView:
         segments = list(
             session.scalars(
@@ -353,6 +355,7 @@ class PlaybackTimelineService:
 
         return PlaybackTimelineView(
             camera_id=camera_id,
+            detail=detail,
             range=TimelineRangeView(
                 start_at=start_at,
                 end_at=end_at,

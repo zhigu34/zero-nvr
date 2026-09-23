@@ -27,6 +27,12 @@ TimelineGapReason = Literal[
     "unknown",
 ]
 
+TimelineDetailLevel = Literal[
+    "day",
+    "hour",
+    "minute",
+]
+
 
 class TimelineRangeView(BaseModel):
     start_at: datetime
@@ -55,6 +61,7 @@ class TimelineEventView(BaseModel):
 
 class PlaybackTimelineView(BaseModel):
     camera_id: uuid.UUID
+    detail: TimelineDetailLevel
     range: TimelineRangeView
     recording_ranges: list[TimelineRecordingRangeView]
     gaps: list[TimelineGapView]

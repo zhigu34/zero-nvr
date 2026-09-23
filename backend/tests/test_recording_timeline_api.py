@@ -255,6 +255,7 @@ def test_timeline_api_normalizes_timezone_and_projects_ranges(
             body["camera_id"]
             == str(camera_id)
         )
+        assert body["detail"] == "minute"
         assert (
             datetime.fromisoformat(
                 body["range"]["start_at"]
@@ -372,3 +373,55 @@ def test_timeline_api_rejects_naive_and_invalid_ranges(
             invalid.json()["error"]["code"]
             == "invalid_time_range"
         )
+
+
+
+def test_timeline_api_exposes_explicit_detail_levels(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id, _, _ = seed_timeline(app)
+        path = (
+            f"/api/v1/cameras/"
+            f"{camera_id}/timeline"
+        )
+
+        for detail in (
+            "day",
+            "hour",
+            "minute",
+        ):
+            response = client.get(
+                path,
+                params={
+                    "from": (
+                        "2026-09-20T00:00:00Z"
+                    ),
+                    "to": (
+                        "2026-09-20T00:10:00Z"
+                    ),
+                    "detail": detail,
+                },
+            )
+            assert response.status_code == 200
+            assert (
+                response.json()["detail"]
+                == detail
+            )
+
+        invalid = client.get(
+            path,
+            params={
+                "from": (
+                    "2026-09-20T00:00:00Z"
+                ),
+                "to": (
+                    "2026-09-20T00:10:00Z"
+                ),
+                "detail": "second",
+            },
+        )
+        assert invalid.status_code == 422

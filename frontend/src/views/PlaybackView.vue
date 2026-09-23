@@ -40,6 +40,7 @@ import {
   type PlaybackGap,
   type PlaybackResolve,
   type PlaybackTimeline,
+  type TimelineDetailLevel,
   type TimelineEvent,
   type TimelineGap,
   type TimelineRecordingRange
@@ -418,9 +419,20 @@ async function refreshTimeline(resolveCurrent = false): Promise<void> {
   loadingTimeline.value = true
   error.value = null
   const [from, to] = rangeWindow()
+  const detail: TimelineDetailLevel =
+    zoomHours.value === 24
+      ? "day"
+      : zoomHours.value === 6
+        ? "hour"
+        : "minute"
 
   try {
-    const value = await getCameraTimeline(cameraId, from, to)
+    const value = await getCameraTimeline(
+      cameraId,
+      from,
+      to,
+      detail
+    )
     if (generation !== timelineGeneration) return
     timeline.value = value
     if (resolveCurrent) {
