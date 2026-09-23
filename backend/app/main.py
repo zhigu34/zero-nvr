@@ -18,6 +18,7 @@ from app.core.events import RuntimeEventBus
 from app.core.logging import configure_logging
 from app.frontend import mount_frontend
 from app.integrations.frigate import FrigateMqttRuntime
+from app.integrations.onvif import OnvifEventRuntime
 from app.integrations.zlm import ZlmContinuityTracker
 from app.modules.auth.rate_limit import AuthRateLimiter
 from app.modules.cameras.clock_projection import (
@@ -71,6 +72,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     notification_tasks = NotificationTaskDispatcher()
     storage_tasks = StorageTaskDispatcher()
     frigate_tasks = FrigateTaskDispatcher()
+    onvif_events = OnvifEventRuntime(
+        resolved_settings,
+        database,
+        logger=logger,
+    )
     frigate_mqtt = FrigateMqttRuntime(
         resolved_settings,
         database,
@@ -100,6 +106,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "camera_count": queued,
                 },
             )
+            onvif_events.start()
         frigate_mqtt.start()
 
         logger.info(
@@ -113,6 +120,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         yield
 
         frigate_mqtt.stop()
+        onvif_events.stop()
         media_sessions.stop()
         live_transcodes.stop()
         database.close()
@@ -157,6 +165,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.storage_tasks = storage_tasks
     app.state.frigate_tasks = frigate_tasks
     app.state.frigate_mqtt = frigate_mqtt
+    app.state.onvif_events = onvif_events
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):
@@ -171,6 +180,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             and request.url.path.startswith("/api/v1/")
             and response.status_code < 400
         ):
+            if request.url.path.startswith(
+                "/api/v1/cameras"
+            ):
+                onvif_events.reconfigure()
             await event_bus.publish(
                 "api.mutation",
                 {
