@@ -6,6 +6,7 @@ import tempfile
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -318,7 +319,12 @@ class StorageTargetService:
                 code="storage_target_role_invalid",
                 message="rclone targets are archive targets; cameras always record locally first.",
             )
-        if set(config) - {"remote", "base_path", "default_archive"}:
+        if set(config) - {
+            "remote",
+            "base_path",
+            "default_archive",
+            "provider",
+        }:
             raise ApiError(
                 status_code=400,
                 code="storage_target_config_invalid",
@@ -355,6 +361,18 @@ class StorageTargetService:
             "remote": remote.strip(),
             "base_path": "/".join(parts),
         }
+        provider = config.get("provider")
+        if provider is not None:
+            if provider not in {
+                "custom",
+                "openlist_webdav",
+            }:
+                raise ApiError(
+                    status_code=400,
+                    code="rclone_provider_invalid",
+                    message="rclone archive provider is invalid.",
+                )
+            normalized["provider"] = provider
         if bool(config.get("default_archive", False)):
             normalized["default_archive"] = True
         return normalized
@@ -381,6 +399,89 @@ class StorageTargetService:
             status_code=400,
             code="storage_target_type_invalid",
             message="Storage target type is invalid.",
+        )
+
+    def _openlist_rclone_config(
+        self,
+        *,
+        config: dict[str, object],
+        credentials: dict[str, str],
+    ) -> str:
+        remote = config.get("remote")
+        if not isinstance(remote, str) or not _REMOTE_RE.fullmatch(remote):
+            raise ApiError(
+                status_code=400,
+                code="rclone_remote_invalid",
+                message="rclone remote name is invalid.",
+            )
+
+        url = str(credentials.get("url", "")).strip()
+        username = str(
+            credentials.get("username", "")
+        ).strip()
+        password = str(
+            credentials.get("password", "")
+        )
+        if (
+            not url
+            or not username
+            or not password
+            or any(
+                char in url or char in username
+                for char in ("\n", "\r")
+            )
+            or "\n" in password
+            or "\r" in password
+        ):
+            raise ApiError(
+                status_code=400,
+                code="openlist_webdav_credentials_invalid",
+                message=(
+                    "OpenList WebDAV URL, username, and password "
+                    "are required."
+                ),
+            )
+
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.netloc
+            or parsed.username is not None
+            or parsed.password is not None
+        ):
+            raise ApiError(
+                status_code=400,
+                code="openlist_webdav_url_invalid",
+                message=(
+                    "OpenList WebDAV URL must be an http(s) URL "
+                    "without embedded credentials."
+                ),
+            )
+        normalized_url = url.rstrip("/") + "/"
+
+        try:
+            obscured = RcloneAdapter.obscure_password(
+                password,
+                binary=self.settings.rclone_binary,
+                timeout_seconds=min(
+                    self.settings.rclone_timeout_seconds,
+                    30.0,
+                ),
+            )
+        except RcloneIntegrationError as exc:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+            ) from exc
+
+        return (
+            f"[{remote}]\n"
+            "type = webdav\n"
+            f"url = {normalized_url}\n"
+            "vendor = other\n"
+            f"user = {username}\n"
+            f"pass = {obscured}\n"
         )
 
     def _replace_rclone_secret(
@@ -457,6 +558,7 @@ class StorageTargetService:
         enabled: bool,
         config: dict[str, object],
         rclone_config: str | None,
+        openlist_webdav: dict[str, str] | None = None,
     ) -> StorageTarget:
         normalized = self.normalize_config(
             target_type=target_type,
@@ -496,6 +598,32 @@ class StorageTargetService:
         session.flush()
 
         if target_type == "rclone":
+            if (
+                rclone_config is not None
+                and openlist_webdav is not None
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="rclone_config_conflict",
+                    message=(
+                        "Provide either raw rclone configuration "
+                        "or OpenList WebDAV credentials, not both."
+                    ),
+                )
+            if openlist_webdav is not None:
+                normalized = dict(
+                    target.config_json or {}
+                )
+                normalized["provider"] = (
+                    "openlist_webdav"
+                )
+                target.config_json = normalized
+                rclone_config = (
+                    self._openlist_rclone_config(
+                        config=normalized,
+                        credentials=openlist_webdav,
+                    )
+                )
             if rclone_config is None:
                 raise ApiError(
                     status_code=400,
@@ -524,6 +652,23 @@ class StorageTargetService:
         target: StorageTarget,
         changes: dict[str, object],
     ) -> StorageTarget:
+        openlist_webdav = changes.pop(
+            "openlist_webdav",
+            None,
+        )
+        if (
+            openlist_webdav is not None
+            and not isinstance(
+                openlist_webdav,
+                dict,
+            )
+        ):
+            raise ApiError(
+                status_code=400,
+                code="openlist_webdav_credentials_invalid",
+                message="OpenList WebDAV credentials are invalid.",
+            )
+
         if "name" in changes:
             name = changes["name"]
             if not isinstance(name, str) or not name.strip():
@@ -625,6 +770,34 @@ class StorageTargetService:
 
         if credential_action == "replace":
             raw = changes.get("rclone_config")
+            if (
+                raw is not None
+                and openlist_webdav is not None
+            ):
+                raise ApiError(
+                    status_code=400,
+                    code="rclone_config_conflict",
+                    message=(
+                        "Provide either raw rclone configuration "
+                        "or OpenList WebDAV credentials, not both."
+                    ),
+                )
+            if openlist_webdav is not None:
+                config = dict(
+                    target.config_json or {}
+                )
+                config["provider"] = (
+                    "openlist_webdav"
+                )
+                target.config_json = config
+                raw = self._openlist_rclone_config(
+                    config=config,
+                    credentials={
+                        str(key): str(value)
+                        for key, value
+                        in openlist_webdav.items()
+                    },
+                )
             if not isinstance(raw, str):
                 raise ApiError(
                     status_code=400,
@@ -663,7 +836,10 @@ class StorageTargetService:
                     )
                 except KeyError:
                     pass
-        elif "rclone_config" in changes:
+        elif (
+            "rclone_config" in changes
+            or openlist_webdav is not None
+        ):
             raise ApiError(
                 status_code=400,
                 code="rclone_config_update_invalid",

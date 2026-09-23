@@ -144,3 +144,38 @@ def test_rclone_restore_publishes_atomically(
     assert not destination.with_name(
         destination.name + ".partial"
     ).exists()
+
+
+
+def test_rclone_obscure_password_uses_stdin_not_process_arguments() -> None:
+    password = "openlist-password-never-in-argv"
+    calls: list[tuple[list[str], str]] = []
+
+    def runner(argv, **kwargs):
+        calls.append(
+            (
+                list(argv),
+                str(kwargs.get("input", "")),
+            )
+        )
+        assert password not in " ".join(argv)
+        assert kwargs["input"] == password + "\n"
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout="obscured-openlist-password\n",
+            stderr="",
+        )
+
+    obscured = RcloneAdapter.obscure_password(
+        password,
+        runner=runner,
+    )
+
+    assert obscured == "obscured-openlist-password"
+    assert calls == [
+        (
+            ["rclone", "obscure", "-"],
+            password + "\n",
+        )
+    ]

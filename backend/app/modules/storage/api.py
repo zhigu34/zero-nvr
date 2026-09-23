@@ -145,6 +145,21 @@ def create_storage_target(
                 if body.rclone_config is not None
                 else None
             ),
+            openlist_webdav=(
+                {
+                    "url": body.openlist_webdav.url,
+                    "username": (
+                        body.openlist_webdav.username
+                    ),
+                    "password": (
+                        body.openlist_webdav.password
+                        .get_secret_value()
+                    ),
+                }
+                if body.openlist_webdav
+                is not None
+                else None
+            ),
         )
         append_audit_event(
             session,
@@ -202,13 +217,35 @@ def update_storage_target(
 
     changes = body.model_dump(
         exclude_unset=True,
-        exclude={"rclone_config"},
+        exclude={
+            "rclone_config",
+            "openlist_webdav",
+        },
     )
     credential_action = (
         body.rclone_config_action
     )
-    has_credential_value = (
+    has_raw_config = (
         body.rclone_config is not None
+    )
+    has_openlist_config = (
+        body.openlist_webdav is not None
+    )
+    if (
+        has_raw_config
+        and has_openlist_config
+    ):
+        raise ApiError(
+            status_code=400,
+            code="rclone_config_conflict",
+            message=(
+                "Provide either raw rclone configuration "
+                "or OpenList WebDAV credentials, not both."
+            ),
+        )
+    has_credential_value = (
+        has_raw_config
+        or has_openlist_config
     )
     if (
         credential_action == "replace"
@@ -237,10 +274,23 @@ def update_storage_target(
     changes["rclone_config_action"] = (
         credential_action
     )
-    if has_credential_value:
+    if has_raw_config:
+        assert body.rclone_config is not None
         changes["rclone_config"] = (
             body.rclone_config.get_secret_value()
         )
+    if has_openlist_config:
+        assert body.openlist_webdav is not None
+        changes["openlist_webdav"] = {
+            "url": body.openlist_webdav.url,
+            "username": (
+                body.openlist_webdav.username
+            ),
+            "password": (
+                body.openlist_webdav.password
+                .get_secret_value()
+            ),
+        }
 
     try:
         target = service.update(

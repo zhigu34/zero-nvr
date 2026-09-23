@@ -166,6 +166,16 @@ local RecordingLocation AVAILABLE
 
 S3/WebDAV/SFTP/SMB/OneDrive/OpenList-backed remotes are archive/restore destinations, not normal hot recording destinations.
 
+OpenList is integrated only through its WebDAV endpoint and the existing
+rclone archive boundary. The Storage UI may collect the OpenList WebDAV URL,
+username, and password, but the backend converts that into an ordinary
+`type = webdav` rclone remote with `vendor = other`. The password is passed
+to `rclone obscure -` over stdin before the generated rclone configuration is
+stored through SecretStore. zero-nvr does not add an OpenList SDK, direct
+OpenList file-transfer client, FUSE dependency, or separate OpenList archive
+container. The configured target still uses the same copy/verify/delete and
+remote-restore paths as every other rclone archive target.
+
 Archive outage must not stop healthy local recording.
 
 ## Playback cache

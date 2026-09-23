@@ -41,6 +41,12 @@ export interface StorageTargetRecordingSwitchResult {
   affected_camera_ids: string[]
 }
 
+export interface OpenListWebDavCredentials {
+  url: string
+  username: string
+  password: string
+}
+
 export interface StorageTargetCreate {
   type: StorageTargetType
   role: StorageTargetRole
@@ -48,6 +54,7 @@ export interface StorageTargetCreate {
   enabled: boolean
   config: Record<string, unknown>
   rclone_config?: string | null
+  openlist_webdav?: OpenListWebDavCredentials | null
 }
 
 export interface RetentionPolicy {

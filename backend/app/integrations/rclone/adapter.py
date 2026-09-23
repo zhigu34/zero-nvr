@@ -55,6 +55,59 @@ class RcloneAdapter:
         self._runner = runner
         self._timeout_seconds = timeout_seconds
 
+    @staticmethod
+    def obscure_password(
+        password: str,
+        *,
+        binary: str = "rclone",
+        runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+        timeout_seconds: float = 30.0,
+    ) -> str:
+        if not password or "\n" in password or "\r" in password:
+            raise RcloneIntegrationError(
+                "rclone_password_invalid",
+                "rclone password is invalid.",
+                status_code=400,
+            )
+        try:
+            completed = runner(
+                [binary, "obscure", "-"],
+                input=password + "\n",
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds,
+            )
+        except FileNotFoundError as exc:
+            raise RcloneIntegrationError(
+                "rclone_unavailable",
+                "rclone executable is not available.",
+                status_code=503,
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise RcloneIntegrationError(
+                "rclone_timeout",
+                "rclone operation did not complete in time.",
+                status_code=504,
+            ) from exc
+        except subprocess.CalledProcessError as exc:
+            raise RcloneIntegrationError(
+                "rclone_obscure_failed",
+                "rclone could not prepare the credential.",
+            ) from exc
+
+        obscured = completed.stdout.strip()
+        if (
+            not obscured
+            or "\n" in obscured
+            or "\r" in obscured
+        ):
+            raise RcloneIntegrationError(
+                "rclone_invalid_response",
+                "rclone returned invalid credential data.",
+            )
+        return obscured
+
     def _run(
         self,
         args: list[str],

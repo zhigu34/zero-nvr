@@ -32,6 +32,7 @@ import { useAuthStore } from "../stores/auth"
 
 type StorageTab = "targets" | "retention"
 type TargetFormType = "local" | "rclone"
+type ArchiveProvider = "custom" | "openlist_webdav"
 
 const auth = useAuthStore()
 const tab = ref<StorageTab>("targets")
@@ -65,7 +66,11 @@ const targetForm = reactive({
   remote: "",
   basePath: "zero-nvr",
   defaultArchive: false,
-  rcloneConfig: ""
+  archiveProvider: "custom" as ArchiveProvider,
+  rcloneConfig: "",
+  openlistUrl: "",
+  openlistUsername: "",
+  openlistPassword: ""
 })
 
 const policyForm = reactive({
@@ -208,7 +213,11 @@ function resetTargetForm(type: TargetFormType = "local"): void {
   targetForm.remote = ""
   targetForm.basePath = "zero-nvr"
   targetForm.defaultArchive = false
+  targetForm.archiveProvider = "custom"
   targetForm.rcloneConfig = ""
+  targetForm.openlistUrl = ""
+  targetForm.openlistUsername = ""
+  targetForm.openlistPassword = ""
 }
 
 function openTargetPanel(type: TargetFormType = "local"): void {
@@ -226,6 +235,9 @@ function openEditTarget(target: StorageTarget): void {
   targetForm.type = target.type
   targetForm.name = target.name
   targetForm.rcloneConfig = ""
+  targetForm.openlistUrl = ""
+  targetForm.openlistUsername = ""
+  targetForm.openlistPassword = ""
 
   if (target.type === "local") {
     targetForm.path =
@@ -262,11 +274,45 @@ function openEditTarget(target: StorageTarget): void {
         : "zero-nvr"
     targetForm.defaultArchive =
       target.config.default_archive === true
+    targetForm.archiveProvider =
+      target.config.provider === "openlist_webdav"
+        ? "openlist_webdav"
+        : "custom"
   }
 
   targetPanelOpen.value = true
   policyPanelOpen.value = false
   notice.value = null
+}
+
+function handleArchiveProviderChange(): void {
+  if (
+    targetForm.archiveProvider === "openlist_webdav" &&
+    !targetForm.remote.trim()
+  ) {
+    targetForm.remote = "openlist"
+  }
+}
+
+function openListCredentials(
+  required: boolean
+): {
+  url: string
+  username: string
+  password: string
+} | null {
+  const url = targetForm.openlistUrl.trim()
+  const username = targetForm.openlistUsername.trim()
+  const password = targetForm.openlistPassword
+  const hasAny = Boolean(url || username || password)
+
+  if (!required && !hasAny) return null
+  if (!url || !username || !password) {
+    throw new Error(
+      "OpenList WebDAV URL, username, and password are all required when replacing credentials."
+    )
+  }
+  return { url, username, password }
 }
 
 function openSwitchPanel(target: StorageTarget): void {
@@ -340,16 +386,31 @@ async function saveTarget(): Promise<void> {
           config: {
             remote: targetForm.remote.trim(),
             base_path: targetForm.basePath.trim(),
-            default_archive: targetForm.defaultArchive
+            default_archive: targetForm.defaultArchive,
+            provider: targetForm.archiveProvider
           }
         }
-        changes.rclone_config_action = (
-          targetForm.rcloneConfig.trim()
+        if (
+          targetForm.archiveProvider ===
+          "openlist_webdav"
+        ) {
+          const credentials = openListCredentials(false)
+          changes.rclone_config_action = credentials
             ? "replace"
             : "keep"
-        )
-        if (targetForm.rcloneConfig.trim()) {
-          changes.rclone_config = targetForm.rcloneConfig
+          if (credentials) {
+            changes.openlist_webdav = credentials
+          }
+        } else {
+          changes.rclone_config_action = (
+            targetForm.rcloneConfig.trim()
+              ? "replace"
+              : "keep"
+          )
+          if (targetForm.rcloneConfig.trim()) {
+            changes.rclone_config =
+              targetForm.rcloneConfig
+          }
         }
         await updateStorageTarget(
           editingTarget.value.id,
@@ -373,18 +434,40 @@ async function saveTarget(): Promise<void> {
       })
       notice.value = "Storage target created."
     } else {
-      await createStorageTarget({
-        type: "rclone",
-        role: "archive",
-        name,
-        enabled: true,
-        config: {
-          remote: targetForm.remote.trim(),
-          base_path: targetForm.basePath.trim(),
-          default_archive: targetForm.defaultArchive
-        },
-        rclone_config: targetForm.rcloneConfig
-      })
+      const config = {
+        remote: targetForm.remote.trim(),
+        base_path: targetForm.basePath.trim(),
+        default_archive: targetForm.defaultArchive,
+        provider: targetForm.archiveProvider
+      }
+      if (
+        targetForm.archiveProvider ===
+        "openlist_webdav"
+      ) {
+        const credentials = openListCredentials(true)
+        if (!credentials) {
+          throw new Error(
+            "OpenList WebDAV credentials are required."
+          )
+        }
+        await createStorageTarget({
+          type: "rclone",
+          role: "archive",
+          name,
+          enabled: true,
+          config,
+          openlist_webdav: credentials
+        })
+      } else {
+        await createStorageTarget({
+          type: "rclone",
+          role: "archive",
+          name,
+          enabled: true,
+          config,
+          rclone_config: targetForm.rcloneConfig
+        })
+      }
       notice.value = "Storage target created."
     }
 
@@ -1098,10 +1181,34 @@ onBeforeUnmount(() => {
 
           <template v-else>
             <label>
+              <span>Archive provider</span>
+              <select
+                v-model="targetForm.archiveProvider"
+                :disabled="Boolean(editingTarget)"
+                @change="handleArchiveProviderChange"
+              >
+                <option value="custom">
+                  Generic rclone config
+                </option>
+                <option value="openlist_webdav">
+                  OpenList (WebDAV)
+                </option>
+              </select>
+              <small v-if="editingTarget">
+                Provider type is fixed after creation. Create another
+                archive target to change provider type.
+              </small>
+            </label>
+            <label>
               <span>rclone remote name</span>
               <input
                 v-model="targetForm.remote"
                 required
+                :readonly="
+                  Boolean(editingTarget) &&
+                  targetForm.archiveProvider ===
+                    'openlist_webdav'
+                "
                 placeholder="archive"
               />
             </label>
@@ -1112,7 +1219,51 @@ onBeforeUnmount(() => {
                 placeholder="zero-nvr"
               />
             </label>
-            <label>
+            <template
+              v-if="
+                targetForm.archiveProvider ===
+                'openlist_webdav'
+              "
+            >
+              <label>
+                <span>OpenList WebDAV URL</span>
+                <input
+                  v-model="targetForm.openlistUrl"
+                  :required="!editingTarget"
+                  placeholder="https://openlist.example.com/dav/"
+                  autocomplete="off"
+                />
+                <small>
+                  Use the OpenList WebDAV endpoint, normally ending in
+                  /dav/. HTTPS is recommended outside trusted networks.
+                </small>
+              </label>
+              <label>
+                <span>OpenList username</span>
+                <input
+                  v-model="targetForm.openlistUsername"
+                  :required="!editingTarget"
+                  autocomplete="off"
+                />
+              </label>
+              <label>
+                <span>OpenList password</span>
+                <input
+                  v-model="targetForm.openlistPassword"
+                  :required="!editingTarget"
+                  type="password"
+                  autocomplete="new-password"
+                />
+                <small>
+                  {{
+                    editingTarget
+                      ? "Leave all three OpenList credential fields blank to keep the existing encrypted credentials."
+                      : "The backend obscures the password for rclone, then stores the complete rclone config encrypted."
+                  }}
+                </small>
+              </label>
+            </template>
+            <label v-else>
               <span>rclone config</span>
               <textarea
                 v-model="targetForm.rcloneConfig"

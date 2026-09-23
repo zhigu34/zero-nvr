@@ -10,6 +10,8 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Base
+from app.core.security import SecretStore
+from app.integrations.rclone import RcloneAdapter
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.cameras.service import CameraService
@@ -709,3 +711,119 @@ def test_storage_target_switch_preserves_historical_locations(
         is False
         for item in tasks.reconciled
     )
+
+
+
+def test_openlist_webdav_archive_builds_rclone_config_without_exposing_credentials(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    password = "openlist-super-secret-password"
+    obscure_calls: list[
+        tuple[str, str, float]
+    ] = []
+
+    def fake_obscure(
+        value: str,
+        *,
+        binary: str,
+        timeout_seconds: float,
+    ) -> str:
+        obscure_calls.append(
+            (
+                value,
+                binary,
+                timeout_seconds,
+            )
+        )
+        return "obscured-openlist-password"
+
+    monkeypatch.setattr(
+        RcloneAdapter,
+        "obscure_password",
+        staticmethod(fake_obscure),
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        created = client.post(
+            "/api/v1/storage/targets",
+            json={
+                "type": "rclone",
+                "role": "archive",
+                "name": "OpenList Archive",
+                "enabled": True,
+                "config": {
+                    "remote": "openlist",
+                    "base_path": "zero-nvr/archive",
+                    "provider": "openlist_webdav",
+                    "default_archive": True,
+                },
+                "openlist_webdav": {
+                    "url": (
+                        "https://openlist.example.test/dav"
+                    ),
+                    "username": "archive-user",
+                    "password": password,
+                },
+            },
+        )
+
+        assert created.status_code == 201
+        body = created.json()
+        assert body["credentials_configured"] is True
+        assert body["config"] == {
+            "remote": "openlist",
+            "base_path": "zero-nvr/archive",
+            "provider": "openlist_webdav",
+            "default_archive": True,
+        }
+        assert password not in created.text
+        assert "archive-user" not in created.text
+        assert "openlist.example.test" not in created.text
+        assert obscure_calls == [
+            (
+                password,
+                app.state.settings.rclone_binary,
+                min(
+                    app.state.settings
+                    .rclone_timeout_seconds,
+                    30.0,
+                ),
+            )
+        ]
+
+        target_id = uuid.UUID(
+            body["id"]
+        )
+        with app.state.database.session() as session:
+            target = session.get(
+                StorageTarget,
+                target_id,
+            )
+            assert target is not None
+            assert (
+                target.credential_secret_ref
+                is not None
+            )
+            payload = SecretStore(
+                app.state.settings
+            ).read_json(
+                session,
+                target.credential_secret_ref,
+                kind="rclone_config",
+                owner_type="storage_target",
+                owner_id=target.id,
+            )
+
+        config_text = payload["config"]
+        assert config_text == (
+            "[openlist]\n"
+            "type = webdav\n"
+            "url = https://openlist.example.test/dav/\n"
+            "vendor = other\n"
+            "user = archive-user\n"
+            "pass = obscured-openlist-password\n"
+        )
+        assert password not in config_text
