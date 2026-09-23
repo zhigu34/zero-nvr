@@ -1297,7 +1297,7 @@ async function switchToStandbyAtBoundary(
   const previousElement = videoForSlot(
     previousSlot
   )
-  const playbackRate =
+  const basePlaybackRate =
     playbackRate.value
 
   activePlayerSlot.value = nextSlot
@@ -1322,7 +1322,8 @@ async function switchToStandbyAtBoundary(
   await nextTick()
   clearVideoElement(previousElement)
   nextElement.muted = effectiveMuted.value
-  nextElement.playbackRate = playbackRate
+  nextElement.playbackRate =
+    basePlaybackRate
   await nextElement.play().catch(
     () => undefined
   )
