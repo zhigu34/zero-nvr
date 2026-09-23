@@ -11,7 +11,6 @@ from app.modules.recordings.models import RecordingPolicy
 
 from .models import (
     Camera,
-    CameraStreamProfile,
     Device,
     DeviceEndpoint,
 )
