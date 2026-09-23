@@ -14,6 +14,7 @@ from sqlalchemy import func, select
 from app.core.config import Settings
 from app.core.db import Base, Database
 from app.core.security import SecretStore
+from app.main import create_app
 from app.integrations.onvif import (
     OnvifEventRuntime,
     OnvifEventSubscription,
@@ -48,6 +49,20 @@ def settings(
         cache_dir=tmp_path / "cache",
         onvif_timeout_seconds=1.0,
     )
+
+
+def test_app_wires_onvif_notifications_into_event_ingest(
+    tmp_path: Path,
+) -> None:
+    app = create_app(
+        settings(tmp_path)
+    )
+    assert (
+        app.state.onvif_events
+        ._notification_handler
+        is not None
+    )
+    app.state.database.close()
 
 
 class FakePullPoint:

@@ -41,7 +41,7 @@ class OnvifEventTarget:
 
 NotificationHandler = Callable[
     [uuid.UUID, tuple[Any, ...]],
-    None | Awaitable[None],
+    Any | Awaitable[Any],
 ]
 
 
