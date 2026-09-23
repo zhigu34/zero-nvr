@@ -12,7 +12,9 @@ FROM python:3.13-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DEFAULT_TIMEOUT=60 \
+    PIP_RETRIES=10
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -35,7 +37,15 @@ COPY backend/alembic.ini /app/alembic.ini
 COPY --from=frontend-builder /frontend/dist /app/frontend
 
 RUN python -m pip install --upgrade pip \
-    && python -m pip install .
+    && for attempt in 1 2 3 4; do \
+        if python -m pip install .; then \
+            break; \
+        fi; \
+        if [ "$attempt" -eq 4 ]; then \
+            exit 1; \
+        fi; \
+        sleep $((attempt * 5)); \
+    done
 
 RUN mkdir -p \
     /var/lib/zero-nvr \
