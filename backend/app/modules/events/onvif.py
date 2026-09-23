@@ -187,6 +187,24 @@ class OnvifEventIngestService:
                 return event
         return None
 
+    @classmethod
+    def _provider_event(
+        cls,
+        session: Session,
+        *,
+        source_instance_id: str,
+        source_event_id: str,
+    ) -> Event | None:
+        return session.scalar(
+            select(Event).where(
+                Event.source == cls.SOURCE,
+                Event.source_instance_id
+                == source_instance_id,
+                Event.source_event_id
+                == source_event_id,
+            )
+        )
+
     @staticmethod
     def _metadata(
         normalized: OnvifNormalizedNotification,
@@ -244,6 +262,26 @@ class OnvifEventIngestService:
             }
             session.flush()
             return "closed", existing
+
+        if normalized.state is True and existing is None:
+            replayed = cls._provider_event(
+                session,
+                source_instance_id=source_instance_id,
+                source_event_id=(
+                    normalized.source_event_id
+                ),
+            )
+            if (
+                replayed is not None
+                and replayed.ended_at is not None
+            ):
+                replayed.metadata_json = {
+                    **(replayed.metadata_json or {}),
+                    **cls._metadata(normalized),
+                    "replayed_after_close": True,
+                }
+                session.flush()
+                return "updated", replayed
 
         if normalized.state is True and existing is not None:
             result = EventService.upsert_provider_event(
@@ -307,7 +345,7 @@ class OnvifEventIngestService:
         self,
         device_id: uuid.UUID,
         notifications: tuple[Any, ...],
-    ) -> None:
+    ) -> OnvifEventIngestResult:
         counters = {
             "created": 0,
             "updated": 0,
@@ -319,7 +357,9 @@ class OnvifEventIngestService:
                 Device,
                 device_id,
             ) is None:
-                return
+                return OnvifEventIngestResult(
+                    ignored=len(notifications),
+                )
 
             for notification in notifications:
                 normalized = (
@@ -355,3 +395,10 @@ class OnvifEventIngestService:
                     **counters,
                 },
             )
+
+        return OnvifEventIngestResult(
+            created=counters["created"],
+            updated=counters["updated"],
+            closed=counters["closed"],
+            ignored=counters["ignored"],
+        )

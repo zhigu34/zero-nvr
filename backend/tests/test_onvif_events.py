@@ -685,6 +685,24 @@ def test_onvif_ingest_maps_channel_and_upserts_motion_lifecycle(
             assert event.metadata_json[
                 "state"
             ] is False
+
+        replay_result = service.handle(
+            device_id,
+            (start_notification,),
+        )
+        assert replay_result.created == 0
+        assert replay_result.updated == 1
+
+        with database.session() as session:
+            event = session.get(
+                Event,
+                event_id,
+            )
+            assert event is not None
+            assert event.ended_at == ended
+            assert event.metadata_json[
+                "replayed_after_close"
+            ] is True
     finally:
         database.close()
 
