@@ -148,6 +148,11 @@ function eventActiveAlert(item: EventItem): AlertItem | null {
   )
 }
 
+function eventAlertState(item: EventItem): string {
+  const alert = eventActiveAlert(item)
+  return alert ? pretty(alert.state) : ""
+}
+
 function alertStateClass(item: AlertItem): string {
   if (item.state === "RESOLVED") return "status-pill--muted"
   if (item.severity === "critical") return "status-pill--error"
@@ -663,7 +668,7 @@ onBeforeUnmount(() => {
                 class="event-card__alert"
                 :class="`event-card__alert--${eventActiveAlert(item)?.severity}`"
               >
-                {{ eventActiveAlert(item) ? pretty(eventActiveAlert(item)!.state) : "" }}
+                {{ eventAlertState(item) }}
               </span>
             </div>
 
