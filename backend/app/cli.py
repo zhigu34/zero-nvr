@@ -196,6 +196,27 @@ def migration_preflight_command(
                 "pre-upgrade safety backup; run the "
                 "migration through deploy.sh update"
             )
+        if (
+            database.is_sqlite
+            and payload[
+                "requires_sqlite_checkpoint"
+            ]
+            and not args.maintenance
+        ):
+            raise RuntimeError(
+                "SQLite batch/table-rebuild migration "
+                "requires explicit maintenance mode; "
+                "use deploy.sh update or "
+                "deploy.sh migrate --maintenance"
+            )
+        if (
+            payload["requires_maintenance"]
+            and not args.maintenance
+        ):
+            raise RuntimeError(
+                "Class C migration requires explicit "
+                "maintenance mode"
+            )
 
         sqlite_checkpoint = None
         if (
@@ -2115,6 +2136,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     migration_preflight.add_argument(
         "--verified-safety-backup",
+        action="store_true",
+    )
+    migration_preflight.add_argument(
+        "--maintenance",
         action="store_true",
     )
     migration_preflight.set_defaults(

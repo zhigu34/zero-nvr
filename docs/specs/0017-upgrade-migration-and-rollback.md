@@ -214,13 +214,17 @@ Routine safe migrations may be invoked explicitly by deploy.sh.
 
 `scripts/migrate.sh` now runs a migration preflight before Alembic and a
 verification gate afterward. If an existing SQLite database has pending
-batch/rebuild work, preflight performs a full WAL checkpoint and refuses a busy
-checkpoint. After Alembic reaches the expected head, verification requires
+batch/rebuild work, migration requires explicit maintenance mode, performs a
+full WAL checkpoint, and refuses a busy checkpoint. `deploy.sh update` enters
+that maintenance mode only after stopping the API/worker; manual
+`deploy.sh migrate` must opt in with `--maintenance`. After Alembic reaches
+the expected head, verification requires
 `PRAGMA foreign_key_check` to return no rows, `PRAGMA integrity_check` to
 return `ok`, and no Alembic batch temporary tables to remain. A future Class C
 migration is rejected unless the caller explicitly proves the verified
-pre-upgrade safety backup; `deploy.sh update` supplies that proof only after
-its existing verified backup gate.
+pre-upgrade safety backup; `deploy.sh update` supplies that proof only when
+the production restic pre-upgrade backup actually completed and verified.
+Non-production update paths do not claim that proof.
 
 ## PostgreSQL migration rules
 

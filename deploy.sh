@@ -23,7 +23,7 @@ Usage:
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
   ./deploy.sh release-manifest <validate|show|record> [revision]
-  ./deploy.sh migrate
+  ./deploy.sh migrate [--maintenance]
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>] [--confirm-sqlite-workload]
   ./deploy.sh backup [reason] [policy-id-or-name]
   ./deploy.sh restore list
@@ -238,6 +238,7 @@ update_stack() {
   local pending_target environment current_source
   local rollback_revision="" rollback_snapshot=""
   local stage_dir="" stage_image="" configured_image=""
+  local verified_safety_backup="false"
 
   preflight
   ensure_env
@@ -333,6 +334,7 @@ update_stack() {
         backup_args+=(--policy "$backup_policy")
       fi
       compose run --rm --no-deps zero-nvr         "${backup_args[@]}"
+      verified_safety_backup="true"
     else
       echo "WARN ZERO_NVR_ENVIRONMENT=$environment; verified restic pre-upgrade backup is not required" >&2
     fi
@@ -368,7 +370,11 @@ update_stack() {
   echo "Stopping zero-nvr control plane for explicit schema migration; ZLMediaKit remains running..."
   compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
 
-  if ! "$SCRIPT_DIR/migrate.sh" --verified-safety-backup; then
+  migration_args=(--maintenance)
+  if [[ "$verified_safety_backup" == "true" ]]; then
+    migration_args+=(--verified-safety-backup)
+  fi
+  if ! "$SCRIPT_DIR/migrate.sh" "${migration_args[@]}"; then
     echo "error: database migration failed; deployment remains pending" >&2
     echo "run ./deploy.sh rollback to restore the recorded pre-upgrade safety point" >&2
     return 1
@@ -865,7 +871,7 @@ case "$command" in
     ;;
   migrate)
     ensure_env
-    "$SCRIPT_DIR/migrate.sh"
+    "$SCRIPT_DIR/migrate.sh" "$@"
     ;;
   database)
     subcommand="${1:-}"

@@ -5,20 +5,32 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
 verified_backup=false
-if [[ "${1:-}" == "--verified-safety-backup" ]]; then
-  verified_backup=true
+maintenance=false
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    --verified-safety-backup)
+      verified_backup=true
+      ;;
+    --maintenance)
+      maintenance=true
+      ;;
+    *)
+      echo "error: unsupported migrate argument: $1" >&2
+      exit 2
+      ;;
+  esac
   shift
-fi
-if [[ "$#" -ne 0 ]]; then
-  echo "error: unsupported migrate argument: $1" >&2
-  exit 2
-fi
+done
 
 preflight_args=(
   python -m app.cli migration-preflight
 )
 if [[ "$verified_backup" == "true" ]]; then
   preflight_args+=(--verified-safety-backup)
+fi
+if [[ "$maintenance" == "true" ]]; then
+  preflight_args+=(--maintenance)
 fi
 
 compose run --rm --no-deps zero-nvr   "${preflight_args[@]}"
