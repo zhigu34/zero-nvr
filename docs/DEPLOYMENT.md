@@ -414,6 +414,30 @@ The first command runs the reverse-migration preflight and refuses cutover until
 
 Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
 
+### resource bounds
+
+Validate runtime bounds that keep disposable state from consuming the host:
+
+~~~bash
+./deploy.sh resource-bounds-check
+~~~
+
+The check is read-only and verifies:
+
+- every currently running Compose container uses bounded Docker `json-file`
+  logging with positive `max-size` / `max-file` settings;
+- current remote-playback `*.mp4` cache usage is at or below the effective
+  RuntimeTuningSettings byte quota; the playback restore path already prunes by
+  TTL and byte quota before and after copy;
+- API, worker, and ZLMediaKit share the same prebuffer Docker volume;
+- that volume uses the local tmpfs driver with the configured
+  `ZERO_NVR_PREBUFFER_SIZE`;
+- the application actually sees `/prebuffer` as tmpfs and its observed
+  capacity does not exceed the configured bound.
+
+The real clean-install CI executes this check on the running Core stack. Compose
+CI separately verifies logging bounds for optional-profile services too.
+
 ### resource baseline
 
 Plan 04 R1 clean-Core/no-camera measurement is host-operated:

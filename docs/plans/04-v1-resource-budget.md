@@ -452,6 +452,28 @@ These are transient workloads. Measure peak memory/CPU without making them perma
 
 Measured separately and never folded into the no-AI Core requirement.
 
+## Runtime bound verification
+
+The default deployment bounds are independently checked with:
+
+~~~text
+./deploy.sh resource-bounds-check
+~~~
+
+The check is read-only. It verifies every currently running Compose container
+uses bounded json-file logging, reads the effective playback-cache byte quota
+from RuntimeTuningSettings and rejects current cached media above that quota,
+and validates the shared EVENT_ONLY prebuffer volume end to end: all three Core
+containers must mount the same Docker volume, the local volume driver must be
+tmpfs with the configured size option, the application must observe
+`/prebuffer` as tmpfs, and its statvfs capacity must not exceed
+`ZERO_NVR_PREBUFFER_SIZE`.
+
+CI additionally validates every service in the full Compose model, including
+disabled optional profiles, declares json-file max-size/max-file bounds. The
+real clean-install job runs `resource-bounds-check` against the running default
+Core stack, while unit tests retain the playback-cache prune/TTL behavior.
+
 ## Measurement output
 
 Create a machine-readable artifact once the production image exists, for example:

@@ -75,6 +75,7 @@ jobs:
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
           ./deploy.sh help | grep -Fq "resource-baseline"
           ./deploy.sh help | grep -Fq "resource-check <static|idle>"
+          ./deploy.sh help | grep -Fq "resource-bounds-check"
           ./deploy.sh help | grep -Fq "soak <8|16>"
           ./deploy.sh help | grep -Fq "small-host-soak <2|4>"
           ./deploy.sh help | grep -Fq "secret rotate"
@@ -96,6 +97,7 @@ jobs:
           bash scripts/test-benchmark.sh
           bash scripts/test-resource-baseline.sh
           python3 scripts/test_resource_check.py
+          python3 scripts/test_resource_bounds_check.py
           bash scripts/test-soak.sh
           python3 scripts/test_small_host_soak.py
           bash scripts/test-release-validation.sh
@@ -109,7 +111,7 @@ jobs:
         shell: bash
         run: |
           docker compose --env-file .env -f docker-compose.yml config --quiet
-          COMPOSE_PROFILES=frigate,mqtt,openlist,postgres \
+          COMPOSE_PROFILES=frigate,mqtt,openlist,postgres,turn \
             docker compose --env-file .env -f docker-compose.yml \
             config --format json > /tmp/zero-nvr-compose.json
           python3 - <<'PY'
@@ -136,6 +138,20 @@ jobs:
           assert "profiles" not in model["services"]["zero-nvr"]
           assert "profiles" not in model["services"]["zero-nvr-worker"]
           assert "profiles" not in model["services"]["zlmediakit"]
+
+          for name, service in model["services"].items():
+              logging = service.get("logging") or {}
+              assert logging.get("driver") == "json-file", name
+              options = logging.get("options") or {}
+              assert options.get("max-size"), name
+              assert int(options.get("max-file", "0")) > 0, name
+
+          prebuffer = model["volumes"]["zero-nvr-prebuffer"]
+          assert prebuffer["driver"] == "local"
+          driver_opts = prebuffer["driver_opts"]
+          assert driver_opts["type"] == "tmpfs"
+          assert driver_opts["device"] == "tmpfs"
+          assert "size=512m" in driver_opts["o"]
 
           zlm_healthcheck = " ".join(
               model["services"]["zlmediakit"]["healthcheck"]["test"]
@@ -234,6 +250,28 @@ jobs:
             -f docker-compose.yml \
             exec -T zero-nvr \
             python -m app.cli check-schema
+
+          ./deploy.sh resource-bounds-check \
+            | tee /tmp/zero-nvr-resource-bounds.json
+
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(
+              Path(
+                  "/tmp/zero-nvr-resource-bounds.json"
+              ).read_text()
+          )
+          assert value["passed"] is True
+          assert (
+              value["playback_cache"]["media_bytes"]
+              <= value["playback_cache"]["max_bytes"]
+          )
+          assert (
+              value["prebuffer"]["filesystem_type"]
+              == "tmpfs"
+          )
+          PY
 
           test -f data/zero-nvr/deployment/release-manifest.json
           python3 - <<'PY'

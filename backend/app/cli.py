@@ -56,6 +56,12 @@ from app.modules.system.soak import (
 from app.modules.system.release_readiness import (
     ReleaseReadinessService,
 )
+from app.modules.system.settings import (
+    RuntimeTuningSettingsService,
+)
+from app.modules.recordings.prebuffer_mount import (
+    PrebufferMountService,
+)
 
 
 def _settings_database() -> tuple[Settings, Database]:
@@ -1017,6 +1023,106 @@ def safety_snapshot_command(
 
 
 
+
+
+def _resource_bounds_status(
+    settings: Settings,
+    database: Database,
+) -> dict[str, object]:
+    with database.session() as session:
+        tuning = RuntimeTuningSettingsService.get(
+            session,
+            settings=settings,
+        )
+
+    playback_root = settings.cache_dir / "playback"
+    playback_media_bytes = 0
+    playback_media_files = 0
+    if playback_root.is_dir():
+        for path in playback_root.glob("*.mp4"):
+            try:
+                if not path.is_file():
+                    continue
+                playback_media_bytes += path.stat().st_size
+                playback_media_files += 1
+            except OSError:
+                continue
+
+    prebuffer_root = settings.prebuffer_dir.resolve(
+        strict=False
+    )
+    prebuffer_fs_type = (
+        PrebufferMountService._filesystem_type(
+            prebuffer_root
+        )
+        if prebuffer_root.exists()
+        else None
+    )
+    prebuffer_total_bytes = None
+    prebuffer_available_bytes = None
+    if prebuffer_root.exists():
+        try:
+            stat = os.statvfs(prebuffer_root)
+            prebuffer_total_bytes = (
+                stat.f_frsize * stat.f_blocks
+            )
+            prebuffer_available_bytes = (
+                stat.f_frsize * stat.f_bavail
+            )
+        except OSError:
+            pass
+
+    return {
+        "playback_cache": {
+            "root": str(playback_root),
+            "media_bytes": playback_media_bytes,
+            "media_files": playback_media_files,
+            "max_bytes": (
+                tuning.playback_cache_max_bytes
+            ),
+            "within_quota": (
+                playback_media_bytes
+                <= tuning.playback_cache_max_bytes
+            ),
+            "ttl_seconds": (
+                tuning.playback_cache_ttl_seconds
+            ),
+        },
+        "prebuffer": {
+            "root": str(prebuffer_root),
+            "require_tmpfs": (
+                settings.prebuffer_require_tmpfs
+            ),
+            "filesystem_type": (
+                prebuffer_fs_type
+            ),
+            "total_bytes": (
+                prebuffer_total_bytes
+            ),
+            "available_bytes": (
+                prebuffer_available_bytes
+            ),
+        },
+    }
+
+
+def resource_bounds_status_command(
+    _args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        print(
+            json.dumps(
+                _resource_bounds_status(
+                    settings,
+                    database,
+                ),
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
 
 
 def _resource_baseline_status(
@@ -2327,6 +2433,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.set_defaults(
         handler=safety_snapshot_command
+    )
+
+    resource_bounds = sub.add_parser(
+        "resource-bounds-status"
+    )
+    resource_bounds.set_defaults(
+        handler=resource_bounds_status_command
     )
 
     resource_baseline = sub.add_parser(
