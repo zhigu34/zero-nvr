@@ -433,8 +433,10 @@ update_preflight_only() {
     git -C "$ROOT_DIR" worktree add --detach       "$stage_dir" "$target_revision" >/dev/null
 
     local preflight_status=0
-    if ! "$SCRIPT_DIR/update-preflight.sh"       "$stage_dir"       "$target_revision"       "$backup_policy"
+    if "$SCRIPT_DIR/update-preflight.sh"       "$stage_dir"       "$target_revision"       "$backup_policy"
     then
+      preflight_status=0
+    else
       preflight_status=$?
     fi
     cleanup_update_preflight
