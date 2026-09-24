@@ -175,7 +175,7 @@ compose_env["COMPOSE_PROFILES"] = profiles
 
 components: dict[str, object] = {}
 for service, config in sorted(model.get("services", {}).items()):
-    result = subprocess.run(
+    container_result = subprocess.run(
         [
             "docker",
             "compose",
@@ -183,7 +183,7 @@ for service, config in sorted(model.get("services", {}).items()):
             env_file,
             "-f",
             compose_file,
-            "images",
+            "ps",
             "-q",
             service,
         ],
@@ -192,11 +192,35 @@ for service, config in sorted(model.get("services", {}).items()):
         text=True,
         env=compose_env,
     )
-    image_id = (
-        result.stdout.splitlines()[0].strip()
-        if result.returncode == 0 and result.stdout.strip()
+    container_id = (
+        container_result.stdout.splitlines()[0].strip()
+        if (
+            container_result.returncode == 0
+            and container_result.stdout.strip()
+        )
         else None
     )
+
+    image_id = None
+    if container_id:
+        image_result = subprocess.run(
+            [
+                "docker",
+                "container",
+                "inspect",
+                container_id,
+                "--format",
+                "{{.Image}}",
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if image_result.returncode == 0:
+            candidate = image_result.stdout.strip()
+            if candidate:
+                image_id = candidate
+
     repo_digests: list[str] = []
     if image_id:
         inspected = subprocess.run(
