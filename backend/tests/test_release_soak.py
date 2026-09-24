@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from app import cli
 from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.cameras.service import CameraService
@@ -357,10 +358,6 @@ def test_soak_database_status_reports_sqlite_wal(
         assert isinstance(
             status["sqlite_wal_bytes"],
             int,
-        )
-        assert (
-            status["sqlite_write_pressure"]
-            in {"normal", "elevated", "high"}
         )
     finally:
         database.close()

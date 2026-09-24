@@ -1169,16 +1169,21 @@ def _soak_database_status(
     payload: dict[str, object] = {
         "backend": database.url.get_backend_name(),
         "sqlite_wal_bytes": None,
-        "sqlite_write_pressure": None,
     }
-    sqlite = database.sqlite_runtime_health()
-    if sqlite is not None:
-        payload["sqlite_wal_bytes"] = (
-            sqlite.wal_bytes
-        )
-        payload["sqlite_write_pressure"] = (
-            sqlite.write_pressure
-        )
+    if database.is_sqlite:
+        database_path = database.url.database
+        wal_bytes = 0
+        if (
+            database_path
+            and database_path != ":memory:"
+        ):
+            try:
+                wal_bytes = Path(
+                    f"{database_path}-wal"
+                ).stat().st_size
+            except OSError:
+                wal_bytes = 0
+        payload["sqlite_wal_bytes"] = wal_bytes
     return payload
 
 
