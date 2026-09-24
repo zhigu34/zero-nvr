@@ -6,6 +6,7 @@ import {
   ref
 } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import {
   acknowledgeAlert,
@@ -30,6 +31,7 @@ type SeverityFilter = "" | "info" | "warning" | "critical"
 
 const router = useRouter()
 const auth = useAuthStore()
+const { locale, t } = useI18n({ useScope: "global" })
 
 const alerts = ref<AlertItem[]>([])
 const cameras = ref<CameraSummary[]>([])
@@ -92,15 +94,15 @@ const deliveriesByAlert = computed(() => {
 })
 
 function cameraName(id: string | null): string {
-  if (!id) return "System"
-  return cameras.value.find((item) => item.id === id)?.name ?? "Camera"
+  if (!id) return t("alerts.system")
+  return cameras.value.find((item) => item.id === id)?.name ?? t("alerts.cameraFallback")
 }
 
 function formatTimestamp(value: string | null): string {
   if (!value) return "—"
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return "—"
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -111,9 +113,25 @@ function formatTimestamp(value: string | null): string {
 }
 
 function stateLabel(state: AlertItem["state"]): string {
-  if (state === "ACKNOWLEDGED") return "Acknowledged"
-  if (state === "RESOLVED") return "Resolved"
-  return "Open"
+  if (state === "ACKNOWLEDGED") return t("alerts.acknowledged")
+  if (state === "RESOLVED") return t("alerts.resolved")
+  return t("alerts.open")
+}
+
+function severityLabel(value: string): string {
+  const normalized = value.toLowerCase()
+  if (normalized === "critical") return t("alerts.critical")
+  if (normalized === "warning") return t("alerts.warning")
+  if (normalized === "info") return t("alerts.info")
+  return value
+}
+
+function deliveryStateLabel(value: NotificationDelivery["state"]): string {
+  if (value === "SENT") return t("alerts.deliverySent")
+  if (value === "FAILED") return t("alerts.deliveryFailed")
+  if (value === "SKIPPED") return t("alerts.deliverySkipped")
+  if (value === "PENDING") return t("alerts.deliveryPending")
+  return value
 }
 
 function stateClass(state: AlertItem["state"]): string {
@@ -131,11 +149,13 @@ function deliveryClass(state: NotificationDelivery["state"]): string {
 
 function deliverySummary(alertId: string): string {
   if (!auth.hasPermission("notification.view")) {
-    return "Delivery details restricted"
+    return t("alerts.deliveryRestricted")
   }
   const items = deliveriesByAlert.value.get(alertId) ?? []
-  if (!items.length) return "No notification delivery"
-  return Array.from(new Set(items.map((item) => item.state))).join(" · ")
+  if (!items.length) return t("alerts.noNotificationDelivery")
+  return Array.from(
+    new Set(items.map((item) => deliveryStateLabel(item.state)))
+  ).join(" · ")
 }
 
 function selectAlert(item: AlertItem): void {
@@ -194,7 +214,7 @@ async function acknowledge(item: AlertItem): Promise<void> {
       (candidate) => candidate.id === item.id
     )
     if (index >= 0) alerts.value[index] = updated
-    notice.value = "Alert acknowledged."
+    notice.value = t("alerts.alertAcknowledged")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -252,9 +272,9 @@ onBeforeUnmount(() => {
   <section class="alert-center">
     <header class="alert-center__header">
       <div>
-        <strong>Alert Center</strong>
+        <strong>{{ t("alerts.title") }}</strong>
         <span>
-          Review active incidents, recent history and notification delivery.
+          {{ t("alerts.description") }}
         </span>
       </div>
       <button
@@ -264,21 +284,21 @@ onBeforeUnmount(() => {
         @click="refresh"
       >
         <UiIcon name="refresh" :size="14" />
-        {{ loading ? "Refreshing…" : "Refresh" }}
+        {{ loading ? t("alerts.refreshing") : t("alerts.refresh") }}
       </button>
     </header>
 
     <div class="alert-center__summary">
       <button type="button" @click="mode = 'active'">
-        <span>Open</span>
+        <span>{{ t("alerts.open") }}</span>
         <strong>{{ openCount }}</strong>
       </button>
       <button type="button" @click="mode = 'active'">
-        <span>Acknowledged</span>
+        <span>{{ t("alerts.acknowledged") }}</span>
         <strong>{{ acknowledgedCount }}</strong>
       </button>
       <button type="button" @click="mode = 'recent'">
-        <span>Resolved</span>
+        <span>{{ t("alerts.resolved") }}</span>
         <strong>{{ resolvedCount }}</strong>
       </button>
     </div>
@@ -290,20 +310,20 @@ onBeforeUnmount(() => {
           :class="{ 'alert-center__tab--active': mode === 'active' }"
           @click="mode = 'active'"
         >
-          Active
+          {{ t("alerts.active") }}
         </button>
         <button
           type="button"
           :class="{ 'alert-center__tab--active': mode === 'recent' }"
           @click="mode = 'recent'"
         >
-          Recent
+          {{ t("alerts.recent") }}
         </button>
       </div>
 
       <label class="alert-center__search">
         <UiIcon name="search" :size="14" />
-        <input v-model="search" placeholder="Search alerts" />
+        <input v-model="search" :placeholder="t('alerts.searchAlerts')" />
       </label>
 
       <select
@@ -311,7 +331,7 @@ onBeforeUnmount(() => {
         v-model="cameraId"
         @change="refresh"
       >
-        <option value="">All cameras</option>
+        <option value="">{{ t("alerts.allCameras") }}</option>
         <option
           v-for="camera in cameras"
           :key="camera.id"
@@ -322,10 +342,10 @@ onBeforeUnmount(() => {
       </select>
 
       <select v-model="severity" @change="refresh">
-        <option value="">All severity</option>
-        <option value="info">Info</option>
-        <option value="warning">Warning</option>
-        <option value="critical">Critical</option>
+        <option value="">{{ t("alerts.allSeverity") }}</option>
+        <option value="info">{{ t("alerts.info") }}</option>
+        <option value="warning">{{ t("alerts.warning") }}</option>
+        <option value="critical">{{ t("alerts.critical") }}</option>
       </select>
     </div>
 
@@ -345,10 +365,10 @@ onBeforeUnmount(() => {
     >
       <UiIcon name="bell" :size="28" />
       <strong>
-        {{ mode === "active" ? "No active alerts" : "No recent alerts" }}
+        {{ mode === "active" ? t("alerts.noActiveAlerts") : t("alerts.noRecentAlerts") }}
       </strong>
       <span>
-        Alerts created by matching event policies will appear here.
+        {{ t("alerts.emptyHint") }}
       </span>
     </div>
 
@@ -377,7 +397,7 @@ onBeforeUnmount(() => {
                 {{ stateLabel(item.state) }}
               </span>
               <span class="status-pill">
-                {{ item.severity }}
+                {{ severityLabel(item.severity) }}
               </span>
             </div>
             <span class="alert-card__meta">
@@ -396,7 +416,7 @@ onBeforeUnmount(() => {
               "
               class="icon-button"
               type="button"
-              title="Open playback"
+              :title="t('alerts.openPlayback')"
               :disabled="playbackId === item.id"
               @click.stop="openPlayback(item)"
             >
@@ -412,7 +432,7 @@ onBeforeUnmount(() => {
               :disabled="acknowledgingId === item.id"
               @click.stop="acknowledge(item)"
             >
-              {{ acknowledgingId === item.id ? "Saving…" : "Acknowledge" }}
+              {{ acknowledgingId === item.id ? t("alerts.saving") : t("alerts.acknowledge") }}
             </button>
           </div>
         </article>
@@ -427,7 +447,7 @@ onBeforeUnmount(() => {
           <button
             class="icon-button"
             type="button"
-            title="Close details"
+            :title="t('alerts.closeDetails')"
             @click="selectedId = null"
           >
             <UiIcon name="close" :size="14" />
@@ -442,7 +462,7 @@ onBeforeUnmount(() => {
             {{ stateLabel(selectedAlert.state) }}
           </span>
           <span class="status-pill">
-            {{ selectedAlert.severity }}
+            {{ severityLabel(selectedAlert.severity) }}
           </span>
         </div>
 
@@ -452,21 +472,21 @@ onBeforeUnmount(() => {
 
         <dl>
           <div>
-            <dt>Created</dt>
+            <dt>{{ t("alerts.created") }}</dt>
             <dd>{{ formatTimestamp(selectedAlert.created_at) }}</dd>
           </div>
           <div v-if="selectedAlert.acknowledged_at">
-            <dt>Acknowledged</dt>
+            <dt>{{ t("alerts.acknowledged") }}</dt>
             <dd>
               {{ formatTimestamp(selectedAlert.acknowledged_at) }}
             </dd>
           </div>
           <div v-if="selectedAlert.resolved_at">
-            <dt>Resolved</dt>
+            <dt>{{ t("alerts.resolved") }}</dt>
             <dd>{{ formatTimestamp(selectedAlert.resolved_at) }}</dd>
           </div>
           <div>
-            <dt>Event</dt>
+            <dt>{{ t("alerts.event") }}</dt>
             <dd>{{ selectedAlert.event_id }}</dd>
           </div>
         </dl>
@@ -484,7 +504,7 @@ onBeforeUnmount(() => {
             @click="openPlayback(selectedAlert)"
           >
             <UiIcon name="playback" :size="14" />
-            Open playback
+            {{ t("alerts.openPlayback") }}
           </button>
           <button
             v-if="
@@ -496,12 +516,12 @@ onBeforeUnmount(() => {
             :disabled="acknowledgingId === selectedAlert.id"
             @click="acknowledge(selectedAlert)"
           >
-            Acknowledge
+            {{ t("alerts.acknowledge") }}
           </button>
         </div>
 
         <section class="alert-detail__deliveries">
-          <h3>Notification delivery</h3>
+          <h3>{{ t("alerts.notificationDelivery") }}</h3>
           <template v-if="auth.hasPermission('alert.manage')">
             <div
               v-if="
@@ -509,7 +529,7 @@ onBeforeUnmount(() => {
               "
               class="alert-detail__muted"
             >
-              No notification delivery was created for this alert.
+              {{ t("alerts.noNotificationDeliveryCreated") }}
             </div>
             <article
               v-for="delivery in deliveriesByAlert.get(selectedAlert.id) || []"
@@ -518,8 +538,10 @@ onBeforeUnmount(() => {
               <div>
                 <strong>{{ delivery.title }}</strong>
                 <span>
-                  Target {{ delivery.notification_target_id }}
-                  · attempts {{ delivery.attempt_count }}
+                  {{ t("alerts.deliveryTargetAttempts", {
+                    target: delivery.notification_target_id,
+                    attempts: delivery.attempt_count
+                  }) }}
                 </span>
                 <small v-if="delivery.last_error_code">
                   {{ delivery.last_error_code }}
@@ -529,12 +551,12 @@ onBeforeUnmount(() => {
                 class="status-pill"
                 :class="deliveryClass(delivery.state)"
               >
-                {{ delivery.state }}
+                {{ deliveryStateLabel(delivery.state) }}
               </span>
             </article>
           </template>
           <div v-else class="alert-detail__muted">
-            Delivery details require notification viewing permission.
+            {{ t("alerts.deliveryPermissionRequired") }}
           </div>
         </section>
       </aside>
