@@ -303,6 +303,33 @@ acceptance run is deliberately operator-observed rather than simulated:
    and reconciliation does not duplicate or lose the finalized segment.
 ~~~
 
+The supported evidence helper turns the same flow into a two-phase host test
+without replacing the required visual checks:
+
+~~~bash
+./deploy.sh camera-acceptance prepare <camera-id>
+# Confirm browser Live and timeline playback for the baseline finalized segment.
+./deploy.sh camera-acceptance restart <camera-id>
+# Wait for the next normal recording segment to finalize.
+./deploy.sh camera-acceptance verify <camera-id> \
+  --live-confirmed --playback-confirmed
+~~~
+
+`prepare` requires the exact Camera to be enabled, non-retired, in persistent
+recording mode, RECORD-online, MP4-recording, and to already have a non-empty
+FINAL local segment produced by the normal hook path
+(`NEXT_SEGMENT_BOUNDARY` or `EXPLICIT_STOP`, never `RECOVERY`). It stores
+the baseline segment/location identity under
+`<ZERO_NVR_DATA_PATH>/release-validation/real-camera-<camera-id>.json`.
+
+`restart` first requires that baseline evidence, restarts ZLMediaKit and both
+zero-nvr control containers, waits for Core health, and records the completed
+restart time. `verify` then requires explicit operator confirmation of browser
+Live and timeline playback, rechecks the same Camera identity and active
+persistent recorder, proves the baseline segment/location still exists without
+a duplicate source/timestamp identity, and requires a new FINAL local
+hook-produced segment created after the restart.
+
 Do not mark the Deployment-test gate complete from synthetic sources alone; the
 last item exists specifically to expose real camera/network/codec/filesystem
 behavior that CI cannot reproduce.

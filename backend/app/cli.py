@@ -50,6 +50,9 @@ from app.modules.backups.database_snapshot import (
 from app.modules.system.benchmark import (
     ReleaseBenchmarkService,
 )
+from app.modules.system.camera_acceptance import (
+    RealCameraAcceptanceService,
+)
 from app.modules.system.soak import (
     ReleaseSoakService,
 )
@@ -1023,6 +1026,71 @@ def safety_snapshot_command(
 
 
 
+
+
+def camera_acceptance_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        service = RealCameraAcceptanceService(
+            settings,
+            database,
+        )
+        camera_id = uuid.UUID(
+            args.camera_id
+        )
+        if (
+            args.acceptance_action
+            == "prepare"
+        ):
+            value = service.prepare(
+                camera_id
+            )
+        elif (
+            args.acceptance_action
+            == "mark-restart"
+        ):
+            value = service.mark_restart(
+                camera_id
+            )
+        elif (
+            args.acceptance_action
+            == "verify"
+        ):
+            value = service.verify(
+                camera_id,
+                live_confirmed=(
+                    args.live_confirmed
+                ),
+                playback_confirmed=(
+                    args.playback_confirmed
+                ),
+            )
+        else:
+            value = service.status(
+                camera_id
+            )
+
+        print(
+            json.dumps(
+                value,
+                sort_keys=True,
+            )
+        )
+        if (
+            args.acceptance_action
+            in {"prepare", "verify"}
+        ):
+            return (
+                0
+                if value.get("passed")
+                is True
+                else 1
+            )
+        return 0
+    finally:
+        database.close()
 
 
 def _resource_bounds_status(
@@ -2433,6 +2501,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.set_defaults(
         handler=safety_snapshot_command
+    )
+
+    acceptance = sub.add_parser(
+        "camera-acceptance"
+    )
+    acceptance_sub = (
+        acceptance.add_subparsers(
+            dest="acceptance_action",
+            required=True,
+        )
+    )
+    for action in (
+        "prepare",
+        "mark-restart",
+        "status",
+    ):
+        item = acceptance_sub.add_parser(
+            action
+        )
+        item.add_argument(
+            "--camera-id",
+            required=True,
+        )
+        item.set_defaults(
+            handler=camera_acceptance_command
+        )
+    verify_acceptance = (
+        acceptance_sub.add_parser(
+            "verify"
+        )
+    )
+    verify_acceptance.add_argument(
+        "--camera-id",
+        required=True,
+    )
+    verify_acceptance.add_argument(
+        "--live-confirmed",
+        action="store_true",
+    )
+    verify_acceptance.add_argument(
+        "--playback-confirmed",
+        action="store_true",
+    )
+    verify_acceptance.set_defaults(
+        handler=camera_acceptance_command
     )
 
     resource_bounds = sub.add_parser(

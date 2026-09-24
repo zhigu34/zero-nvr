@@ -143,7 +143,7 @@ real camera while the remaining V1 work continues.
 - [x] execute a clean-host Core install smoke test on a fresh Ubuntu runner
   with real Docker Compose: first-run .env/secrets, migration, API/worker/ZLM
   startup, health/schema checks, install summary, and clean teardown.
-- [ ] execute one-real-camera live -> record -> finalized hook -> timeline ->
+- [~] execute one-real-camera live -> record -> finalized hook -> timeline ->
   playback -> restart/reconciliation smoke test on the intended deployment
   host. This is now the only remaining Deployment-test gate.
 

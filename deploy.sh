@@ -24,6 +24,7 @@ Usage:
   ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
   ./deploy.sh resource-check <static|idle> [--max-age-hours HOURS]
   ./deploy.sh resource-bounds-check
+  ./deploy.sh camera-acceptance <prepare|restart|status|verify> <camera-id> [--live-confirmed] [--playback-confirmed]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
@@ -921,6 +922,11 @@ case "$command" in
     require_command python3
     ZERO_NVR_ENV_FILE="$ENV_FILE" \
       python3 "$SCRIPT_DIR/resource_bounds_check.py"
+    ;;
+  camera-acceptance)
+    ensure_env
+    ensure_host_dirs
+    "$SCRIPT_DIR/camera-acceptance.sh" "$@"
     ;;
   soak)
     ensure_env
