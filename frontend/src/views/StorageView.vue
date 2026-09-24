@@ -6,6 +6,7 @@ import {
   reactive,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   listCameras,
@@ -35,6 +36,7 @@ type TargetFormType = "local" | "rclone"
 type ArchiveProvider = "custom" | "openlist_webdav"
 
 const auth = useAuthStore()
+const { t, te } = useI18n({ useScope: "global" })
 const tab = ref<StorageTab>("targets")
 const targets = ref<StorageTarget[]>([])
 const policies = ref<RetentionPolicy[]>([])
@@ -74,7 +76,7 @@ const targetForm = reactive({
 })
 
 const policyForm = reactive({
-  name: "Default retention",
+  name: t("storage.defaultRetention"),
   scopeType: "GLOBAL" as "GLOBAL" | "CAMERA" | "CAMERA_GROUP",
   scopeId: "",
   ordinaryDays: 14,
@@ -130,7 +132,7 @@ function formatBytes(value: number | null): string {
 function targetDetail(target: StorageTarget): string {
   if (target.type === "local") {
     const path = target.config.path
-    return typeof path === "string" ? path : "Local path"
+    return typeof path === "string" ? path : t("storage.localPath")
   }
 
   const remote = target.config.remote
@@ -157,7 +159,12 @@ function targetWatermarks(target: StorageTarget): string | null {
     typeof target.config.critical_used_percent === "number"
       ? target.config.critical_used_percent
       : 95
-  return `Watermarks ${warning}% / ${high}% / ${critical}%`
+  return t("storage.watermarks", { warning, high, critical })
+}
+
+function capacityLevelLabel(value: string): string {
+  const key = `storage.capacity.${value.toLowerCase()}`
+  return te(key) ? t(key) : value.toUpperCase()
 }
 
 function targetIsDefault(target: StorageTarget): boolean {
@@ -167,15 +174,15 @@ function targetIsDefault(target: StorageTarget): boolean {
 }
 
 function cameraName(cameraId: string | null): string {
-  if (!cameraId) return "All cameras"
+  if (!cameraId) return t("storage.allCameras")
   return cameras.value.find((item) => item.id === cameraId)?.name ??
-    "Unknown camera"
+    t("storage.unknownCamera")
 }
 
 function scopeLabel(policy: RetentionPolicy): string {
-  if (policy.scope_type === "GLOBAL") return "All cameras"
+  if (policy.scope_type === "GLOBAL") return t("storage.allCameras")
   if (policy.scope_type === "CAMERA") return cameraName(policy.scope_id)
-  return "Camera group"
+  return t("storage.cameraGroup")
 }
 
 async function refresh(): Promise<void> {
@@ -309,7 +316,7 @@ function openListCredentials(
   if (!required && !hasAny) return null
   if (!url || !username || !password) {
     throw new Error(
-      "OpenList WebDAV URL, username, and password are all required when replacing credentials."
+      t("storage.openlistAllRequired")
     )
   }
   return { url, username, password }
@@ -335,7 +342,10 @@ async function runRecordingTargetSwitch(): Promise<void> {
 
   if (
     !window.confirm(
-      `Switch future recording writes from "${source.name}" to "${destination.name}"? Historical footage remains bound to "${source.name}" and is not moved.`
+      t("storage.switchConfirm", {
+        source: source.name,
+        destination: destination.name
+      })
     )
   ) {
     return
@@ -348,9 +358,11 @@ async function runRecordingTargetSwitch(): Promise<void> {
       source.id,
       destination.id
     )
-    notice.value =
-      `Recording writes switched to ${destination.name}. ` +
-      `${result.affected_camera_ids.length} camera runtime(s) queued for recorder reconfiguration; historical footage remains on ${source.name}.`
+    notice.value = t("storage.switchSuccess", {
+      destination: destination.name,
+      count: result.affected_camera_ids.length,
+      source: source.name
+    })
     switchSource.value = null
     switchDestinationId.value = ""
     await refresh()
@@ -417,7 +429,7 @@ async function saveTarget(): Promise<void> {
           changes
         )
       }
-      notice.value = "Storage target updated."
+      notice.value = t("storage.targetUpdated")
     } else if (targetForm.type === "local") {
       await createStorageTarget({
         type: "local",
@@ -432,7 +444,7 @@ async function saveTarget(): Promise<void> {
           critical_used_percent: Number(targetForm.criticalPercent)
         }
       })
-      notice.value = "Storage target created."
+      notice.value = t("storage.targetCreated")
     } else {
       const config = {
         remote: targetForm.remote.trim(),
@@ -447,7 +459,7 @@ async function saveTarget(): Promise<void> {
         const credentials = openListCredentials(true)
         if (!credentials) {
           throw new Error(
-            "OpenList WebDAV credentials are required."
+            t("storage.openlistCredentialsRequired")
           )
         }
         await createStorageTarget({
@@ -468,7 +480,7 @@ async function saveTarget(): Promise<void> {
           rclone_config: targetForm.rcloneConfig
         })
       }
-      notice.value = "Storage target created."
+      notice.value = t("storage.targetCreated")
     }
 
     editingTarget.value = null
@@ -491,18 +503,22 @@ async function runTargetTest(target: StorageTarget): Promise<void> {
       [target.id]:
         result.used_percent !== null &&
         result.capacity_level
-          ? `${result.capacity_level.toUpperCase()} · ${result.used_percent.toFixed(
-              1
-            )}% used · ${formatBytes(result.free_bytes)} free`
+          ? t("storage.testCapacity", {
+              level: capacityLevelLabel(result.capacity_level),
+              used: result.used_percent.toFixed(1),
+              free: formatBytes(result.free_bytes)
+            })
           : result.free_bytes !== null
-            ? `Ready · ${formatBytes(result.free_bytes)} free`
-            : "Ready · read/write/delete verified"
+            ? t("storage.readyFree", {
+                free: formatBytes(result.free_bytes)
+              })
+            : t("storage.readyVerified")
     }
   } catch (caught) {
     error.value = errorMessage(caught)
     testResults.value = {
       ...testResults.value,
-      [target.id]: "Test failed"
+      [target.id]: t("storage.testFailed")
     }
   } finally {
     testingTargetId.value = null
@@ -521,12 +537,12 @@ async function toggleTarget(target: StorageTarget): Promise<void> {
 }
 
 async function removeTarget(target: StorageTarget): Promise<void> {
-  if (!window.confirm(`Delete storage target "${target.name}"?`)) {
+  if (!window.confirm(t("storage.deleteTargetConfirm", { name: target.name }))) {
     return
   }
   try {
     await deleteStorageTarget(target.id)
-    notice.value = "Storage target deleted."
+    notice.value = t("storage.targetDeleted")
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -534,7 +550,7 @@ async function removeTarget(target: StorageTarget): Promise<void> {
 }
 
 function resetPolicyForm(): void {
-  policyForm.name = "Default retention"
+  policyForm.name = t("storage.defaultRetention")
   policyForm.scopeType = "GLOBAL"
   policyForm.scopeId = ""
   policyForm.ordinaryDays = 14
@@ -596,10 +612,10 @@ async function savePolicy(): Promise<void> {
         editingPolicy.value.id,
         body
       )
-      notice.value = "Retention policy updated."
+      notice.value = t("storage.policyUpdated")
     } else {
       await createRetentionPolicy(body)
-      notice.value = "Retention policy created."
+      notice.value = t("storage.policyCreated")
     }
     editingPolicy.value = null
     policyPanelOpen.value = false
@@ -623,12 +639,12 @@ async function togglePolicy(policy: RetentionPolicy): Promise<void> {
 }
 
 async function removePolicy(policy: RetentionPolicy): Promise<void> {
-  if (!window.confirm(`Delete retention policy "${policy.name}"?`)) {
+  if (!window.confirm(t("storage.deletePolicyConfirm", { name: policy.name }))) {
     return
   }
   try {
     await deleteRetentionPolicy(policy.id)
-    notice.value = "Retention policy deleted."
+    notice.value = t("storage.policyDeleted")
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -653,9 +669,9 @@ onBeforeUnmount(() => {
   <section class="storage-workspace">
     <header class="storage-header">
       <div>
-        <strong>Storage</strong>
+        <strong>{{ t("storage.title") }}</strong>
         <span>
-          Local recording, remote archive and retention lifecycle.
+          {{ t("storage.description") }}
         </span>
       </div>
 
@@ -666,7 +682,7 @@ onBeforeUnmount(() => {
         @click="refresh"
       >
         <UiIcon name="refresh" :size="15" />
-        Refresh
+        {{ t("storage.refresh") }}
       </button>
     </header>
 
@@ -674,21 +690,21 @@ onBeforeUnmount(() => {
       <article>
         <UiIcon name="drive" :size="19" />
         <div>
-          <span>Recording targets</span>
+          <span>{{ t("storage.recordingTargets") }}</span>
           <strong>{{ localTargets.length }}</strong>
         </div>
       </article>
       <article>
         <UiIcon name="cloud" :size="19" />
         <div>
-          <span>Archive targets</span>
+          <span>{{ t("storage.archiveTargets") }}</span>
           <strong>{{ archiveTargets.length }}</strong>
         </div>
       </article>
       <article>
         <UiIcon name="shield" :size="19" />
         <div>
-          <span>Active retention policies</span>
+          <span>{{ t("storage.activeRetentionPolicies") }}</span>
           <strong>{{ enabledPolicyCount }}</strong>
         </div>
       </article>
@@ -716,14 +732,14 @@ onBeforeUnmount(() => {
         :class="{ 'storage-tab--active': tab === 'targets' }"
         @click="tab = 'targets'"
       >
-        Storage targets
+        {{ t("storage.storageTargets") }}
       </button>
       <button
         type="button"
         :class="{ 'storage-tab--active': tab === 'retention' }"
         @click="tab = 'retention'"
       >
-        Retention
+        {{ t("storage.retention") }}
       </button>
     </div>
 
@@ -732,9 +748,9 @@ onBeforeUnmount(() => {
         <template v-if="tab === 'targets'">
           <div class="storage-section-header">
             <div>
-              <strong>Storage targets</strong>
+              <strong>{{ t("storage.storageTargets") }}</strong>
               <span>
-                Cameras always record locally first; archive copies are asynchronous.
+                {{ t("storage.targetsDescription") }}
               </span>
             </div>
             <div class="storage-section-actions">
@@ -744,7 +760,7 @@ onBeforeUnmount(() => {
                 @click="openTargetPanel('rclone')"
               >
                 <UiIcon name="cloud" :size="14" />
-                Add archive
+                {{ t("storage.addArchive") }}
               </button>
               <button
                 class="button button--primary"
@@ -752,15 +768,15 @@ onBeforeUnmount(() => {
                 @click="openTargetPanel('local')"
               >
                 <UiIcon name="plus" :size="14" />
-                Add local
+                {{ t("storage.addLocal") }}
               </button>
             </div>
           </div>
 
           <div v-if="!targets.length && !loading" class="storage-empty">
             <UiIcon name="storage" :size="28" />
-            <strong>No storage targets</strong>
-            <span>Add a local recording target to start storing footage.</span>
+            <strong>{{ t("storage.noStorageTargets") }}</strong>
+            <span>{{ t("storage.noStorageTargetsHint") }}</span>
           </div>
 
           <div v-else class="storage-target-list">
@@ -786,13 +802,13 @@ onBeforeUnmount(() => {
                       'status-pill--muted': !target.enabled
                     }"
                   >
-                    {{ target.enabled ? "Enabled" : "Disabled" }}
+                    {{ target.enabled ? t("storage.enabled") : t("storage.disabled") }}
                   </span>
                   <span
                     v-if="targetIsDefault(target)"
                     class="status-pill"
                   >
-                    Default
+                    {{ t("storage.default") }}
                   </span>
                 </div>
                 <span class="storage-target-card__path">
@@ -816,8 +832,8 @@ onBeforeUnmount(() => {
                 >
                   {{
                     target.credentials_configured
-                      ? "Credentials configured"
-                      : "Credentials missing"
+                      ? t("storage.credentialsConfigured")
+                      : t("storage.credentialsMissing")
                   }}
                 </span>
               </div>
@@ -832,8 +848,8 @@ onBeforeUnmount(() => {
                   <UiIcon name="activity" :size="14" />
                   {{
                     testingTargetId === target.id
-                      ? "Testing…"
-                      : "Test"
+                      ? t("storage.testing")
+                      : t("storage.test")
                   }}
                 </button>
                 <button
@@ -850,16 +866,16 @@ onBeforeUnmount(() => {
                         item.id !== target.id
                     )
                   "
-                  title="Switch future recording writes to another local target"
+                  :title="t('storage.switchWritesTitle')"
                   @click="openSwitchPanel(target)"
                 >
                   <UiIcon name="next" :size="14" />
-                  Switch writes
+                  {{ t("storage.switchWrites") }}
                 </button>
                 <button
                   class="icon-button"
                   type="button"
-                  title="Edit target"
+                  :title="t('storage.editTarget')"
                   @click="openEditTarget(target)"
                 >
                   <UiIcon name="settings" :size="15" />
@@ -867,7 +883,7 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button"
                   type="button"
-                  :title="target.enabled ? 'Disable' : 'Enable'"
+                  :title="target.enabled ? t('storage.disable') : t('storage.enable')"
                   @click="toggleTarget(target)"
                 >
                   <UiIcon
@@ -878,7 +894,7 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button icon-button--danger"
                   type="button"
-                  title="Delete target"
+                  :title="t('storage.deleteTarget')"
                   @click="removeTarget(target)"
                 >
                   <UiIcon name="trash" :size="15" />
@@ -891,9 +907,9 @@ onBeforeUnmount(() => {
         <template v-else>
           <div class="storage-section-header">
             <div>
-              <strong>Retention policies</strong>
+              <strong>{{ t("storage.retentionPolicies") }}</strong>
               <span>
-                Preserve event/manual footage longer while ordinary footage rotates.
+                {{ t("storage.retentionDescription") }}
               </span>
             </div>
             <button
@@ -902,27 +918,27 @@ onBeforeUnmount(() => {
               @click="openPolicyPanel"
             >
               <UiIcon name="plus" :size="14" />
-              Add policy
+              {{ t("storage.addPolicy") }}
             </button>
           </div>
 
           <div v-if="!policies.length && !loading" class="storage-empty">
             <UiIcon name="shield" :size="28" />
-            <strong>No retention policies</strong>
-            <span>Create a global policy or override a single camera.</span>
+            <strong>{{ t("storage.noRetentionPolicies") }}</strong>
+            <span>{{ t("storage.noRetentionPoliciesHint") }}</span>
           </div>
 
           <div v-else class="retention-table-wrap">
             <table class="retention-table">
               <thead>
                 <tr>
-                  <th>Policy</th>
-                  <th>Scope</th>
-                  <th>Ordinary</th>
-                  <th>Event</th>
-                  <th>Manual</th>
-                  <th>Archive</th>
-                  <th>Status</th>
+                  <th>{{ t("storage.policy") }}</th>
+                  <th>{{ t("storage.scope") }}</th>
+                  <th>{{ t("storage.ordinary") }}</th>
+                  <th>{{ t("storage.event") }}</th>
+                  <th>{{ t("storage.manual") }}</th>
+                  <th>{{ t("storage.archive") }}</th>
+                  <th>{{ t("storage.status") }}</th>
                   <th />
                 </tr>
               </thead>
@@ -933,17 +949,17 @@ onBeforeUnmount(() => {
                 >
                   <td>
                     <strong>{{ policy.name }}</strong>
-                    <small>{{ policy.mode === "HARD" ? "Hard limit" : "Best effort" }}</small>
+                    <small>{{ policy.mode === "HARD" ? t("storage.hardLimit") : t("storage.bestEffort") }}</small>
                   </td>
                   <td>{{ scopeLabel(policy) }}</td>
-                  <td>{{ policy.ordinary_keep_days }}d</td>
-                  <td>{{ policy.event_keep_days }}d</td>
-                  <td>{{ policy.manual_keep_days }}d</td>
+                  <td>{{ t("storage.days", { count: policy.ordinary_keep_days }) }}</td>
+                  <td>{{ t("storage.days", { count: policy.event_keep_days }) }}</td>
+                  <td>{{ t("storage.days", { count: policy.manual_keep_days }) }}</td>
                   <td>
                     {{
                       policy.require_archive_before_delete
-                        ? "Required"
-                        : "Optional"
+                        ? t("storage.required")
+                        : t("storage.optional")
                     }}
                   </td>
                   <td>
@@ -954,14 +970,14 @@ onBeforeUnmount(() => {
                         'status-pill--muted': !policy.enabled
                       }"
                     >
-                      {{ policy.enabled ? "Enabled" : "Disabled" }}
+                      {{ policy.enabled ? t("storage.enabled") : t("storage.disabled") }}
                     </span>
                   </td>
                   <td class="retention-table__actions">
                     <button
                       class="icon-button"
                       type="button"
-                      title="Edit policy"
+                      :title="t('storage.editPolicy')"
                       @click="openEditPolicy(policy)"
                     >
                       <UiIcon name="settings" :size="14" />
@@ -969,7 +985,7 @@ onBeforeUnmount(() => {
                     <button
                       class="icon-button"
                       type="button"
-                      :title="policy.enabled ? 'Disable' : 'Enable'"
+                      :title="policy.enabled ? t('storage.disable') : t('storage.enable')"
                       @click="togglePolicy(policy)"
                     >
                       <UiIcon
@@ -980,7 +996,7 @@ onBeforeUnmount(() => {
                     <button
                       class="icon-button icon-button--danger"
                       type="button"
-                      title="Delete policy"
+                      :title="t('storage.deletePolicy')"
                       @click="removePolicy(policy)"
                     >
                       <UiIcon name="trash" :size="14" />
@@ -999,13 +1015,13 @@ onBeforeUnmount(() => {
       >
         <header class="storage-editor__header">
           <div>
-            <strong>Switch recording writes</strong>
-            <span>Safe local target routing change</span>
+            <strong>{{ t("storage.switchRecordingWrites") }}</strong>
+            <span>{{ t("storage.safeRoutingChange") }}</span>
           </div>
           <button
             class="icon-button"
             type="button"
-            title="Close"
+            :title="t('storage.close')"
             @click="switchSource = null; switchDestinationId = ''"
           >
             <UiIcon name="close" :size="16" />
@@ -1017,19 +1033,19 @@ onBeforeUnmount(() => {
           @submit.prevent="runRecordingTargetSwitch"
         >
           <div class="storage-switch-summary">
-            <span>Current target</span>
+            <span>{{ t("storage.currentTarget") }}</span>
             <strong>{{ switchSource.name }}</strong>
             <small>{{ targetDetail(switchSource) }}</small>
           </div>
 
           <label>
-            <span>New recording target</span>
+            <span>{{ t("storage.newRecordingTarget") }}</span>
             <select
               v-model="switchDestinationId"
               required
             >
               <option value="" disabled>
-                Select a local target
+                {{ t("storage.selectLocalTarget") }}
               </option>
               <option
                 v-for="target in switchDestinations"
@@ -1044,10 +1060,7 @@ onBeforeUnmount(() => {
           <div class="storage-switch-note">
             <UiIcon name="shield" :size="15" />
             <span>
-              Only future write routing changes. Existing RecordingLocations
-              stay attached to the current target, so playback and retention
-              continue using their original path. The recorder is reconfigured
-              at the switch boundary without cloud hot-recording fallback.
+              {{ t("storage.switchNote") }}
             </span>
           </div>
 
@@ -1057,7 +1070,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="switchSource = null; switchDestinationId = ''"
             >
-              Cancel
+              {{ t("storage.cancel") }}
             </button>
             <button
               class="button button--primary"
@@ -1067,7 +1080,7 @@ onBeforeUnmount(() => {
                 !switchDestinationId
               "
             >
-              {{ switchSaving ? "Switching…" : "Switch writes" }}
+              {{ switchSaving ? t("storage.switching") : t("storage.switchWrites") }}
             </button>
           </div>
         </form>
@@ -1083,25 +1096,25 @@ onBeforeUnmount(() => {
               {{
                 editingTarget
                   ? targetForm.type === "local"
-                    ? "Edit local storage"
-                    : "Edit archive storage"
+                    ? t("storage.editLocalStorage")
+                    : t("storage.editArchiveStorage")
                   : targetForm.type === "local"
-                    ? "Add local storage"
-                    : "Add archive storage"
+                    ? t("storage.addLocalStorage")
+                    : t("storage.addArchiveStorage")
               }}
             </strong>
             <span>
               {{
                 targetForm.type === "local"
-                  ? "Recording destination"
-                  : "rclone remote archive"
+                  ? t("storage.recordingDestination")
+                  : t("storage.rcloneRemoteArchive")
               }}
             </span>
           </div>
           <button
             class="icon-button"
             type="button"
-            title="Close"
+            :title="t('storage.close')"
             @click="targetPanelOpen = false; editingTarget = null"
           >
             <UiIcon name="close" :size="16" />
@@ -1110,18 +1123,18 @@ onBeforeUnmount(() => {
 
         <form class="storage-editor__form" @submit.prevent="saveTarget">
           <label>
-            <span>Name</span>
+            <span>{{ t("storage.name") }}</span>
             <input
               v-model="targetForm.name"
               required
               maxlength="128"
-              placeholder="Primary recordings"
+              :placeholder="t('storage.primaryRecordings')"
             />
           </label>
 
           <template v-if="targetForm.type === 'local'">
             <label>
-              <span>Container path</span>
+              <span>{{ t("storage.containerPath") }}</span>
               <input
                 v-model="targetForm.path"
                 required
@@ -1129,14 +1142,12 @@ onBeforeUnmount(() => {
                 placeholder="/recordings"
               />
               <small v-if="editingTarget">
-                The recording root is the StorageTarget identity. Create a
-                second local target and use Switch writes to change future
-                recording placement without breaking historical locations.
+                {{ t("storage.recordingRootHint") }}
               </small>
             </label>
             <div class="storage-watermarks-grid">
               <label>
-                <span>Warning %</span>
+                <span>{{ t("storage.warningPercent") }}</span>
                 <input
                   v-model.number="targetForm.warningPercent"
                   type="number"
@@ -1146,7 +1157,7 @@ onBeforeUnmount(() => {
                 />
               </label>
               <label>
-                <span>High %</span>
+                <span>{{ t("storage.highPercent") }}</span>
                 <input
                   v-model.number="targetForm.highPercent"
                   type="number"
@@ -1156,7 +1167,7 @@ onBeforeUnmount(() => {
                 />
               </label>
               <label>
-                <span>Critical %</span>
+                <span>{{ t("storage.criticalPercent") }}</span>
                 <input
                   v-model.number="targetForm.criticalPercent"
                   type="number"
@@ -1167,40 +1178,38 @@ onBeforeUnmount(() => {
               </label>
             </div>
             <small>
-              High/critical enables pressure retention; critical blocks new
-              recording writes until space is reclaimed.
+              {{ t("storage.pressureRetentionHint") }}
             </small>
             <label class="storage-check">
               <input
                 v-model="targetForm.defaultRecording"
                 type="checkbox"
               />
-              <span>Use as default recording target</span>
+              <span>{{ t("storage.useDefaultRecordingTarget") }}</span>
             </label>
           </template>
 
           <template v-else>
             <label>
-              <span>Archive provider</span>
+              <span>{{ t("storage.archiveProvider") }}</span>
               <select
                 v-model="targetForm.archiveProvider"
                 :disabled="Boolean(editingTarget)"
                 @change="handleArchiveProviderChange"
               >
                 <option value="custom">
-                  Generic rclone config
+                  {{ t("storage.genericRcloneConfig") }}
                 </option>
                 <option value="openlist_webdav">
-                  OpenList (WebDAV)
+                  {{ t("storage.openlistWebdav") }}
                 </option>
               </select>
               <small v-if="editingTarget">
-                Provider type is fixed after creation. Create another
-                archive target to change provider type.
+                {{ t("storage.providerFixedHint") }}
               </small>
             </label>
             <label>
-              <span>rclone remote name</span>
+              <span>{{ t("storage.rcloneRemoteName") }}</span>
               <input
                 v-model="targetForm.remote"
                 required
@@ -1213,7 +1222,7 @@ onBeforeUnmount(() => {
               />
             </label>
             <label>
-              <span>Base path</span>
+              <span>{{ t("storage.basePath") }}</span>
               <input
                 v-model="targetForm.basePath"
                 placeholder="zero-nvr"
@@ -1226,7 +1235,7 @@ onBeforeUnmount(() => {
               "
             >
               <label>
-                <span>OpenList WebDAV URL</span>
+                <span>{{ t("storage.openlistWebdavUrl") }}</span>
                 <input
                   v-model="targetForm.openlistUrl"
                   :required="!editingTarget"
@@ -1234,12 +1243,11 @@ onBeforeUnmount(() => {
                   autocomplete="off"
                 />
                 <small>
-                  Use the OpenList WebDAV endpoint, normally ending in
-                  /dav/. HTTPS is recommended outside trusted networks.
+                  {{ t("storage.openlistEndpointHint") }}
                 </small>
               </label>
               <label>
-                <span>OpenList username</span>
+                <span>{{ t("storage.openlistUsername") }}</span>
                 <input
                   v-model="targetForm.openlistUsername"
                   :required="!editingTarget"
@@ -1247,7 +1255,7 @@ onBeforeUnmount(() => {
                 />
               </label>
               <label>
-                <span>OpenList password</span>
+                <span>{{ t("storage.openlistPassword") }}</span>
                 <input
                   v-model="targetForm.openlistPassword"
                   :required="!editingTarget"
@@ -1257,14 +1265,14 @@ onBeforeUnmount(() => {
                 <small>
                   {{
                     editingTarget
-                      ? "Leave all three OpenList credential fields blank to keep the existing encrypted credentials."
-                      : "The backend obscures the password for rclone, then stores the complete rclone config encrypted."
+                      ? t("storage.openlistKeepCredentialsHint")
+                      : t("storage.openlistStoreCredentialsHint")
                   }}
                 </small>
               </label>
             </template>
             <label v-else>
-              <span>rclone config</span>
+              <span>{{ t("storage.rcloneConfig") }}</span>
               <textarea
                 v-model="targetForm.rcloneConfig"
                 :required="!editingTarget"
@@ -1275,8 +1283,8 @@ onBeforeUnmount(() => {
               <small>
                 {{
                   editingTarget
-                    ? "Leave blank to keep the existing encrypted credentials; enter a new config only to replace them."
-                    : "Stored encrypted; never returned to the browser."
+                    ? t("storage.rcloneKeepCredentialsHint")
+                    : t("storage.encryptedNeverReturned")
                 }}
               </small>
             </label>
@@ -1285,7 +1293,7 @@ onBeforeUnmount(() => {
                 v-model="targetForm.defaultArchive"
                 type="checkbox"
               />
-              <span>Use as default archive target</span>
+              <span>{{ t("storage.useDefaultArchiveTarget") }}</span>
             </label>
           </template>
 
@@ -1295,7 +1303,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="targetPanelOpen = false; editingTarget = null"
             >
-              Cancel
+              {{ t("storage.cancel") }}
             </button>
             <button
               class="button button--primary"
@@ -1304,10 +1312,10 @@ onBeforeUnmount(() => {
             >
               {{
                 targetSaving
-                  ? "Saving…"
+                  ? t("storage.saving")
                   : editingTarget
-                    ? "Save target"
-                    : "Create target"
+                    ? t("storage.saveTarget")
+                    : t("storage.createTarget")
               }}
             </button>
           </div>
@@ -1323,16 +1331,16 @@ onBeforeUnmount(() => {
             <strong>
               {{
                 editingPolicy
-                  ? "Edit retention policy"
-                  : "Add retention policy"
+                  ? t("storage.editRetentionPolicy")
+                  : t("storage.addRetentionPolicy")
               }}
             </strong>
-            <span>Recording lifecycle rules</span>
+            <span>{{ t("storage.recordingLifecycleRules") }}</span>
           </div>
           <button
             class="icon-button"
             type="button"
-            title="Close"
+            :title="t('storage.close')"
             @click="policyPanelOpen = false; editingPolicy = null"
           >
             <UiIcon name="close" :size="16" />
@@ -1341,7 +1349,7 @@ onBeforeUnmount(() => {
 
         <form class="storage-editor__form" @submit.prevent="savePolicy">
           <label>
-            <span>Name</span>
+            <span>{{ t("storage.name") }}</span>
             <input
               v-model="policyForm.name"
               required
@@ -1350,25 +1358,25 @@ onBeforeUnmount(() => {
           </label>
 
           <label>
-            <span>Scope</span>
+            <span>{{ t("storage.scope") }}</span>
             <select v-model="policyForm.scopeType">
-              <option value="GLOBAL">All cameras</option>
-              <option value="CAMERA">Single camera</option>
+              <option value="GLOBAL">{{ t("storage.allCameras") }}</option>
+              <option value="CAMERA">{{ t("storage.singleCamera") }}</option>
               <option
                 v-if="
                   editingPolicy?.scope_type === 'CAMERA_GROUP'
                 "
                 value="CAMERA_GROUP"
               >
-                Existing camera group
+                {{ t("storage.existingCameraGroup") }}
               </option>
             </select>
           </label>
 
           <label v-if="policyForm.scopeType === 'CAMERA'">
-            <span>Camera</span>
+            <span>{{ t("storage.camera") }}</span>
             <select v-model="policyForm.scopeId" required>
-              <option value="" disabled>Select a camera</option>
+              <option value="" disabled>{{ t("storage.selectCamera") }}</option>
               <option
                 v-for="camera in cameras"
                 :key="camera.id"
@@ -1382,20 +1390,19 @@ onBeforeUnmount(() => {
           <label
             v-if="policyForm.scopeType === 'CAMERA_GROUP'"
           >
-            <span>Camera group</span>
+            <span>{{ t("storage.cameraGroup") }}</span>
             <input
               :value="policyForm.scopeId"
               readonly
             />
             <small>
-              Existing group scope is preserved. Group selection is managed
-              from Cameras → Groups.
+              {{ t("storage.cameraGroupHint") }}
             </small>
           </label>
 
           <div class="retention-days-grid">
             <label>
-              <span>Ordinary days</span>
+              <span>{{ t("storage.ordinaryDays") }}</span>
               <input
                 v-model.number="policyForm.ordinaryDays"
                 type="number"
@@ -1404,7 +1411,7 @@ onBeforeUnmount(() => {
               />
             </label>
             <label>
-              <span>Event days</span>
+              <span>{{ t("storage.eventDays") }}</span>
               <input
                 v-model.number="policyForm.eventDays"
                 type="number"
@@ -1413,7 +1420,7 @@ onBeforeUnmount(() => {
               />
             </label>
             <label>
-              <span>Manual days</span>
+              <span>{{ t("storage.manualDays") }}</span>
               <input
                 v-model.number="policyForm.manualDays"
                 type="number"
@@ -1424,10 +1431,10 @@ onBeforeUnmount(() => {
           </div>
 
           <label>
-            <span>Policy mode</span>
+            <span>{{ t("storage.policyMode") }}</span>
             <select v-model="policyForm.mode">
-              <option value="BEST_EFFORT">Best effort</option>
-              <option value="HARD">Hard limit</option>
+              <option value="BEST_EFFORT">{{ t("storage.bestEffort") }}</option>
+              <option value="HARD">{{ t("storage.hardLimit") }}</option>
             </select>
           </label>
 
@@ -1436,7 +1443,7 @@ onBeforeUnmount(() => {
               v-model="policyForm.requireArchive"
               type="checkbox"
             />
-            <span>Require archive before local deletion</span>
+            <span>{{ t("storage.requireArchiveBeforeDeletion") }}</span>
           </label>
 
           <div class="storage-editor__actions">
@@ -1445,7 +1452,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="policyPanelOpen = false; editingPolicy = null"
             >
-              Cancel
+              {{ t("storage.cancel") }}
             </button>
             <button
               class="button button--primary"
@@ -1454,10 +1461,10 @@ onBeforeUnmount(() => {
             >
               {{
                 policySaving
-                  ? "Saving…"
+                  ? t("storage.saving")
                   : editingPolicy
-                    ? "Save policy"
-                    : "Create policy"
+                    ? t("storage.savePolicy")
+                    : t("storage.createPolicy")
               }}
             </button>
           </div>
