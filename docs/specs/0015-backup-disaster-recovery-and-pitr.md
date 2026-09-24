@@ -325,6 +325,21 @@ provider credentials, or a generally unavailable repository. Raw provider
 stderr is not repeated as the primary diagnostic because it may contain
 deployment-specific details.
 
+## Authorization and audit
+
+Backup visibility uses the existing `system.view` permission. Creating or
+changing backup policies, starting manual backups, requesting verification, and
+generating/downloading a RecoveryKit require `system.manage`. Disaster restore
+remains a host-only break-glass operation; V1 does not expose a remote restore
+API.
+
+Actor-driven backup policy/run/verification/RecoveryKit actions append sanitized
+AuditEvent rows. A successful host restore appends a `backup.restore` event to
+the restored database with `actor_type=system`; host recovery does not invent a
+user identity. Failure to append that final audit row is surfaced as a warning
+and must not turn an already completed database restore into a destructive
+secondary failure.
+
 ## Failure behavior
 
 Backup failure:

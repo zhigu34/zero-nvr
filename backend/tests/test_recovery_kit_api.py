@@ -4,11 +4,13 @@ import json
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from pydantic import SecretStr
 
 from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
+from app.modules.audit.models import AuditEvent
 from app.modules.backups.recovery_kit import (
     RecoveryKitService,
 )
@@ -152,6 +154,25 @@ def test_recovery_kit_download_is_encrypted_and_tracks_staleness(
         )
         assert current.status_code == 200
         assert current.json()["status"] == "current"
+
+
+        with app.state.database.session() as session:
+            event = session.scalar(
+                select(AuditEvent)
+                .where(
+                    AuditEvent.action
+                    == "backup.recovery_kit.generate"
+                )
+                .order_by(
+                    AuditEvent.occurred_at.desc()
+                )
+            )
+        assert event is not None
+        assert event.actor_type == "user"
+        assert event.resource_type == "backup_policy"
+        assert KIT_PASSPHRASE not in repr(
+            event.metadata_json
+        )
 
         updated = client.patch(
             f"/api/v1/backups/policies/{policy_id}",

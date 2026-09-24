@@ -32,6 +32,7 @@ from app.core.db.types import utc_now
 from app.core.security import SecretStore
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
+from app.modules.audit.service import append_audit_event
 from app.modules.backups.execution import (
     BackupExecutionService,
     BackupRunService,
@@ -1543,6 +1544,46 @@ def restore_preflight_command(
         database.close()
 
 
+def _record_host_restore_audit(
+    *,
+    settings: Settings,
+    manifest: dict[str, object],
+    backend: str,
+) -> bool:
+    raw_backup_set_id = manifest.get(
+        "backup_set_id"
+    )
+    try:
+        backup_set_id = uuid.UUID(
+            str(raw_backup_set_id)
+        )
+    except (TypeError, ValueError):
+        backup_set_id = None
+
+    restored = Database(settings)
+    try:
+        with restored.session() as session:
+            append_audit_event(
+                session,
+                request=None,
+                actor_id=None,
+                action="backup.restore",
+                resource_type="backup_set",
+                resource_id=backup_set_id,
+                metadata={
+                    "source": "deploy.sh",
+                    "database_engine": backend,
+                    "recordings_modified": False,
+                },
+            )
+            session.commit()
+        return True
+    except Exception:
+        return False
+    finally:
+        restored.close()
+
+
 def restore_staged_command(
     args: argparse.Namespace,
 ) -> int:
@@ -1658,6 +1699,18 @@ def restore_staged_command(
                 "database backend is not supported for restore"
             )
 
+        audit_recorded = _record_host_restore_audit(
+            settings=settings,
+            manifest=manifest,
+            backend=backend,
+        )
+        if not audit_recorded:
+            print(
+                "warning: restore completed but the "
+                "backup.restore AuditEvent could not be recorded",
+                file=sys.stderr,
+            )
+
         print(
             json.dumps(
                 {
@@ -1672,6 +1725,7 @@ def restore_staged_command(
                         else None
                     ),
                     "recordings_modified": False,
+                    "audit_recorded": audit_recorded,
                 },
                 sort_keys=True,
             )

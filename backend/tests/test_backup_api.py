@@ -4,15 +4,18 @@ import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
+from app.modules.audit.models import AuditEvent
 from app.modules.backups.models import BackupSet
 from app.modules.backups.service import BackupPolicyService
 
 
 PASSWORD = "correct-horse-battery-staple"
+READER_PASSWORD = "backup-reader-correct-horse-battery"
 RESTIC_PASSWORD = "restic-api-secret-password"
 AWS_SECRET = "aws-secret-access-value"
 
@@ -209,3 +212,130 @@ def test_backup_policy_api_redacts_secrets_updates_and_queues_run(
             backup_id
         ]
         assert verify.json()["verification_state"] == "PENDING"
+
+
+    with app.state.database.session() as session:
+        audit_events = list(
+            session.scalars(
+                select(AuditEvent).where(
+                    AuditEvent.action.in_(
+                        {
+                            "backup_policy.create",
+                            "backup_policy.update",
+                            "backup.run",
+                            "backup.verify",
+                        }
+                    )
+                )
+            )
+        )
+    actions = {
+        event.action
+        for event in audit_events
+    }
+    assert {
+        "backup_policy.create",
+        "backup_policy.update",
+        "backup.run",
+        "backup.verify",
+    } <= actions
+    audit_serialized = repr(
+        [
+            (
+                event.before_json,
+                event.after_json,
+                event.metadata_json,
+            )
+            for event in audit_events
+        ]
+    )
+    assert RESTIC_PASSWORD not in audit_serialized
+    assert AWS_SECRET not in audit_serialized
+
+
+
+def test_backup_api_system_view_is_read_only(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup_admin(client)
+
+        created = client.post(
+            "/api/v1/backups/policies",
+            json=policy_payload(),
+        )
+        assert created.status_code == 201
+        policy_id = created.json()["id"]
+
+        role = client.post(
+            "/api/v1/roles",
+            json={
+                "name": "Backup Reader",
+                "description": "Read-only system backup visibility",
+                "permissions": ["system.view"],
+            },
+        )
+        assert role.status_code == 201
+        role_id = role.json()["id"]
+
+        user = client.post(
+            "/api/v1/users",
+            json={
+                "username": "backup-reader",
+                "display_name": "Backup Reader",
+                "password": READER_PASSWORD,
+                "role_ids": [role_id],
+            },
+        )
+        assert user.status_code == 201
+
+        client.cookies.clear()
+        login = client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "backup-reader",
+                "password": READER_PASSWORD,
+            },
+        )
+        assert login.status_code == 200
+
+        assert client.get(
+            "/api/v1/backups/policies"
+        ).status_code == 200
+        assert client.get(
+            "/api/v1/backups"
+        ).status_code == 200
+        assert client.get(
+            "/api/v1/backups/recovery-kit/status",
+            params={"policy_id": policy_id},
+        ).status_code == 200
+
+        assert client.post(
+            "/api/v1/backups/policies",
+            json=policy_payload(),
+        ).status_code == 403
+        assert client.patch(
+            f"/api/v1/backups/policies/{policy_id}",
+            json={"retention": {"keep_last": 3}},
+        ).status_code == 403
+        assert client.post(
+            "/api/v1/backups/run",
+            json={
+                "policy_id": policy_id,
+                "reason": "manual",
+            },
+        ).status_code == 403
+        assert client.post(
+            f"/api/v1/backups/{uuid.uuid4()}/verify"
+        ).status_code == 403
+        assert client.post(
+            "/api/v1/backups/recovery-kit",
+            json={
+                "policy_id": policy_id,
+                "passphrase": (
+                    "read-only-user-must-not-download"
+                ),
+            },
+        ).status_code == 403

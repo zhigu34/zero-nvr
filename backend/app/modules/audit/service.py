@@ -14,7 +14,7 @@ from .models import AuditEvent
 def append_audit_event(
     session: Session,
     *,
-    request: Request,
+    request: Request | None,
     actor_id: uuid.UUID | None,
     action: str,
     resource_type: str,
@@ -27,10 +27,18 @@ def append_audit_event(
     metadata: dict[str, Any] | None = None,
 ) -> AuditEvent:
     source_ip = None
-    if request.client and request.client.host:
+    if (
+        request is not None
+        and request.client
+        and request.client.host
+    ):
         source_ip = request.client.host[:64]
 
-    user_agent = request.headers.get("user-agent")
+    user_agent = (
+        request.headers.get("user-agent")
+        if request is not None
+        else None
+    )
     client_info = (
         {"user_agent": user_agent[:512]}
         if user_agent
@@ -44,7 +52,11 @@ def append_audit_event(
         resource_type=resource_type,
         resource_id=resource_id,
         camera_id=camera_id,
-        request_id=getattr(request.state, "request_id", None),
+        request_id=(
+            getattr(request.state, "request_id", None)
+            if request is not None
+            else None
+        ),
         source_ip=source_ip,
         client_info=redact_sensitive_value(client_info),
         result=result,

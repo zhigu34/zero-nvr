@@ -5,11 +5,13 @@ import uuid
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
 
 from app import cli
 from app.core.config import Settings
 from app.core.db import Base, Database
 from app.core.security import SecretStore
+from app.modules.audit.models import AuditEvent
 
 
 OLD_KEY = "o" * 40
@@ -167,3 +169,48 @@ def test_restore_accepts_matching_previous_key(
         assert snapshot.name == "database.sqlite3"
     finally:
         database.close()
+
+
+
+def test_host_restore_audit_uses_system_actor(
+    tmp_path: Path,
+) -> None:
+    settings, database = deployment(
+        tmp_path,
+        previous=True,
+    )
+    Base.metadata.create_all(database.engine)
+    database.close()
+
+    backup_set_id = uuid.uuid4()
+    assert cli._record_host_restore_audit(
+        settings=settings,
+        manifest={
+            "backup_set_id": str(
+                backup_set_id
+            )
+        },
+        backend="sqlite",
+    ) is True
+
+    restored = Database(settings)
+    try:
+        with restored.session() as session:
+            event = session.scalar(
+                select(AuditEvent).where(
+                    AuditEvent.action
+                    == "backup.restore"
+                )
+            )
+        assert event is not None
+        assert event.actor_type == "system"
+        assert event.actor_id is None
+        assert event.resource_type == "backup_set"
+        assert event.resource_id == backup_set_id
+        assert event.metadata_json == {
+            "source": "deploy.sh",
+            "database_engine": "sqlite",
+            "recordings_modified": False,
+        }
+    finally:
+        restored.close()
