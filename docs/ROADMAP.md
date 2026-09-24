@@ -523,10 +523,10 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] non-destructive post-restore RecordingLocation/media reconciliation.
 - [x] configuration-only export distinct from disaster backup.
 - [x] backup/restore authorization and audit.
-- [~] Backup & Recovery UI for normal administration.
+- [x] Backup & Recovery UI for normal administration.
 - [x] user/role/camera-scope administration UI.
 - [x] audit UI.
-- [ ] release manifest/version/digest compatibility metadata.
+- [~] release manifest/version/digest compatibility metadata.
 - [x] update-availability/version display in System UI.
 - [ ] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
 - [x] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -80,6 +81,7 @@ class FakeSnapshotService:
 
 class FakeRestic:
     backup_calls = 0
+    manifest_payload: dict[str, object] | None = None
     latest: ResticBackupResult | None = None
     checked: list[str] = []
     forget_calls = 0
@@ -96,7 +98,14 @@ class FakeRestic:
 
     def backup(self, *, paths, tags):
         self.__class__.backup_calls += 1
-        assert any(path.name == "manifest.json" for path in paths)
+        manifest_path = next(
+            path
+            for path in paths
+            if path.name == "manifest.json"
+        )
+        self.__class__.manifest_payload = json.loads(
+            manifest_path.read_text(encoding="utf-8")
+        )
         assert any(path.name == "database.sqlite3" for path in paths)
         assert "zero-nvr" in tags
         return ResticBackupResult(
@@ -192,6 +201,7 @@ def test_execution_creates_snapshot_and_completes(
 
         FakeSnapshotService.calls = 0
         FakeRestic.backup_calls = 0
+        FakeRestic.manifest_payload = None
         FakeRestic.latest = None
         FakeRestic.checked = []
         FakeRestic.forget_calls = 0
@@ -215,6 +225,15 @@ def test_execution_creates_snapshot_and_completes(
         assert state == "COMPLETED"
         assert FakeSnapshotService.calls == 1
         assert FakeRestic.backup_calls == 1
+        assert FakeRestic.manifest_payload is not None
+        assert (
+            FakeRestic.manifest_payload["format"]
+            == "zero-nvr.backup-manifest"
+        )
+        assert (
+            FakeRestic.manifest_payload["format_version"]
+            == 1
+        )
         assert FakeRestic.checked == ["a" * 64]
         assert FakeRestic.forget_calls == 1
 

@@ -21,6 +21,7 @@ Usage:
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
+  ./deploy.sh release-manifest <validate|show|record> [revision]
   ./deploy.sh migrate
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>] [--confirm-sqlite-workload]
   ./deploy.sh backup [reason] [policy-id-or-name]
@@ -223,6 +224,7 @@ install_stack() {
   "$SCRIPT_DIR/migrate.sh"
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
+  "$SCRIPT_DIR/release-manifest.sh" record "$(git_revision || true)"
   record_installed_revision
   print_install_summary
 }
@@ -370,6 +372,7 @@ update_stack() {
 
   compose up -d --wait --wait-timeout 180
   ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
+  "$SCRIPT_DIR/release-manifest.sh" record "$target_revision"
 
   if valid_revision "$target_revision"; then
     if valid_revision "$previous_revision" \
@@ -769,6 +772,15 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/release-check.sh" "$@"
+    ;;
+  release-manifest)
+    subcommand="${1:-show}"
+    shift || true
+    if [[ "$subcommand" != "validate" ]]; then
+      ensure_env
+      ensure_host_dirs
+    fi
+    "$SCRIPT_DIR/release-manifest.sh" "$subcommand" "$@"
     ;;
   migrate)
     ensure_env

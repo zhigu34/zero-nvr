@@ -34,6 +34,8 @@ from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
 from app.modules.audit.service import append_audit_event
 from app.modules.backups.execution import (
+    BACKUP_MANIFEST_FORMAT,
+    BACKUP_MANIFEST_VERSION,
     BackupExecutionService,
     BackupRunService,
 )
@@ -1185,6 +1187,21 @@ def _validate_restore_manifest(
     root: Path,
 ) -> tuple[Path, dict[str, object], Path]:
     manifest_path, manifest = _find_manifest(root)
+    manifest_format = manifest.get("format")
+    manifest_version = manifest.get("format_version")
+    if (
+        manifest_format is not None
+        or manifest_version is not None
+    ):
+        if (
+            manifest_format != BACKUP_MANIFEST_FORMAT
+            or manifest_version != BACKUP_MANIFEST_VERSION
+        ):
+            raise RuntimeError(
+                "backup manifest format/version is unsupported "
+                "by this zero-nvr release"
+            )
+
     engine = str(
         manifest.get("database_engine")
         or manifest.get("database_backend")

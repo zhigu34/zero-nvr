@@ -228,6 +228,23 @@ Litestream, pgBackRest, WAL/PITR, filesystem snapshots, and continuous replicati
 
 V1 does not require a browser-driven Docker orchestrator, unrestricted Docker socket, scheduled automatic self-update, or heavyweight UpgradePlan subsystem.
 
+#### Release identity contract
+
+Each source release carries `release-manifest.json` with a versioned compatibility
+contract: application version, accepted Alembic schema head(s), supported
+BackupManifest/RecoveryKit/configuration-export formats, and Core/optional
+service ownership. The manifest version must match both backend and frontend
+package versions and the declared schema heads must match the migration graph.
+
+After install, update, or a manifest-aware rollback, zero-nvr writes
+`<ZERO_NVR_DATA_PATH>/deployment/release-manifest.json`. This deployed-release
+record binds the source manifest SHA-256 and Git revision to the actual active
+Docker image IDs and available repository digests. API and worker must resolve
+to the same zero-nvr image identity. Mutable image tags are therefore descriptive
+only; rollback/update safety can use the immutable recorded IDs/digests. A
+rollback to a legacy revision without this contract removes the newer runtime
+manifest rather than leaving stale identity metadata.
+
 ### System health
 
 - capability-specific health;

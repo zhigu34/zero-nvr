@@ -1,0 +1,55 @@
+{
+  "format": "zero-nvr.release-manifest",
+  "format_version": 1,
+  "application": {
+    "name": "zero-nvr",
+    "version": "0.1.0"
+  },
+  "compatibility": {
+    "database_schema": {
+      "accepted_heads": [
+        "0017_camera_maintenance"
+      ],
+      "migration_policy": "explicit"
+    },
+    "backup_manifest": {
+      "format": "zero-nvr.backup-manifest",
+      "versions": [
+        1
+      ]
+    },
+    "recovery_kit": {
+      "envelope_format": "zero-nvr.recovery-kit.encrypted",
+      "payload_format": "zero-nvr.recovery-kit",
+      "versions": [
+        1
+      ]
+    },
+    "configuration_export": {
+      "format": "zero-nvr.configuration",
+      "versions": [
+        1
+      ]
+    }
+  },
+  "services": {
+    "core": [
+      "zero-nvr",
+      "zero-nvr-worker",
+      "zlmediakit"
+    ],
+    "optional": [
+      "frigate",
+      "mosquitto",
+      "openlist",
+      "coturn",
+      "postgres"
+    ],
+    "shared_image_groups": [
+      [
+        "zero-nvr",
+        "zero-nvr-worker"
+      ]
+    ]
+  }
+}

@@ -29,6 +29,10 @@ from .models import BackupPolicy, BackupSet
 from .service import BackupPolicyService, ResolvedBackupPolicy
 
 
+BACKUP_MANIFEST_FORMAT = "zero-nvr.backup-manifest"
+BACKUP_MANIFEST_VERSION = 1
+
+
 @dataclass(frozen=True, slots=True)
 class BackupExecutionPlan:
     backup_set_id: uuid.UUID
@@ -259,6 +263,8 @@ class BackupExecutionService:
                 ).record_key_ids(session)
             )
         payload = {
+            "format": BACKUP_MANIFEST_FORMAT,
+            "format_version": BACKUP_MANIFEST_VERSION,
             "backup_set_id": str(plan.backup_set_id),
             "policy_id": str(plan.policy_id),
             "created_at": datetime.now(UTC).isoformat(),

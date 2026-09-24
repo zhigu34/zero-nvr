@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
+. "$SCRIPT_DIR/release-manifest.sh"
 
 requested="${1:-}"
 if [[ "$#" -gt 1 ]]; then
@@ -167,6 +168,12 @@ apply_rollback() {
 
   ZERO_NVR_ENV_FILE="$ENV_FILE" \
     "$SCRIPT_DIR/check.sh" || return 1
+
+  if [[ -f "$ROOT_DIR/release-manifest.json" ]]; then
+    record_release_manifest "$target" || return 1
+  else
+    rm -f "$(release_manifest_runtime_path)"
+  fi
 }
 
 if ! apply_rollback; then

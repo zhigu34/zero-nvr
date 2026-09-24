@@ -64,6 +64,7 @@ jobs:
           for script in scripts/*.sh; do
             bash -n "$script"
           done
+          ./scripts/release-manifest.sh validate
 
       - name: Validate database migration CLI surface
         shell: bash
@@ -90,6 +91,7 @@ jobs:
           bash scripts/test-benchmark.sh
           bash scripts/test-soak.sh
           bash scripts/test-release-validation.sh
+          bash scripts/test-release-manifest.sh
           bash scripts/test-port-preflight.sh
           bash scripts/test-protected-secrets.sh
           bash scripts/test-clean-install.sh
@@ -223,6 +225,32 @@ jobs:
             -f docker-compose.yml \
             exec -T zero-nvr \
             python -m app.cli check-schema
+
+          test -f data/zero-nvr/deployment/release-manifest.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path(
+              "data/zero-nvr/deployment/release-manifest.json"
+          )
+          value = json.loads(path.read_text())
+          assert value["format"] == "zero-nvr.deployed-release"
+          assert value["format_version"] == 1
+          assert value["application"]["version"] == "0.1.0"
+          assert len(value["identity_sha256"]) == 64
+          assert len(value["source_manifest_sha256"]) == 64
+          assert value["components"]["zero-nvr"]["image_id"].startswith(
+              "sha256:"
+          )
+          assert (
+              value["components"]["zero-nvr"]["image_id"]
+              == value["components"]["zero-nvr-worker"]["image_id"]
+          )
+          assert value["components"]["zlmediakit"]["image_id"].startswith(
+              "sha256:"
+          )
+          PY
 
           grep -Fq \
             "zero-nvr installed successfully" \
