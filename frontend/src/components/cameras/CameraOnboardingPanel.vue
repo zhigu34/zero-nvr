@@ -807,7 +807,7 @@ function discoveryStateLabel(value: string): string {
                 v-model="batchNameTemplate"
                 placeholder="{name}"
               />
-              <small>{{ t("cameras.onboarding.nameTemplateHint") }}</small>
+              <small>{{ t("cameras.onboarding.nameTemplateHint", { name: "{name}", host: "{host}" }) }}</small>
             </label>
           </div>
 
