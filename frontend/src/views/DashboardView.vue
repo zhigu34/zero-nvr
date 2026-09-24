@@ -316,7 +316,7 @@ onBeforeUnmount(() => {
         </div>
         <div>
           <span>{{ t("dashboard.systemHealth") }}</span>
-          <strong>{{ health?.status || "—" }}</strong>
+          <strong>{{ health?.status ? pretty(health.status) : "—" }}</strong>
           <small>
             {{ t("dashboard.monitoredComponents", { count: healthComponents.length }) }}
           </small>
