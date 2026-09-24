@@ -531,9 +531,9 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
 - [x] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.
 - [x] Alembic migration classes A/B/C and SQLite batch/table-rebuild safety.
-- [~] PostgreSQL bounded-lock/restartable migration behavior where required.
+- [x] PostgreSQL bounded-lock/restartable migration behavior where required.
 - [x] startup application/database/schema compatibility gate.
-- [ ] pinned previous artifacts until successful update/rollback decision.
+- [~] pinned previous artifacts until successful update/rollback decision.
 - [x] post-upgrade readiness and media/catalog reconciliation.
 - [x] rollback command/path for compatible and recovery-point rollback.
 - [x] separate SQLite <-> PostgreSQL migration workflow with validation and rollback grace period.

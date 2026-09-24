@@ -249,6 +249,31 @@ checkpoint table at V1 scale. No current revision requires
 `batched_restartable`. External network/file work remains outside Alembic
 migration transactions.
 
+## Pinned previous artifacts
+
+Before an update can overwrite the configured Core image or switch the source
+checkout, zero-nvr pins the currently running Core image under a dedicated local
+`zero-nvr:pin-*` tag and pins its Git object under
+`refs/zero-nvr/pins/*`. The pending deployment state records the exact previous
+image ref together with the previous revision and safety snapshot.
+
+Pins are transactional operational state, not a second image registry. On a
+successful revision-changing update, the pending previous image/Git object is
+promoted to the single rollback pin and the older consumed rollback pin is
+released. On a same-revision rebuild, the transient pending pin is released only
+after health/readiness succeeds and the existing rollback pin is preserved. If
+the update fails, pending pins remain until rollback/recovery decides the
+outcome.
+
+Rollback prefers the recorded pinned image and only rebuilds a legacy target
+when no pin exists. It also pins the current image/Git object while rollback is
+in progress so a failed rollback can recover the pre-rollback deployment. A
+successful rollback rotates that recovery artifact into the new rollback pin.
+This prevents Docker image pruning or Git garbage collection from silently
+removing the one previous artifact that the recorded rollback state depends on.
+The external `.env` is not rewritten by software update; version-controlled
+deployment/config renderers are retained by the pinned Git revision.
+
 ## Rollback
 
 ### Binary/config rollback

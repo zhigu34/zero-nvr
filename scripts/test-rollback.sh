@@ -17,6 +17,7 @@ setup_repo() {
 
   cp "$ROOT_DIR/scripts/lib.sh" "$repo_dir/scripts/lib.sh"
   cp "$ROOT_DIR/scripts/deployment-state.sh" "$repo_dir/scripts/deployment-state.sh"
+  cp "$ROOT_DIR/scripts/artifact-pins.sh" "$repo_dir/scripts/artifact-pins.sh"
   cp "$ROOT_DIR/scripts/release-manifest.sh" "$repo_dir/scripts/release-manifest.sh"
   cp "$ROOT_DIR/scripts/rollback.sh" "$repo_dir/scripts/rollback.sh"
   chmod +x "$repo_dir/scripts/rollback.sh"
@@ -40,8 +41,15 @@ fi
 if [[ "$args" == "info" ]]; then
   exit 0
 fi
-if [[ "$args" == *" images -q zero-nvr"* ]]; then
-  echo "sha256:current-zero-nvr-image"
+if [[ "$args" == *" ps -q zero-nvr"* ]]; then
+  echo "fake-zero-nvr-container"
+  exit 0
+fi
+if [[ "$args" == "container inspect fake-zero-nvr-container --format {{.Image}}" ]]; then
+  printf 'sha256:%064d\n' 2
+  exit 0
+fi
+if [[ "$args" == "image inspect "* ]]; then
   exit 0
 fi
 if [[ "$args" == *"python -m app.cli safety-snapshot"* ]]; then
@@ -115,6 +123,8 @@ ROLLBACK_SNAPSHOT_REL=safety-backups/recorded/database.sqlite3
 PENDING_TARGET_REVISION=
 PENDING_PREVIOUS_REVISION=
 PENDING_SNAPSHOT_REL=
+ROLLBACK_IMAGE_REF=zero-nvr:pin-rollback-${REV_A:0:12}
+PENDING_PREVIOUS_IMAGE_REF=
 UPDATED_AT=2026-09-20T00:00:00Z
 EOF
 
@@ -149,6 +159,8 @@ ROLLBACK_SNAPSHOT_REL=
 PENDING_TARGET_REVISION=$REV_B
 PENDING_PREVIOUS_REVISION=$REV_A
 PENDING_SNAPSHOT_REL=safety-backups/recorded/database.sqlite3
+ROLLBACK_IMAGE_REF=
+PENDING_PREVIOUS_IMAGE_REF=zero-nvr:pin-pending-${REV_A:0:12}
 UPDATED_AT=2026-09-20T00:00:00Z
 EOF
 
@@ -182,6 +194,8 @@ ROLLBACK_SNAPSHOT_REL=safety-backups/recorded/database.sqlite3
 PENDING_TARGET_REVISION=
 PENDING_PREVIOUS_REVISION=
 PENDING_SNAPSHOT_REL=
+ROLLBACK_IMAGE_REF=zero-nvr:pin-rollback-${REV_A:0:12}
+PENDING_PREVIOUS_IMAGE_REF=
 UPDATED_AT=2026-09-20T00:00:00Z
 EOF
 

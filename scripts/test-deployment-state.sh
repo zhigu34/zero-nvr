@@ -25,6 +25,8 @@ prev="2222222222222222222222222222222222222222"
 pending="3333333333333333333333333333333333333333"
 snap="safety-backups/one/database.sqlite3"
 pending_snap="safety-backups/two/database.sqlite3"
+rollback_image="zero-nvr:pin-rollback-222222222222"
+pending_image="zero-nvr:pin-pending-111111111111"
 
 write_deployment_state \
   "$dep" \
@@ -32,7 +34,9 @@ write_deployment_state \
   "$snap" \
   "$pending" \
   "$dep" \
-  "$pending_snap"
+  "$pending_snap" \
+  "$rollback_image" \
+  "$pending_image"
 
 [[ "$(deployment_state_get DEPLOYED_REVISION)" == "$dep" ]]
 [[ "$(deployment_state_get ROLLBACK_REVISION)" == "$prev" ]]
@@ -40,6 +44,8 @@ write_deployment_state \
 [[ "$(deployment_state_get PENDING_TARGET_REVISION)" == "$pending" ]]
 [[ "$(deployment_state_get PENDING_PREVIOUS_REVISION)" == "$dep" ]]
 [[ "$(deployment_state_get PENDING_SNAPSHOT_REL)" == "$pending_snap" ]]
+[[ "$(deployment_state_get ROLLBACK_IMAGE_REF)" == "$rollback_image" ]]
+[[ "$(deployment_state_get PENDING_PREVIOUS_IMAGE_REF)" == "$pending_image" ]]
 
 state="$(deployment_state_file)"
 mode="$(stat -c '%a' "$state")"
@@ -56,5 +62,7 @@ write_deployment_state "$prev" "$dep" "$pending_snap"
 [[ "$(deployment_state_get DEPLOYED_REVISION)" == "$prev" ]]
 [[ "$(deployment_state_get ROLLBACK_REVISION)" == "$dep" ]]
 [[ -z "$(deployment_state_get PENDING_TARGET_REVISION)" ]]
+[[ -z "$(deployment_state_get ROLLBACK_IMAGE_REF)" ]]
+[[ -z "$(deployment_state_get PENDING_PREVIOUS_IMAGE_REF)" ]]
 
 echo "deployment-state: ok"

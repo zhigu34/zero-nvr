@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
+. "$SCRIPT_DIR/artifact-pins.sh"
 . "$SCRIPT_DIR/release-manifest.sh"
 
 requested="${1:-}"
@@ -63,9 +64,11 @@ preflight_rollback
 deployed="$(deployment_state_get DEPLOYED_REVISION)"
 recorded_rollback="$(deployment_state_get ROLLBACK_REVISION)"
 recorded_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+recorded_image="$(deployment_state_get ROLLBACK_IMAGE_REF)"
 pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
 pending_previous="$(deployment_state_get PENDING_PREVIOUS_REVISION)"
 pending_snapshot="$(deployment_state_get PENDING_SNAPSHOT_REL)"
+pending_previous_image="$(deployment_state_get PENDING_PREVIOUS_IMAGE_REF)"
 current_source="$(git_revision || true)"
 mode="normal"
 
@@ -74,16 +77,18 @@ if ! valid_revision "$deployed"; then
   exit 1
 fi
 
-if [[ "$current_source" == "$deployed" ]]; then
-  target="$(resolve_target "$recorded_rollback" "rollback")"
-  snapshot_rel="$recorded_snapshot"
-elif valid_revision "$pending_target" \
+if valid_revision "$pending_target" \
   && [[ "$current_source" == "$pending_target" ]] \
   && [[ "$pending_previous" == "$deployed" ]]; then
   mode="failed-update"
   target="$(resolve_target "$pending_previous" "pre-update")"
   snapshot_rel="$pending_snapshot"
+  target_image_ref="$pending_previous_image"
   echo "Detected failed/pending update $pending_target; recovering deployed revision $target."
+elif [[ "$current_source" == "$deployed" ]]; then
+  target="$(resolve_target "$recorded_rollback" "rollback")"
+  snapshot_rel="$recorded_snapshot"
+  target_image_ref="$recorded_image"
 else
   echo "error: source checkout does not match deployed or pending update state" >&2
   echo "deployed: ${deployed:-unavailable}" >&2
@@ -113,34 +118,38 @@ if ! git -C "$ROOT_DIR" cat-file -e "${target}^{commit}" 2>/dev/null; then
 fi
 
 configured_image="$(env_get ZERO_NVR_IMAGE "zero-nvr:local")"
-current_image_id="$(compose images -q zero-nvr 2>/dev/null | head -n 1)"
-if [[ -z "$current_image_id" ]]; then
-  echo "error: current zero-nvr image is unavailable" >&2
-  exit 1
-fi
+current_image_id="$(active_core_image_id)"
+recovery_image="$(
+  pin_image_source recovery "$current_source" "$current_image_id"
+)"
+pin_git_revision recovery "$current_source"
 
-current_short="$(printf '%s' "$current_source" | cut -c1-12)"
 target_short="$(printf '%s' "$target" | cut -c1-12)"
-recovery_image="zero-nvr:rollback-recovery-$current_short"
 stage_image="zero-nvr:rollback-stage-$target_short"
-stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/zero-nvr-rollback.XXXXXX")"
-rmdir "$stage_dir"
+stage_dir=""
 
 cleanup() {
-  git -C "$ROOT_DIR" worktree remove --force "$stage_dir" >/dev/null 2>&1 || true
-  rm -rf "$stage_dir" >/dev/null 2>&1 || true
+  if [[ -n "${stage_dir:-}" ]]; then
+    git -C "$ROOT_DIR" worktree remove --force "$stage_dir" >/dev/null 2>&1 || true
+    rm -rf "$stage_dir" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
-echo "Staging rollback revision $target..."
-git -C "$ROOT_DIR" worktree add --detach "$stage_dir" "$target" >/dev/null
-
-docker build \
-  --file "$stage_dir/backend/Dockerfile" \
-  --tag "$stage_image" \
-  "$stage_dir"
-
-docker tag "$current_image_id" "$recovery_image"
+if artifact_image_exists "$target_image_ref"; then
+  echo "Using pinned rollback image $target_image_ref."
+  rollback_image_source="$target_image_ref"
+else
+  echo "Pinned rollback image unavailable; rebuilding revision $target."
+  stage_dir="$(mktemp -d "${TMPDIR:-/tmp}/zero-nvr-rollback.XXXXXX")"
+  rmdir "$stage_dir"
+  git -C "$ROOT_DIR" worktree add --detach "$stage_dir" "$target" >/dev/null
+  docker build \
+    --file "$stage_dir/backend/Dockerfile" \
+    --tag "$stage_image" \
+    "$stage_dir"
+  rollback_image_source="$stage_image"
+fi
 
 echo "Creating pre-rollback database safety snapshot..."
 create_local_safety_snapshot
@@ -156,7 +165,7 @@ apply_rollback() {
     --force || return 1
 
   git -C "$ROOT_DIR" checkout --detach "$target" || return 1
-  docker tag "$stage_image" "$configured_image" || return 1
+  docker tag "$rollback_image_source" "$configured_image" || return 1
 
   if [[ -x "$SCRIPT_DIR/render-zlm-config.sh" ]]; then
     ZERO_NVR_ENV_FILE="$ENV_FILE" \
@@ -200,6 +209,8 @@ if ! apply_rollback; then
   if ZERO_NVR_ENV_FILE="$ENV_FILE" \
     "$SCRIPT_DIR/check.sh" >/dev/null 2>&1; then
     echo "Previous deployment recovered after rollback failure." >&2
+    remove_artifact_image "$recovery_image"
+    clear_git_pin recovery
   else
     echo "error: automatic recovery also failed" >&2
     echo "retained database safety points:" >&2
@@ -213,16 +224,36 @@ if [[ "$mode" == "failed-update" ]]; then
   write_deployment_state \
     "$target" \
     "$recorded_rollback" \
-    "$recorded_snapshot"
+    "$recorded_snapshot" \
+    "" "" "" \
+    "$recorded_image"
+
+  remove_artifact_image "$pending_previous_image"
+  clear_git_pin pending
+  remove_artifact_image "$recovery_image"
+  clear_git_pin recovery
 else
+  new_rollback_image="$(
+    pin_image_source rollback "$deployed" "$recovery_image"
+  )"
+  pin_git_revision rollback "$deployed"
+
   write_deployment_state \
     "$target" \
     "$deployed" \
-    "$pre_rollback_snapshot"
+    "$pre_rollback_snapshot" \
+    "" "" "" \
+    "$new_rollback_image"
+
+  if [[ -n "$recorded_image" \
+    && "$recorded_image" != "$new_rollback_image" ]]; then
+    remove_artifact_image "$recorded_image"
+  fi
+  remove_artifact_image "$recovery_image"
+  clear_git_pin recovery
 fi
 
 docker image rm "$stage_image" >/dev/null 2>&1 || true
-docker image rm "$recovery_image" >/dev/null 2>&1 || true
 
 if [[ "$mode" == "failed-update" ]]; then
   echo "Failed update recovered: $current_source -> $target"

@@ -5,6 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
+. "$SCRIPT_DIR/artifact-pins.sh"
 . "$SCRIPT_DIR/feature-profiles.sh"
 . "$SCRIPT_DIR/port-preflight.sh"
 
@@ -235,9 +236,9 @@ update_stack() {
   local requested_ref="${2:-}"
   local target_revision previous_revision
   local previous_rollback_revision previous_rollback_snapshot
-  local pending_target environment current_source
-  local rollback_revision="" rollback_snapshot=""
-  local stage_dir="" stage_image="" configured_image=""
+  local previous_rollback_image pending_target environment current_source
+  local rollback_revision="" rollback_snapshot="" rollback_image=""
+  local pending_previous_image="" stage_dir="" stage_image="" configured_image=""
   local verified_safety_backup="false"
 
   preflight
@@ -248,6 +249,7 @@ update_stack() {
   previous_revision="$(deployment_state_get DEPLOYED_REVISION)"
   previous_rollback_revision="$(deployment_state_get ROLLBACK_REVISION)"
   previous_rollback_snapshot="$(deployment_state_get ROLLBACK_SNAPSHOT_REL)"
+  previous_rollback_image="$(deployment_state_get ROLLBACK_IMAGE_REF)"
   pending_target="$(deployment_state_get PENDING_TARGET_REVISION)"
 
   if valid_revision "$pending_target"; then
@@ -344,15 +346,22 @@ update_stack() {
 
   if valid_revision "$target_revision" \
     && valid_revision "$previous_revision" \
-    && [[ "$previous_revision" != "$target_revision" ]] \
     && [[ -n "$SAFETY_SNAPSHOT_REL" ]]; then
+    echo "Pinning pre-update source and Core image..."
+    pin_git_revision pending "$previous_revision"
+    pending_previous_image="$(
+      pin_active_core_image pending "$previous_revision"
+    )"
+
     write_deployment_state \
       "$previous_revision" \
       "$previous_rollback_revision" \
       "$previous_rollback_snapshot" \
       "$target_revision" \
       "$previous_revision" \
-      "$SAFETY_SNAPSHOT_REL"
+      "$SAFETY_SNAPSHOT_REL" \
+      "$previous_rollback_image" \
+      "$pending_previous_image"
   fi
 
   if [[ -n "$requested_ref" ]]; then
@@ -387,20 +396,49 @@ update_stack() {
   if valid_revision "$target_revision"; then
     if valid_revision "$previous_revision" \
       && [[ "$previous_revision" != "$target_revision" ]] \
-      && [[ -n "$SAFETY_SNAPSHOT_REL" ]]; then
+      && [[ -n "$SAFETY_SNAPSHOT_REL" ]] \
+      && [[ -n "$pending_previous_image" ]]; then
       rollback_revision="$previous_revision"
       rollback_snapshot="$SAFETY_SNAPSHOT_REL"
+      rollback_image="$(
+        pin_image_source \
+          rollback \
+          "$previous_revision" \
+          "$pending_previous_image"
+      )"
+      pin_git_revision rollback "$previous_revision"
+
+      write_deployment_state \
+        "$target_revision" \
+        "$rollback_revision" \
+        "$rollback_snapshot" \
+        "" "" "" \
+        "$rollback_image"
+
+      if [[ -n "$previous_rollback_image" \
+        && "$previous_rollback_image" != "$rollback_image" ]]; then
+        remove_artifact_image "$previous_rollback_image"
+      fi
+      remove_artifact_image "$pending_previous_image"
+      clear_git_pin pending
     elif [[ "$previous_revision" == "$target_revision" ]]; then
       rollback_revision="$previous_rollback_revision"
       rollback_snapshot="$previous_rollback_snapshot"
+      rollback_image="$previous_rollback_image"
+
+      write_deployment_state \
+        "$target_revision" \
+        "$rollback_revision" \
+        "$rollback_snapshot" \
+        "" "" "" \
+        "$rollback_image"
+
+      remove_artifact_image "$pending_previous_image"
+      clear_git_pin pending
     else
       echo "WARN previous deployment revision is unknown; this update cannot be automatically rolled back by version" >&2
+      write_deployment_state "$target_revision" "" ""
     fi
-
-    write_deployment_state \
-      "$target_revision" \
-      "$rollback_revision" \
-      "$rollback_snapshot"
   else
     echo "WARN target Git revision unavailable; deployment state was not advanced" >&2
   fi
@@ -834,9 +872,17 @@ case "$command" in
       echo "Deployment state:"
       echo "  deployed: $(deployment_state_get DEPLOYED_REVISION)"
       echo "  rollback: $(deployment_state_get ROLLBACK_REVISION)"
+      rollback_image="$(deployment_state_get ROLLBACK_IMAGE_REF)"
+      if [[ -n "$rollback_image" ]]; then
+        echo "  rollback image: $rollback_image"
+      fi
       pending="$(deployment_state_get PENDING_TARGET_REVISION)"
       if [[ -n "$pending" ]]; then
         echo "  pending:  $pending"
+        pending_image="$(deployment_state_get PENDING_PREVIOUS_IMAGE_REF)"
+        if [[ -n "$pending_image" ]]; then
+          echo "  pending previous image: $pending_image"
+        fi
       fi
     fi
     ;;

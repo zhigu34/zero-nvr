@@ -48,6 +48,8 @@ write_deployment_state() {
   local pending_target="${4:-}"
   local pending_previous="${5:-}"
   local pending_snapshot="${6:-}"
+  local rollback_image_ref="${7:-}"
+  local pending_previous_image_ref="${8:-}"
   local state_dir state tmp
 
   state_dir="$(deployment_data_dir)/deployment"
@@ -61,6 +63,8 @@ write_deployment_state() {
     printf 'PENDING_TARGET_REVISION=%s\n' "$pending_target"
     printf 'PENDING_PREVIOUS_REVISION=%s\n' "$pending_previous"
     printf 'PENDING_SNAPSHOT_REL=%s\n' "$pending_snapshot"
+    printf 'ROLLBACK_IMAGE_REF=%s\n' "$rollback_image_ref"
+    printf 'PENDING_PREVIOUS_IMAGE_REF=%s\n' "$pending_previous_image_ref"
     printf 'UPDATED_AT=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   } > "$tmp"
   chmod 600 "$tmp"
