@@ -5,6 +5,7 @@ import {
   onMounted,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   listCameras,
@@ -33,6 +34,7 @@ interface NetworkInformationLike extends EventTarget {
 }
 
 const auth = useAuthStore()
+const { t } = useI18n({ useScope: "global" })
 const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
@@ -546,7 +548,7 @@ async function createCurrentLayout(): Promise<void> {
       ) ?? created
     )
     cancelLayoutCreate()
-    showLayoutNotice("Layout saved")
+    showLayoutNotice(t("live.layoutSaved"))
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -568,7 +570,7 @@ async function saveActiveLayout(): Promise<void> {
     savedLayouts.value = savedLayouts.value.map((item) =>
       item.id === updated.id ? updated : item
     )
-    showLayoutNotice("Layout updated")
+    showLayoutNotice(t("live.layoutUpdated"))
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -591,7 +593,7 @@ async function setActiveLayoutDefault(): Promise<void> {
       ...item,
       is_default: item.id === updated.id
     }))
-    showLayoutNotice("Default layout updated")
+    showLayoutNotice(t("live.defaultLayoutUpdated"))
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -604,7 +606,7 @@ async function deleteActiveLayout(): Promise<void> {
   if (!layout || layoutBusy.value) return
   if (
     !window.confirm(
-      `Delete the saved layout “${layout.name}”?`
+      t("live.deleteLayoutConfirm", { name: layout.name })
     )
   ) {
     return
@@ -618,7 +620,7 @@ async function deleteActiveLayout(): Promise<void> {
       (item) => item.id !== layout.id
     )
     activeLayoutId.value = null
-    showLayoutNotice("Layout deleted")
+    showLayoutNotice(t("live.layoutDeleted"))
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -683,17 +685,19 @@ onBeforeUnmount(() => {
     >
       <div class="live-camera-panel__header">
         <div>
-          <strong>Cameras</strong>
+          <strong>{{ t("live.cameras") }}</strong>
           <span>
-            {{ selectedCameras.length }} selected ·
-            {{ enabledCameras.length }} enabled
+            {{ t("live.selectionSummary", {
+              selected: selectedCameras.length,
+              enabled: enabledCameras.length
+            }) }}
           </span>
         </div>
         <button
           class="icon-button topbar-icon-button"
           type="button"
-          title="Refresh cameras"
-          aria-label="Refresh cameras"
+          :title="t('live.refreshCameras')"
+          :aria-label="t('live.refreshCameras')"
           :disabled="loading"
           @click="refresh"
         >
@@ -706,19 +710,19 @@ onBeforeUnmount(() => {
         <input
           v-model="search"
           type="search"
-          placeholder="Search cameras"
-          aria-label="Search cameras"
+          :placeholder="t('live.searchCameras')"
+          :aria-label="t('live.searchCameras')"
         />
       </label>
 
       <div class="live-camera-panel__filters">
-        <div class="live-camera-filter" aria-label="Camera filter">
+        <div class="live-camera-filter" :aria-label="t('live.cameraFilter')">
           <button
             type="button"
             :class="{ 'live-camera-filter__active': cameraFilter === 'all' }"
             @click="cameraFilter = 'all'"
           >
-            All
+            {{ t("live.all") }}
             <span>{{ cameras.length }}</span>
           </button>
           <button
@@ -726,7 +730,7 @@ onBeforeUnmount(() => {
             :class="{ 'live-camera-filter__active': cameraFilter === 'selected' }"
             @click="cameraFilter = 'selected'"
           >
-            Selected
+            {{ t("live.selected") }}
             <span>{{ selectedCameras.length }}</span>
           </button>
         </div>
@@ -736,14 +740,14 @@ onBeforeUnmount(() => {
             :disabled="!enabledCameras.length"
             @click="fillGrid"
           >
-            Fill {{ layoutSlots }}
+            {{ t("live.fillSlots", { slots: layoutSlots }) }}
           </button>
           <button
             type="button"
             :disabled="!selectedCameras.length"
             @click="clearGrid"
           >
-            Clear
+            {{ t("live.clear") }}
           </button>
         </div>
       </div>
@@ -781,14 +785,14 @@ onBeforeUnmount(() => {
           <span class="live-camera-row__copy">
             <strong>{{ camera.name }}</strong>
             <small>
-              {{ camera.location || camera.adapter_type || "Camera" }}
+              {{ camera.location || camera.adapter_type || t("live.cameraFallback") }}
             </small>
           </span>
           <span
             class="live-camera-row__check"
             :title="
               cameraSlotNumber(camera.id)
-                ? `Grid slot ${cameraSlotNumber(camera.id)}`
+                ? t("live.gridSlot", { slot: cameraSlotNumber(camera.id) })
                 : undefined
             "
           >
@@ -807,8 +811,8 @@ onBeforeUnmount(() => {
         >
           {{
             cameraFilter === "selected"
-              ? "No cameras selected."
-              : "No cameras found."
+              ? t("live.noSelectedCameras")
+              : t("live.noCamerasFound")
           }}
         </div>
       </div>
@@ -820,22 +824,22 @@ onBeforeUnmount(() => {
           <button
             class="media-button"
             type="button"
-            :title="cameraPanelOpen ? 'Hide cameras' : 'Show cameras'"
-            :aria-label="cameraPanelOpen ? 'Hide cameras' : 'Show cameras'"
+            :title="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
+            :aria-label="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
             @click="cameraPanelOpen = !cameraPanelOpen"
           >
             <UiIcon name="panel" :size="16" />
           </button>
 
           <span class="live-toolbar__title">
-            {{ focusedCameraId ? "Camera focus" : "Live view" }}
+            {{ focusedCameraId ? t("live.cameraFocus") : t("live.liveView") }}
           </span>
 
           <span class="live-toolbar__status">
             <i />
-            {{ visibleCameraCount }} live
+            {{ t("live.liveCount", { count: visibleCameraCount }) }}
             <template v-if="!focusedCameraId">
-              · {{ layoutSlots }}-view
+              · {{ t("live.viewCount", { count: layoutSlots }) }}
             </template>
           </span>
 
@@ -843,7 +847,9 @@ onBeforeUnmount(() => {
             v-if="selectedCameras.length > layoutSlots && !focusedCameraId"
             class="live-toolbar__hint"
           >
-            {{ selectedCameras.length - layoutSlots }} hidden
+            {{ t("live.hiddenCount", {
+              count: selectedCameras.length - layoutSlots
+            }) }}
           </span>
 
           <span
@@ -857,7 +863,7 @@ onBeforeUnmount(() => {
             v-if="networkConstrained"
             class="live-toolbar__hint"
           >
-            Network saving · preview quality
+            {{ t("live.networkSaving") }}
           </span>
         </div>
 
@@ -871,14 +877,14 @@ onBeforeUnmount(() => {
               v-model="layoutNameDraft"
               type="text"
               maxlength="128"
-              placeholder="Layout name"
-              aria-label="Layout name"
+              :placeholder="t('live.layoutName')"
+              :aria-label="t('live.layoutName')"
               autofocus
             />
             <button
               class="media-button"
               type="submit"
-              title="Save new layout"
+              :title="t('live.saveNewLayout')"
               :disabled="layoutBusy || !layoutNameDraft.trim()"
             >
               <UiIcon name="check" :size="14" />
@@ -886,7 +892,7 @@ onBeforeUnmount(() => {
             <button
               class="media-button"
               type="button"
-              title="Cancel"
+              :title="t('live.cancel')"
               @click="cancelLayoutCreate"
             >
               <UiIcon name="close" :size="14" />
@@ -899,10 +905,10 @@ onBeforeUnmount(() => {
           >
             <select
               :value="activeLayoutId || ''"
-              aria-label="Saved live layouts"
+              :aria-label="t('live.savedLayouts')"
               @change="handleLayoutSelection"
             >
-              <option value="">Current view</option>
+              <option value="">{{ t("live.currentView") }}</option>
               <option
                 v-for="layout in savedLayouts"
                 :key="layout.id"
@@ -915,7 +921,7 @@ onBeforeUnmount(() => {
               v-if="activeLayout"
               class="media-button"
               type="button"
-              title="Save changes to this layout"
+              :title="t('live.saveChanges')"
               :disabled="layoutBusy || !layoutDirty"
               @click="saveActiveLayout"
             >
@@ -924,7 +930,7 @@ onBeforeUnmount(() => {
             <button
               class="media-button"
               type="button"
-              title="Save current view as a new layout"
+              :title="t('live.saveAsNew')"
               :disabled="layoutBusy"
               @click="beginLayoutCreate"
             >
@@ -939,8 +945,8 @@ onBeforeUnmount(() => {
               type="button"
               :title="
                 activeLayout.is_default
-                  ? 'Default layout'
-                  : 'Set as default layout'
+                  ? t('live.defaultLayout')
+                  : t('live.setDefaultLayout')
               "
               :disabled="layoutBusy || activeLayout.is_default"
               @click="setActiveLayoutDefault"
@@ -951,7 +957,7 @@ onBeforeUnmount(() => {
               v-if="activeLayout"
               class="media-button"
               type="button"
-              title="Delete saved layout"
+              :title="t('live.deleteSavedLayout')"
               :disabled="layoutBusy"
               @click="deleteActiveLayout"
             >
@@ -966,17 +972,17 @@ onBeforeUnmount(() => {
             @click="focusedCameraId = null"
           >
             <UiIcon name="grid4" :size="15" />
-            Back to grid
+            {{ t("live.backToGrid") }}
           </button>
 
-          <div v-else class="live-layout-switcher" aria-label="Grid layout">
+          <div v-else class="live-layout-switcher" :aria-label="t('live.gridLayout')">
             <button
               v-for="slots in layoutOptions"
               :key="slots"
               class="media-button"
               :class="{ 'media-button--active': layoutSlots === slots }"
               type="button"
-              :title="`${slots} camera layout`"
+              :title="t('live.cameraLayout', { count: slots })"
               @click="setLayout(slots)"
             >
               <UiIcon :name="`grid${slots}`" :size="16" />
@@ -986,8 +992,8 @@ onBeforeUnmount(() => {
           <button
             class="media-button"
             type="button"
-            :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen live view'"
-            :aria-label="fullscreen ? 'Exit fullscreen' : 'Fullscreen live view'"
+            :title="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
+            :aria-label="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
             @click="toggleFullscreen"
           >
             <UiIcon
@@ -1020,11 +1026,11 @@ onBeforeUnmount(() => {
           :key="`empty-${slot}`"
           class="live-empty-tile"
           type="button"
-          title="Open camera picker"
+          :title="t('live.openCameraPicker')"
           @click="openCameraPicker"
         >
           <UiIcon name="plus" :size="22" />
-          <span>Add camera</span>
+          <span>{{ t("live.addCamera") }}</span>
         </button>
 
         <div
@@ -1032,15 +1038,15 @@ onBeforeUnmount(() => {
           class="live-empty-stage"
         >
           <UiIcon name="cameras" :size="30" />
-          <strong>No camera selected</strong>
-          <span>Choose an enabled camera to start monitoring.</span>
+          <strong>{{ t("live.noCameraSelected") }}</strong>
+          <span>{{ t("live.chooseCamera") }}</span>
           <button
             class="media-button media-button--text"
             type="button"
             @click="openCameraPicker"
           >
             <UiIcon name="plus" :size="14" />
-            Select cameras
+            {{ t("live.selectCameras") }}
           </button>
         </div>
       </div>

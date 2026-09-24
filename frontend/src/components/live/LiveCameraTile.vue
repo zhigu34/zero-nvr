@@ -8,6 +8,7 @@ import {
   ref,
   watch
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   moveCameraPtz,
@@ -43,6 +44,7 @@ import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
 
 const auth = useAuthStore()
+const { t } = useI18n({ useScope: "global" })
 
 const props = defineProps<{
   camera: CameraSummary
@@ -493,7 +495,7 @@ function activateCompatibilityLease(
   const leaseId = stream.compatibility_lease_id
   if (!leaseId) {
     throw new Error(
-      "Compatibility stream did not return a lease."
+      t("live.tile.errors.compatibilityLeaseMissing")
     )
   }
 
@@ -520,7 +522,7 @@ function activateCompatibilityLease(
           return
         }
         error.value =
-          "Compatibility stream lease expired. Reconnecting automatically."
+          t("live.tile.errors.compatibilityLeaseExpired")
         descriptor.value = null
         loading.value = false
         destroyPlayer()
@@ -623,13 +625,13 @@ async function attachWebRtc(
   stream: CameraLiveStream
 ): Promise<void> {
   if (typeof RTCPeerConnection === "undefined") {
-    throw new Error("WebRTC is not available in this browser.")
+    throw new Error(t("live.tile.errors.webRtcUnavailable"))
   }
 
   await nextTick()
   const element = video.value
   if (!element) {
-    throw new Error("Live video element is unavailable.")
+    throw new Error(t("live.tile.errors.videoUnavailable"))
   }
 
   releaseWebRtcSession()
@@ -637,7 +639,7 @@ async function attachWebRtc(
   const mediaSessionId = activeMediaSessionId
   if (!mediaSessionId) {
     throw new Error(
-      "Live media session is unavailable."
+      t("live.tile.errors.mediaSessionUnavailable")
     )
   }
 
@@ -687,7 +689,7 @@ async function attachWebRtc(
       return
     }
     error.value =
-      "WebRTC was interrupted. Reconnecting automatically."
+      t("live.tile.errors.webRtcInterrupted")
     descriptor.value = null
     loading.value = false
     destroyPlayer()
@@ -701,7 +703,7 @@ async function attachWebRtc(
 
     const offerSdp = peer.localDescription?.sdp
     if (!offerSdp) {
-      throw new Error("WebRTC offer SDP is unavailable.")
+      throw new Error(t("live.tile.errors.offerUnavailable"))
     }
 
     const whep = await createCameraWhepSession(
@@ -714,7 +716,7 @@ async function attachWebRtc(
       void deleteCameraWhepSession(whep.location).catch(
         () => undefined
       )
-      throw new Error("WebRTC session was superseded.")
+      throw new Error(t("live.tile.errors.sessionSuperseded"))
     }
 
     whepLocation = whep.location
@@ -751,7 +753,7 @@ async function attachHls(
   }
 
   if (!Hls.isSupported()) {
-    throw new Error("This browser cannot play the live HLS stream.")
+    throw new Error(t("live.tile.errors.hlsUnsupported"))
   }
 
   hls = new Hls({
@@ -768,7 +770,7 @@ async function attachHls(
       return
     }
     error.value =
-      "Live stream was interrupted. Reconnecting automatically."
+      t("live.tile.errors.streamInterrupted")
     descriptor.value = null
     loading.value = false
     destroyPlayer()
@@ -804,7 +806,7 @@ async function attachPreferredStream(
 
   const mediaSessionId = activeMediaSessionId
   if (!mediaSessionId) {
-    throw new Error("Live media session is unavailable.")
+    throw new Error(t("live.tile.errors.mediaSessionUnavailable"))
   }
   const compatible = await getCameraCompatibleLiveStream(
     props.camera.id,
@@ -993,7 +995,7 @@ function handleVideoError(): void {
     return
   }
   error.value =
-    "Live stream playback failed. Reconnecting automatically."
+    t("live.tile.errors.playbackFailed")
   descriptor.value = null
   destroyPlayer()
   scheduleReconnect()
@@ -1143,11 +1145,11 @@ onBeforeUnmount(() => {
         {{
           error
             ? reconnecting
-              ? "Reconnecting…"
-              : "Stream unavailable"
+              ? t("live.tile.reconnecting")
+              : t("live.tile.streamUnavailable")
             : playbackSuspended
-              ? "Live view paused"
-              : "Connecting…"
+              ? t("live.tile.paused")
+              : t("live.tile.connecting")
         }}
       </strong>
       <span>
@@ -1155,8 +1157,8 @@ onBeforeUnmount(() => {
           error ||
           (
             playbackSuspended
-              ? "Playback resumes automatically when this view is visible."
-              : "Starting secure live session"
+              ? t("live.tile.resumeWhenVisible")
+              : t("live.tile.startingSecureSession")
           )
         }}
       </span>
@@ -1167,7 +1169,7 @@ onBeforeUnmount(() => {
         @click.stop="retryStream"
       >
         <UiIcon name="refresh" :size="14" />
-        Retry now
+        {{ t("live.tile.retryNow") }}
       </button>
     </div>
 
@@ -1179,7 +1181,7 @@ onBeforeUnmount(() => {
         />
         <div>
           <strong>{{ camera.name }}</strong>
-          <span>{{ camera.location || "No location" }}</span>
+          <span>{{ camera.location || t("live.tile.noLocation") }}</span>
         </div>
       </div>
 
@@ -1209,7 +1211,9 @@ onBeforeUnmount(() => {
         <span
           v-if="descriptor?.compatibility === 'h264_transcode'"
           class="live-quality-badge"
-          :title="`Compatibility transcode · ${descriptor.compatibility_acceleration || 'cpu'}`"
+          :title="t('live.tile.compatibilityTranscode', {
+            acceleration: descriptor.compatibility_acceleration || 'cpu'
+          })"
         >
           H264
         </span>
@@ -1225,7 +1229,7 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Pan up"
+          :aria-label="t('live.tile.panUp')"
           @pointerdown.stop.prevent="beginPtz(0, 0.6)"
           @pointerleave="endPtz"
         >
@@ -1234,7 +1238,7 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Pan left"
+          :aria-label="t('live.tile.panLeft')"
           @pointerdown.stop.prevent="beginPtz(-0.6, 0)"
           @pointerleave="endPtz"
         >
@@ -1246,7 +1250,7 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Pan right"
+          :aria-label="t('live.tile.panRight')"
           @pointerdown.stop.prevent="beginPtz(0.6, 0)"
           @pointerleave="endPtz"
         >
@@ -1255,7 +1259,7 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Pan down"
+          :aria-label="t('live.tile.panDown')"
           @pointerdown.stop.prevent="beginPtz(0, -0.6)"
           @pointerleave="endPtz"
         >
@@ -1271,7 +1275,7 @@ onBeforeUnmount(() => {
           @pointerleave="endPtz"
         >
           <UiIcon name="minus" :size="14" />
-          Zoom
+          {{ t("live.tile.zoom") }}
         </button>
         <button
           class="media-button media-button--text"
@@ -1311,13 +1315,13 @@ onBeforeUnmount(() => {
             {{ Math.round(telemetry.rttMs) }} ms RTT
           </span>
           <span v-if="telemetry.packetLossPct !== null">
-            {{ telemetry.packetLossPct.toFixed(1) }}% loss
+            {{ t("live.tile.packetLoss", { value: telemetry.packetLossPct.toFixed(1) }) }}
           </span>
           <span v-if="telemetry.jitterMs !== null">
-            {{ Math.round(telemetry.jitterMs) }} ms jitter
+            {{ t("live.tile.jitter", { milliseconds: Math.round(telemetry.jitterMs) }) }}
           </span>
           <span v-if="telemetry.relay === true">
-            TURN relay{{
+            {{ t("live.tile.relay") }}{{
               telemetry.relayProtocol
                 ? ` · ${telemetry.relayProtocol}`
                 : telemetry.candidateProtocol
@@ -1326,7 +1330,7 @@ onBeforeUnmount(() => {
             }}
           </span>
           <span v-else-if="telemetry.relay === false">
-            Direct{{
+            {{ t("live.tile.direct") }}{{
               telemetry.candidateProtocol
                 ? ` · ${telemetry.candidateProtocol}`
                 : ""
@@ -1343,20 +1347,18 @@ onBeforeUnmount(() => {
             }}
           </span>
           <span v-if="telemetry.sessionSeconds !== null">
-            {{ Math.round(telemetry.sessionSeconds) }}s session
+            {{ t("live.tile.sessionSeconds", { seconds: Math.round(telemetry.sessionSeconds) }) }}
           </span>
         </template>
         <span
           v-if="focused && telemetry.firstFrameMs !== null"
         >
-          {{ Math.round(telemetry.firstFrameMs) }} ms first frame
+          {{ t("live.tile.firstFrame", { milliseconds: Math.round(telemetry.firstFrameMs) }) }}
         </span>
         <span
           v-if="focused && telemetry.reconnects"
         >
-          {{ telemetry.reconnects }} reconnect{{
-            telemetry.reconnects === 1 ? "" : "s"
-          }}
+          {{ t("live.tile.reconnectCount", { count: telemetry.reconnects }) }}
         </span>
       </div>
 
@@ -1369,8 +1371,8 @@ onBeforeUnmount(() => {
           class="media-button"
           :class="{ 'media-button--active': ptzOpen }"
           type="button"
-          aria-label="Toggle PTZ controls"
-          title="PTZ controls"
+          :aria-label="t('live.tile.ptzControls')"
+          :title="t('live.tile.ptzControls')"
           @click.stop="ptzOpen = !ptzOpen"
         >
           <UiIcon name="ptz" :size="16" />
@@ -1386,8 +1388,8 @@ onBeforeUnmount(() => {
           :disabled="recordingBusy"
           :aria-label="
             manualRecordingActive
-              ? 'Stop manual recording'
-              : 'Start manual recording'
+              ? t('live.tile.stopManualRecording')
+              : t('live.tile.startManualRecording')
           "
           :title="
             manualRecordingActive
@@ -1402,8 +1404,8 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Download snapshot"
-          title="Snapshot"
+          :aria-label="t('live.tile.downloadSnapshot')"
+          :title="t('live.tile.snapshot')"
           @click.stop="downloadSnapshot"
         >
           <UiIcon name="snapshot" :size="16" />
@@ -1413,8 +1415,8 @@ onBeforeUnmount(() => {
           v-if="descriptor?.has_audio && audioEnabled"
           class="media-button"
           type="button"
-          :aria-label="muted ? 'Unmute camera' : 'Mute camera'"
-          :title="muted ? 'Unmute' : 'Mute'"
+          :aria-label="muted ? t('live.tile.unmuteCamera') : t('live.tile.muteCamera')"
+          :title="muted ? t('live.tile.unmute') : t('live.tile.mute')"
           @click.stop="toggleMute"
         >
           <UiIcon
@@ -1426,8 +1428,8 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Focus camera"
-          title="Focus camera"
+          :aria-label="t('live.tile.focusCamera')"
+          :title="t('live.tile.focusCamera')"
           @click.stop="emit('focus', camera.id)"
         >
           <UiIcon name="focus" :size="16" />
@@ -1436,8 +1438,8 @@ onBeforeUnmount(() => {
         <button
           class="media-button"
           type="button"
-          aria-label="Fullscreen camera"
-          title="Fullscreen"
+          :aria-label="t('live.tile.fullscreenCamera')"
+          :title="t('live.tile.fullscreen')"
           @click.stop="enterFullscreen"
         >
           <UiIcon name="maximize" :size="16" />
