@@ -92,7 +92,15 @@ if [[ "$args" == *" compose "* ]] || [[ "$1" == "compose" ]]; then
     *" build zero-nvr")
       exit 0
       ;;
+    *" run --rm --no-deps zero-nvr python -m app.cli migration-preflight"*)
+      printf '%s\n' '{"highest_class":null,"pending":[]}'
+      exit 0
+      ;;
     *" run --rm --no-deps zero-nvr alembic upgrade head")
+      exit 0
+      ;;
+    *" run --rm --no-deps zero-nvr python -m app.cli migration-verify")
+      printf '%s\n' '{"schema_current":true}'
       exit 0
       ;;
     *" up -d --wait --wait-timeout 180")
@@ -183,7 +191,9 @@ grep -Fq "doctor: healthy" "$OUTPUT" || fail "post-install health check did not 
 
 grep -Fq "compose --env-file $STAGE/.env -f $STAGE/docker-compose.yml config --quiet" "$DOCKER_LOG" || fail "Compose model was not validated"
 grep -Fq "pull zlmediakit/zlmediakit:master" "$DOCKER_LOG" || fail "ZLMediaKit image was not pulled"
+grep -Fq "run --rm --no-deps zero-nvr python -m app.cli migration-preflight" "$DOCKER_LOG" || fail "migration preflight was not executed"
 grep -Fq "run --rm --no-deps zero-nvr alembic upgrade head" "$DOCKER_LOG" || fail "database migration was not executed"
+grep -Fq "run --rm --no-deps zero-nvr python -m app.cli migration-verify" "$DOCKER_LOG" || fail "migration verification was not executed"
 grep -Fq "up -d --wait --wait-timeout 180" "$DOCKER_LOG" || fail "Core stack start was not executed"
 
 echo "clean install smoke passed"
