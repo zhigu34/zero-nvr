@@ -544,7 +544,7 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [~] execute Plan 04 R2/R3 2-camera and 4-camera small-host soaks.
 - [~] Core static footprint < 2 GB validation.
 - [~] Core idle RAM < 1 GB validation under the documented resource-budget measurement method.
-- [~] verify Docker log rotation, cache byte quota, and EVENT_ONLY tmpfs bounds.
+- [x] verify Docker log rotation, cache byte quota, and EVENT_ONLY tmpfs bounds.
 
 Optional/non-blocking operational extensions:
 
