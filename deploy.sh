@@ -23,6 +23,7 @@ Usage:
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
+  ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
   ./deploy.sh release-manifest <validate|show|record> [revision]
   ./deploy.sh migrate [--maintenance]
@@ -909,6 +910,13 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/soak.sh" "$@"
+    ;;
+  small-host-soak)
+    ensure_env
+    ensure_host_dirs
+    require_command python3
+    ZERO_NVR_ENV_FILE="$ENV_FILE" \
+      python3 "$SCRIPT_DIR/small_host_soak.py" "$@"
     ;;
   release-check)
     ensure_env

@@ -380,7 +380,7 @@ for at least one hour.
 Supported acceptance command:
 
 ~~~text
-./deploy.sh soak 2 --duration 3600 --interval 30
+./deploy.sh small-host-soak 2 --duration 3600 --interval 30
 ~~~
 
 The report is persisted separately as
@@ -397,7 +397,7 @@ restart deltas, and measured recording write bitrate.
 Repeat with:
 
 ~~~text
-./deploy.sh soak 4 --duration 3600 --interval 30
+./deploy.sh small-host-soak 4 --duration 3600 --interval 30
 ~~~
 
 using the same acceptance rules. Its evidence is persisted independently as

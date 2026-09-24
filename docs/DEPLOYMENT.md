@@ -483,8 +483,8 @@ The same soak engine supports both release-scale and small-host validation.
 Plan 04 R2/R3 small-host acceptance:
 
 ```bash
-./deploy.sh soak 2 --duration 3600 --interval 30
-./deploy.sh soak 4 --duration 3600 --interval 30
+./deploy.sh small-host-soak 2 --duration 3600 --interval 30
+./deploy.sh small-host-soak 4 --duration 3600 --interval 30
 ```
 
 The 2/4-camera modes are strict acceptance runs: they require SQLite, exactly
