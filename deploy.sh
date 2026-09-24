@@ -348,10 +348,13 @@ update_stack() {
     && valid_revision "$previous_revision" \
     && [[ -n "$SAFETY_SNAPSHOT_REL" ]]; then
     echo "Pinning pre-update source and Core image..."
-    pin_git_revision pending "$previous_revision"
     pending_previous_image="$(
       pin_active_core_image pending "$previous_revision"
     )"
+    if ! pin_git_revision pending "$previous_revision"; then
+      remove_artifact_image "$pending_previous_image"
+      return 1
+    fi
 
     write_deployment_state \
       "$previous_revision" \

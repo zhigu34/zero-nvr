@@ -78,8 +78,9 @@ if ! valid_revision "$deployed"; then
 fi
 
 if valid_revision "$pending_target" \
-  && [[ "$current_source" == "$pending_target" ]] \
-  && [[ "$pending_previous" == "$deployed" ]]; then
+  && [[ "$pending_previous" == "$deployed" ]] \
+  && { [[ "$current_source" == "$pending_target" ]] \
+    || [[ "$current_source" == "$pending_previous" ]]; }; then
   mode="failed-update"
   target="$(resolve_target "$pending_previous" "pre-update")"
   snapshot_rel="$pending_snapshot"

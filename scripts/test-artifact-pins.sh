@@ -42,7 +42,7 @@ set -euo pipefail
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
 args="$*"
 case "$args" in
-  *" ps -q zero-nvr")
+  *" ps -a -q zero-nvr")
     printf '%s\n' "container-zero-nvr"
     ;;
   "container inspect container-zero-nvr --format {{.Image}}")

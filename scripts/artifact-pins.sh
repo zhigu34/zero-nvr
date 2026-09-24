@@ -62,7 +62,7 @@ clear_git_pin() {
 active_core_image_id() {
   local container_id image_id
 
-  container_id="$(compose ps -q zero-nvr 2>/dev/null | head -n 1)"
+  container_id="$(compose ps -a -q zero-nvr 2>/dev/null | head -n 1)"
   if [[ -z "$container_id" ]]; then
     echo "error: active zero-nvr container is unavailable" >&2
     return 1

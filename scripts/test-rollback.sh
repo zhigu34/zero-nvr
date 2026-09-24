@@ -41,7 +41,7 @@ fi
 if [[ "$args" == "info" ]]; then
   exit 0
 fi
-if [[ "$args" == *" ps -q zero-nvr"* ]]; then
+if [[ "$args" == *" ps -a -q zero-nvr"* ]]; then
   echo "fake-zero-nvr-container"
   exit 0
 fi
