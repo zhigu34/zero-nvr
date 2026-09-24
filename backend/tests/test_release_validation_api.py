@@ -163,6 +163,7 @@ def test_release_readiness_api_requires_current_release_gates(
                 "profile": "8-camera-soak",
                 "passed": True,
                 "generated_at": generated_at,
+                "duration_seconds": 3600,
             }
         ),
         encoding="utf-8",
