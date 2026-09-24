@@ -23,6 +23,12 @@ persist_release_validation_report   soak   '{"profile":"8-camera-soak","passed":
 
 test -f "$tmp/data/release-validation/latest-soak.json"
 
+persist_release_validation_report \
+  resource-baseline \
+  '{"profile":"r1-clean-core-idle","passed":true}'
+
+test -f "$tmp/data/release-validation/latest-resource-baseline.json"
+
 if persist_release_validation_report   invalid   '{}' >/dev/null 2>&1; then
   echo "expected invalid report kind to fail" >&2
   exit 1

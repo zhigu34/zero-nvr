@@ -540,7 +540,7 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] deploy.sh status / doctor / backup / restore / rollback flows.
 - [~] long-duration 8-camera baseline acceptance.
 - [~] 16-camera extended-target benchmark.
-- [ ] execute Plan 04 R1 clean-Core image/static-footprint + no-camera idle measurement.
+- [~] execute Plan 04 R1 clean-Core image/static-footprint + no-camera idle measurement.
 - [ ] execute Plan 04 R2/R3 2-camera and 4-camera small-host soaks.
 - [ ] Core static footprint < 2 GB validation.
 - [ ] Core idle RAM < 1 GB validation under the documented resource-budget measurement method.

@@ -73,6 +73,7 @@ jobs:
           grep -Fq "postgres|sqlite" /tmp/database-migrate-help
           ./deploy.sh help | grep -Fq "database migrate"
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
+          ./deploy.sh help | grep -Fq "resource-baseline"
           ./deploy.sh help | grep -Fq "soak <8|16>"
           ./deploy.sh help | grep -Fq "secret rotate"
           ./deploy.sh help | grep -Fq "recovery-kit decrypt"
@@ -91,6 +92,7 @@ jobs:
           bash scripts/test-database-migrate.sh
           bash scripts/test-rollback.sh
           bash scripts/test-benchmark.sh
+          bash scripts/test-resource-baseline.sh
           bash scripts/test-soak.sh
           bash scripts/test-release-validation.sh
           bash scripts/test-release-manifest.sh

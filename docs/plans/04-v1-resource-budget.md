@@ -341,6 +341,29 @@ As soon as the production Dockerfile exists:
 5. measure memory/CPU;
 6. record writable-layer/config/log size.
 
+Supported collector:
+
+~~~text
+./deploy.sh resource-baseline
+./deploy.sh resource-baseline --settle 120 --samples 10 --interval 2
+~~~
+
+It refuses optional Compose profiles, requires exactly API/worker/ZLM, and
+requires zero configured cameras. The default waits 60 seconds for steady state
+and samples all three Core containers five times. The report is stored at
+<ZERO_NVR_DATA_PATH>/release-validation/latest-resource-baseline.json.
+
+The static gate deliberately uses a conservative image figure: API/worker shared
+image is counted once and ZLM once, while cross-image shared layers are not
+subtracted. Writable layers, initial data, environment file, generated ZLM
+configuration, and current Docker log streams are added. Recording/cache bytes
+are reported separately and excluded. Idle RAM sums API + worker + ZLM
+Docker/cgroup memory and requires peak sampled usage below 1 GiB.
+
+R1 remains incomplete until this command is executed on the intended clean
+deployment host and the resulting evidence is reviewed. CI validates the
+collector contract but is not production measurement.
+
 ### R2 — 2-camera soak
 
 Run:

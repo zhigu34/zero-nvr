@@ -16,7 +16,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 
 from app.core.config import Settings
 from app.core.db import (
@@ -43,6 +43,7 @@ from app.modules.backups.execution import (
 )
 from app.modules.backups.models import BackupPolicy, BackupSet
 from app.modules.backups.service import BackupPolicyService
+from app.modules.cameras.models import Camera
 from app.modules.backups.database_snapshot import (
     DatabaseSnapshotService,
 )
@@ -1016,6 +1017,61 @@ def safety_snapshot_command(
 
 
 
+
+
+def _resource_baseline_status(
+    settings: Settings,
+    database: Database,
+) -> dict[str, object]:
+    with database.session() as session:
+        configured_cameras = int(
+            session.scalar(
+                select(func.count(Camera.id))
+            )
+            or 0
+        )
+        enabled_cameras = int(
+            session.scalar(
+                select(func.count(Camera.id)).where(
+                    Camera.enabled.is_(True),
+                    Camera.retired_at.is_(None),
+                )
+            )
+            or 0
+        )
+
+    return {
+        "application_version": settings.app_version,
+        "database_backend": (
+            database.url.get_backend_name()
+        ),
+        "configured_cameras": configured_cameras,
+        "enabled_cameras": enabled_cameras,
+        "playback_cache_max_bytes": (
+            settings.playback_cache_max_bytes
+        ),
+        "passed": configured_cameras == 0,
+    }
+
+
+def resource_baseline_status_command(
+    _args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        payload = _resource_baseline_status(
+            settings,
+            database,
+        )
+        print(
+            json.dumps(
+                payload,
+                sort_keys=True,
+            )
+        )
+        return 0 if payload["passed"] else 1
+    finally:
+        database.close()
 
 
 def benchmark_status_command(
@@ -2242,6 +2298,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety.set_defaults(
         handler=safety_snapshot_command
+    )
+
+    resource_baseline = sub.add_parser(
+        "resource-baseline-status"
+    )
+    resource_baseline.set_defaults(
+        handler=resource_baseline_status_command
     )
 
     benchmark = sub.add_parser(

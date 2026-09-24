@@ -414,6 +414,24 @@ The first command runs the reverse-migration preflight and refuses cutover until
 
 Managed MQTT generates a random broker password when none exists. The broker requires authentication and is bound to loopback by default. Frigate and OpenList management ports are also loopback-bound by default; operators may deliberately widen the bind address when required.
 
+### resource baseline
+
+Plan 04 R1 clean-Core/no-camera measurement is host-operated:
+
+~~~bash
+./deploy.sh resource-baseline
+~~~
+
+Run it after a clean Core install before configuring cameras or optional
+Compose profiles. It waits for idle stabilization, then records conservative
+Core image bytes, container writable layers, initial product/config/log bytes,
+Docker/cgroup memory and CPU, host RAM/CPU, and excluded cache/recording usage.
+The report is stored under
+<ZERO_NVR_DATA_PATH>/release-validation/latest-resource-baseline.json.
+The command exits non-zero when the static footprint is at least 2 GiB, peak
+three-container idle memory is at least 1 GiB, optional services are active, or
+the camera inventory is not clean.
+
 ### benchmark
 
 Release-gate validation is host-operated:

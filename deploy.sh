@@ -21,6 +21,7 @@ Usage:
   ./deploy.sh status
   ./deploy.sh doctor
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
+  ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
   ./deploy.sh release-manifest <validate|show|record> [revision]
@@ -898,6 +899,11 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/benchmark.sh" "$@"
+    ;;
+  resource-baseline)
+    ensure_env
+    ensure_host_dirs
+    "$SCRIPT_DIR/resource-baseline.sh" "$@"
     ;;
   soak)
     ensure_env
