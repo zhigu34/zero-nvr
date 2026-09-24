@@ -792,7 +792,7 @@ onBeforeUnmount(() => {
             class="live-camera-row__check"
             :title="
               cameraSlotNumber(camera.id)
-                ? t("live.gridSlot", { slot: cameraSlotNumber(camera.id) })
+                ? t('live.gridSlot', { slot: cameraSlotNumber(camera.id) })
                 : undefined
             "
           >
