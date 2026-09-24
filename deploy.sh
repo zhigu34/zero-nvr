@@ -22,7 +22,7 @@ Usage:
   ./deploy.sh doctor
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
-  ./deploy.sh resource-check static [--max-age-hours HOURS]
+  ./deploy.sh resource-check <static|idle> [--max-age-hours HOURS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]

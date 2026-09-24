@@ -445,6 +445,18 @@ requires the recorded API/worker/ZLM image IDs to match the currently running
 Core containers. Therefore an old R1 report cannot remain valid after an image
 change.
 
+Validate the idle-memory half of the same R1 evidence separately:
+
+~~~bash
+./deploy.sh resource-check idle
+./deploy.sh resource-check idle --max-age-hours 24
+~~~
+
+The idle validator applies the fixed <1 GiB three-Core-container peak-memory
+limit and the documented methodology: clean Core, zero cameras, at least
+60 seconds settling time, at least five Docker/cgroup samples, and a positive
+sample interval. It also rejects stale evidence and image-identity changes.
+
 ### benchmark
 
 Release-gate validation is host-operated:

@@ -74,7 +74,7 @@ jobs:
           ./deploy.sh help | grep -Fq "database migrate"
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
           ./deploy.sh help | grep -Fq "resource-baseline"
-          ./deploy.sh help | grep -Fq "resource-check static"
+          ./deploy.sh help | grep -Fq "resource-check <static|idle>"
           ./deploy.sh help | grep -Fq "soak <8|16>"
           ./deploy.sh help | grep -Fq "small-host-soak <2|4>"
           ./deploy.sh help | grep -Fq "secret rotate"

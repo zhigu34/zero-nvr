@@ -71,6 +71,32 @@ def report(
             "generated_zlm_config_bytes": 5_000_000,
             "current_log_stream_bytes": logs,
         },
+        "idle_runtime": {
+            "passed": True,
+            "settle_seconds": 60,
+            "samples": 5,
+            "interval_seconds": 2.0,
+            "core_memory_avg_bytes": (
+                700_000_000
+            ),
+            "core_memory_peak_bytes": (
+                800_000_000
+            ),
+            "core_memory_limit_bytes": (
+                module.IDLE_MEMORY_LIMIT_BYTES
+            ),
+            "services": {
+                service: {
+                    "memory_avg_bytes": (
+                        200_000_000
+                    ),
+                    "memory_peak_bytes": (
+                        250_000_000
+                    ),
+                }
+                for service in IMAGES
+            },
+        },
         "containers": [
             {
                 "service": service,
@@ -155,10 +181,84 @@ def test_rejects_tampered_total() -> None:
     )
 
 
+def validate_idle(
+    value: dict,
+) -> dict:
+    return module.validate_idle(
+        value,
+        current_images=IMAGES,
+        max_age_hours=168,
+        now=NOW,
+    )
+
+
+def test_valid_idle_evidence() -> None:
+    result = validate_idle(report())
+    assert result["passed"] is True
+    assert result["failures"] == []
+    assert result["headroom_bytes"] > 0
+    assert result["settle_seconds"] == 60
+    assert result["samples"] == 5
+
+
+def test_rejects_idle_memory_limit() -> None:
+    value = report()
+    value["idle_runtime"][
+        "core_memory_peak_bytes"
+    ] = module.IDLE_MEMORY_LIMIT_BYTES
+    value["idle_runtime"]["passed"] = False
+    result = validate_idle(value)
+    assert result["passed"] is False
+    assert (
+        "idle_memory_limit_exceeded"
+        in result["failures"]
+    )
+
+
+def test_rejects_short_idle_methodology() -> None:
+    value = report()
+    value["idle_runtime"][
+        "settle_seconds"
+    ] = 30
+    value["idle_runtime"]["samples"] = 4
+    result = validate_idle(value)
+    assert result["passed"] is False
+    assert (
+        "idle_settle_window_insufficient"
+        in result["failures"]
+    )
+    assert (
+        "idle_sample_count_insufficient"
+        in result["failures"]
+    )
+
+
+def test_rejects_idle_image_change() -> None:
+    current = dict(IMAGES)
+    current["zero-nvr"] = (
+        "sha256:" + "4" * 64
+    )
+    result = module.validate_idle(
+        report(),
+        current_images=current,
+        max_age_hours=168,
+        now=NOW,
+    )
+    assert result["passed"] is False
+    assert (
+        "core_image_identity_changed"
+        in result["failures"]
+    )
+
+
 if __name__ == "__main__":
     test_valid_static_evidence()
     test_rejects_limit_exceeded()
     test_rejects_stale_evidence()
     test_rejects_image_change()
     test_rejects_tampered_total()
-    print("resource static validation: ok")
+    test_valid_idle_evidence()
+    test_rejects_idle_memory_limit()
+    test_rejects_short_idle_methodology()
+    test_rejects_idle_image_change()
+    print("resource evidence validation: ok")

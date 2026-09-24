@@ -510,6 +510,18 @@ the running Core image identities no longer match the R1 measurement. It
 independently recomputes the static total and applies the fixed <2 GiB hard
 limit rather than trusting the report's boolean alone.
 
+Idle evidence is independently revalidated from the same R1 report with:
+
+~~~text
+./deploy.sh resource-check idle
+~~~
+
+This check applies the fixed <1 GiB peak Core RAM limit, requires the documented
+no-camera/Core-only methodology (at least 60 seconds of settle time and at least
+five Docker/cgroup samples with a positive sample interval), validates all
+three Core service memory summaries, rejects stale evidence, and requires the
+recorded image identities to match the currently running Core containers.
+
 - static Core < 2 GB;
 - no-camera idle < 1 GB;
 - small-host camera soak completes without OOM/restart/resource runaway;
