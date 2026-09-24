@@ -1284,7 +1284,7 @@ onBeforeUnmount(() => {
           @pointerleave="endPtz"
         >
           <UiIcon name="plus" :size="14" />
-          Zoom
+          {{ t("live.tile.zoom") }}
         </button>
       </div>
       <span v-if="ptzError" class="live-ptz-error">
@@ -1393,8 +1393,8 @@ onBeforeUnmount(() => {
           "
           :title="
             manualRecordingActive
-              ? 'Stop manual recording'
-              : 'Start manual recording'
+              ? t('live.tile.stopManualRecording')
+              : t('live.tile.startManualRecording')
           "
           @click.stop="toggleManualRecording"
         >
