@@ -2963,7 +2963,7 @@ onBeforeUnmount(() => {
             <dl>
               <div>
                 <dt>{{ t("playback.state") }}</dt>
-                <dd>{{ diagnosticClock.state }}</dd>
+                <dd>{{ translatedStatus(diagnosticClock.state) }}</dd>
               </div>
               <div>
                 <dt>{{ t("playback.intent") }}</dt>
@@ -2996,7 +2996,7 @@ onBeforeUnmount(() => {
                 <dd>
                   {{
                     multiCameraMode
-                      ? `${syncMode} · ${playbackParticipants.length}`
+                      ? `${translatedStatus(syncMode)} · ${playbackParticipants.length}`
                       : t("playback.single")
                   }}
                 </dd>
@@ -3072,7 +3072,11 @@ onBeforeUnmount(() => {
                 <dd>
                   {{
                     activeMediaDiagnostics
-                      ?.readyState || "—"
+                      ?.readyState
+                      ? translatedStatus(
+                          activeMediaDiagnostics.readyState
+                        )
+                      : "—"
                   }}
                 </dd>
               </div>
@@ -3112,9 +3116,9 @@ onBeforeUnmount(() => {
                 <dd>
                   {{
                     activeMediaDiagnostics
-                      ? String(
-                          activeMediaDiagnostics.paused
-                        )
+                      ? activeMediaDiagnostics.paused
+                        ? t("playback.yes")
+                        : t("playback.no")
                       : "—"
                   }}
                 </dd>
@@ -3124,9 +3128,9 @@ onBeforeUnmount(() => {
                 <dd>
                   {{
                     activeMediaDiagnostics
-                      ? String(
-                          activeMediaDiagnostics.seeking
-                        )
+                      ? activeMediaDiagnostics.seeking
+                        ? t("playback.yes")
+                        : t("playback.no")
                       : "—"
                   }}
                 </dd>
@@ -3507,16 +3511,18 @@ onBeforeUnmount(() => {
                   }}
                 </strong>
                 <span>
-                  {{ item.download_count }}
                   {{
                     item.max_downloads
-                      ? `/ ${item.max_downloads}`
-                      : ""
+                      ? t("playback.downloadsLimited", {
+                          downloads: item.download_count,
+                          max: item.max_downloads,
+                          time: formatTimestamp(new Date(item.expires_at))
+                        })
+                      : t("playback.downloadsExpires", {
+                          downloads: item.download_count,
+                          time: formatTimestamp(new Date(item.expires_at))
+                        })
                   }}
-                  {{ t("playback.downloadsExpires", {
-                    downloads: item.download_count,
-                    time: formatTimestamp(new Date(item.expires_at))
-                  }) }}
                 </span>
               </div>
               <span
