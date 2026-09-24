@@ -16,6 +16,7 @@ cp "$ROOT_DIR/.env.example" "$STAGE/.env.example"
 cp "$ROOT_DIR/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp "$ROOT_DIR/scripts/lib.sh" "$STAGE/scripts/lib.sh"
 cp "$ROOT_DIR/scripts/deployment-state.sh" "$STAGE/scripts/deployment-state.sh"
+cp "$ROOT_DIR/scripts/release-manifest.sh" "$STAGE/scripts/release-manifest.sh"
 cp "$ROOT_DIR/scripts/feature-profiles.sh" "$STAGE/scripts/feature-profiles.sh"
 cp "$ROOT_DIR/scripts/port-preflight.sh" "$STAGE/scripts/port-preflight.sh"
 cp "$ROOT_DIR/scripts/render-zlm-config.sh" "$STAGE/scripts/render-zlm-config.sh"
@@ -82,6 +83,10 @@ esac
 if [[ "$args" == *" compose "* ]] || [[ "$1" == "compose" ]]; then
   case "$args" in
     *" config --quiet")
+      exit 0
+      ;;
+    *" config --format json")
+      printf '%s\n' '{"services":{}}'
       exit 0
       ;;
     *" build zero-nvr")
