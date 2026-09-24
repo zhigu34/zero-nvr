@@ -64,6 +64,7 @@ import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
 import SystemOidcPanel from "../components/system/SystemOidcPanel.vue"
 import SystemReleaseValidationPanel from "../components/system/SystemReleaseValidationPanel.vue"
 import SystemSecretStorePanel from "../components/system/SystemSecretStorePanel.vue"
+import SystemRecoveryKitPanel from "../components/system/SystemRecoveryKitPanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -2505,6 +2506,10 @@ onBeforeUnmount(() => {
             <span class="status-pill">Host only</span>
           </div>
 
+          <SystemRecoveryKitPanel
+            :policies="backupPolicies"
+          />
+
           <div class="backup-recovery-commands">
             <div>
               <span>List available restic snapshots</span>
@@ -2535,7 +2540,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div>
-              <span>Export RecoveryKit bootstrap material</span>
+              <span>Export plaintext RecoveryKit on the host</span>
               <code>./deploy.sh recovery-kit export</code>
               <button
                 class="button button--ghost button--compact"
@@ -2543,6 +2548,22 @@ onBeforeUnmount(() => {
                 @click="
                   copyHostCommand(
                     './deploy.sh recovery-kit export'
+                  )
+                "
+              >
+                Copy
+              </button>
+            </div>
+
+            <div>
+              <span>Decrypt a downloaded .znrk kit on a clean host</span>
+              <code>./deploy.sh recovery-kit decrypt /path/to/kit.znrk ./recovery-kit-restored</code>
+              <button
+                class="button button--ghost button--compact"
+                type="button"
+                @click="
+                  copyHostCommand(
+                    './deploy.sh recovery-kit decrypt /path/to/kit.znrk ./recovery-kit-restored'
                   )
                 "
               >

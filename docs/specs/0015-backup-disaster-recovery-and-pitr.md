@@ -140,7 +140,23 @@ never stores the download passphrase. The server persists only non-secret
 generation metadata/fingerprint so the UI can report whether the last generated
 kit is current or stale after keyring, backup-policy, database, or application
 version changes. The encrypted payload carries a minimal clean-host bootstrap
-environment plus the selected backup repository bootstrap credentials.
+environment plus the selected backup repository bootstrap credentials. Managed
+service bootstrap state that is required on a clean host, including enabled
+Compose profiles and managed MQTT/PostgreSQL credentials when applicable, is
+included in the encrypted payload and in staleness tracking.
+
+A downloaded encrypted kit is recovered without an existing control plane:
+
+```text
+./deploy.sh recovery-kit decrypt /path/to/kit.znrk ./recovery-kit-restored
+cp ./recovery-kit-restored/zero-nvr.env .env
+cp ./recovery-kit-restored/recovery.env deploy/recovery.env
+./deploy.sh restore list
+```
+
+The decrypt command refuses to replace extracted files implicitly. It builds a
+zero-nvr helper image directly from the checked-out compatible release and
+therefore does not require a pre-existing product `.env` or running API.
 
 ## Backup run model
 

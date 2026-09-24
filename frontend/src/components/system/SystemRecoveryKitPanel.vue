@@ -1,0 +1,414 @@
+<script setup lang="ts">
+import { computed, ref, watch } from "vue"
+
+import { errorMessage } from "../../api/client"
+import {
+  downloadRecoveryKit,
+  getRecoveryKitStatus,
+  type BackupPolicy,
+  type RecoveryKitStatus
+} from "../../api/system"
+import { useAuthStore } from "../../stores/auth"
+import UiIcon from "../ui/UiIcon.vue"
+
+const props = defineProps<{
+  policies: BackupPolicy[]
+}>()
+
+const auth = useAuthStore()
+const policyId = ref("")
+const status = ref<RecoveryKitStatus | null>(null)
+const passphrase = ref("")
+const confirmation = ref("")
+const loading = ref(false)
+const generating = ref(false)
+const error = ref<string | null>(null)
+const notice = ref<string | null>(null)
+
+const selectedPolicy = computed(
+  () =>
+    props.policies.find(
+      (item) => item.id === policyId.value
+    ) ?? null
+)
+
+function statusClass(): string {
+  if (status.value?.status === "current") {
+    return "status-pill--ok"
+  }
+  if (status.value?.status === "stale") {
+    return "status-pill--error"
+  }
+  return "status-pill--muted"
+}
+
+function statusLabel(): string {
+  const value = status.value?.status
+  if (value === "current") return "Current"
+  if (value === "stale") return "Stale"
+  if (value === "never_generated") {
+    return "Not generated"
+  }
+  return "Unknown"
+}
+
+function formatTime(value: string | null): string {
+  if (!value) return "Never"
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  }).format(new Date(value))
+}
+
+async function loadStatus(): Promise<void> {
+  if (!policyId.value) {
+    status.value = null
+    return
+  }
+  loading.value = true
+  error.value = null
+  try {
+    status.value = await getRecoveryKitStatus(
+      policyId.value
+    )
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function generate(): Promise<void> {
+  if (
+    !auth.hasPermission("system.manage") ||
+    !policyId.value ||
+    generating.value
+  ) {
+    return
+  }
+
+  const bytes = new TextEncoder().encode(
+    passphrase.value
+  ).length
+  if (bytes < 16) {
+    error.value =
+      "RecoveryKit passphrase must be at least 16 bytes."
+    return
+  }
+  if (passphrase.value !== confirmation.value) {
+    error.value = "RecoveryKit passphrases do not match."
+    return
+  }
+
+  generating.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const result = await downloadRecoveryKit(
+      policyId.value,
+      passphrase.value
+    )
+    const url = URL.createObjectURL(result.blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download =
+      result.filename ?? "zero-nvr-recovery-kit.znrk"
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(
+      () => URL.revokeObjectURL(url),
+      0
+    )
+
+    passphrase.value = ""
+    confirmation.value = ""
+    await loadStatus()
+    notice.value =
+      "Encrypted RecoveryKit downloaded. Store the file and passphrase separately off-host."
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    generating.value = false
+  }
+}
+
+watch(
+  () => props.policies,
+  (policies) => {
+    if (
+      !policies.some(
+        (item) => item.id === policyId.value
+      )
+    ) {
+      policyId.value = policies[0]?.id ?? ""
+    }
+    void loadStatus()
+  },
+  { immediate: true }
+)
+</script>
+
+<template>
+  <div class="recovery-kit-panel">
+    <div class="recovery-kit-panel__heading">
+      <div>
+        <strong>Encrypted RecoveryKit</strong>
+        <span>
+          Password-protected clean-host bootstrap for the selected backup
+          repository. The passphrase is never stored by zero-nvr.
+        </span>
+      </div>
+      <span
+        class="status-pill"
+        :class="statusClass()"
+      >
+        {{ loading ? "Checking…" : statusLabel() }}
+      </span>
+    </div>
+
+    <div
+      v-if="error"
+      class="recovery-kit-panel__message recovery-kit-panel__message--error"
+    >
+      <UiIcon name="warning" :size="14" />
+      <span>{{ error }}</span>
+    </div>
+    <div
+      v-if="notice"
+      class="recovery-kit-panel__message"
+    >
+      <UiIcon name="check" :size="14" />
+      <span>{{ notice }}</span>
+    </div>
+
+    <div
+      v-if="policies.length"
+      class="recovery-kit-panel__form"
+    >
+      <label>
+        <span>Backup policy</span>
+        <select
+          v-model="policyId"
+          :disabled="generating"
+          @change="loadStatus"
+        >
+          <option
+            v-for="policy in policies"
+            :key="policy.id"
+            :value="policy.id"
+          >
+            {{ policy.name }}
+          </option>
+        </select>
+      </label>
+
+      <div class="recovery-kit-panel__meta">
+        <div>
+          <span>Last generated</span>
+          <strong>
+            {{ formatTime(status?.generated_at ?? null) }}
+          </strong>
+        </div>
+        <div>
+          <span>Kit version</span>
+          <strong>
+            {{ status?.app_version || "—" }}
+          </strong>
+        </div>
+      </div>
+
+      <template v-if="auth.hasPermission('system.manage')">
+        <div class="recovery-kit-panel__passwords">
+          <label>
+            <span>Encryption passphrase</span>
+            <input
+              v-model="passphrase"
+              type="password"
+              autocomplete="new-password"
+              placeholder="At least 16 bytes"
+            />
+          </label>
+          <label>
+            <span>Confirm passphrase</span>
+            <input
+              v-model="confirmation"
+              type="password"
+              autocomplete="new-password"
+            />
+          </label>
+        </div>
+
+        <div class="recovery-kit-panel__actions">
+          <span>
+            {{
+              status?.status === "stale"
+                ? "Recovery inputs changed. Generate a fresh kit before relying on disaster recovery."
+                : "Keep the .znrk file and its passphrase in separate protected off-host locations."
+            }}
+          </span>
+          <button
+            class="button button--primary"
+            type="button"
+            :disabled="
+              generating ||
+              !selectedPolicy ||
+              !passphrase ||
+              !confirmation
+            "
+            @click="generate"
+          >
+            <UiIcon name="download" :size="14" />
+            {{
+              generating
+                ? "Encrypting…"
+                : status?.status === "stale"
+                  ? "Regenerate RecoveryKit"
+                  : "Generate RecoveryKit"
+            }}
+          </button>
+        </div>
+      </template>
+    </div>
+
+    <div
+      v-else
+      class="recovery-kit-panel__empty"
+    >
+      Create a backup policy before generating a RecoveryKit.
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.recovery-kit-panel {
+  display: grid;
+  gap: 9px;
+  padding: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+.recovery-kit-panel__heading,
+.recovery-kit-panel__actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.recovery-kit-panel__heading strong,
+.recovery-kit-panel__heading span {
+  display: block;
+}
+
+.recovery-kit-panel__heading strong {
+  font-size: 9px;
+}
+
+.recovery-kit-panel__heading div > span,
+.recovery-kit-panel__actions > span,
+.recovery-kit-panel__empty {
+  max-width: 680px;
+  margin-top: 2px;
+  color: var(--text-muted);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.recovery-kit-panel__form,
+.recovery-kit-panel label {
+  display: grid;
+  gap: 4px;
+}
+
+.recovery-kit-panel label > span,
+.recovery-kit-panel__meta span {
+  color: var(--text-muted);
+  font-size: 7px;
+  font-weight: 650;
+  text-transform: uppercase;
+}
+
+.recovery-kit-panel select,
+.recovery-kit-panel input {
+  width: 100%;
+  min-height: 30px;
+  padding: 0 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 8px;
+}
+
+.recovery-kit-panel select:focus,
+.recovery-kit-panel input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.recovery-kit-panel__meta,
+.recovery-kit-panel__passwords {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.recovery-kit-panel__meta > div {
+  padding: 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+}
+
+.recovery-kit-panel__meta strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 8px;
+}
+
+.recovery-kit-panel__message {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 8px;
+  line-height: 1.45;
+}
+
+.recovery-kit-panel__message--error {
+  color: var(--danger);
+}
+
+.recovery-kit-panel__actions {
+  align-items: flex-end;
+}
+
+@media (max-width: 760px) {
+  .recovery-kit-panel__heading,
+  .recovery-kit-panel__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .recovery-kit-panel__meta,
+  .recovery-kit-panel__passwords {
+    grid-template-columns: 1fr;
+  }
+
+  .recovery-kit-panel__actions .button {
+    width: 100%;
+  }
+}
+</style>

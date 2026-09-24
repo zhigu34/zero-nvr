@@ -62,6 +62,56 @@ class RecoveryKitService:
         return value.get_secret_value()
 
     @staticmethod
+    def _runtime_protected_env(key: str) -> str:
+        direct = os.environ.get(key, "")
+        file_value = os.environ.get(
+            f"{key}_FILE",
+            "",
+        )
+        if direct and file_value:
+            raise ApiError(
+                status_code=409,
+                code="recovery_kit_bootstrap_incomplete",
+                message=(
+                    f"Recovery bootstrap configures both {key} "
+                    f"and {key}_FILE."
+                ),
+            )
+        if direct:
+            return direct
+        if not file_value:
+            return ""
+
+        path = Path(file_value)
+        try:
+            value = path.read_text(
+                encoding="utf-8"
+            ).rstrip("\r\n")
+        except OSError as exc:
+            raise ApiError(
+                status_code=409,
+                code="recovery_kit_bootstrap_incomplete",
+                message=(
+                    f"Recovery bootstrap file for {key} "
+                    "is unavailable."
+                ),
+            ) from exc
+        if (
+            not value
+            or "\n" in value
+            or "\r" in value
+        ):
+            raise ApiError(
+                status_code=409,
+                code="recovery_kit_bootstrap_incomplete",
+                message=(
+                    f"Recovery bootstrap file for {key} "
+                    "must contain one non-empty line."
+                ),
+            )
+        return value
+
+    @staticmethod
     def _dotenv_line(
         key: str,
         value: str,
@@ -95,7 +145,17 @@ class RecoveryKitService:
         ]
         database_url = self.settings.database_url or ""
 
-        profiles: list[str] = []
+        profiles = [
+            item.strip()
+            for item in os.environ.get(
+                "COMPOSE_PROFILES",
+                "",
+            ).split(",")
+            if item.strip()
+        ]
+        if self.settings.turn_enabled and "turn" not in profiles:
+            profiles.append("turn")
+
         postgres_values: dict[str, str] = {}
         if database_url:
             parsed = make_url(database_url)
@@ -103,20 +163,66 @@ class RecoveryKitService:
                 parsed.get_backend_name() == "postgresql"
                 and parsed.host == "postgres"
             ):
-                profiles.append("postgres")
+                if "postgres" not in profiles:
+                    profiles.append("postgres")
+                postgres_password = (
+                    parsed.password
+                    or self._runtime_protected_env(
+                        "ZERO_NVR_POSTGRES_PASSWORD"
+                    )
+                )
+                if not postgres_password:
+                    raise ApiError(
+                        status_code=409,
+                        code="recovery_kit_bootstrap_incomplete",
+                        message=(
+                            "Managed PostgreSQL is active but its "
+                            "bootstrap password is unavailable."
+                        ),
+                    )
                 postgres_values = {
                     "ZERO_NVR_POSTGRES_DB": (
-                        parsed.database or "zero_nvr"
+                        parsed.database
+                        or os.environ.get(
+                            "ZERO_NVR_POSTGRES_DB",
+                            "zero_nvr",
+                        )
                     ),
                     "ZERO_NVR_POSTGRES_USER": (
-                        parsed.username or "zero_nvr"
+                        parsed.username
+                        or os.environ.get(
+                            "ZERO_NVR_POSTGRES_USER",
+                            "zero_nvr",
+                        )
                     ),
                     "ZERO_NVR_POSTGRES_PASSWORD": (
-                        parsed.password or ""
+                        postgres_password
                     ),
+                    "ZERO_NVR_POSTGRES_PASSWORD_FILE": "",
                 }
-        if self.settings.turn_enabled:
-            profiles.append("turn")
+
+        mqtt_values: dict[str, str] = {}
+        if "mqtt" in profiles:
+            mqtt_password = self._runtime_protected_env(
+                "ZERO_NVR_MQTT_PASSWORD"
+            )
+            if not mqtt_password:
+                raise ApiError(
+                    status_code=409,
+                    code="recovery_kit_bootstrap_incomplete",
+                    message=(
+                        "Managed MQTT is enabled but its "
+                        "bootstrap password is unavailable."
+                    ),
+                )
+            mqtt_values = {
+                "ZERO_NVR_MQTT_USERNAME": os.environ.get(
+                    "ZERO_NVR_MQTT_USERNAME",
+                    "zero-nvr",
+                ),
+                "ZERO_NVR_MQTT_PASSWORD": mqtt_password,
+                "ZERO_NVR_MQTT_PASSWORD_FILE": "",
+            }
 
         values = {
             "ZERO_NVR_DATA_PATH": "./data/zero-nvr",
@@ -153,8 +259,12 @@ class RecoveryKitService:
             "ZERO_NVR_TURN_SHARED_SECRET_FILE": "",
             "ZERO_NVR_TURN_REALM": self.settings.turn_realm,
             "ZERO_NVR_DATABASE_URL": database_url,
-            "ZERO_NVR_PREBUFFER_SIZE": "512m",
+            "ZERO_NVR_PREBUFFER_SIZE": os.environ.get(
+                "ZERO_NVR_PREBUFFER_SIZE",
+                "512m",
+            ),
             "COMPOSE_PROFILES": ",".join(profiles),
+            **mqtt_values,
             **postgres_values,
         }
 
@@ -216,10 +326,20 @@ class RecoveryKitService:
             self._secret_value(
                 self.settings.turn_shared_secret
             ),
+            self._runtime_protected_env(
+                "ZERO_NVR_MQTT_PASSWORD"
+            ),
+            self._runtime_protected_env(
+                "ZERO_NVR_POSTGRES_PASSWORD"
+            ),
         ]
         material = {
             "app_version": self.settings.app_version,
             "database_url": self.settings.database_url or "",
+            "compose_profiles": os.environ.get(
+                "COMPOSE_PROFILES",
+                "",
+            ),
             "policy_id": str(policy.id),
             "policy_updated_at": (
                 policy.updated_at.astimezone(UTC).isoformat()
@@ -545,3 +665,77 @@ class RecoveryKitService:
                 "unsupported RecoveryKit payload"
             )
         return payload
+
+
+    @classmethod
+    def extract(
+        cls,
+        content: bytes,
+        *,
+        passphrase: str,
+        destination: Path,
+        overwrite: bool = False,
+    ) -> list[Path]:
+        payload = cls.decrypt(
+            content,
+            passphrase=passphrase,
+        )
+        files = payload.get("files")
+        allowed = {
+            "zero-nvr.env",
+            "recovery.env",
+            "README.txt",
+        }
+        if (
+            not isinstance(files, dict)
+            or set(files) != allowed
+            or not all(
+                isinstance(name, str)
+                and isinstance(value, str)
+                for name, value in files.items()
+            )
+        ):
+            raise ValueError(
+                "RecoveryKit payload files are invalid"
+            )
+
+        destination.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        targets = [
+            destination / name
+            for name in sorted(allowed)
+        ]
+        if not overwrite:
+            existing = [
+                path.name
+                for path in targets
+                if path.exists()
+            ]
+            if existing:
+                raise FileExistsError(
+                    "refusing to overwrite RecoveryKit files: "
+                    + ", ".join(existing)
+                )
+
+        written: list[Path] = []
+        for target in targets:
+            value = files[target.name]
+            temp = target.with_name(
+                f".{target.name}.{uuid.uuid4().hex}.tmp"
+            )
+            try:
+                temp.write_text(
+                    value,
+                    encoding="utf-8",
+                )
+                os.chmod(temp, 0o600)
+                os.replace(temp, target)
+                written.append(target)
+            finally:
+                try:
+                    temp.unlink()
+                except FileNotFoundError:
+                    pass
+        return written

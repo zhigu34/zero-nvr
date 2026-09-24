@@ -1,4 +1,4 @@
-import { apiRequest } from "./client"
+import { apiDownload, apiRequest } from "./client"
 
 export interface SystemInfo {
   name: string
@@ -283,6 +283,13 @@ export interface BackupSet {
 export interface BackupPage {
   items: BackupSet[]
   next_cursor: string | null
+}
+
+export interface RecoveryKitStatus {
+  status: "never_generated" | "current" | "stale"
+  policy_id: string
+  generated_at: string | null
+  app_version: string
 }
 
 export interface AuditEvent {
@@ -775,6 +782,30 @@ export function verifyBackup(backupId: string): Promise<BackupSet> {
     `/backups/${encodeURIComponent(backupId)}/verify`,
     { method: "POST" }
   )
+}
+
+export function getRecoveryKitStatus(
+  policyId: string
+): Promise<RecoveryKitStatus> {
+  const params = new URLSearchParams({
+    policy_id: policyId
+  })
+  return apiRequest<RecoveryKitStatus>(
+    `/backups/recovery-kit/status?${params}`
+  )
+}
+
+export function downloadRecoveryKit(
+  policyId: string,
+  passphrase: string
+) {
+  return apiDownload("/backups/recovery-kit", {
+    method: "POST",
+    json: {
+      policy_id: policyId,
+      passphrase
+    }
+  })
 }
 
 export function listAuditEvents(query: {

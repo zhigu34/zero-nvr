@@ -27,6 +27,7 @@ Usage:
   ./deploy.sh restore list
   ./deploy.sh restore [snapshot-id|latest] --force
   ./deploy.sh recovery-kit export [directory] [policy-id-or-name]
+  ./deploy.sh recovery-kit decrypt <kit.znrk> [directory]
   ./deploy.sh admin reset-password <username>
   ./deploy.sh secret rotate
   ./deploy.sh feature list
@@ -827,6 +828,9 @@ case "$command" in
         output="${1:-$ROOT_DIR/recovery-kit}"
         policy="${2:-}"
         "$SCRIPT_DIR/recovery-kit.sh" "$output" "$policy"
+        ;;
+      decrypt)
+        "$SCRIPT_DIR/recovery-kit-decrypt.sh" "$@"
         ;;
       *)
         echo "error: unsupported recovery-kit command: $subcommand" >&2

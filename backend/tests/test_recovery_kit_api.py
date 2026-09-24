@@ -186,3 +186,55 @@ def test_recovery_kit_rejects_short_passphrase(
             },
         )
         assert response.status_code == 422
+
+
+
+def test_recovery_kit_extract_writes_only_expected_files(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    with TestClient(app) as client:
+        setup_admin(client)
+        policy_id = create_policy(client)
+        response = client.post(
+            "/api/v1/backups/recovery-kit",
+            json={
+                "policy_id": policy_id,
+                "passphrase": KIT_PASSPHRASE,
+            },
+        )
+        assert response.status_code == 200
+
+    output = tmp_path / "extracted"
+    written = RecoveryKitService.extract(
+        response.content,
+        passphrase=KIT_PASSPHRASE,
+        destination=output,
+    )
+    assert {
+        path.name
+        for path in written
+    } == {
+        "zero-nvr.env",
+        "recovery.env",
+        "README.txt",
+    }
+    assert (
+        output / "zero-nvr.env"
+    ).stat().st_mode & 0o777 == 0o600
+    assert (
+        output / "recovery.env"
+    ).stat().st_mode & 0o777 == 0o600
+
+    try:
+        RecoveryKitService.extract(
+            response.content,
+            passphrase=KIT_PASSPHRASE,
+            destination=output,
+        )
+    except FileExistsError:
+        pass
+    else:
+        raise AssertionError(
+            "RecoveryKit extraction overwrote files"
+        )
