@@ -7,6 +7,7 @@ import {
   ref,
   watch
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import { errorMessage } from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
@@ -29,6 +30,10 @@ interface SyncTileState {
   state: SyncTileStateName
   blocksStrict: boolean
 }
+
+const { t } = useI18n({
+  useScope: "global"
+})
 
 const props = defineProps<{
   cameraId: string
@@ -120,22 +125,22 @@ const syncState = computed<SyncTileState>(() => {
 })
 
 const statusLabel = computed(() => {
-  if (failure.value) return "Unavailable"
-  if (loading.value) return "Loading"
+  if (failure.value) return t("playback.tile.unavailable")
+  if (loading.value) return t("playback.tile.loading")
   if (playback.value?.status === "pending") {
-    return "Restoring"
+    return t("playback.tile.restoring")
   }
   if (playback.value?.status === "gap") {
-    return playback.value.reason.replaceAll(
-      "_",
-      " "
-    )
+    const key = `playback.reasonMap.${playback.value.reason.toLowerCase()}`
+    return t(key, playback.value.reason.replaceAll("_", " "))
   }
-  if (buffering.value) return "Buffering"
+  if (buffering.value) return t("playback.tile.buffering")
   if (playback.value?.status === "playable") {
-    return props.playing ? "Playing" : "Ready"
+    return props.playing
+      ? t("playback.tile.playing")
+      : t("playback.tile.ready")
   }
-  return "Waiting"
+  return t("playback.tile.waiting")
 })
 
 function clearRetry(): void {
@@ -485,7 +490,7 @@ onBeforeUnmount(() => {
     <header>
       <div>
         <strong>{{ cameraName }}</strong>
-        <span v-if="focused">Primary</span>
+        <span v-if="focused">{{ t("playback.tile.primary") }}</span>
       </div>
       <span class="tolerant-playback-tile__status">
         {{ statusLabel }}
@@ -517,30 +522,30 @@ onBeforeUnmount(() => {
         class="tolerant-playback-tile__overlay"
       >
         <strong v-if="loading">
-          Loading recording…
+          {{ t("playback.tile.loadingRecording") }}
         </strong>
         <strong
           v-else-if="
             playback?.status === 'pending'
           "
         >
-          Restoring remote recording…
+          {{ t("playback.tile.restoringRemote") }}
         </strong>
         <strong
           v-else-if="
             playback?.status === 'gap'
           "
         >
-          No recording
+          {{ t("playback.tile.noRecording") }}
         </strong>
         <strong v-else-if="buffering">
-          Buffering…
+          {{ t("playback.tile.bufferingEllipsis") }}
         </strong>
         <strong v-else-if="failure">
-          Channel unavailable
+          {{ t("playback.tile.channelUnavailable") }}
         </strong>
         <strong v-else>
-          Waiting for media…
+          {{ t("playback.tile.waitingForMedia") }}
         </strong>
 
         <span
@@ -549,10 +554,7 @@ onBeforeUnmount(() => {
           "
         >
           {{
-            playback.reason.replaceAll(
-              "_",
-              " "
-            )
+            statusLabel
           }}
         </span>
         <span v-else-if="failure">

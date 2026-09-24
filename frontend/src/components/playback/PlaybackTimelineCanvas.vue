@@ -6,6 +6,7 @@ import {
   ref,
   watch
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import type { RecordingProtection } from "../../api/recordings"
 import type { PlaybackTimeline } from "../../api/playback"
@@ -40,6 +41,10 @@ type HitTarget =
       tooltip: string
       item: RecordingProtection
     }
+
+const { locale, t } = useI18n({
+  useScope: "global"
+})
 
 const props = defineProps<{
   timeline: PlaybackTimeline | null
@@ -122,7 +127,7 @@ function timeForX(x: number, width: number): number {
 }
 
 function formatClock(timeMs: number): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
@@ -130,7 +135,7 @@ function formatClock(timeMs: number): string {
 }
 
 function formatTimestamp(timeMs: number): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -627,7 +632,7 @@ function draw(): void {
         at: null,
         tooltip: `${event.category}${label} · ${formatTimestamp(
           startMs
-        )} → ${event.end_at ? formatTimestamp(endMs) : "ongoing"}`
+        )} → ${event.end_at ? formatTimestamp(endMs) : t("playback.timeline.ongoing")}`
       })
       continue
     }
@@ -988,7 +993,7 @@ onBeforeUnmount(() => {
     class="playback-canvas-timeline"
     role="slider"
     tabindex="0"
-    aria-label="Recording timeline"
+    :aria-label="t('playback.timeline.aria')"
     :aria-valuemin="bounds()[0]"
     :aria-valuemax="bounds()[1]"
     :aria-valuenow="currentAt.getTime()"

@@ -7,6 +7,7 @@ import {
   ref
 } from "vue"
 import { useRoute } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import {
   listCameras,
@@ -74,6 +75,9 @@ interface SyncTileState {
 
 const auth = useAuthStore()
 const route = useRoute()
+const { locale, t, te } = useI18n({
+  useScope: "global"
+})
 const zoomOptions: ZoomHours[] = [1, 6, 24]
 const stage = ref<HTMLElement | null>(null)
 const videoA = ref<HTMLVideoElement | null>(null)
@@ -134,7 +138,7 @@ const actionMode = ref<"protect" | "export">("export")
 const actionStart = ref("")
 const actionEnd = ref("")
 const editingProtectionId = ref<string | null>(null)
-const protectionReason = ref("Important footage")
+const protectionReason = ref("")
 const protectionExpiresAt = ref("")
 const exportCodecMode = ref<"auto" | "copy" | "h264">("auto")
 const exportGapPolicy = ref<"skip" | "fail">("skip")
@@ -386,7 +390,7 @@ function formatDateInput(date: Date): string {
 }
 
 function formatClock(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
@@ -394,7 +398,7 @@ function formatClock(date: Date): string {
 }
 
 function formatTimestamp(date: Date): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -402,6 +406,27 @@ function formatTimestamp(date: Date): string {
     second: "2-digit",
     hour12: false
   }).format(date)
+}
+
+function translatedStatus(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replaceAll(".", "_")
+  const key = `playback.status.${normalized}`
+  return te(key)
+    ? t(key)
+    : value.replaceAll("_", " ")
+}
+
+function translatedReason(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replaceAll("-", "_")
+  const key = `playback.reasonMap.${normalized}`
+  return te(key)
+    ? t(key)
+    : value.replaceAll("_", " ")
 }
 
 function localDayStart(): Date {
@@ -1105,8 +1130,7 @@ function toggleSyncCamera(
     current.splice(existing, 1)
   } else {
     if (current.length >= 8) {
-      error.value =
-        "Tolerant playback supports up to 9 cameras."
+      error.value = t("playback.maxSyncCameras")
       return
     }
     current.push(cameraId)
@@ -1850,7 +1874,7 @@ function openActionPanel(mode: "protect" | "export"): void {
   actionEnd.value = toLocalDateTimeInput(
     new Date(center + 30_000)
   )
-  protectionReason.value = "Important footage"
+  protectionReason.value = t("playback.importantFootage")
   protectionExpiresAt.value = ""
   exportCodecMode.value = "auto"
   exportGapPolicy.value = "skip"
@@ -1888,7 +1912,7 @@ function actionRange(): [Date, Date] {
     Number.isNaN(end.getTime()) ||
     end <= start
   ) {
-    throw new Error("Clip end must be after clip start.")
+    throw new Error(t("playback.clipRangeInvalid"))
   }
   return [start, end]
 }
@@ -1990,7 +2014,9 @@ async function removeProtection(
 ): Promise<void> {
   if (
     !window.confirm(
-      `Remove protection “${item.reason}”? The recording becomes eligible for normal retention again.`
+      t("playback.removeProtectionConfirm", {
+        reason: item.reason
+      })
     )
   ) {
     return
@@ -2106,7 +2132,7 @@ async function revokeShare(item: ExportShare): Promise<void> {
 }
 
 async function removeExport(item: ExportJob): Promise<void> {
-  if (!window.confirm("Delete this export?")) return
+  if (!window.confirm(t("playback.deleteExportConfirm"))) return
   try {
     if (activeExport.value?.id === item.id) clearExportPoll()
     await deleteExport(item.id)
@@ -2436,14 +2462,14 @@ onBeforeUnmount(() => {
     >
       <div class="live-camera-panel__header">
         <div>
-          <strong>Cameras</strong>
-          <span>{{ cameras.length }} available</span>
+          <strong>{{ t("playback.cameras") }}</strong>
+          <span>{{ t("playback.availableCount", { count: cameras.length }) }}</span>
         </div>
         <button
           class="icon-button topbar-icon-button"
           type="button"
-          title="Refresh cameras"
-          aria-label="Refresh cameras"
+          :title="t('playback.refreshCameras')"
+          :aria-label="t('playback.refreshCameras')"
           :disabled="loadingCameras"
           @click="refreshCameras"
         >
@@ -2456,8 +2482,8 @@ onBeforeUnmount(() => {
         <input
           v-model="search"
           type="search"
-          placeholder="Search cameras"
-          aria-label="Search cameras"
+          :placeholder="t('playback.searchCameras')"
+          :aria-label="t('playback.searchCameras')"
         />
       </label>
 
@@ -2489,7 +2515,7 @@ onBeforeUnmount(() => {
                 {{
                   camera.location ||
                   camera.adapter_type ||
-                  "Camera"
+                  t("playback.cameraFallback")
                 }}
               </small>
             </span>
@@ -2514,15 +2540,15 @@ onBeforeUnmount(() => {
             "
             :title="
               activeCameraId === camera.id
-                ? 'Primary sync camera'
+                ? t('playback.primarySyncCamera')
                 : isSyncParticipant(camera.id)
-                  ? 'Remove from synchronized playback'
-                  : 'Add to synchronized playback'
+                  ? t('playback.removeFromSync')
+                  : t('playback.addToSync')
             "
             :aria-label="
               isSyncParticipant(camera.id)
-                ? 'Remove synchronized camera'
-                : 'Add synchronized camera'
+                ? t('playback.removeSyncCamera')
+                : t('playback.addSyncCamera')
             "
             @click="toggleSyncCamera(camera.id)"
           >
@@ -2541,7 +2567,7 @@ onBeforeUnmount(() => {
           v-if="!filteredCameras.length && !loadingCameras"
           class="live-camera-list__empty"
         >
-          No cameras found.
+          {{ t("playback.noCamerasFound") }}
         </div>
       </div>
     </aside>
@@ -2552,13 +2578,13 @@ onBeforeUnmount(() => {
           <button
             class="media-button"
             type="button"
-            :title="cameraPanelOpen ? 'Hide cameras' : 'Show cameras'"
+            :title="cameraPanelOpen ? t('playback.hideCameras') : t('playback.showCameras')"
             @click="cameraPanelOpen = !cameraPanelOpen"
           >
             <UiIcon name="panel" :size="16" />
           </button>
           <span class="live-toolbar__title">
-            {{ activeCamera?.name || "Playback" }}
+            {{ activeCamera?.name || t("playback.title") }}
           </span>
           <span
             v-if="multiCameraMode"
@@ -2567,11 +2593,11 @@ onBeforeUnmount(() => {
             {{
               syncMode === "strict"
                 ? strictBarrierActive
-                  ? `Strict · waiting ${strictBlockers.length}`
-                  : "Strict"
-                : "Tolerant"
+                  ? t("playback.strictWaiting", { count: strictBlockers.length })
+                  : t("playback.strict")
+                : t("playback.tolerant")
             }}
-            · {{ playbackParticipants.length }}
+            · {{ t("playback.participantCount", { count: playbackParticipants.length }) }}
           </span>
         </div>
 
@@ -2581,7 +2607,7 @@ onBeforeUnmount(() => {
             <input
               v-model="selectedDate"
               type="date"
-              aria-label="Playback date"
+              :aria-label="t('playback.playbackDate')"
               @change="handleDateChange"
             />
           </label>
@@ -2601,7 +2627,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="setSyncMode('tolerant')"
             >
-              Tolerant
+              {{ t("playback.tolerant") }}
             </button>
             <button
               class="media-button media-button--text"
@@ -2612,7 +2638,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="setSyncMode('strict')"
             >
-              Strict
+              {{ t("playback.strict") }}
             </button>
           </div>
 
@@ -2624,10 +2650,10 @@ onBeforeUnmount(() => {
             }"
             type="button"
             :aria-pressed="skipGaps"
-            title="Skip periods where no selected camera has playable recording"
+            :title="t('playback.skipGapsTitle')"
             @click="skipGaps = !skipGaps"
           >
-            Skip gaps
+            {{ t("playback.skipGaps") }}
           </button>
 
           <div class="playback-zoom-switcher">
@@ -2646,7 +2672,7 @@ onBeforeUnmount(() => {
           <button
             class="media-button"
             type="button"
-            :title="fullscreen ? 'Exit fullscreen' : 'Fullscreen playback'"
+            :title="fullscreen ? t('playback.exitFullscreen') : t('playback.fullscreenPlayback')"
             @click="toggleFullscreen"
           >
             <UiIcon
@@ -2732,12 +2758,11 @@ onBeforeUnmount(() => {
             :name="resolving ? 'refresh' : 'playback'"
             :size="32"
           />
-          <strong v-if="resolving">Loading recording…</strong>
+          <strong v-if="resolving">{{ t("playback.loadingRecording") }}</strong>
           <template v-else-if="playbackResult?.status === 'pending'">
-            <strong>Restoring remote recording…</strong>
+            <strong>{{ t("playback.restoringRemote") }}</strong>
             <span>
-              Copying this segment into the bounded local playback cache.
-              Playback will start automatically when it is ready.
+              {{ t("playback.restoringDescription") }}
             </span>
             <button
               class="media-button media-button--text"
@@ -2745,12 +2770,12 @@ onBeforeUnmount(() => {
               @click="resolveAt(currentAt, true)"
             >
               <UiIcon name="refresh" :size="14" />
-              Check now
+              {{ t("playback.checkNow") }}
             </button>
           </template>
           <template v-else-if="gapResult">
-            <strong>No recording at this time</strong>
-            <span>{{ gapResult.reason.replaceAll("_", " ") }}</span>
+            <strong>{{ t("playback.noRecording") }}</strong>
+            <span>{{ translatedReason(gapResult.reason) }}</span>
             <div class="playback-gap-actions">
               <button
                 v-if="gapResult.previous_at"
@@ -2759,7 +2784,7 @@ onBeforeUnmount(() => {
                 @click="jumpTo(gapResult.previous_at)"
               >
                 <UiIcon name="previous" :size="14" />
-                Previous
+                {{ t("playback.previous") }}
               </button>
               <button
                 v-if="gapResult.next_at"
@@ -2767,15 +2792,15 @@ onBeforeUnmount(() => {
                 type="button"
                 @click="jumpTo(gapResult.next_at)"
               >
-                Next
+                {{ t("playback.next") }}
                 <UiIcon name="next" :size="14" />
               </button>
             </div>
           </template>
           <template v-else>
-            <strong>Select a point in the timeline</strong>
+            <strong>{{ t("playback.selectTimelinePoint") }}</strong>
             <span>
-              Choose a recording range or event marker to begin playback.
+              {{ t("playback.selectTimelineDescription") }}
             </span>
           </template>
         </div>
@@ -2791,8 +2816,8 @@ onBeforeUnmount(() => {
           type="button"
           :aria-label="
             playbackControlActive
-              ? 'Pause'
-              : 'Play'
+              ? t('playback.pause')
+              : t('playback.play')
           "
           @click="togglePlayback"
         >
@@ -2812,17 +2837,17 @@ onBeforeUnmount(() => {
           :disabled="highSpeedMuted"
           :title="
             highSpeedMuted
-              ? 'Audio is muted at 4x and 8x playback'
+              ? t('playback.highSpeedMuted')
               : effectiveMuted
-                ? 'Unmute'
-                : 'Mute'
+                ? t('playback.unmute')
+                : t('playback.mute')
           "
           :aria-label="
             highSpeedMuted
-              ? 'Audio muted at high playback speed'
+              ? t('playback.highSpeedMutedLabel')
               : effectiveMuted
-                ? 'Unmute'
-                : 'Mute'
+                ? t('playback.unmute')
+                : t('playback.mute')
           "
           @click="toggleMute"
         >
@@ -2868,7 +2893,7 @@ onBeforeUnmount(() => {
               !diagnosticsOpen
           "
         >
-          Diagnostics
+          {{ t("playback.diagnostics") }}
         </button>
 
         <span class="playback-current-time">
@@ -2883,7 +2908,7 @@ onBeforeUnmount(() => {
             @click="openActionPanel('protect')"
           >
             <UiIcon name="shield" :size="14" />
-            Protect
+            {{ t("playback.protect") }}
           </button>
           <button
             v-if="auth.hasPermission('recording.export')"
@@ -2892,7 +2917,7 @@ onBeforeUnmount(() => {
             @click="openActionPanel('export')"
           >
             <UiIcon name="export" :size="14" />
-            Export
+            {{ t("playback.export") }}
           </button>
         </div>
 
@@ -2900,7 +2925,7 @@ onBeforeUnmount(() => {
           v-if="multiCameraMode"
           class="playback-codec"
         >
-          Tolerant sync
+          {{ t("playback.tolerantSync") }}
         </span>
         <span
           v-else-if="
@@ -2908,7 +2933,7 @@ onBeforeUnmount(() => {
           "
           class="playback-codec"
         >
-          {{ playbackResult.codec || "video" }}
+          {{ playbackResult.codec || t("playback.video") }}
         </span>
       </div>
 
@@ -2918,9 +2943,9 @@ onBeforeUnmount(() => {
       >
         <header>
           <div>
-            <strong>Playback diagnostics</strong>
+            <strong>{{ t("playback.diagnosticsTitle") }}</strong>
             <span>
-              Runtime state only · no media URLs
+              {{ t("playback.diagnosticsDescription") }}
             </span>
           </div>
           <button
@@ -2928,34 +2953,34 @@ onBeforeUnmount(() => {
             type="button"
             @click="diagnosticsOpen = false"
           >
-            Close
+            {{ t("playback.close") }}
           </button>
         </header>
 
         <div class="playback-diagnostics__grid">
           <section>
-            <strong>Master clock</strong>
+            <strong>{{ t("playback.masterClock") }}</strong>
             <dl>
               <div>
-                <dt>State</dt>
+                <dt>{{ t("playback.state") }}</dt>
                 <dd>{{ diagnosticClock.state }}</dd>
               </div>
               <div>
-                <dt>Intent</dt>
+                <dt>{{ t("playback.intent") }}</dt>
                 <dd>
                   {{
                     playbackControlActive
-                      ? "play"
-                      : "pause"
+                      ? t("playback.play")
+                      : t("playback.pause")
                   }}
                 </dd>
               </div>
               <div>
-                <dt>Rate</dt>
+                <dt>{{ t("playback.rate") }}</dt>
                 <dd>{{ playbackRate }}x</dd>
               </div>
               <div>
-                <dt>Clock</dt>
+                <dt>{{ t("playback.clock") }}</dt>
                 <dd>
                   {{
                     formatTimestamp(
@@ -2967,58 +2992,58 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Sync</dt>
+                <dt>{{ t("playback.sync") }}</dt>
                 <dd>
                   {{
                     multiCameraMode
                       ? `${syncMode} · ${playbackParticipants.length}`
-                      : "single"
+                      : t("playback.single")
                   }}
                 </dd>
               </div>
               <div>
-                <dt>Skip gaps</dt>
-                <dd>{{ skipGaps ? "on" : "off" }}</dd>
+                <dt>{{ t("playback.skipGapsLabel") }}</dt>
+                <dd>{{ skipGaps ? t("playback.on") : t("playback.off") }}</dd>
               </div>
             </dl>
           </section>
 
           <section>
-            <strong>Resolver</strong>
+            <strong>{{ t("playback.resolver") }}</strong>
             <dl>
               <div>
-                <dt>Status</dt>
-                <dd>{{ diagnosticResolverState }}</dd>
+                <dt>{{ t("playback.statusLabel") }}</dt>
+                <dd>{{ translatedStatus(diagnosticResolverState) }}</dd>
               </div>
               <div>
-                <dt>Segment</dt>
+                <dt>{{ t("playback.segment") }}</dt>
                 <dd>
                   {{ activeSegmentId || "—" }}
                 </dd>
               </div>
               <div>
-                <dt>Availability</dt>
+                <dt>{{ t("playback.availability") }}</dt>
                 <dd>
                   {{
                     activeTimelineSegment
-                      ?.availability || "—"
+                      ?.availability ? translatedStatus(activeTimelineSegment.availability) : "—"
                   }}
                 </dd>
               </div>
               <div>
-                <dt>Standby</dt>
+                <dt>{{ t("playback.standby") }}</dt>
                 <dd>
                   {{
                     standbySegment
                       ? standbyReady
-                        ? "ready"
-                        : "loading"
+                        ? t("playback.ready")
+                        : t("playback.loading")
                       : "—"
                   }}
                 </dd>
               </div>
               <div>
-                <dt>Transport</dt>
+                <dt>{{ t("playback.transport") }}</dt>
                 <dd>
                   {{
                     playbackResult?.status ===
@@ -3029,10 +3054,10 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Gap</dt>
+                <dt>{{ t("playback.gap") }}</dt>
                 <dd>
                   {{
-                    gapResult?.reason || "—"
+                    gapResult?.reason ? translatedReason(gapResult.reason) : "—"
                   }}
                 </dd>
               </div>
@@ -3040,10 +3065,10 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-if="!multiCameraMode">
-            <strong>Active media</strong>
+            <strong>{{ t("playback.activeMedia") }}</strong>
             <dl>
               <div>
-                <dt>Ready</dt>
+                <dt>{{ t("playback.mediaReady") }}</dt>
                 <dd>
                   {{
                     activeMediaDiagnostics
@@ -3052,7 +3077,7 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Media time</dt>
+                <dt>{{ t("playback.mediaTime") }}</dt>
                 <dd>
                   {{
                     activeMediaDiagnostics
@@ -3062,7 +3087,7 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Drift</dt>
+                <dt>{{ t("playback.drift") }}</dt>
                 <dd>
                   {{
                     formatDiagnosticMs(
@@ -3073,7 +3098,7 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Media rate</dt>
+                <dt>{{ t("playback.mediaRate") }}</dt>
                 <dd>
                   {{
                     activeMediaDiagnostics
@@ -3083,7 +3108,7 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Paused</dt>
+                <dt>{{ t("playback.paused") }}</dt>
                 <dd>
                   {{
                     activeMediaDiagnostics
@@ -3095,7 +3120,7 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
               <div>
-                <dt>Seeking</dt>
+                <dt>{{ t("playback.seeking") }}</dt>
                 <dd>
                   {{
                     activeMediaDiagnostics
@@ -3110,7 +3135,7 @@ onBeforeUnmount(() => {
           </section>
 
           <section v-else>
-            <strong>Sync channels</strong>
+            <strong>{{ t("playback.syncChannels") }}</strong>
             <div class="playback-diagnostics__channels">
               <div
                 v-for="camera in playbackParticipants"
@@ -3120,15 +3145,15 @@ onBeforeUnmount(() => {
                 <strong>
                   {{
                     syncTileStates[camera.id]
-                      ?.state || "resolving"
+                      ?.state ? translatedStatus(syncTileStates[camera.id].state) : translatedStatus("resolving")
                   }}
                 </strong>
                 <small>
                   {{
                     syncTileStates[camera.id]
                       ?.blocksStrict
-                      ? "strict blocker"
-                      : "non-blocking"
+                      ? t("playback.strictBlocker")
+                      : t("playback.nonBlocking")
                   }}
                 </small>
               </div>
@@ -3139,15 +3164,15 @@ onBeforeUnmount(() => {
 
       <div class="playback-timeline-shell">
         <div class="playback-timeline-legend">
-          <span><i class="legend-dot legend-dot--local" /> Local</span>
-          <span><i class="legend-dot legend-dot--remote" /> Remote</span>
-          <span><i class="legend-dot legend-dot--event" /> Event</span>
+          <span><i class="legend-dot legend-dot--local" /> {{ t("playback.local") }}</span>
+          <span><i class="legend-dot legend-dot--remote" /> {{ t("playback.remote") }}</span>
+          <span><i class="legend-dot legend-dot--event" /> {{ t("playback.event") }}</span>
           <span
             v-if="auth.hasPermission('recording.protect')"
           >
-            <i class="legend-dot legend-dot--protected" /> Protected
+            <i class="legend-dot legend-dot--protected" /> {{ t("playback.protected") }}
           </span>
-          <span v-if="loadingTimeline">Updating…</span>
+          <span v-if="loadingTimeline">{{ t("playback.updating") }}</span>
         </div>
 
         <PlaybackTimelineCanvas
@@ -3175,17 +3200,17 @@ onBeforeUnmount(() => {
               {{
                 actionMode === "protect"
                   ? editingProtectionId
-                    ? "Edit protection"
-                    : "Protect recording"
-                  : "Export clip"
+                    ? t("playback.editProtection")
+                    : t("playback.protectRecording")
+                  : t("playback.exportClip")
               }}
             </strong>
-            <span>{{ activeCamera?.name || "Camera" }}</span>
+            <span>{{ activeCamera?.name || t("playback.cameraFallback") }}</span>
           </div>
           <button
             class="icon-button"
             type="button"
-            title="Close"
+            :title="t('playback.close')"
             @click="actionPanelOpen = false"
           >
             <UiIcon name="close" :size="15" />
@@ -3201,7 +3226,7 @@ onBeforeUnmount(() => {
           "
         >
           <label>
-            <span>Start</span>
+            <span>{{ t("playback.start") }}</span>
             <input
               v-model="actionStart"
               type="datetime-local"
@@ -3210,7 +3235,7 @@ onBeforeUnmount(() => {
             />
           </label>
           <label>
-            <span>End</span>
+            <span>{{ t("playback.end") }}</span>
             <input
               v-model="actionEnd"
               type="datetime-local"
@@ -3221,7 +3246,7 @@ onBeforeUnmount(() => {
 
           <template v-if="actionMode === 'protect'">
             <label>
-              <span>Reason</span>
+              <span>{{ t("playback.reason") }}</span>
               <input
                 v-model="protectionReason"
                 required
@@ -3229,30 +3254,30 @@ onBeforeUnmount(() => {
               />
             </label>
             <label>
-              <span>Expires at</span>
+              <span>{{ t("playback.expiresAt") }}</span>
               <input
                 v-model="protectionExpiresAt"
                 type="datetime-local"
                 step="60"
               />
-              <small>Leave blank to protect indefinitely.</small>
+              <small>{{ t("playback.indefiniteHint") }}</small>
             </label>
           </template>
 
           <template v-else>
             <label>
-              <span>Codec</span>
+              <span>{{ t("playback.codec") }}</span>
               <select v-model="exportCodecMode">
-                <option value="auto">Auto</option>
-                <option value="copy">Copy when possible</option>
-                <option value="h264">Transcode H.264</option>
+                <option value="auto">{{ t("playback.auto") }}</option>
+                <option value="copy">{{ t("playback.copyWhenPossible") }}</option>
+                <option value="h264">{{ t("playback.transcodeH264") }}</option>
               </select>
             </label>
             <label>
-              <span>Gaps</span>
+              <span>{{ t("playback.gaps") }}</span>
               <select v-model="exportGapPolicy">
-                <option value="skip">Skip gaps</option>
-                <option value="fail">Fail if range has gaps</option>
+                <option value="skip">{{ t("playback.skipGapsOption") }}</option>
+                <option value="fail">{{ t("playback.failOnGaps") }}</option>
               </select>
             </label>
           </template>
@@ -3263,7 +3288,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="actionPanelOpen = false"
             >
-              Cancel
+              {{ t("playback.cancel") }}
             </button>
             <button
               class="button button--primary"
@@ -3272,12 +3297,12 @@ onBeforeUnmount(() => {
             >
               {{
                 actionSaving
-                  ? "Saving…"
+                  ? t("playback.saving")
                   : actionMode === "protect"
                     ? editingProtectionId
-                      ? "Save protection"
-                      : "Protect range"
-                    : "Create export"
+                      ? t("playback.saveProtection")
+                      : t("playback.protectRange")
+                    : t("playback.createExport")
               }}
             </button>
           </div>
@@ -3287,7 +3312,7 @@ onBeforeUnmount(() => {
           v-if="actionMode === 'protect' && cameraProtections.length"
           class="playback-action-history"
         >
-          <h3>Protected ranges</h3>
+          <h3>{{ t("playback.protectedRanges") }}</h3>
           <article
             v-for="item in cameraProtections"
             :key="item.id"
@@ -3300,13 +3325,13 @@ onBeforeUnmount(() => {
                 {{ formatTimestamp(new Date(item.ended_at)) }}
               </span>
               <span v-if="item.expires_at">
-                Expires {{ formatTimestamp(new Date(item.expires_at)) }}
+                {{ t("playback.expires", { time: formatTimestamp(new Date(item.expires_at)) }) }}
               </span>
             </div>
             <button
               class="icon-button"
               type="button"
-              title="Edit protection"
+              :title="t('playback.editProtection')"
               @click="editProtection(item)"
             >
               <UiIcon name="shield" :size="13" />
@@ -3314,7 +3339,7 @@ onBeforeUnmount(() => {
             <button
               class="icon-button icon-button--danger"
               type="button"
-              title="Remove protection"
+              :title="t('playback.removeProtection')"
               @click="removeProtection(item)"
             >
               <UiIcon name="trash" :size="13" />
@@ -3326,7 +3351,7 @@ onBeforeUnmount(() => {
           v-if="actionMode === 'export' && cameraExports.length"
           class="playback-action-history"
         >
-          <h3>Recent exports</h3>
+          <h3>{{ t("playback.recentExports") }}</h3>
           <article
             v-for="item in cameraExports"
             :key="item.id"
@@ -3344,13 +3369,13 @@ onBeforeUnmount(() => {
               class="status-pill"
               :class="exportStateClass(item.state)"
             >
-              {{ item.state }}
+              {{ translatedStatus(item.state) }}
             </span>
             <button
               v-if="item.state === 'COMPLETED'"
               class="icon-button"
               type="button"
-              title="Manage share link"
+              :title="t('playback.manageShareLink')"
               @click="openShare(item)"
             >
               <UiIcon name="share" :size="13" />
@@ -3359,14 +3384,14 @@ onBeforeUnmount(() => {
               v-if="item.state === 'COMPLETED'"
               class="icon-button"
               :href="exportDownloadUrl(item.id)"
-              title="Download MP4"
+              :title="t('playback.downloadMp4')"
             >
               <UiIcon name="download" :size="13" />
             </a>
             <button
               class="icon-button icon-button--danger"
               type="button"
-              title="Delete export"
+              :title="t('playback.deleteExport')"
               @click="removeExport(item)"
             >
               <UiIcon name="trash" :size="13" />
@@ -3383,7 +3408,7 @@ onBeforeUnmount(() => {
         >
           <header>
             <div>
-              <strong>Share export</strong>
+              <strong>{{ t("playback.shareExport") }}</strong>
               <span>
                 {{ formatTimestamp(new Date(shareExport.start_at)) }}
               </span>
@@ -3391,7 +3416,7 @@ onBeforeUnmount(() => {
             <button
               class="icon-button"
               type="button"
-              title="Close share editor"
+              :title="t('playback.closeShareEditor')"
               @click="closeShare"
             >
               <UiIcon name="close" :size="13" />
@@ -3400,33 +3425,33 @@ onBeforeUnmount(() => {
 
           <form @submit.prevent="saveShare">
             <label>
-              <span>Password</span>
+              <span>{{ t("playback.password") }}</span>
               <input
                 v-model="sharePassword"
                 type="password"
-                placeholder="Optional"
+                :placeholder="t('playback.optional')"
                 autocomplete="new-password"
               />
             </label>
             <label>
-              <span>Expires after</span>
+              <span>{{ t("playback.expiresAfter") }}</span>
               <select v-model.number="shareExpiresHours">
-                <option :value="1">1 hour</option>
-                <option :value="6">6 hours</option>
-                <option :value="24">24 hours</option>
-                <option :value="72">3 days</option>
-                <option :value="168">7 days</option>
-                <option :value="720">30 days</option>
+                <option :value="1">{{ t("playback.oneHour") }}</option>
+                <option :value="6">{{ t("playback.sixHours") }}</option>
+                <option :value="24">{{ t("playback.twentyFourHours") }}</option>
+                <option :value="72">{{ t("playback.threeDays") }}</option>
+                <option :value="168">{{ t("playback.sevenDays") }}</option>
+                <option :value="720">{{ t("playback.thirtyDays") }}</option>
               </select>
             </label>
             <label>
-              <span>Maximum downloads</span>
+              <span>{{ t("playback.maximumDownloads") }}</span>
               <input
                 v-model.number="shareMaxDownloads"
                 type="number"
                 min="0"
                 max="100000"
-                placeholder="0 = unlimited"
+                :placeholder="t('playback.unlimitedDownloads')"
               />
             </label>
             <button
@@ -3434,7 +3459,7 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="shareSaving"
             >
-              {{ shareSaving ? "Creating…" : "Create share link" }}
+              {{ shareSaving ? t("playback.creating") : t("playback.createShareLink") }}
             </button>
           </form>
 
@@ -3442,9 +3467,9 @@ onBeforeUnmount(() => {
             v-if="createdShare"
             class="playback-share-created"
           >
-            <strong>Share link created</strong>
+            <strong>{{ t("playback.shareLinkCreated") }}</strong>
             <span>
-              This token is shown once. Copy it before closing this panel.
+              {{ t("playback.oneTimeTokenHint") }}
             </span>
             <div>
               <input
@@ -3457,7 +3482,7 @@ onBeforeUnmount(() => {
                 type="button"
                 @click="copyShareLink"
               >
-                {{ shareCopied ? "Copied" : "Copy" }}
+                {{ shareCopied ? t("playback.copied") : t("playback.copy") }}
               </button>
             </div>
           </div>
@@ -3466,7 +3491,7 @@ onBeforeUnmount(() => {
             v-if="exportShares.length"
             class="playback-share-list"
           >
-            <h4>Existing shares</h4>
+            <h4>{{ t("playback.existingShares") }}</h4>
             <article
               v-for="item in exportShares"
               :key="item.id"
@@ -3475,10 +3500,10 @@ onBeforeUnmount(() => {
                 <strong>
                   {{
                     item.revoked_at
-                      ? "Revoked"
+                      ? t("playback.revoked")
                       : new Date(item.expires_at) <= new Date()
-                        ? "Expired"
-                        : "Active"
+                        ? t("playback.expired")
+                        : t("playback.active")
                   }}
                 </strong>
                 <span>
@@ -3488,21 +3513,23 @@ onBeforeUnmount(() => {
                       ? `/ ${item.max_downloads}`
                       : ""
                   }}
-                  downloads · expires
-                  {{ formatTimestamp(new Date(item.expires_at)) }}
+                  {{ t("playback.downloadsExpires", {
+                    downloads: item.download_count,
+                    time: formatTimestamp(new Date(item.expires_at))
+                  }) }}
                 </span>
               </div>
               <span
                 v-if="item.password_protected"
                 class="status-pill"
               >
-                Password
+                {{ t("playback.passwordProtected") }}
               </span>
               <button
                 v-if="!item.revoked_at"
                 class="icon-button icon-button--danger"
                 type="button"
-                title="Revoke share"
+                :title="t('playback.revokeShare')"
                 @click="revokeShare(item)"
               >
                 <UiIcon name="trash" :size="13" />
