@@ -383,7 +383,9 @@ V1 cannot be declared production-ready until:
 - design-freeze media/storage POCs pass;
 - 8-camera baseline validation passes, including a real-host soak of at least
   3600 seconds; shorter diagnostic soaks do not satisfy this release gate;
-- 16-camera extended benchmark is documented;
+- 16-camera extended benchmark is documented and uses the distinct
+  `16-camera-extended` profile; it is benchmark evidence, not a second
+  long-duration baseline;
 - Core static footprint target (<2 GB) is measured;
 - Core idle-RAM target (<1 GB excluding page cache/large ZLM buffers) is measured;
 - camera onboarding/live/recording/timeline/playback/event paths pass soak/recovery tests;

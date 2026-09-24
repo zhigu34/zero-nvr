@@ -316,3 +316,92 @@ def test_release_readiness_rejects_short_8_camera_soak(
         )
     finally:
         database.close()
+
+
+
+def test_release_readiness_16_uses_extended_benchmark_only(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    now = datetime(
+        2026,
+        9,
+        21,
+        1,
+        0,
+        tzinfo=UTC,
+    )
+    try:
+        write_report(
+            settings,
+            kind="benchmark",
+            profile="16-camera-extended",
+            passed=True,
+            generated_at=(
+                now - timedelta(minutes=15)
+            ),
+        )
+
+        result = ReleaseReadinessService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=16,
+            max_age_hours=24,
+            now=now,
+        )
+
+        assert result.passed is True
+        assert len(result.checks) == 1
+        assert result.checks[0].name == "benchmark"
+        assert result.checks[0].code == "ok"
+        assert (
+            result.checks[0].details[
+                "expected_profile"
+            ]
+            == "16-camera-extended"
+        )
+    finally:
+        database.close()
+
+
+def test_release_readiness_16_rejects_baseline_profile(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    now = datetime(
+        2026,
+        9,
+        21,
+        1,
+        0,
+        tzinfo=UTC,
+    )
+    try:
+        write_report(
+            settings,
+            kind="benchmark",
+            profile="16-camera-baseline",
+            passed=True,
+            generated_at=(
+                now - timedelta(minutes=15)
+            ),
+        )
+
+        result = ReleaseReadinessService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=16,
+            max_age_hours=24,
+            now=now,
+        )
+
+        assert result.passed is False
+        assert len(result.checks) == 1
+        assert (
+            result.checks[0].code
+            == "release_validation_profile_mismatch"
+        )
+    finally:
+        database.close()

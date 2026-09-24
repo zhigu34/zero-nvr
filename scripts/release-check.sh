@@ -9,10 +9,12 @@ usage() {
 Usage:
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
 
-Checks current host health plus persisted release benchmark/soak results and
-requires a recent completed, verified backup. For the 8-camera V1 baseline, the
-persisted soak must represent at least 3600 seconds. It does not start a
-benchmark, soak, backup, restore, or any Docker mutation.
+Checks persisted host validation evidence. The 8-camera V1 baseline requires
+a matching benchmark, a soak of at least 3600 seconds, and a recent verified
+backup. The 16-camera extended target requires the matching
+16-camera-extended benchmark only; it is not a second long-duration baseline.
+The command does not start a benchmark, soak, backup, restore, or any Docker
+mutation.
 EOF
 }
 

@@ -205,6 +205,50 @@ def test_release_readiness_api_requires_current_release_gates(
         )
 
 
+def test_release_readiness_api_accepts_16_camera_extended_benchmark(
+    tmp_path: Path,
+) -> None:
+    app = make_app(tmp_path)
+    root = (
+        app.state.settings.data_dir
+        / "release-validation"
+    )
+    root.mkdir(parents=True)
+    generated_at = datetime.now(UTC).isoformat()
+
+    (root / "latest-benchmark.json").write_text(
+        json.dumps(
+            {
+                "profile": "16-camera-extended",
+                "passed": True,
+                "generated_at": generated_at,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        response = client.get(
+            "/api/v1/system/release-readiness",
+            params={
+                "expected_cameras": 16,
+                "max_age_hours": 24,
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["passed"] is True
+        assert len(body["checks"]) == 1
+        assert body["checks"][0]["name"] == "benchmark"
+        assert (
+            body["checks"][0]["details"][
+                "expected_profile"
+            ]
+            == "16-camera-extended"
+        )
+
+
 def test_release_readiness_api_rejects_unknown_camera_target(
     tmp_path: Path,
 ) -> None:

@@ -441,9 +441,22 @@ The host-side resource report records:
   workload;
 - combined Core memory as informational context.
 
-The 8-camera command is the V1 baseline gate. The 16-camera command is the
-extended benchmark. The command emits one JSON report suitable for release
-validation evidence and exits non-zero when a gate fails.
+The 8-camera command is the V1 baseline benchmark. The 16-camera command is the
+extended-target benchmark and writes profile `16-camera-extended`. The command
+emits one JSON report suitable for release validation evidence and exits
+non-zero when a gate fails.
+
+The 16-camera evidence path is intentionally benchmark-only:
+
+```bash
+./deploy.sh benchmark 16
+./deploy.sh release-check 16
+```
+
+It does not require a 16-camera soak or recent backup, because the V1
+long-duration/recovery release gate remains the 8-camera baseline. A real
+16-camera benchmark result is still required before the extended-target ROADMAP
+item can be accepted.
 
 ### soak
 

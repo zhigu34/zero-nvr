@@ -295,37 +295,39 @@ class ReleaseReadinessService:
             hours=max_age_hours
         )
         benchmark, soak = self.reports.collect()
-        checks = (
-            self._report_check(
-                name="benchmark",
-                artifact=benchmark,
-                expected_profile=(
-                    f"{expected_cameras}"
-                    "-camera-baseline"
-                ),
-                now=checked_at,
-                max_age=max_age,
-            ),
-            self._report_check(
-                name="soak",
-                artifact=soak,
-                expected_profile=(
-                    f"{expected_cameras}"
-                    "-camera-soak"
-                ),
-                now=checked_at,
-                max_age=max_age,
-                minimum_duration_seconds=(
-                    BASELINE_SOAK_MIN_DURATION_SECONDS
-                    if expected_cameras == 8
-                    else None
-                ),
-            ),
-            self._backup_check(
-                now=checked_at,
-                max_age=max_age,
-            ),
+        benchmark_profile = (
+            "8-camera-baseline"
+            if expected_cameras == 8
+            else "16-camera-extended"
         )
+        benchmark_check = self._report_check(
+            name="benchmark",
+            artifact=benchmark,
+            expected_profile=benchmark_profile,
+            now=checked_at,
+            max_age=max_age,
+        )
+
+        if expected_cameras == 8:
+            checks = (
+                benchmark_check,
+                self._report_check(
+                    name="soak",
+                    artifact=soak,
+                    expected_profile="8-camera-soak",
+                    now=checked_at,
+                    max_age=max_age,
+                    minimum_duration_seconds=(
+                        BASELINE_SOAK_MIN_DURATION_SECONDS
+                    ),
+                ),
+                self._backup_check(
+                    now=checked_at,
+                    max_age=max_age,
+                ),
+            )
+        else:
+            checks = (benchmark_check,)
         return ReleaseReadiness(
             expected_cameras=expected_cameras,
             checked_at=checked_at,

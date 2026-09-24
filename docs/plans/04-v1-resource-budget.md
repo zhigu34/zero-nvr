@@ -360,6 +360,22 @@ Record resource history and failure count.
 
 Repeat with four cameras.
 
+### 16-camera extended target
+
+The 16-camera target is measured as an extended workload benchmark rather than a
+second V1 long-duration soak gate:
+
+~~~text
+./deploy.sh benchmark 16
+./deploy.sh release-check 16
+~~~
+
+The benchmark must report profile `16-camera-extended` and requires sixteen
+enabled cameras with active recording streams/recorders. It keeps the same hard
+Core image/control-plane memory gates so the extended workload cannot hide a
+regression in the lightweight Core targets. The result must come from a real
+deployment host; CI does not synthesize sixteen RTSP sources.
+
 ### 8-camera V1 baseline acceptance
 
 The 8-camera release baseline is a real-host acceptance gate, not a synthetic CI
