@@ -147,6 +147,19 @@ real camera while the remaining V1 work continues.
   playback -> restart/reconciliation smoke test on the intended deployment
   host. This is now the only remaining Deployment-test gate.
 
+Repository-side acceptance tooling for this gate is complete. The remaining
+evidence must be produced on the intended host with a real camera:
+
+~~~text
+./deploy.sh camera-acceptance prepare <camera-id>
+./deploy.sh camera-acceptance restart <camera-id>
+./deploy.sh camera-acceptance verify <camera-id> --live-confirmed --playback-confirmed
+~~~
+
+Do not mark this item complete from CI or synthetic streams. The final verify
+requires both the persisted restart/reconciliation evidence and explicit
+operator confirmation of browser Live plus timeline playback.
+
 Roadmap synchronization note: Phase 1/2 contain historical unchecked items that
 are already partially or fully implemented. They must be reconciled against the
 repository before using checkbox counts as a completion metric; do not infer
@@ -545,6 +558,27 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [~] Core static footprint < 2 GB validation.
 - [~] Core idle RAM < 1 GB validation under the documented resource-budget measurement method.
 - [x] verify Docker log rotation, cache byte quota, and EVENT_ONLY tmpfs bounds.
+
+Phase 11 synchronization note: all remaining non-optional unchecked/in-progress
+items above are now execution-evidence gates rather than repository feature
+gaps. Their supported host commands are:
+
+~~~text
+./deploy.sh benchmark 8
+./deploy.sh soak 8 --duration 3600 --interval 30
+./deploy.sh release-check 8
+./deploy.sh benchmark 16
+./deploy.sh release-check 16
+./deploy.sh resource-baseline
+./deploy.sh resource-check static
+./deploy.sh resource-check idle
+./deploy.sh small-host-soak 2 --duration 3600 --interval 30
+./deploy.sh small-host-soak 4 --duration 3600 --interval 30
+~~~
+
+Keep the associated items at `[~]` until those reports are generated on the
+intended deployment/small-host hardware and reviewed. CI validates the
+collectors/checkers, but CI results are not substitutes for those measurements.
 
 Optional/non-blocking operational extensions:
 
