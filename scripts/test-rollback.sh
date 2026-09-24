@@ -181,6 +181,44 @@ EOF
   assert_recording_unchanged "$repo_dir"
 }
 
+run_pre_switch_failed_update_recovery() {
+  local repo_dir="$tmp/pre-switch-failed-update"
+  mkdir -p "$repo_dir"
+  setup_repo "$repo_dir"
+
+  git -C "$repo_dir" checkout -q --detach "$REV_A"
+
+  mkdir -p "$repo_dir/data/deployment"
+  cat > "$repo_dir/data/deployment/state.env" <<EOF
+DEPLOYED_REVISION=$REV_A
+ROLLBACK_REVISION=
+ROLLBACK_SNAPSHOT_REL=
+PENDING_TARGET_REVISION=$REV_B
+PENDING_PREVIOUS_REVISION=$REV_A
+PENDING_SNAPSHOT_REL=safety-backups/recorded/database.sqlite3
+ROLLBACK_IMAGE_REF=
+PENDING_PREVIOUS_IMAGE_REF=zero-nvr:pin-pending-${REV_A:0:12}
+UPDATED_AT=2026-09-20T00:00:00Z
+EOF
+
+  PATH="$repo_dir/fake-bin:$PATH" \
+  ZERO_NVR_ENV_FILE="$repo_dir/.env" \
+    "$repo_dir/scripts/rollback.sh" \
+      > "$repo_dir/rollback.log"
+
+  [[ "$(git -C "$repo_dir" rev-parse HEAD)" == "$REV_A" ]]
+  grep -Fxq "DEPLOYED_REVISION=$REV_A" \
+    "$repo_dir/data/deployment/state.env"
+  grep -Fxq "ROLLBACK_REVISION=" \
+    "$repo_dir/data/deployment/state.env"
+  grep -Fxq "PENDING_TARGET_REVISION=" \
+    "$repo_dir/data/deployment/state.env"
+  grep -Fq "Detected failed/pending update" "$repo_dir/rollback.log"
+  grep -Fq "Failed update recovered:" "$repo_dir/rollback.log"
+  assert_recording_unchanged "$repo_dir"
+}
+
+
 run_requested_revision_guard() {
   local repo_dir="$tmp/requested-guard"
   mkdir -p "$repo_dir"
@@ -216,6 +254,7 @@ EOF
 
 run_normal_rollback
 run_failed_update_recovery
+run_pre_switch_failed_update_recovery
 run_requested_revision_guard
 
 echo "rollback: ok"
