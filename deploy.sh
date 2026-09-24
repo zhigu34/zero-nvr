@@ -15,6 +15,7 @@ usage() {
 Usage:
   ./deploy.sh [install]
   ./deploy.sh update [version] [--backup-policy <id-or-name>]
+  ./deploy.sh update-preflight [version] [--backup-policy <id-or-name>]
   ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
@@ -301,11 +302,10 @@ update_stack() {
     cp "$ENV_FILE" "$stage_dir/.env"
     chmod 600 "$stage_dir/.env"
 
-    COMPOSE_PROFILES="$(env_get COMPOSE_PROFILES "")" \
-      docker compose \
-        --env-file "$ENV_FILE" \
-        -f "$stage_dir/docker-compose.yml" \
-        config --quiet
+    "$SCRIPT_DIR/update-preflight.sh" \
+      "$stage_dir" \
+      "$target_revision" \
+      "$backup_policy"
 
     docker build --pull \
       --file "$stage_dir/backend/Dockerfile" \
@@ -313,6 +313,10 @@ update_stack() {
       "$stage_dir"
   else
     target_revision="$current_source"
+    "$SCRIPT_DIR/update-preflight.sh" \
+      "$ROOT_DIR" \
+      "$target_revision" \
+      "$backup_policy"
   fi
   SAFETY_SNAPSHOT_REL=""
   if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
@@ -395,6 +399,47 @@ update_stack() {
     echo "WARN target Git revision unavailable; deployment state was not advanced" >&2
   fi
 }
+
+update_preflight_only() {
+  local backup_policy="${1:-}"
+  local requested_ref="${2:-}"
+  local target_revision current_source
+  local stage_dir=""
+
+  preflight
+  ensure_env
+  ensure_host_dirs
+
+  current_source="$(git_revision || true)"
+  if [[ -n "$requested_ref" ]]; then
+    require_command git
+    target_revision="$(
+      resolve_git_revision "$requested_ref" || true
+    )"
+    if ! valid_revision "$target_revision"; then
+      echo "error: update version/ref is not available in this Git clone: $requested_ref" >&2
+      return 1
+    fi
+
+    stage_dir="$(
+      mktemp -d "${TMPDIR:-/tmp}/zero-nvr-update-preflight.XXXXXX"
+    )"
+    rmdir "$stage_dir"
+    cleanup_update_preflight() {
+      git -C "$ROOT_DIR" worktree remove --force         "$stage_dir" >/dev/null 2>&1 || true
+      rm -rf "$stage_dir" >/dev/null 2>&1 || true
+    }
+    trap cleanup_update_preflight RETURN
+
+    git -C "$ROOT_DIR" worktree add --detach       "$stage_dir" "$target_revision" >/dev/null
+
+    "$SCRIPT_DIR/update-preflight.sh"       "$stage_dir"       "$target_revision"       "$backup_policy"
+  else
+    target_revision="$current_source"
+    "$SCRIPT_DIR/update-preflight.sh"       "$ROOT_DIR"       "$target_revision"       "$backup_policy"
+  fi
+}
+
 
 feature_set_profile() {
   local action="$1"
@@ -735,6 +780,35 @@ case "$command" in
       shift
     done
     update_stack "$backup_policy" "$target_ref"
+    ;;
+  update-preflight)
+    backup_policy=""
+    target_ref=""
+    while [[ "$#" -gt 0 ]]; do
+      case "$1" in
+        --backup-policy)
+          shift
+          backup_policy="${1:-}"
+          if [[ -z "$backup_policy" ]]; then
+            echo "error: --backup-policy requires an id or name" >&2
+            exit 2
+          fi
+          ;;
+        -*)
+          echo "error: unknown update-preflight option: $1" >&2
+          exit 2
+          ;;
+        *)
+          if [[ -n "$target_ref" ]]; then
+            echo "error: update-preflight accepts at most one version/ref" >&2
+            exit 2
+          fi
+          target_ref="$1"
+          ;;
+      esac
+      shift
+    done
+    update_preflight_only "$backup_policy" "$target_ref"
     ;;
   rollback)
     bash "$SCRIPT_DIR/rollback.sh" "$@"

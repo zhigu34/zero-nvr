@@ -245,6 +245,23 @@ only; rollback/update safety can use the immutable recorded IDs/digests. A
 rollback to a legacy revision without this contract removes the newer runtime
 manifest rather than leaving stale identity metadata.
 
+#### Update preflight gate
+
+`deploy.sh update-preflight [version]` is non-destructive and is also executed
+automatically by `deploy.sh update` before the staged image build, safety
+snapshot, verified pre-upgrade backup, source checkout switch, service stop, or
+schema migration. It rejects an update when the target release contract is
+invalid/older, the active database is unreachable or not at the current source
+schema, an enabled deployment component is not running/healthy, free space
+cannot hold the current database safety copy plus a Core-image staging margin,
+SecretStore contains unreadable records, or the production pre-upgrade backup
+policy cannot be selected/resolved with the active keyring.
+
+The preflight never prints repository URLs, restic passwords, or provider
+credentials. In production it proves backup-policy readiness; the existing
+mandatory `pre-upgrade-backup` remains the authoritative repository write and
+verification gate immediately after preflight.
+
 ### System health
 
 - capability-specific health;

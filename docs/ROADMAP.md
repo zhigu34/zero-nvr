@@ -526,9 +526,9 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] Backup & Recovery UI for normal administration.
 - [x] user/role/camera-scope administration UI.
 - [x] audit UI.
-- [~] release manifest/version/digest compatibility metadata.
+- [x] release manifest/version/digest compatibility metadata.
 - [x] update-availability/version display in System UI.
-- [ ] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
+- [~] deploy.sh update preflight: version/schema/DB/component/free-space/keyring/backup checks.
 - [x] mandatory verified pre-upgrade safety backup for incompatible/non-reconstructable changes.
 - [ ] Alembic migration classes A/B/C and SQLite batch/table-rebuild safety.
 - [ ] PostgreSQL bounded-lock/restartable migration behavior where required.

@@ -16,7 +16,7 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.core.config import Settings
 from app.core.db import (
@@ -506,6 +506,152 @@ def _pre_upgrade_policy(
                 f"({names})"
             )
         return candidates[0]
+
+
+def _database_size_bytes(
+    database: Database,
+) -> int:
+    if database.is_sqlite:
+        raw = database.url.database
+        if not raw or raw == ":memory:":
+            return 0
+        path = Path(raw)
+        total = (
+            path.stat().st_size
+            if path.exists()
+            else 0
+        )
+        wal = Path(f"{path}-wal")
+        if wal.exists():
+            total += wal.stat().st_size
+        return total
+
+    with database.engine.connect() as connection:
+        value = connection.scalar(
+            text(
+                "SELECT pg_database_size("
+                "current_database())"
+            )
+        )
+    return int(value or 0)
+
+
+def _collect_update_preflight(
+    settings: Settings,
+    database: Database,
+    *,
+    policy_selector: str | None,
+) -> dict[str, object]:
+    schema = assert_database_schema_current(
+        database
+    )
+
+    with database.engine.connect() as connection:
+        connection.execute(text("SELECT 1"))
+
+    store = SecretStore(settings)
+    with database.session() as session:
+        keyring = store.inspect_records(session)
+
+    if keyring.unreadable_records:
+        raise RuntimeError(
+            "update preflight failed: SecretStore "
+            f"has {keyring.unreadable_records} "
+            "unreadable encrypted record(s); restore "
+            "the required keyring before updating"
+        )
+
+    backup_required = (
+        settings.environment == "production"
+    )
+    backup_payload: dict[str, object] = {
+        "required": backup_required,
+        "ready": not backup_required,
+        "policy_id": None,
+        "policy_name": None,
+    }
+
+    if backup_required:
+        policy = _pre_upgrade_policy(
+            database,
+            policy_selector,
+        )
+        with database.session() as session:
+            attached = session.get(
+                BackupPolicy,
+                policy.id,
+            )
+            assert attached is not None
+            resolved = BackupPolicyService(
+                settings
+            ).resolve(
+                session,
+                policy=attached,
+            )
+
+        if (
+            not resolved.repository
+            or not resolved.password
+        ):
+            raise RuntimeError(
+                "update preflight failed: selected "
+                "pre-upgrade backup policy is missing "
+                "repository bootstrap credentials"
+            )
+
+        backup_payload = {
+            "required": True,
+            "ready": True,
+            "policy_id": str(policy.id),
+            "policy_name": policy.name,
+        }
+
+    return {
+        "database": {
+            "backend": database.url.get_backend_name(),
+            "reachable": True,
+            "schema_current": True,
+            "schema_revisions": sorted(
+                schema.current
+            ),
+            "size_bytes": _database_size_bytes(
+                database
+            ),
+        },
+        "keyring": {
+            "status": keyring.status,
+            "total_records": keyring.total_records,
+            "stale_records": keyring.stale_records,
+            "unreadable_records": (
+                keyring.unreadable_records
+            ),
+            "previous_key_count": (
+                keyring.previous_key_count
+            ),
+        },
+        "backup": backup_payload,
+    }
+
+
+def update_preflight_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        payload = _collect_update_preflight(
+            settings,
+            database,
+            policy_selector=args.policy,
+        )
+        print(
+            json.dumps(
+                payload,
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
 
 
 def _verified_safety_backup_command(
@@ -1829,6 +1975,14 @@ def build_parser() -> argparse.ArgumentParser:
         ],
     )
     backup.set_defaults(handler=backup_command)
+
+    update_preflight = sub.add_parser(
+        "update-preflight"
+    )
+    update_preflight.add_argument("--policy")
+    update_preflight.set_defaults(
+        handler=update_preflight_command
+    )
 
     pre_upgrade = sub.add_parser(
         "pre-upgrade-backup"
