@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -22,7 +22,10 @@ from .schemas import (
     BackupRunRequest,
     BackupSetPage,
     BackupSetView,
+    RecoveryKitGenerateRequest,
+    RecoveryKitStatusView,
 )
+from .recovery_kit import RecoveryKitService
 from .service import BackupPolicyService
 
 
@@ -477,3 +480,98 @@ def verify_backup(
             },
         ) from exc
     return _set_view(item)
+
+
+
+def _recovery_kit_status_view(
+    value,
+) -> RecoveryKitStatusView:
+    return RecoveryKitStatusView(
+        status=value.status,
+        policy_id=value.policy_id,
+        generated_at=value.generated_at,
+        app_version=value.app_version,
+    )
+
+
+@router.get(
+    "/recovery-kit/status",
+    response_model=RecoveryKitStatusView,
+)
+def recovery_kit_status(
+    policy_id: uuid.UUID,
+    request: Request,
+    _context: AuthContext = Depends(
+        require_permission("system.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> RecoveryKitStatusView:
+    policy = BackupPolicyService.get(
+        session,
+        policy_id,
+    )
+    value = RecoveryKitService(
+        request.app.state.settings
+    ).status(
+        session,
+        policy=policy,
+    )
+    return _recovery_kit_status_view(value)
+
+
+@router.post("/recovery-kit")
+def generate_recovery_kit(
+    body: RecoveryKitGenerateRequest,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("system.manage")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    policy = BackupPolicyService.get(
+        session,
+        body.policy_id,
+    )
+    service = RecoveryKitService(
+        request.app.state.settings
+    )
+    try:
+        artifact = service.generate(
+            session,
+            policy=policy,
+            passphrase=body.passphrase.get_secret_value(),
+        )
+        append_audit_event(
+            session,
+            request=request,
+            actor_id=context.user.id,
+            action="backup.recovery_kit.generate",
+            resource_type="backup_policy",
+            resource_id=policy.id,
+            metadata={
+                "status": artifact.status.status,
+                "generated_at": (
+                    artifact.generated_at.isoformat()
+                ),
+                "app_version": (
+                    request.app.state.settings.app_version
+                ),
+            },
+        )
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+
+    return Response(
+        content=artifact.content,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{artifact.filename}"'
+            ),
+            "Cache-Control": "no-store",
+            "Pragma": "no-cache",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

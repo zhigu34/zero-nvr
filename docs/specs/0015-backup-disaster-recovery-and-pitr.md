@@ -134,6 +134,14 @@ restore instructions
 
 RecoveryKit handling must avoid casually writing plaintext secrets into application logs or normal downloadable configuration exports.
 
+The authenticated web workflow generates a password-encrypted RecoveryKit artifact
+only on explicit administrator request. V1 uses scrypt-derived AES-256-GCM and
+never stores the download passphrase. The server persists only non-secret
+generation metadata/fingerprint so the UI can report whether the last generated
+kit is current or stale after keyring, backup-policy, database, or application
+version changes. The encrypted payload carries a minimal clean-host bootstrap
+environment plus the selected backup repository bootstrap credentials.
+
 ## Backup run model
 
 A lightweight product history may track:

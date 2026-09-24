@@ -510,12 +510,12 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 
 ## Phase 11 — Operations, Backup, Recovery, and Release
 
-- [~] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
+- [x] SecretStore master/keyring rotation workflow and health UI using the accepted lightweight authenticated-encryption design.
 - [x] lightweight BackupPolicy / BackupSet persistence and APIs; BackupManifest remains a versioned artifact inside backup payloads.
 - [x] SQLite Online Backup API consistent snapshot backend.
 - [x] PostgreSQL pg_dump backup backend.
 - [x] restic backup repository integration, retention, snapshot identity, and periodic check.
-- [ ] encrypted RecoveryKit generation/download/staleness tracking.
+- [~] encrypted RecoveryKit generation/download/staleness tracking.
 - [x] backup-target bootstrap recovery without depending on the lost production database.
 - [x] scheduled/manual/pre-upgrade backup reasons and protected rollback retention.
 - [x] clean-host restore via deploy.sh + compatible release + RecoveryKit.

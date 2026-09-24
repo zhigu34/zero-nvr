@@ -108,3 +108,22 @@ class BackupSetView(BaseModel):
 class BackupSetPage(BaseModel):
     items: list[BackupSetView]
     next_cursor: str | None
+
+
+class RecoveryKitGenerateRequest(BaseModel):
+    policy_id: uuid.UUID
+    passphrase: SecretStr = Field(
+        min_length=16,
+        max_length=1024,
+    )
+
+
+class RecoveryKitStatusView(BaseModel):
+    status: Literal[
+        "never_generated",
+        "current",
+        "stale",
+    ]
+    policy_id: uuid.UUID
+    generated_at: datetime | None
+    app_version: str
