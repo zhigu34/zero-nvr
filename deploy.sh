@@ -871,6 +871,11 @@ case "$command" in
     ;;
   migrate)
     ensure_env
+    if [[ "$#" -gt 1 ]] \
+      || { [[ "$#" -eq 1 ]] && [[ "$1" != "--maintenance" ]]; }; then
+      echo "error: migrate accepts only --maintenance" >&2
+      exit 2
+    fi
     "$SCRIPT_DIR/migrate.sh" "$@"
     ;;
   database)

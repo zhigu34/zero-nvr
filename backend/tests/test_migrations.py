@@ -7,6 +7,7 @@ import pytest
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 
@@ -432,6 +433,60 @@ def test_every_alembic_revision_has_migration_policy() -> None:
         item.revision
         for item in MIGRATION_POLICIES
     } == known_schema_revisions()
+
+
+def test_migration_policy_order_matches_alembic_lineage() -> None:
+    config = alembic_config("sqlite://")
+    script = ScriptDirectory.from_config(
+        config
+    )
+    lineage = [
+        item.revision
+        for item in reversed(
+            list(script.walk_revisions())
+        )
+    ]
+    assert [
+        item.revision
+        for item in MIGRATION_POLICIES
+    ] == lineage
+
+
+def test_sqlite_migration_strategy_matches_revision_implementation() -> None:
+    config = alembic_config("sqlite://")
+    script = ScriptDirectory.from_config(
+        config
+    )
+
+    for policy in MIGRATION_POLICIES:
+        revision = script.get_revision(
+            policy.revision
+        )
+        assert revision is not None
+        source = Path(
+            revision.path
+        ).read_text(encoding="utf-8")
+
+        has_batch = (
+            "op.batch_alter_table" in source
+        )
+        if (
+            policy.sqlite_strategy
+            is SQLiteMigrationStrategy.BATCH
+        ):
+            assert has_batch, policy.revision
+        elif has_batch:
+            raise AssertionError(
+                f"{policy.revision} uses Alembic batch "
+                "but registry does not classify it as batch"
+            )
+
+        if (
+            policy.sqlite_strategy
+            is SQLiteMigrationStrategy.REBUILD
+        ):
+            assert "op.drop_table" in source
+            assert "op.rename_table" in source
 
 
 def test_migration_policy_classifies_transform_and_batch_paths() -> None:
