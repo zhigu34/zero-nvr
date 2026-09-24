@@ -7,7 +7,20 @@ import pytest
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+
+
+from app import cli
+from app.core.config import Settings
+from app.core.db import (
+    Database,
+    MIGRATION_POLICIES,
+    MigrationClass,
+    MigrationPolicy,
+    SQLiteMigrationStrategy,
+    build_migration_plan,
+    known_schema_revisions,
+)
 
 
 EXPECTED_SECRET_RECORD_COLUMNS = {
@@ -411,3 +424,129 @@ def test_alembic_downgrade_base_sqlite(tmp_path, monkeypatch) -> None:
     assert "export_share_tokens" not in tables
     assert "backup_policies" not in tables
     assert "backup_sets" not in tables
+
+
+
+def test_every_alembic_revision_has_migration_policy() -> None:
+    assert {
+        item.revision
+        for item in MIGRATION_POLICIES
+    } == known_schema_revisions()
+
+
+def test_migration_policy_classifies_transform_and_batch_paths() -> None:
+    policies = {
+        item.revision: item
+        for item in MIGRATION_POLICIES
+    }
+    assert (
+        policies[
+            "0010_notification_delivery"
+        ].migration_class
+        is MigrationClass.B
+    )
+    assert (
+        policies[
+            "0010_notification_delivery"
+        ].sqlite_strategy
+        is SQLiteMigrationStrategy.REBUILD
+    )
+    assert (
+        policies[
+            "0015_camera_time_sync_mode"
+        ].migration_class
+        is MigrationClass.B
+    )
+
+    for revision in (
+        "0012_notification_secret",
+        "0013_user_email_verified",
+        "0014_notification_smtp",
+        "0015_camera_time_sync_mode",
+        "0016_camera_config_revision",
+        "0017_camera_maintenance",
+    ):
+        assert (
+            policies[revision].sqlite_strategy
+            is SQLiteMigrationStrategy.BATCH
+        )
+
+
+def test_class_c_requires_verified_backup_and_maintenance() -> None:
+    policy = MigrationPolicy(
+        revision="future_destructive",
+        migration_class=MigrationClass.C,
+        sqlite_strategy=(
+            SQLiteMigrationStrategy.REBUILD
+        ),
+        rationale="test destructive migration",
+    )
+    assert policy.requires_verified_backup
+    assert policy.requires_maintenance
+
+
+def test_pending_plan_requires_checkpoint_for_sqlite_rebuild() -> None:
+    plan = build_migration_plan(
+        frozenset(
+            {"0009_camera_retirement"}
+        )
+    )
+    assert plan.highest_class is MigrationClass.B
+    assert plan.requires_sqlite_checkpoint
+    assert not plan.requires_verified_backup
+    assert (
+        plan.pending[0].revision
+        == "0010_notification_delivery"
+    )
+
+
+def test_sqlite_migration_verify_checks_integrity(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    database_path = tmp_path / "verified-migration.db"
+    database_url = f"sqlite:///{database_path}"
+    monkeypatch.setenv(
+        "ZERO_NVR_DATABASE_URL",
+        database_url,
+    )
+
+    config = alembic_config(database_url)
+    command.upgrade(config, "head")
+
+    database = Database(
+        Settings(
+            secret_key=(
+                "migration-verify-test-secret-key-"
+                "32-bytes-minimum"
+            ),
+            environment="test",
+            database_url=database_url,
+            data_dir=tmp_path / "data",
+            cache_dir=tmp_path / "cache",
+            prebuffer_require_tmpfs=False,
+        )
+    )
+    database.initialize_runtime()
+    try:
+        result = cli._verify_migration_result(
+            database
+        )
+        assert result["schema_current"] is True
+        assert result["sqlite_foreign_keys"] == "ok"
+        assert result["sqlite_integrity"] == "ok"
+        assert result["sqlite_temporary_tables"] == []
+
+        with database.engine.connect() as connection:
+            leftovers = list(
+                connection.execute(
+                    text(
+                        "SELECT name FROM sqlite_master "
+                        "WHERE name LIKE "
+                        "'_alembic_tmp_%'"
+                    )
+                ).scalars()
+            )
+        assert leftovers == []
+    finally:
+        database.close()

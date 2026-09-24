@@ -175,6 +175,14 @@ C = destructive/incompatible; rollback requires restoring safety backup
 
 Class C requires explicit maintenance and verified safety backup.
 
+V1 keeps a machine-validated migration policy registry for every Alembic
+revision. The registry records its A/B/C class and SQLite execution strategy
+(`direct`, Alembic `batch`, or explicit table `rebuild`). CI requires the
+registry to cover the complete Alembic revision graph, so a new migration cannot
+silently bypass classification. The current V1 history classifies the
+notification-delivery table transform (0010) and camera time-mode backfill
+(0015) as Class B; there is currently no Class C revision.
+
 ## Startup compatibility gate
 
 API and worker check:
@@ -203,6 +211,16 @@ Routine safe migrations may be invoked explicitly by deploy.sh.
 - never treat the only live DB file as the rollback copy;
 - create a verified Online Backup before incompatible work;
 - coordinate/checkpoint WAL when operations require file replacement.
+
+`scripts/migrate.sh` now runs a migration preflight before Alembic and a
+verification gate afterward. If an existing SQLite database has pending
+batch/rebuild work, preflight performs a full WAL checkpoint and refuses a busy
+checkpoint. After Alembic reaches the expected head, verification requires
+`PRAGMA foreign_key_check` to return no rows, `PRAGMA integrity_check` to
+return `ok`, and no Alembic batch temporary tables to remain. A future Class C
+migration is rejected unless the caller explicitly proves the verified
+pre-upgrade safety backup; `deploy.sh update` supplies that proof only after
+its existing verified backup gate.
 
 ## PostgreSQL migration rules
 

@@ -368,7 +368,7 @@ update_stack() {
   echo "Stopping zero-nvr control plane for explicit schema migration; ZLMediaKit remains running..."
   compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
 
-  if ! "$SCRIPT_DIR/migrate.sh"; then
+  if ! "$SCRIPT_DIR/migrate.sh" --verified-safety-backup; then
     echo "error: database migration failed; deployment remains pending" >&2
     echo "run ./deploy.sh rollback to restore the recorded pre-upgrade safety point" >&2
     return 1

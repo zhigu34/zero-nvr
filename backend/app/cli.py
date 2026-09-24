@@ -22,6 +22,8 @@ from app.core.config import Settings
 from app.core.db import (
     Database,
     assert_database_schema_current,
+    build_migration_plan,
+    current_schema_revisions,
     database_schema_status,
 )
 from app.core.db.preflight import (
@@ -132,6 +134,193 @@ def _policy(
                 "multiple enabled backup policies exist; pass --policy"
             )
         return policies[0]
+
+
+def _migration_plan_payload(
+    database: Database,
+) -> dict[str, object]:
+    current = current_schema_revisions(
+        database
+    )
+    plan = build_migration_plan(current)
+    highest = plan.highest_class
+    return {
+        "current_revisions": sorted(
+            plan.current_revisions
+        ),
+        "pending_revisions": [
+            item.revision
+            for item in plan.pending
+        ],
+        "pending": [
+            {
+                "revision": item.revision,
+                "class": item.migration_class.value,
+                "sqlite_strategy": (
+                    item.sqlite_strategy.value
+                ),
+            }
+            for item in plan.pending
+        ],
+        "highest_class": (
+            highest.value
+            if highest is not None
+            else None
+        ),
+        "requires_maintenance": (
+            plan.requires_maintenance
+        ),
+        "requires_verified_backup": (
+            plan.requires_verified_backup
+        ),
+        "requires_sqlite_checkpoint": (
+            plan.requires_sqlite_checkpoint
+        ),
+    }
+
+
+def migration_preflight_command(
+    args: argparse.Namespace,
+) -> int:
+    settings, database = _settings_database()
+    try:
+        payload = _migration_plan_payload(
+            database
+        )
+        if (
+            payload["requires_verified_backup"]
+            and not args.verified_safety_backup
+        ):
+            raise RuntimeError(
+                "Class C migration requires a verified "
+                "pre-upgrade safety backup; run the "
+                "migration through deploy.sh update"
+            )
+
+        sqlite_checkpoint = None
+        if (
+            database.is_sqlite
+            and payload[
+                "requires_sqlite_checkpoint"
+            ]
+        ):
+            with database.engine.connect() as connection:
+                row = connection.exec_driver_sql(
+                    "PRAGMA wal_checkpoint(FULL)"
+                ).one()
+            busy = int(row[0])
+            sqlite_checkpoint = {
+                "busy": busy,
+                "log_pages": int(row[1]),
+                "checkpointed_pages": int(
+                    row[2]
+                ),
+            }
+            if busy:
+                raise RuntimeError(
+                    "SQLite WAL checkpoint is busy; "
+                    "stop DB-mutating workloads before "
+                    "running batch/table-rebuild migration"
+                )
+
+        payload["database_backend"] = (
+            database.url.get_backend_name()
+        )
+        payload["sqlite_checkpoint"] = (
+            sqlite_checkpoint
+        )
+        print(
+            json.dumps(
+                payload,
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
+
+
+def _verify_migration_result(
+    database: Database,
+) -> dict[str, object]:
+    status = assert_database_schema_current(
+        database
+    )
+    payload: dict[str, object] = {
+        "schema_current": True,
+        "schema_revisions": sorted(
+            status.current
+        ),
+        "database_backend": (
+            database.url.get_backend_name()
+        ),
+    }
+
+    if not database.is_sqlite:
+        return payload
+
+    with database.engine.connect() as connection:
+        foreign_key_rows = list(
+            connection.exec_driver_sql(
+                "PRAGMA foreign_key_check"
+            )
+        )
+        integrity_rows = [
+            str(row[0])
+            for row in connection.exec_driver_sql(
+                "PRAGMA integrity_check"
+            )
+        ]
+        temporary_tables = list(
+            connection.exec_driver_sql(
+                "SELECT name FROM sqlite_master "
+                "WHERE type = 'table' "
+                "AND name LIKE '_alembic_tmp_%'"
+            ).scalars()
+        )
+
+    if foreign_key_rows:
+        raise RuntimeError(
+            "SQLite migration foreign-key integrity "
+            f"check failed for {len(foreign_key_rows)} row(s)"
+        )
+    if integrity_rows != ["ok"]:
+        raise RuntimeError(
+            "SQLite migration integrity_check failed: "
+            + "; ".join(integrity_rows[:5])
+        )
+    if temporary_tables:
+        raise RuntimeError(
+            "SQLite migration left Alembic temporary "
+            "table(s): "
+            + ", ".join(
+                str(value)
+                for value in temporary_tables
+            )
+        )
+
+    payload["sqlite_foreign_keys"] = "ok"
+    payload["sqlite_integrity"] = "ok"
+    payload["sqlite_temporary_tables"] = []
+    return payload
+
+
+def migration_verify_command(
+    _args: argparse.Namespace,
+) -> int:
+    _settings, database = _settings_database()
+    try:
+        print(
+            json.dumps(
+                _verify_migration_result(
+                    database
+                ),
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
 
 
 def check_schema_command(
@@ -1919,6 +2108,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     schema.set_defaults(
         handler=check_schema_command
+    )
+
+    migration_preflight = sub.add_parser(
+        "migration-preflight"
+    )
+    migration_preflight.add_argument(
+        "--verified-safety-backup",
+        action="store_true",
+    )
+    migration_preflight.set_defaults(
+        handler=migration_preflight_command
+    )
+
+    migration_verify = sub.add_parser(
+        "migration-verify"
+    )
+    migration_verify.set_defaults(
+        handler=migration_verify_command
     )
 
     preflight_sqlite = sub.add_parser(
