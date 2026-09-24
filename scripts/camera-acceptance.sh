@@ -40,30 +40,41 @@ case "$action" in
       echo "error: prepare accepts no extra arguments" >&2
       exit 2
     }
-    ZERO_NVR_ENV_FILE="$ENV_FILE"       "$SCRIPT_DIR/check.sh" >/dev/null
-    compose exec -T zero-nvr       python -m app.cli camera-acceptance       prepare --camera-id "$camera_id"
+    ZERO_NVR_ENV_FILE="$ENV_FILE" \
+      "$SCRIPT_DIR/check.sh" >/dev/null
+    compose exec -T zero-nvr \
+      python -m app.cli camera-acceptance \
+      prepare --camera-id "$camera_id"
     ;;
   restart)
     [[ "$#" -eq 0 ]] || {
       echo "error: restart accepts no extra arguments" >&2
       exit 2
     }
-    compose exec -T zero-nvr       python -m app.cli camera-acceptance       status --camera-id "$camera_id" >/dev/null
+    compose exec -T zero-nvr \
+      python -m app.cli camera-acceptance \
+      status --camera-id "$camera_id" >/dev/null
 
     compose restart zlmediakit
     compose restart zero-nvr zero-nvr-worker
-    compose up -d --wait --wait-timeout 180       zlmediakit zero-nvr zero-nvr-worker
+    compose up -d --wait --wait-timeout 180 \
+      zlmediakit zero-nvr zero-nvr-worker
 
-    ZERO_NVR_ENV_FILE="$ENV_FILE"       "$SCRIPT_DIR/check.sh" >/dev/null
+    ZERO_NVR_ENV_FILE="$ENV_FILE" \
+      "$SCRIPT_DIR/check.sh" >/dev/null
 
-    compose exec -T zero-nvr       python -m app.cli camera-acceptance       mark-restart --camera-id "$camera_id"
+    compose exec -T zero-nvr \
+      python -m app.cli camera-acceptance \
+      mark-restart --camera-id "$camera_id"
     ;;
   status)
     [[ "$#" -eq 0 ]] || {
       echo "error: status accepts no extra arguments" >&2
       exit 2
     }
-    compose exec -T zero-nvr       python -m app.cli camera-acceptance       status --camera-id "$camera_id"
+    compose exec -T zero-nvr \
+      python -m app.cli camera-acceptance \
+      status --camera-id "$camera_id"
     ;;
   verify)
     live=false
@@ -85,11 +96,17 @@ case "$action" in
     done
 
     args=()
-    [[ "$live" == true ]]       && args+=(--live-confirmed)
-    [[ "$playback" == true ]]       && args+=(--playback-confirmed)
+    [[ "$live" == true ]] \
+      && args+=(--live-confirmed)
+    [[ "$playback" == true ]] \
+      && args+=(--playback-confirmed)
 
-    ZERO_NVR_ENV_FILE="$ENV_FILE"       "$SCRIPT_DIR/check.sh" >/dev/null
-    compose exec -T zero-nvr       python -m app.cli camera-acceptance       verify --camera-id "$camera_id"       "${args[@]}"
+    ZERO_NVR_ENV_FILE="$ENV_FILE" \
+      "$SCRIPT_DIR/check.sh" >/dev/null
+    compose exec -T zero-nvr \
+      python -m app.cli camera-acceptance \
+      verify --camera-id "$camera_id" \
+      "${args[@]}"
     ;;
   *)
     echo "error: unsupported camera-acceptance action: $action" >&2

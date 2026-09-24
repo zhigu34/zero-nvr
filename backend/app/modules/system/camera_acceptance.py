@@ -368,7 +368,8 @@ class RealCameraAcceptanceService:
                 self.format_version
             ),
             "phase": "prepared",
-            "passed": not failures,
+            "ready": not failures,
+            "passed": False,
             "camera_id": str(camera_id),
             "camera_name": (
                 camera.name
@@ -425,6 +426,7 @@ class RealCameraAcceptanceService:
             camera_id
         )
         state["phase"] = "restarted"
+        state["passed"] = False
         state["restart_completed_at"] = (
             self._iso(self._clock())
         )

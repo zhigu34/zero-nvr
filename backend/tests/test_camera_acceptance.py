@@ -255,7 +255,8 @@ def test_real_camera_acceptance_two_phase_flow(
         prepared = service.prepare(
             camera_id
         )
-        assert prepared["passed"] is True
+        assert prepared["ready"] is True
+        assert prepared["passed"] is False
         assert (
             prepared["baseline_segment"][
                 "timing_source"
@@ -266,6 +267,7 @@ def test_real_camera_acceptance_two_phase_flow(
         restarted = service.mark_restart(
             camera_id
         )
+        assert restarted["passed"] is False
         restart_at = service._parse(
             restarted[
                 "restart_completed_at"

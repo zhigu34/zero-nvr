@@ -1080,7 +1080,17 @@ def camera_acceptance_command(
         )
         if (
             args.acceptance_action
-            in {"prepare", "verify"}
+            == "prepare"
+        ):
+            return (
+                0
+                if value.get("ready")
+                is True
+                else 1
+            )
+        if (
+            args.acceptance_action
+            == "verify"
         ):
             return (
                 0
