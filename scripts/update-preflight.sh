@@ -4,6 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
+. "$SCRIPT_DIR/release-manifest.sh"
 
 UPDATE_PREFLIGHT_MARGIN_BYTES=$((512 * 1024 * 1024))
 

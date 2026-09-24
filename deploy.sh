@@ -429,11 +429,16 @@ update_preflight_only() {
       git -C "$ROOT_DIR" worktree remove --force         "$stage_dir" >/dev/null 2>&1 || true
       rm -rf "$stage_dir" >/dev/null 2>&1 || true
     }
-    trap cleanup_update_preflight RETURN
 
     git -C "$ROOT_DIR" worktree add --detach       "$stage_dir" "$target_revision" >/dev/null
 
-    "$SCRIPT_DIR/update-preflight.sh"       "$stage_dir"       "$target_revision"       "$backup_policy"
+    local preflight_status=0
+    if ! "$SCRIPT_DIR/update-preflight.sh"       "$stage_dir"       "$target_revision"       "$backup_policy"
+    then
+      preflight_status=$?
+    fi
+    cleanup_update_preflight
+    return "$preflight_status"
   else
     target_revision="$current_source"
     "$SCRIPT_DIR/update-preflight.sh"       "$ROOT_DIR"       "$target_revision"       "$backup_policy"
