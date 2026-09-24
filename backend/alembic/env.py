@@ -8,6 +8,10 @@ from alembic import context
 from sqlalchemy import engine_from_config, event, pool
 
 from app.core.db.base import Base
+from app.core.db.migration_policy import (
+    configure_postgresql_migration_session,
+    migration_context_options,
+)
 
 # Import canonical model modules so their tables are registered in Base.metadata.
 from app.modules.alerts import models as alert_models  # noqa: F401
@@ -58,13 +62,25 @@ target_metadata = Base.metadata
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
+    dialect_name = (
+        "sqlite"
+        if url.startswith("sqlite")
+        else "postgresql"
+        if (
+            url.startswith("postgresql")
+            or url.startswith("postgres")
+        )
+        else ""
+    )
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
-        render_as_batch=url.startswith("sqlite"),
+        **migration_context_options(
+            dialect_name
+        ),
     )
 
     with context.begin_transaction():
@@ -91,13 +107,18 @@ def run_migrations_online() -> None:
                 cursor.close()
 
     with connectable.connect() as connection:
-        is_sqlite = connection.dialect.name == "sqlite"
+        dialect_name = connection.dialect.name
+        configure_postgresql_migration_session(
+            connection
+        )
 
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
-            render_as_batch=is_sqlite,
+            **migration_context_options(
+                dialect_name
+            ),
         )
 
         with context.begin_transaction():

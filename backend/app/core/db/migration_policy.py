@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import Any
+
+
+POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS = 5_000
+POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS = 300_000
 
 
 class MigrationClass(StrEnum):
@@ -16,12 +21,35 @@ class SQLiteMigrationStrategy(StrEnum):
     REBUILD = "rebuild"
 
 
+class PostgreSQLMigrationStrategy(StrEnum):
+    TRANSACTIONAL = "transactional"
+    TRANSACTIONAL_RESTARTABLE = (
+        "transactional_restartable"
+    )
+    BATCHED_RESTARTABLE = "batched_restartable"
+
+
 @dataclass(frozen=True, slots=True)
 class MigrationPolicy:
     revision: str
     migration_class: MigrationClass
     sqlite_strategy: SQLiteMigrationStrategy
     rationale: str
+    postgresql_strategy: PostgreSQLMigrationStrategy = (
+        PostgreSQLMigrationStrategy.TRANSACTIONAL
+    )
+
+    def __post_init__(self) -> None:
+        if (
+            self.migration_class
+            in {MigrationClass.B, MigrationClass.C}
+            and self.postgresql_strategy
+            is PostgreSQLMigrationStrategy.TRANSACTIONAL
+        ):
+            raise ValueError(
+                "Class B/C migration must explicitly "
+                "declare restartable PostgreSQL behavior"
+            )
 
     @property
     def requires_verified_backup(self) -> bool:
@@ -137,6 +165,7 @@ MIGRATION_POLICIES: tuple[MigrationPolicy, ...] = (
         MigrationClass.B,
         SQLiteMigrationStrategy.REBUILD,
         "transform notification delivery rows into frozen V1 schema",
+        PostgreSQLMigrationStrategy.TRANSACTIONAL_RESTARTABLE,
     ),
     MigrationPolicy(
         "0011_live_view_layouts",
@@ -167,6 +196,7 @@ MIGRATION_POLICIES: tuple[MigrationPolicy, ...] = (
         MigrationClass.B,
         SQLiteMigrationStrategy.BATCH,
         "add and backfill camera time synchronization mode",
+        PostgreSQLMigrationStrategy.TRANSACTIONAL_RESTARTABLE,
     ),
     MigrationPolicy(
         "0016_camera_config_revision",
@@ -226,3 +256,32 @@ def build_migration_plan(
             index + 1:
         ],
     )
+
+
+
+def migration_context_options(
+    dialect_name: str,
+) -> dict[str, bool]:
+    return {
+        "render_as_batch": dialect_name == "sqlite",
+        "transaction_per_migration": (
+            dialect_name == "postgresql"
+        ),
+    }
+
+
+def configure_postgresql_migration_session(
+    connection: Any,
+) -> None:
+    if connection.dialect.name != "postgresql":
+        return
+
+    connection.exec_driver_sql(
+        "SET lock_timeout = "
+        f"'{POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS}ms'"
+    )
+    connection.exec_driver_sql(
+        "SET statement_timeout = "
+        f"'{POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS}ms'"
+    )
+    connection.commit()

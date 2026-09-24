@@ -5,8 +5,13 @@ from .migration_policy import (
     MigrationClass,
     MigrationPlan,
     MigrationPolicy,
+    POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS,
+    POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS,
+    PostgreSQLMigrationStrategy,
     SQLiteMigrationStrategy,
     build_migration_plan,
+    configure_postgresql_migration_session,
+    migration_context_options,
     migration_policy,
 )
 from .dependencies import get_db_session
@@ -29,6 +34,9 @@ __all__ = [
     "MigrationClass",
     "MigrationPlan",
     "MigrationPolicy",
+    "POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS",
+    "POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS",
+    "PostgreSQLMigrationStrategy",
     "assert_database_schema_current",
     "current_schema_revisions",
     "database_schema_status",
@@ -37,5 +45,7 @@ __all__ = [
     "known_schema_revisions",
     "SQLiteMigrationStrategy",
     "build_migration_plan",
+    "configure_postgresql_migration_session",
+    "migration_context_options",
     "migration_policy",
 ]

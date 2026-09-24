@@ -16,9 +16,14 @@ from app.core.db import (
     MIGRATION_POLICIES,
     MigrationClass,
     MigrationPolicy,
+    POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS,
+    POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS,
+    PostgreSQLMigrationStrategy,
     SQLiteMigrationStrategy,
     build_migration_plan,
+    configure_postgresql_migration_session,
     known_schema_revisions,
+    migration_context_options,
 )
 
 
@@ -387,6 +392,67 @@ def test_alembic_upgrade_head_postgresql(monkeypatch) -> None:
         engine.dispose()
 
 
+@pytest.mark.skipif(
+    not os.getenv("ZERO_NVR_TEST_POSTGRES_URL"),
+    reason="PostgreSQL CI service is unavailable",
+)
+def test_postgresql_migration_session_is_bounded() -> None:
+    database_url = os.environ[
+        "ZERO_NVR_TEST_POSTGRES_URL"
+    ]
+    runtime_url = database_url
+    if runtime_url.startswith("postgresql://"):
+        runtime_url = (
+            "postgresql+psycopg://"
+            + runtime_url.removeprefix(
+                "postgresql://"
+            )
+        )
+    elif runtime_url.startswith("postgres://"):
+        runtime_url = (
+            "postgresql+psycopg://"
+            + runtime_url.removeprefix(
+                "postgres://"
+            )
+        )
+
+    engine = create_engine(runtime_url)
+    try:
+        with engine.connect() as connection:
+            configure_postgresql_migration_session(
+                connection
+            )
+            lock_ms = connection.exec_driver_sql(
+                "SELECT EXTRACT(EPOCH FROM "
+                "current_setting('lock_timeout')::interval) "
+                "* 1000"
+            ).scalar_one()
+            statement_ms = (
+                connection.exec_driver_sql(
+                    "SELECT EXTRACT(EPOCH FROM "
+                    "current_setting('statement_timeout')::interval) "
+                    "* 1000"
+                ).scalar_one()
+            )
+
+        assert int(lock_ms) == (
+            POSTGRESQL_MIGRATION_LOCK_TIMEOUT_MS
+        )
+        assert int(statement_ms) == (
+            POSTGRESQL_MIGRATION_STATEMENT_TIMEOUT_MS
+        )
+    finally:
+        engine.dispose()
+
+
+def test_postgresql_migrations_are_committed_per_revision() -> None:
+    options = migration_context_options(
+        "postgresql"
+    )
+    assert options["transaction_per_migration"] is True
+    assert options["render_as_batch"] is False
+
+
 def test_alembic_downgrade_base_sqlite(tmp_path, monkeypatch) -> None:
     database_path = tmp_path / "downgrade.db"
     database_url = f"sqlite:///{database_path}"
@@ -512,6 +578,21 @@ def test_migration_policy_classifies_transform_and_batch_paths() -> None:
     )
 
     for revision in (
+        "0010_notification_delivery",
+        "0015_camera_time_sync_mode",
+    ):
+        assert (
+            policies[revision].postgresql_strategy
+            is PostgreSQLMigrationStrategy.TRANSACTIONAL_RESTARTABLE
+        )
+
+    assert all(
+        item.postgresql_strategy
+        is not PostgreSQLMigrationStrategy.BATCHED_RESTARTABLE
+        for item in MIGRATION_POLICIES
+    )
+
+    for revision in (
         "0012_notification_secret",
         "0013_user_email_verified",
         "0014_notification_smtp",
@@ -533,6 +614,9 @@ def test_class_c_requires_verified_backup_and_maintenance() -> None:
             SQLiteMigrationStrategy.REBUILD
         ),
         rationale="test destructive migration",
+        postgresql_strategy=(
+            PostgreSQLMigrationStrategy.TRANSACTIONAL_RESTARTABLE
+        ),
     )
     assert policy.requires_verified_backup
     assert policy.requires_maintenance
@@ -603,3 +687,19 @@ def test_sqlite_migration_verify_checks_integrity(
         assert leftovers == []
     finally:
         database.close()
+
+
+
+def test_class_b_requires_explicit_restartable_postgresql_strategy() -> None:
+    with pytest.raises(
+        ValueError,
+        match="restartable PostgreSQL behavior",
+    ):
+        MigrationPolicy(
+            revision="future_backfill",
+            migration_class=MigrationClass.B,
+            sqlite_strategy=(
+                SQLiteMigrationStrategy.DIRECT
+            ),
+            rationale="test backfill",
+        )

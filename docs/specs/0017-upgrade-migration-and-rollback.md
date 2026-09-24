@@ -233,6 +233,22 @@ Non-production update paths do not claim that proof.
 - split large backfills into restartable batches if needed;
 - do not hold a database transaction around external network/file work.
 
+Alembic PostgreSQL sessions use a 5-second `lock_timeout` and 5-minute
+`statement_timeout`; migrations therefore fail instead of waiting
+indefinitely on a conflicting lock or runaway statement. Alembic also runs with
+`transaction_per_migration=true` on PostgreSQL. A failed revision rolls back
+its own DDL/data changes while previously completed revisions remain committed,
+so rerunning `deploy.sh update` resumes from the current Alembic revision.
+
+The migration registry also records PostgreSQL restartability. Class B/C
+revisions cannot use the default plain transactional classification; they must
+explicitly choose `transactional_restartable` or, for a future large backfill,
+`batched_restartable`. Current Class B revisions 0010 and 0015 are bounded,
+transactionally restartable transformations and do not justify a bespoke batch
+checkpoint table at V1 scale. No current revision requires
+`batched_restartable`. External network/file work remains outside Alembic
+migration transactions.
+
 ## Rollback
 
 ### Binary/config rollback

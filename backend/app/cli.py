@@ -159,6 +159,9 @@ def _migration_plan_payload(
                 "sqlite_strategy": (
                     item.sqlite_strategy.value
                 ),
+                "postgresql_strategy": (
+                    item.postgresql_strategy.value
+                ),
             }
             for item in plan.pending
         ],
