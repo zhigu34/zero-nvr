@@ -6,6 +6,7 @@ import {
   ref,
   watch
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   getCamera,
@@ -53,6 +54,7 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
+const { t, te } = useI18n({ useScope: "global" })
 const tab = ref<DetailTab>("general")
 const detail = ref<CameraDetail | null>(null)
 const policy = ref<RecordingPolicy | null>(null)
@@ -121,16 +123,44 @@ const audioStreams = computed(() =>
 )
 
 function purposeLabel(value: CameraStreamBinding["purpose"]): string {
-  const labels: Record<CameraStreamBinding["purpose"], string> = {
-    RECORD: "Recording",
-    LIVE_HIGH: "Live · High",
-    LIVE_LOW: "Live · Low",
-    AI_DETECT: "AI detection",
-    SNAPSHOT: "Snapshot",
-    AUDIO: "Audio"
+  const keys: Record<CameraStreamBinding["purpose"], string> = {
+    RECORD: "cameras.detail.purpose.recording",
+    LIVE_HIGH: "cameras.detail.purpose.liveHigh",
+    LIVE_LOW: "cameras.detail.purpose.liveLow",
+    AI_DETECT: "cameras.detail.purpose.aiDetection",
+    SNAPSHOT: "cameras.detail.purpose.snapshot",
+    AUDIO: "cameras.detail.purpose.audio"
   }
-  return labels[value]
+  return t(keys[value])
 }
+
+function streamStatusLabel(value: string): string {
+  const key = `cameras.detail.streamStatus.${value.toLowerCase()}`
+  return te(key) ? t(key) : value
+}
+
+function runtimeLabel(value: string): string {
+  if (value === "prebuffer") return t("cameras.detail.runtime.prebuffering")
+  if (value === "persistent") return t("cameras.detail.runtime.recording")
+  return t("cameras.detail.runtime.idle")
+}
+
+const weekdays = computed(() => [
+  t("cameras.detail.weekdays.mon"),
+  t("cameras.detail.weekdays.tue"),
+  t("cameras.detail.weekdays.wed"),
+  t("cameras.detail.weekdays.thu"),
+  t("cameras.detail.weekdays.fri"),
+  t("cameras.detail.weekdays.sat"),
+  t("cameras.detail.weekdays.sun")
+])
+
+const recordingModes = computed(() => [
+  { value: "continuous" as RecordingMode, label: t("cameras.detail.continuous"), description: t("cameras.detail.recordAllTime") },
+  { value: "schedule" as RecordingMode, label: t("cameras.detail.scheduled"), description: t("cameras.detail.recordWeekly") },
+  { value: "events" as RecordingMode, label: t("cameras.detail.eventsOnly"), description: t("cameras.detail.promoteEvents") },
+  { value: "off" as RecordingMode, label: t("cameras.detail.off"), description: t("cameras.detail.doNotRecord") }
+])
 
 function streamsForPurpose(
   purpose: CameraStreamBinding["purpose"]
@@ -148,7 +178,7 @@ function streamDescription(stream: CameraStreamProfile): string {
       : null,
     stream.fps ? `${Math.round(stream.fps)} fps` : null,
     stream.bitrate_kbps ? `${stream.bitrate_kbps} kbps` : null,
-    stream.has_audio ? "audio" : null
+    stream.has_audio ? t("cameras.detail.audio") : null
   ].filter(Boolean)
   return pieces.join(" · ") || stream.adapter_profile_key
 }
@@ -292,7 +322,7 @@ async function saveGeneral(): Promise<void> {
     })
     detail.value = updated
     resetGeneral(updated)
-    notice.value = "Camera settings saved."
+    notice.value = t("cameras.detail.settingsSaved")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -312,8 +342,8 @@ async function toggleEnabled(): Promise<void> {
     )
     detail.value = updated
     notice.value = updated.enabled
-      ? "Camera enabled."
-      : "Camera disabled."
+      ? t("cameras.detail.enabledNotice")
+      : t("cameras.detail.disabledNotice")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -327,7 +357,7 @@ async function toggleRetired(): Promise<void> {
   if (
     !restoring &&
     !window.confirm(
-      `Retire "${detail.value.name}"? Live viewing and recording will stop, but recordings and event history will be preserved.`
+      t("cameras.detail.retireConfirm", { name: detail.value.name })
     )
   ) {
     return
@@ -342,8 +372,8 @@ async function toggleRetired(): Promise<void> {
       : await retireCamera(detail.value.id)
     detail.value = updated
     notice.value = restoring
-      ? "Camera restored to inventory. It remains disabled until explicitly enabled."
-      : "Camera retired. Historical recordings and events are preserved."
+      ? t("cameras.detail.restoredNotice")
+      : t("cameras.detail.retiredNotice")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -379,38 +409,38 @@ async function refreshCapabilities(): Promise<void> {
     const messages: string[] = []
     if (result.diff.profiles_missing.length) {
       messages.push(
-        `missing: ${result.diff.profiles_missing.join(", ")}`
+        t("cameras.detail.refreshMissing", { items: result.diff.profiles_missing.join(", ") })
       )
     }
     if (result.diff.profiles_recovered.length) {
       messages.push(
-        `recovered: ${result.diff.profiles_recovered.join(", ")}`
+        t("cameras.detail.refreshRecovered", { items: result.diff.profiles_recovered.join(", ") })
       )
     }
     if (result.diff.profiles_added.length) {
       messages.push(
-        `added: ${result.diff.profiles_added.join(", ")}`
+        t("cameras.detail.refreshAdded", { items: result.diff.profiles_added.join(", ") })
       )
     }
     if (result.diff.profiles_changed.length) {
       messages.push(
-        `changed: ${result.diff.profiles_changed.join(", ")}`
+        t("cameras.detail.refreshChanged", { items: result.diff.profiles_changed.join(", ") })
       )
     }
     if (result.diff.capabilities_added.length) {
       messages.push(
-        `capabilities added: ${result.diff.capabilities_added.join(", ")}`
+        t("cameras.detail.capabilitiesAdded", { items: result.diff.capabilities_added.join(", ") })
       )
     }
     if (result.diff.capabilities_removed.length) {
       messages.push(
-        `capabilities removed: ${result.diff.capabilities_removed.join(", ")}`
+        t("cameras.detail.capabilitiesRemoved", { items: result.diff.capabilities_removed.join(", ") })
       )
     }
 
     notice.value = messages.length
-      ? `ONVIF refresh complete · ${messages.join(" · ")}`
-      : "ONVIF capabilities and profiles are unchanged."
+      ? t("cameras.detail.refreshComplete", { details: messages.join(" · ") })
+      : t("cameras.detail.refreshUnchanged")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -439,7 +469,7 @@ async function saveStreams(): Promise<void> {
     )
     detail.value.bindings = updated
     resetBindings(detail.value)
-    notice.value = "Stream bindings saved."
+    notice.value = t("cameras.detail.bindingsSaved")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -513,7 +543,7 @@ async function saveRecording(): Promise<void> {
       buildPolicy()
     )
     resetPolicy(policy.value)
-    notice.value = "Recording policy saved and reconciled."
+    notice.value = t("cameras.detail.policySaved")
     emit("changed")
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -574,13 +604,13 @@ onMounted(() => {
     <header class="camera-detail-header">
       <div>
         <strong>{{ detail?.name || camera.name }}</strong>
-        <span>{{ detail?.location || camera.location || "No location" }}</span>
+        <span>{{ detail?.location || camera.location || t("cameras.noLocation") }}</span>
       </div>
       <button
         class="icon-button"
         type="button"
-        title="Close"
-        aria-label="Close camera details"
+        :title="t('cameras.detail.close')"
+        :aria-label="t('cameras.detail.closeAria')"
         @click="emit('close')"
       >
         <UiIcon name="close" :size="16" />
@@ -594,18 +624,18 @@ onMounted(() => {
       >
         {{
           detail?.retired_at
-            ? "Retired"
+            ? t("cameras.retired")
             : detail?.enabled
-              ? "Enabled"
-              : "Disabled"
+              ? t("cameras.enabled")
+              : t("cameras.disabled")
         }}
       </span>
       <span>{{ detail?.adapter_type || "manual" }}</span>
       <span v-if="policy?.runtime">
         {{
           policy.runtime.recording
-            ? "Recording"
-            : prettyRuntime(policy.runtime.desired_mode)
+            ? t("cameras.detail.recording")
+            : runtimeLabel(policy.runtime.desired_mode)
         }}
       </span>
     </div>
@@ -616,21 +646,21 @@ onMounted(() => {
         :class="{ 'camera-detail-tab--active': tab === 'general' }"
         @click="tab = 'general'"
       >
-        General
+        {{ t("cameras.detail.general") }}
       </button>
       <button
         type="button"
         :class="{ 'camera-detail-tab--active': tab === 'streams' }"
         @click="tab = 'streams'"
       >
-        Streams
+        {{ t("cameras.detail.streams") }}
       </button>
       <button
         type="button"
         :class="{ 'camera-detail-tab--active': tab === 'recording' }"
         @click="tab = 'recording'"
       >
-        Recording
+        {{ t("cameras.detail.recording") }}
       </button>
     </nav>
 
@@ -643,7 +673,7 @@ onMounted(() => {
 
     <div v-if="loading" class="camera-detail-loading">
       <UiIcon name="refresh" :size="18" />
-      Loading camera…
+      {{ t("cameras.detail.loadingCamera") }}
     </div>
 
     <template v-else-if="detail">
@@ -653,15 +683,15 @@ onMounted(() => {
         @submit.prevent="saveGeneral"
       >
         <label>
-          <span>Name</span>
+          <span>{{ t("cameras.name") }}</span>
           <input v-model="generalForm.name" required maxlength="128" />
         </label>
         <label>
-          <span>Location</span>
+          <span>{{ t("cameras.location") }}</span>
           <input v-model="generalForm.location" maxlength="256" />
         </label>
         <label>
-          <span>Storage label</span>
+          <span>{{ t("cameras.storageLabel") }}</span>
           <input v-model="generalForm.storageLabel" maxlength="128" />
         </label>
 
@@ -672,7 +702,7 @@ onMounted(() => {
             type="button"
             @click="toggleEnabled"
           >
-            {{ detail.enabled ? "Disable camera" : "Enable camera" }}
+            {{ detail.enabled ? t("cameras.detail.disableCamera") : t("cameras.detail.enableCamera") }}
           </button>
           <button
             v-if="canConfigure"
@@ -683,10 +713,10 @@ onMounted(() => {
           >
             {{
               retirementSaving
-                ? "Saving…"
+                ? t("cameras.detail.saving")
                 : detail.retired_at
-                  ? "Restore camera"
-                  : "Retire camera"
+                  ? t("cameras.detail.restoreCamera")
+                  : t("cameras.detail.retireCamera")
             }}
           </button>
           <button
@@ -694,7 +724,7 @@ onMounted(() => {
             type="submit"
             :disabled="savingGeneral || !canConfigure"
           >
-            {{ savingGeneral ? "Saving…" : "Save" }}
+            {{ savingGeneral ? t("cameras.detail.saving") : t("cameras.detail.save") }}
           </button>
         </div>
       </form>
@@ -705,8 +735,8 @@ onMounted(() => {
             class="camera-detail-section__heading camera-detail-section__heading--actions"
           >
             <div>
-              <strong>Available profiles</strong>
-              <span>Discovered/probed media profiles.</span>
+              <strong>{{ t("cameras.detail.availableProfiles") }}</strong>
+              <span>{{ t("cameras.detail.profilesHint") }}</span>
             </div>
             <button
               v-if="detail.adapter_type === 'onvif'"
@@ -718,8 +748,8 @@ onMounted(() => {
               <UiIcon name="refresh" :size="12" />
               {{
                 refreshingCapabilities
-                  ? "Refreshing…"
-                  : "Refresh ONVIF"
+                  ? t("cameras.detail.refreshing")
+                  : t("cameras.detail.refreshOnvif")
               }}
             </button>
           </div>
@@ -734,15 +764,15 @@ onMounted(() => {
               <span>{{ streamDescription(stream) }}</span>
             </div>
             <span class="status-pill">
-              {{ stream.status }}
+              {{ streamStatusLabel(stream.status) }}
             </span>
           </article>
         </section>
 
         <section class="camera-detail-section">
           <div class="camera-detail-section__heading">
-            <strong>Purpose bindings</strong>
-            <span>One physical profile may serve multiple product purposes.</span>
+            <strong>{{ t("cameras.detail.purposeBindings") }}</strong>
+            <span>{{ t("cameras.detail.purposeHint") }}</span>
           </div>
 
           <label
@@ -755,7 +785,7 @@ onMounted(() => {
               v-model="bindingForm[purpose]"
               :disabled="!canConfigure"
             >
-              <option value="">Not assigned</option>
+              <option value="">{{ t("cameras.detail.notAssigned") }}</option>
               <option
                 v-for="stream in streamsForPurpose(purpose)"
                 :key="stream.id"
@@ -773,7 +803,7 @@ onMounted(() => {
               :disabled="savingStreams || !canConfigure"
               @click="saveStreams"
             >
-              {{ savingStreams ? "Saving…" : "Save bindings" }}
+              {{ savingStreams ? t("cameras.detail.saving") : t("cameras.detail.saveBindings") }}
             </button>
           </div>
         </section>
@@ -786,34 +816,29 @@ onMounted(() => {
       >
         <section class="camera-detail-section">
           <div class="camera-detail-section__heading">
-            <strong>Recording mode</strong>
-            <span>Baseline recording and event promotion behavior.</span>
+            <strong>{{ t("cameras.detail.recordingMode") }}</strong>
+            <span>{{ t("cameras.detail.recordingModeHint") }}</span>
           </div>
 
           <div class="recording-mode-grid">
             <label
-              v-for="item in [
-                ['continuous', 'Continuous', 'Record all the time'],
-                ['schedule', 'Scheduled', 'Record during weekly windows'],
-                ['events', 'Events only', 'Prebuffer and promote matching events'],
-                ['off', 'Off', 'Do not record this camera']
-              ]"
-              :key="item[0]"
+              v-for="item in recordingModes"
+              :key="item.value"
               class="recording-mode-card"
               :class="{
                 'recording-mode-card--active':
-                  recordingForm.mode === item[0]
+                  recordingForm.mode === item.value
               }"
             >
               <input
                 v-model="recordingForm.mode"
                 type="radio"
                 name="recording-mode"
-                :value="item[0]"
+                :value="item.value"
                 :disabled="!canConfigure"
               />
-              <strong>{{ item[1] }}</strong>
-              <span>{{ item[2] }}</span>
+              <strong>{{ item.label }}</strong>
+              <span>{{ item.description }}</span>
             </label>
           </div>
 
@@ -826,7 +851,7 @@ onMounted(() => {
               type="checkbox"
               :disabled="!canConfigure"
             />
-            <span>Also preserve event pre/post-roll metadata and event clips</span>
+            <span>{{ t("cameras.detail.preserveEvents") }}</span>
           </label>
         </section>
 
@@ -836,8 +861,8 @@ onMounted(() => {
         >
           <div class="camera-detail-section__heading camera-detail-section__heading--actions">
             <div>
-              <strong>Weekly schedule</strong>
-              <span>Monday=Mon through Sunday=Sun in the selected timezone.</span>
+              <strong>{{ t("cameras.detail.weeklySchedule") }}</strong>
+              <span>{{ t("cameras.detail.weekdayHint") }}</span>
             </div>
             <button
               class="button button--ghost button--compact"
@@ -846,12 +871,12 @@ onMounted(() => {
               @click="addWindow"
             >
               <UiIcon name="plus" :size="13" />
-              Add window
+              {{ t("cameras.detail.addWindow") }}
             </button>
           </div>
 
           <label class="camera-detail-field">
-            <span>Timezone</span>
+            <span>{{ t("cameras.detail.timezone") }}</span>
             <input
               v-model="recordingForm.timezone"
               :disabled="!canConfigure"
@@ -868,7 +893,7 @@ onMounted(() => {
             >
               <div class="recording-window__days">
                 <button
-                  v-for="(day, dayIndex) in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"
+                  v-for="(day, dayIndex) in weekdays"
                   :key="day"
                   type="button"
                   :class="{ 'recording-day--active': window.days.includes(dayIndex) }"
@@ -885,7 +910,7 @@ onMounted(() => {
                   :disabled="!canConfigure"
                   required
                 />
-                <span>to</span>
+                <span>{{ t("cameras.detail.to") }}</span>
                 <input
                   v-model="window.end"
                   type="time"
@@ -910,13 +935,13 @@ onMounted(() => {
           class="camera-detail-section"
         >
           <div class="camera-detail-section__heading">
-            <strong>Recording parameters</strong>
-            <span>Finalized segment and event buffer settings.</span>
+            <strong>{{ t("cameras.detail.recordingParameters") }}</strong>
+            <span>{{ t("cameras.detail.recordingParametersHint") }}</span>
           </div>
 
           <div class="camera-recording-number-grid">
             <label>
-              <span>Segment seconds</span>
+              <span>{{ t("cameras.detail.segmentSeconds") }}</span>
               <input
                 v-model.number="recordingForm.segmentSeconds"
                 type="number"
@@ -926,7 +951,7 @@ onMounted(() => {
               />
             </label>
             <label>
-              <span>Pre-roll seconds</span>
+              <span>{{ t("cameras.detail.preRollSeconds") }}</span>
               <input
                 v-model.number="recordingForm.preRoll"
                 type="number"
@@ -936,7 +961,7 @@ onMounted(() => {
               />
             </label>
             <label>
-              <span>Post-roll seconds</span>
+              <span>{{ t("cameras.detail.postRollSeconds") }}</span>
               <input
                 v-model.number="recordingForm.postRoll"
                 type="number"
@@ -949,12 +974,12 @@ onMounted(() => {
 
           <div class="camera-recording-number-grid camera-recording-number-grid--two">
             <label>
-              <span>Local storage target</span>
+              <span>{{ t("cameras.detail.localStorageTarget") }}</span>
               <select
                 v-model="recordingForm.storageTargetId"
                 :disabled="!canConfigure"
               >
-                <option value="">Use default local target</option>
+                <option value="">{{ t("cameras.detail.useDefaultLocalTarget") }}</option>
                 <option
                   v-for="target in localTargets"
                   :key="target.id"
@@ -965,12 +990,12 @@ onMounted(() => {
               </select>
             </label>
             <label>
-              <span>Retention policy</span>
+              <span>{{ t("cameras.detail.retentionPolicy") }}</span>
               <select
                 v-model="recordingForm.retentionPolicyId"
                 :disabled="!canConfigure"
               >
-                <option value="">Inherit retention</option>
+                <option value="">{{ t("cameras.detail.inheritRetention") }}</option>
                 <option
                   v-for="item in retentionPolicies"
                   :key="item.id"
@@ -988,12 +1013,12 @@ onMounted(() => {
           class="camera-detail-section"
         >
           <div class="camera-detail-section__heading">
-            <strong>Event filter</strong>
-            <span>Blank labels/zones match all provider events.</span>
+            <strong>{{ t("cameras.detail.eventFilter") }}</strong>
+            <span>{{ t("cameras.detail.eventFilterHint") }}</span>
           </div>
 
           <label class="camera-detail-field">
-            <span>Labels</span>
+            <span>{{ t("cameras.detail.labels") }}</span>
             <input
               v-model="recordingForm.labels"
               :disabled="!canConfigure"
@@ -1001,7 +1026,7 @@ onMounted(() => {
             />
           </label>
           <label class="camera-detail-field">
-            <span>Zones</span>
+            <span>{{ t("cameras.detail.zones") }}</span>
             <input
               v-model="recordingForm.zones"
               :disabled="!canConfigure"
@@ -1009,7 +1034,7 @@ onMounted(() => {
             />
           </label>
           <label class="camera-detail-field">
-            <span>Minimum confidence · {{ Math.round(recordingForm.minConfidence * 100) }}%</span>
+            <span>{{ t("cameras.detail.minConfidence", { value: Math.round(recordingForm.minConfidence * 100) }) }}</span>
             <input
               v-model.number="recordingForm.minConfidence"
               type="range"
@@ -1029,8 +1054,8 @@ onMounted(() => {
           >
             {{
               savingRecording
-                ? "Applying…"
-                : "Save & reconcile recording"
+                ? t("cameras.detail.applying")
+                : t("cameras.detail.saveReconcile")
             }}
           </button>
         </div>
@@ -1039,15 +1064,6 @@ onMounted(() => {
   </aside>
 </template>
 
-<script lang="ts">
-function prettyRuntime(value: string): string {
-  return value === "prebuffer"
-    ? "Prebuffering"
-    : value === "persistent"
-      ? "Recording"
-      : "Idle"
-}
-</script>
 
 <style scoped>
 .camera-detail-drawer {

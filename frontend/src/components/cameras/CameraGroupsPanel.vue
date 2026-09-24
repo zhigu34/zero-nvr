@@ -5,6 +5,7 @@ import {
   reactive,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   createCameraGroup,
@@ -16,6 +17,8 @@ import {
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
 import UiIcon from "../ui/UiIcon.vue"
+
+const { t } = useI18n({ useScope: "global" })
 
 const props = defineProps<{
   cameras: CameraSummary[]
@@ -41,8 +44,8 @@ const groupMap = computed(() =>
 )
 
 function parentName(group: CameraGroup): string {
-  if (!group.parent_id) return "Top level"
-  return groupMap.value.get(group.parent_id)?.name ?? "Unknown parent"
+  if (!group.parent_id) return t("cameras.groupsPanel.topLevel")
+  return groupMap.value.get(group.parent_id)?.name ?? t("cameras.groupsPanel.unknownParent")
 }
 
 function descendantIds(groupId: string): Set<string> {
@@ -124,10 +127,10 @@ async function save(): Promise<void> {
     }
     if (editing.value) {
       await updateCameraGroup(editing.value.id, body)
-      notice.value = "Camera group updated."
+      notice.value = t("cameras.groupsPanel.updated")
     } else {
       await createCameraGroup(body)
-      notice.value = "Camera group created."
+      notice.value = t("cameras.groupsPanel.created")
     }
     editorOpen.value = false
     editing.value = null
@@ -140,17 +143,23 @@ async function save(): Promise<void> {
 }
 
 async function remove(group: CameraGroup): Promise<void> {
-  if (!window.confirm(`Delete camera group "${group.name}"?`)) {
+  if (!window.confirm(t("cameras.groupsPanel.deleteConfirm", { name: group.name }))) {
     return
   }
   error.value = null
   try {
     await deleteCameraGroup(group.id)
-    notice.value = "Camera group deleted."
+    notice.value = t("cameras.groupsPanel.deleted")
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
   }
+}
+
+function groupCameraCount(count: number): string {
+  return count === 1
+    ? t("cameras.groupsPanel.cameraCountOne", { count })
+    : t("cameras.groupsPanel.cameraCountMany", { count })
 }
 
 onMounted(() => {
@@ -162,9 +171,9 @@ onMounted(() => {
   <section class="camera-groups-panel">
     <header class="camera-groups-header">
       <div>
-        <strong>Camera groups</strong>
+        <strong>{{ t("cameras.groupsPanel.title") }}</strong>
         <span>
-          Organize cameras for access control and future multi-camera views.
+          {{ t("cameras.groupsPanel.description") }}
         </span>
       </div>
       <button
@@ -173,7 +182,7 @@ onMounted(() => {
         @click="openCreate"
       >
         <UiIcon name="plus" :size="14" />
-        Add group
+        {{ t("cameras.groupsPanel.addGroup") }}
       </button>
     </header>
 
@@ -184,9 +193,9 @@ onMounted(() => {
       v-if="!groups.length && !loading"
       class="empty-state empty-state--large"
     >
-      <strong>No camera groups</strong>
+      <strong>{{ t("cameras.groupsPanel.noGroups") }}</strong>
       <p>
-        Create groups such as Exterior, Entrances, Floor 1 or Warehouse.
+        {{ t("cameras.groupsPanel.noGroupsHint") }}
       </p>
     </div>
 
@@ -203,8 +212,7 @@ onMounted(() => {
           <strong>{{ group.name }}</strong>
           <span>{{ parentName(group) }}</span>
           <small>
-            {{ group.camera_ids.length }}
-            camera{{ group.camera_ids.length === 1 ? "" : "s" }}
+            {{ groupCameraCount(group.camera_ids.length) }}
           </small>
           <p v-if="group.description">
             {{ group.description }}
@@ -216,12 +224,12 @@ onMounted(() => {
             type="button"
             @click="openEdit(group)"
           >
-            Edit
+            {{ t("cameras.groupsPanel.edit") }}
           </button>
           <button
             class="icon-button icon-button--danger"
             type="button"
-            title="Delete group"
+            :title="t('cameras.groupsPanel.deleteGroup')"
             @click="remove(group)"
           >
             <UiIcon name="trash" :size="14" />
@@ -234,9 +242,9 @@ onMounted(() => {
       <header class="storage-editor__header">
         <div>
           <strong>
-            {{ editing ? "Edit camera group" : "Add camera group" }}
+            {{ editing ? t("cameras.groupsPanel.editTitle") : t("cameras.groupsPanel.addTitle") }}
           </strong>
-          <span>Hierarchy and direct members</span>
+          <span>{{ t("cameras.groupsPanel.hierarchy") }}</span>
         </div>
         <button
           class="icon-button"
@@ -249,7 +257,7 @@ onMounted(() => {
 
       <form class="camera-group-form" @submit.prevent="save">
         <label>
-          <span>Name</span>
+          <span>{{ t("cameras.name") }}</span>
           <input
             v-model="form.name"
             required
@@ -257,7 +265,7 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>{{ t("cameras.groupsPanel.descriptionLabel") }}</span>
           <textarea
             v-model="form.description"
             rows="3"
@@ -265,9 +273,9 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Parent group</span>
+          <span>{{ t("cameras.groupsPanel.parentGroup") }}</span>
           <select v-model="form.parentId">
-            <option value="">Top level</option>
+            <option value="">{{ t("cameras.groupsPanel.topLevel") }}</option>
             <option
               v-for="group in availableParents"
               :key="group.id"
@@ -279,7 +287,7 @@ onMounted(() => {
         </label>
 
         <fieldset>
-          <legend>Direct camera members</legend>
+          <legend>{{ t("cameras.groupsPanel.directMembers") }}</legend>
           <div class="camera-group-camera-list">
             <button
               v-for="camera in props.cameras"
@@ -300,7 +308,7 @@ onMounted(() => {
               />
               <span>
                 <strong>{{ camera.name }}</strong>
-                <small>{{ camera.location || "No location" }}</small>
+                <small>{{ camera.location || t("cameras.noLocation") }}</small>
               </span>
               <UiIcon
                 v-if="form.cameraIds.includes(camera.id)"
@@ -317,14 +325,14 @@ onMounted(() => {
             type="button"
             @click="editorOpen = false"
           >
-            Cancel
+            {{ t("cameras.groupsPanel.cancel") }}
           </button>
           <button
             class="button button--primary"
             type="submit"
             :disabled="saving"
           >
-            {{ saving ? "Saving…" : editing ? "Save group" : "Create group" }}
+            {{ saving ? t("cameras.groupsPanel.saving") : editing ? t("cameras.groupsPanel.saveGroup") : t("cameras.groupsPanel.createGroup") }}
           </button>
         </div>
       </form>

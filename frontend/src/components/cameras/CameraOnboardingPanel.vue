@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   createManualCamera,
@@ -34,6 +35,7 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
+const { t, te } = useI18n({ useScope: "global" })
 
 type Mode = "onvif" | "rtsp"
 type WorkingAction =
@@ -53,10 +55,10 @@ const successMessage = ref<string | null>(null)
 const manualName = ref("")
 const manualLocation = ref("")
 const manualStorageLabel = ref("")
-const primaryName = ref("Main stream")
+const primaryName = ref(t("cameras.onboarding.mainStream"))
 const primaryUrl = ref("")
 const secondaryEnabled = ref(false)
-const secondaryName = ref("Sub stream")
+const secondaryName = ref(t("cameras.onboarding.subStream"))
 const secondaryUrl = ref("")
 const manualProbe = ref<CameraProbeResult | null>(null)
 const manualProbeFingerprint = ref<string | null>(null)
@@ -121,10 +123,10 @@ const identityConflict = computed(
   () => identity.value?.state === "identity_conflict"
 )
 const importActionLabel = computed(() => {
-  if (working.value === "import") return "Importing…"
-  if (identity.value?.state === "same_device") return "Refresh existing device"
-  if (identityRequiresConfirmation.value) return "Confirm & refresh device"
-  return "Import device"
+  if (working.value === "import") return t("cameras.onboarding.importing")
+  if (identity.value?.state === "same_device") return t("cameras.onboarding.refreshExisting")
+  if (identityRequiresConfirmation.value) return t("cameras.onboarding.confirmRefresh")
+  return t("cameras.onboarding.importDevice")
 })
 
 const batchCandidates = computed(() => {
@@ -218,7 +220,7 @@ async function createRtsp(): Promise<void> {
   working.value = "create"
   try {
     await createManualCamera(manualBody())
-    successMessage.value = "Camera created and credentials stored server-side."
+    successMessage.value = t("cameras.onboarding.manualCreated")
     primaryUrl.value = ""
     secondaryUrl.value = ""
     manualProbe.value = null
@@ -372,8 +374,8 @@ async function importDevice(): Promise<void> {
     })
     successMessage.value =
       imported.reconfigured
-        ? "Existing ONVIF device refreshed after identity review. Camera identity and history were preserved while endpoint, credentials and stream URIs were updated."
-        : "ONVIF device imported. Stream credentials remain in the zero-nvr secret store."
+        ? t("cameras.onboarding.onvifRefreshed")
+        : t("cameras.onboarding.onvifImported")
     onvifPassword.value = ""
     emit("created")
   } catch (caught) {
@@ -391,7 +393,7 @@ function profileSummary(profile: OnvifInspection["profiles"][number]): string {
       : null,
     profile.fps ? `${profile.fps} fps` : null
   ]
-  return parts.filter(Boolean).join(" · ") || "Profile details unavailable"
+  return parts.filter(Boolean).join(" · ") || t("cameras.onboarding.profileUnavailable")
 }
 
 function candidateName(candidate: DiscoveryCandidate): string {
@@ -402,7 +404,7 @@ function candidateName(candidate: DiscoveryCandidate): string {
   ) {
     return discoveredName.trim()
   }
-  return candidate.host || "ONVIF device"
+  return candidate.host || t("cameras.onboarding.onvifDevice")
 }
 
 function batchDeviceName(
@@ -414,7 +416,7 @@ function batchDeviceName(
     result.device.model ||
     result.device.manufacturer ||
     candidate.host ||
-    "ONVIF device"
+    t("cameras.onboarding.onvifDevice")
   const rendered = batchNameTemplate.value
     .replaceAll("{name}", baseName)
     .replaceAll("{host}", candidate.host ?? "")
@@ -472,7 +474,7 @@ async function applyBatchGroup(cameraIds: string[]): Promise<void> {
     (item) => item.id === batchGroupId.value
   )
   if (!group) {
-    throw new Error("Selected camera group is no longer available.")
+    throw new Error(t("cameras.onboarding.selectedGroupMissing"))
   }
 
   const merged = Array.from(
@@ -499,7 +501,7 @@ async function runBatchImport(): Promise<void> {
       setBatchResult(
         candidate,
         "running",
-        "Inspecting device identity and media profiles…"
+        t("cameras.onboarding.inspectingBatch")
       )
 
       const host = candidate.host
@@ -507,7 +509,7 @@ async function runBatchImport(): Promise<void> {
         setBatchResult(
           candidate,
           "failed",
-          "Candidate has no usable host address."
+          t("cameras.onboarding.noHost")
         )
         continue
       }
@@ -528,11 +530,11 @@ async function runBatchImport(): Promise<void> {
         if (inspected.identity.state !== "new_device") {
           const message =
             inspected.identity.state === "identity_conflict"
-              ? "Identity conflict requires manual resolution."
+              ? t("cameras.onboarding.identityConflictReview")
               : inspected.identity.state ===
                   "probable_match_requires_confirmation"
-                ? "Weak identity match requires explicit single-device confirmation."
-                : "Existing device detected; review it individually before changing defaults."
+                ? t("cameras.onboarding.weakIdentityReview")
+                : t("cameras.onboarding.existingReview")
           setBatchResult(candidate, "review", message)
           continue
         }
@@ -544,7 +546,7 @@ async function runBatchImport(): Promise<void> {
           setBatchResult(
             candidate,
             "failed",
-            "No usable RTSP profiles were reported."
+            t("cameras.onboarding.noProfiles")
           )
           continue
         }
@@ -573,7 +575,7 @@ async function runBatchImport(): Promise<void> {
         setBatchResult(
           candidate,
           "success",
-          `Imported ${importedCameraIds.length} camera channel(s) and applied batch defaults.`,
+          t("cameras.onboarding.batchImported", { count: importedCameraIds.length }),
           importedCameraIds
         )
       } catch (caught) {
@@ -581,7 +583,7 @@ async function runBatchImport(): Promise<void> {
           candidate,
           importedCameraIds.length ? "partial" : "failed",
           importedCameraIds.length
-            ? `Device was imported, but one or more defaults failed: ${errorMessage(caught)}`
+            ? t("cameras.onboarding.batchPartial", { error: errorMessage(caught) })
             : errorMessage(caught),
           importedCameraIds
         )
@@ -597,8 +599,11 @@ async function runBatchImport(): Promise<void> {
     const review = batchResults.value.filter(
       (item) => item.state === "review"
     ).length
-    successMessage.value =
-      `Batch onboarding finished: ${successful} complete, ${partial} partial, ${review} require review.`
+    successMessage.value = t("cameras.onboarding.batchFinished", {
+      successful,
+      partial,
+      review
+    })
     batchPassword.value = ""
     for (const override of Object.values(batchOverrides.value)) {
       override.password = ""
@@ -610,21 +615,31 @@ async function runBatchImport(): Promise<void> {
     working.value = null
   }
 }
+function batchStateLabel(value: BatchResultState): string {
+  const key = `cameras.onboarding.batchState.${value}`
+  return te(key) ? t(key) : value
+}
+
+function discoveryStateLabel(value: string): string {
+  const key = `cameras.onboarding.discoveryState.${value.toLowerCase()}`
+  return te(key) ? t(key) : value
+}
+
 </script>
 
 <template>
   <section class="panel onboarding-panel">
     <div class="panel__header onboarding-panel__header">
       <div>
-        <p class="eyebrow">Camera onboarding</p>
-        <h2>Add a camera or device</h2>
+        <p class="eyebrow">{{ t("cameras.onboarding.title") }}</p>
+        <h2>{{ t("cameras.onboarding.addCameraOrDevice") }}</h2>
       </div>
       <button class="button button--ghost" type="button" @click="emit('close')">
-        Close
+        {{ t("cameras.onboarding.close") }}
       </button>
     </div>
 
-    <div class="segmented-tabs" role="tablist" aria-label="Camera onboarding mode">
+    <div class="segmented-tabs" role="tablist" :aria-label="t('cameras.onboarding.modeAria')">
       <button
         type="button"
         role="tab"
@@ -643,7 +658,7 @@ async function runBatchImport(): Promise<void> {
         class="segmented-tabs__item"
         @click="mode = 'rtsp'; clearMessages()"
       >
-        Manual RTSP
+        {{ t("cameras.onboarding.manualRtsp") }}
       </button>
     </div>
 
@@ -659,8 +674,8 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>1</span>
           <div>
-            <strong>Find or enter the device</strong>
-            <p>WS-Discovery stages candidates only. Nothing is created yet.</p>
+            <strong>{{ t("cameras.onboarding.findDevice") }}</strong>
+            <p>{{ t("cameras.onboarding.findHint") }}</p>
           </div>
         </div>
 
@@ -670,7 +685,7 @@ async function runBatchImport(): Promise<void> {
           :disabled="working !== null"
           @click="runDiscovery"
         >
-          {{ working === "discover" ? "Discovering…" : "Discover ONVIF devices" }}
+          {{ working === "discover" ? t("cameras.onboarding.discovering") : t("cameras.onboarding.discoverDevices") }}
         </button>
 
         <div
@@ -688,10 +703,10 @@ async function runBatchImport(): Promise<void> {
             :disabled="!candidate.host"
             @click="useCandidate(candidate)"
           >
-            <strong>{{ candidate.host || "Address unavailable" }}</strong>
+            <strong>{{ candidate.host || t("cameras.onboarding.addressUnavailable") }}</strong>
             <span>
-              {{ candidate.port ? `port ${candidate.port}` : "default port" }}
-              · {{ candidate.state }}
+              {{ candidate.port ? t("cameras.onboarding.portValue", { port: candidate.port }) : t("cameras.onboarding.defaultPort") }}
+              · {{ discoveryStateLabel(candidate.state) }}
             </span>
           </button>
         </div>
@@ -699,7 +714,7 @@ async function runBatchImport(): Promise<void> {
           v-else-if="discovery"
           class="field-hint onboarding-hint"
         >
-          No ONVIF devices were discovered. Manual host entry remains available.
+          {{ t("cameras.onboarding.noOnvifDevices") }}
         </p>
 
         <div
@@ -709,11 +724,9 @@ async function runBatchImport(): Promise<void> {
           <div class="step-heading">
             <span>B</span>
             <div>
-              <strong>Batch onboarding</strong>
+              <strong>{{ t("cameras.onboarding.batchOnboarding") }}</strong>
               <p>
-                Select newly discovered devices, share default credentials,
-                then apply group, recording/storage and time-sync defaults.
-                Existing or ambiguous identities are left for manual review.
+                {{ t("cameras.onboarding.batchHint") }}
               </p>
             </div>
           </div>
@@ -733,7 +746,7 @@ async function runBatchImport(): Promise<void> {
                 />
                 <span>
                   <strong>{{ candidateName(candidate) }}</strong>
-                  · {{ candidate.host || "address unavailable" }}
+                  · {{ candidate.host || t("cameras.onboarding.addressUnavailable") }}
                 </span>
               </label>
 
@@ -742,20 +755,20 @@ async function runBatchImport(): Promise<void> {
                 class="form-grid"
               >
                 <label class="field">
-                  <span>Username override <small>optional</small></span>
+                  <span>{{ t("cameras.onboarding.usernameOverride") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
                   <input
                     v-model="batchCredential(candidate.id).username"
                     autocomplete="off"
-                    placeholder="Use shared username"
+                    :placeholder="t('cameras.onboarding.useSharedUsername')"
                   />
                 </label>
                 <label class="field">
-                  <span>Password override <small>optional</small></span>
+                  <span>{{ t("cameras.onboarding.passwordOverride") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
                   <input
                     v-model="batchCredential(candidate.id).password"
                     type="password"
                     autocomplete="new-password"
-                    placeholder="Use shared password"
+                    :placeholder="t('cameras.onboarding.useSharedPassword')"
                   />
                 </label>
               </div>
@@ -765,7 +778,7 @@ async function runBatchImport(): Promise<void> {
                 class="field-hint"
               >
                 <strong>
-                  {{ batchResultMap.get(candidate.id)?.state }}
+                  {{ batchStateLabel(batchResultMap.get(candidate.id)?.state || "pending") }}
                 </strong>
                 · {{ batchResultMap.get(candidate.id)?.message }}
               </p>
@@ -774,14 +787,14 @@ async function runBatchImport(): Promise<void> {
 
           <div class="form-grid form-grid--three">
             <label class="field">
-              <span>Shared username</span>
+              <span>{{ t("cameras.onboarding.sharedUsername") }}</span>
               <input
                 v-model="batchUsername"
                 autocomplete="username"
               />
             </label>
             <label class="field">
-              <span>Shared password</span>
+              <span>{{ t("cameras.onboarding.sharedPassword") }}</span>
               <input
                 v-model="batchPassword"
                 type="password"
@@ -789,20 +802,20 @@ async function runBatchImport(): Promise<void> {
               />
             </label>
             <label class="field">
-              <span>Name template</span>
+              <span>{{ t("cameras.onboarding.nameTemplate") }}</span>
               <input
                 v-model="batchNameTemplate"
                 placeholder="{name}"
               />
-              <small>Supports {name} and {host}.</small>
+              <small>{{ t("cameras.onboarding.nameTemplateHint") }}</small>
             </label>
           </div>
 
           <div class="form-grid form-grid--three">
             <label class="field">
-              <span>Camera group <small>optional</small></span>
+              <span>{{ t("cameras.onboarding.cameraGroup") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
               <select v-model="batchGroupId">
-                <option value="">No group</option>
+                <option value="">{{ t("cameras.onboarding.noGroup") }}</option>
                 <option
                   v-for="group in batchGroups"
                   :key="group.id"
@@ -813,20 +826,20 @@ async function runBatchImport(): Promise<void> {
               </select>
             </label>
             <label class="field">
-              <span>Recording default</span>
+              <span>{{ t("cameras.onboarding.recordingDefault") }}</span>
               <select v-model="batchRecordingMode">
-                <option value="continuous">Continuous</option>
-                <option value="events">Events only</option>
-                <option value="off">Off</option>
+                <option value="continuous">{{ t("cameras.onboarding.continuous") }}</option>
+                <option value="events">{{ t("cameras.onboarding.eventsOnly") }}</option>
+                <option value="off">{{ t("cameras.onboarding.off") }}</option>
               </select>
             </label>
             <label class="field">
-              <span>Storage target</span>
+              <span>{{ t("cameras.onboarding.storageTarget") }}</span>
               <select
                 v-model="batchStorageTargetId"
                 :disabled="!auth.hasPermission('storage.manage')"
               >
-                <option value="">System default</option>
+                <option value="">{{ t("cameras.onboarding.systemDefault") }}</option>
                 <option
                   v-for="target in batchStorageTargets"
                   :key="target.id"
@@ -840,18 +853,18 @@ async function runBatchImport(): Promise<void> {
 
           <div class="form-grid form-grid--three">
             <label class="field">
-              <span>Time sync default</span>
+              <span>{{ t("cameras.onboarding.timeSyncDefault") }}</span>
               <select v-model="batchTimeSyncMode">
-                <option value="monitor">Monitor only</option>
-                <option value="manage_ntp">Manage NTP</option>
-                <option value="ignore">Ignore</option>
+                <option value="monitor">{{ t("cameras.onboarding.monitorOnly") }}</option>
+                <option value="manage_ntp">{{ t("cameras.onboarding.manageNtp") }}</option>
+                <option value="ignore">{{ t("cameras.onboarding.ignore") }}</option>
               </select>
             </label>
           </div>
 
           <div class="onboarding-actions">
             <span class="field-hint">
-              {{ batchSelectedIds.length }} device(s) selected
+              {{ t("cameras.onboarding.devicesSelected", { count: batchSelectedIds.length }) }}
             </span>
             <button
               class="button button--primary"
@@ -859,14 +872,14 @@ async function runBatchImport(): Promise<void> {
               :disabled="!canBatchImport"
               @click="runBatchImport"
             >
-              {{ working === "batch" ? "Batch importing…" : "Import selected devices" }}
+              {{ working === "batch" ? t("cameras.onboarding.batchImporting") : t("cameras.onboarding.importSelectedDevices") }}
             </button>
           </div>
         </div>
 
         <div class="form-grid form-grid--three">
           <label class="field field--grow">
-            <span>Host or IP</span>
+            <span>{{ t("cameras.onboarding.hostOrIp") }}</span>
             <input
               v-model="onvifHost"
               placeholder="192.168.1.50"
@@ -875,7 +888,7 @@ async function runBatchImport(): Promise<void> {
             />
           </label>
           <label class="field">
-            <span>Port</span>
+            <span>{{ t("cameras.onboarding.port") }}</span>
             <input
               v-model.number="onvifPort"
               type="number"
@@ -885,13 +898,13 @@ async function runBatchImport(): Promise<void> {
             />
           </label>
           <label class="field">
-            <span>Username</span>
+            <span>{{ t("cameras.onboarding.username") }}</span>
             <input v-model="onvifUsername" autocomplete="username" />
           </label>
         </div>
 
         <label class="field">
-          <span>Password</span>
+          <span>{{ t("cameras.onboarding.password") }}</span>
           <input
             v-model="onvifPassword"
             type="password"
@@ -905,7 +918,7 @@ async function runBatchImport(): Promise<void> {
           :disabled="working !== null || !onvifHost.trim()"
           @click="inspectDevice"
         >
-          {{ working === "inspect" ? "Inspecting…" : "Test & inspect" }}
+          {{ working === "inspect" ? t("cameras.onboarding.inspecting") : t("cameras.onboarding.testInspect") }}
         </button>
       </div>
 
@@ -913,15 +926,15 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>2</span>
           <div>
-            <strong>Choose stream profiles</strong>
-            <p>zero-nvr validates ONVIF first; ZLM verifies actual media later.</p>
+            <strong>{{ t("cameras.onboarding.chooseProfiles") }}</strong>
+            <p>{{ t("cameras.onboarding.profilesHint") }}</p>
           </div>
         </div>
 
         <div v-if="inspection" class="inspection-card">
           <div class="device-summary">
             <strong>
-              {{ inspection.device.manufacturer || "ONVIF device" }}
+              {{ inspection.device.manufacturer || t("cameras.onboarding.onvifDevice") }}
               {{ inspection.device.model || "" }}
             </strong>
             <span v-if="inspection.device.serial_number">
@@ -934,19 +947,17 @@ async function runBatchImport(): Promise<void> {
             class="notice notice--success"
             role="status"
           >
-            New device identity. No existing ONVIF device matches the stable
-            identity or endpoint.
+            {{ t("cameras.onboarding.newIdentity") }}
           </p>
           <p
             v-else-if="inspection.identity.state === 'same_device'"
             class="notice notice--success"
             role="status"
           >
-            Existing device matched by stable identity:
+            {{ t("cameras.onboarding.existingIdentityPrefix") }}
             <strong>
               {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
-            </strong>.
-            Import will refresh that device rather than create a duplicate.
+            </strong>{{ t("cameras.onboarding.existingIdentitySuffix") }}
           </p>
           <div
             v-else-if="
@@ -956,16 +967,14 @@ async function runBatchImport(): Promise<void> {
             class="notice"
             role="status"
           >
-            <strong>Identity confirmation required.</strong>
-            This endpoint already belongs to
+            <strong>{{ t("cameras.onboarding.identityConfirmation") }}</strong>
+            {{ t("cameras.onboarding.endpointBelongsPrefix") }}
             <strong>
               {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
-            </strong>,
-            but the device did not provide a strong stable identity. zero-nvr
-            will not merge it automatically.
+            </strong>{{ t("cameras.onboarding.endpointBelongsSuffix") }}
             <label class="check-row">
               <input v-model="confirmExistingIdentity" type="checkbox" />
-              <span>I confirm this is the same physical device.</span>
+              <span>{{ t("cameras.onboarding.confirmSameDevice") }}</span>
             </label>
           </div>
           <p
@@ -973,10 +982,8 @@ async function runBatchImport(): Promise<void> {
             class="notice notice--error"
             role="alert"
           >
-            <strong>Identity conflict.</strong>
-            Stable identity and endpoint evidence point to different or
-            duplicate existing devices. Import is disabled until the existing
-            device records are resolved.
+            <strong>{{ t("cameras.onboarding.identityConflict") }}</strong>
+            {{ t("cameras.onboarding.identityConflictHint") }}
           </p>
 
           <div class="profile-list">
@@ -1001,7 +1008,7 @@ async function runBatchImport(): Promise<void> {
         </div>
 
         <div v-else class="step-empty">
-          Test a device to load its media profiles and capabilities.
+          {{ t("cameras.onboarding.testDeviceHint") }}
         </div>
       </div>
 
@@ -1009,32 +1016,31 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>3</span>
           <div>
-            <strong>Import into Device Center</strong>
+            <strong>{{ t("cameras.onboarding.importIntoDeviceCenter") }}</strong>
             <p>
-              One multi-channel device can produce multiple Camera records while
-              preserving stable Device identity.
+              {{ t("cameras.onboarding.importHint") }}
             </p>
           </div>
         </div>
 
         <div class="form-grid form-grid--three">
           <label class="field">
-            <span>Name <small>optional</small></span>
-            <input v-model="onvifName" placeholder="Front entrance" />
+            <span>{{ t("cameras.name") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
+            <input v-model="onvifName" :placeholder="t('cameras.onboarding.frontEntrance')" />
           </label>
           <label class="field">
-            <span>Location <small>optional</small></span>
-            <input v-model="onvifLocation" placeholder="Ground floor" />
+            <span>{{ t("cameras.location") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
+            <input v-model="onvifLocation" :placeholder="t('cameras.onboarding.groundFloor')" />
           </label>
           <label class="field">
-            <span>Storage label <small>optional</small></span>
+            <span>{{ t("cameras.storageLabel") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
             <input v-model="onvifStorageLabel" placeholder="entrance" />
           </label>
         </div>
 
         <div class="onboarding-actions">
           <span class="field-hint">
-            {{ selectedProfiles.length }} profile(s) selected
+            {{ t("cameras.onboarding.profilesSelected", { count: selectedProfiles.length }) }}
           </span>
           <button
             class="button button--primary"
@@ -1053,23 +1059,23 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>1</span>
           <div>
-            <strong>Describe the camera</strong>
-            <p>Manual RTSP is first-class when ONVIF is unavailable.</p>
+            <strong>{{ t("cameras.onboarding.describeCamera") }}</strong>
+            <p>{{ t("cameras.onboarding.manualHint") }}</p>
           </div>
         </div>
 
         <label class="field">
-          <span>Camera name</span>
-          <input v-model="manualName" placeholder="Garage" required />
+          <span>{{ t("cameras.onboarding.cameraName") }}</span>
+          <input v-model="manualName" :placeholder="t('cameras.onboarding.garage')" required />
         </label>
 
         <div class="form-grid">
           <label class="field">
-            <span>Location <small>optional</small></span>
+            <span>{{ t("cameras.location") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
             <input v-model="manualLocation" />
           </label>
           <label class="field">
-            <span>Storage label <small>optional</small></span>
+            <span>{{ t("cameras.storageLabel") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
             <input v-model="manualStorageLabel" />
           </label>
         </div>
@@ -1079,17 +1085,17 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>2</span>
           <div>
-            <strong>Configure streams</strong>
-            <p>ZLMediaKit performs the actual source pull and probe.</p>
+            <strong>{{ t("cameras.onboarding.configureStreams") }}</strong>
+            <p>{{ t("cameras.onboarding.zlmHint") }}</p>
           </div>
         </div>
 
         <label class="field">
-          <span>Primary stream name</span>
+          <span>{{ t("cameras.onboarding.primaryStreamName") }}</span>
           <input v-model="primaryName" required />
         </label>
         <label class="field">
-          <span>Primary RTSP URL</span>
+          <span>{{ t("cameras.onboarding.primaryRtspUrl") }}</span>
           <input
             v-model="primaryUrl"
             type="password"
@@ -1101,16 +1107,16 @@ async function runBatchImport(): Promise<void> {
 
         <label class="check-row">
           <input v-model="secondaryEnabled" type="checkbox" />
-          <span>Add a secondary / preview stream</span>
+          <span>{{ t("cameras.onboarding.addSecondary") }}</span>
         </label>
 
         <template v-if="secondaryEnabled">
           <label class="field">
-            <span>Secondary stream name</span>
+            <span>{{ t("cameras.onboarding.secondaryStreamName") }}</span>
             <input v-model="secondaryName" required />
           </label>
           <label class="field">
-            <span>Secondary RTSP URL</span>
+            <span>{{ t("cameras.onboarding.secondaryRtspUrl") }}</span>
             <input
               v-model="secondaryUrl"
               type="password"
@@ -1125,9 +1131,9 @@ async function runBatchImport(): Promise<void> {
         <div class="step-heading">
           <span>3</span>
           <div>
-            <strong>Verify before creating</strong>
+            <strong>{{ t("cameras.onboarding.verifyBeforeCreating") }}</strong>
             <p>
-              Testing opens only temporary ZLM proxies and does not persist a Camera.
+              {{ t("cameras.onboarding.verifyHint") }}
             </p>
           </div>
         </div>
@@ -1143,15 +1149,15 @@ async function runBatchImport(): Promise<void> {
               <span>{{ stream.role }}</span>
             </div>
             <p>
-              Video:
-              <strong>{{ stream.video?.codec || "not detected" }}</strong>
+              {{ t("cameras.onboarding.video") }}
+              <strong>{{ stream.video?.codec || t("cameras.onboarding.notDetected") }}</strong>
               <template v-if="stream.video?.width && stream.video?.height">
                 · {{ stream.video.width }}×{{ stream.video.height }}
               </template>
             </p>
             <p>
-              Audio:
-              <strong>{{ stream.audio?.codec || "none" }}</strong>
+              {{ t("cameras.onboarding.audio") }}
+              <strong>{{ stream.audio?.codec || t("cameras.onboarding.none") }}</strong>
             </p>
           </article>
         </div>
@@ -1167,7 +1173,7 @@ async function runBatchImport(): Promise<void> {
             "
             @click="testRtsp"
           >
-            {{ working === "test" ? "Testing…" : "Test streams" }}
+            {{ working === "test" ? t("cameras.onboarding.testing") : t("cameras.onboarding.testStreams") }}
           </button>
           <button
             class="button button--primary"
@@ -1175,7 +1181,7 @@ async function runBatchImport(): Promise<void> {
             :disabled="!canCreateManual"
             @click="createRtsp"
           >
-            {{ working === "create" ? "Creating…" : "Create camera" }}
+            {{ working === "create" ? t("cameras.onboarding.creating") : t("cameras.onboarding.createCamera") }}
           </button>
         </div>
       </div>

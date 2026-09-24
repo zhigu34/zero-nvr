@@ -5,6 +5,7 @@ import {
   onMounted,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import { listCameras, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
@@ -14,6 +15,7 @@ import CameraOnboardingPanel from "../components/cameras/CameraOnboardingPanel.v
 import { useAuthStore } from "../stores/auth"
 
 const auth = useAuthStore()
+const { t, te } = useI18n({ useScope: "global" })
 const cameras = ref<CameraSummary[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
@@ -34,9 +36,15 @@ const inventoryCameras = computed(() =>
 )
 const inventoryTitle = computed(() =>
   workspace.value === "retired"
-    ? "Retired cameras"
-    : "Configured cameras"
+    ? t("cameras.retiredCameras")
+    : t("cameras.configuredCameras")
 )
+
+function adapterLabel(value: string | null): string {
+  const normalized = value?.toLowerCase() || "manual"
+  const key = `cameras.adapter.${normalized}`
+  return te(key) ? t(key) : value || t("cameras.manual")
+}
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -95,11 +103,10 @@ onBeforeUnmount(() => {
   <div class="page">
     <div class="page-header">
       <div>
-        <p class="eyebrow">Device center</p>
-        <h1>Cameras</h1>
+        <p class="eyebrow">{{ t("cameras.deviceCenter") }}</p>
+        <h1>{{ t("cameras.title") }}</h1>
         <p class="page-subtitle">
-          Discover and validate devices before they become canonical Cameras.
-          Source credentials stay server-side.
+          {{ t("cameras.description") }}
         </p>
       </div>
 
@@ -109,7 +116,7 @@ onBeforeUnmount(() => {
           :disabled="loading"
           @click="refresh"
         >
-          {{ loading ? "Refreshing…" : "Refresh" }}
+          {{ loading ? t("cameras.refreshing") : t("cameras.refresh") }}
         </button>
         <button
           v-if="auth.hasPermission('camera.configure')"
@@ -121,7 +128,7 @@ onBeforeUnmount(() => {
             showOnboarding = !showOnboarding
           "
         >
-          {{ showOnboarding ? "Hide onboarding" : "Add camera" }}
+          {{ showOnboarding ? t("cameras.hideOnboarding") : t("cameras.addCamera") }}
         </button>
       </div>
     </div>
@@ -137,7 +144,7 @@ onBeforeUnmount(() => {
         :class="{ 'camera-workspace-tab--active': workspace === 'cameras' }"
         @click="workspace = 'cameras'"
       >
-        Cameras
+        {{ t("cameras.title") }}
       </button>
       <button
         type="button"
@@ -148,7 +155,7 @@ onBeforeUnmount(() => {
           selectedCamera = null
         "
       >
-        Retired
+        {{ t("cameras.retired") }}
         <span v-if="retiredCameras.length">{{ retiredCameras.length }}</span>
       </button>
       <button
@@ -160,7 +167,7 @@ onBeforeUnmount(() => {
           selectedCamera = null
         "
       >
-        Groups
+        {{ t("cameras.groups") }}
       </button>
     </div>
 
@@ -180,7 +187,7 @@ onBeforeUnmount(() => {
       <div class="panel__header">
         <div>
           <p class="eyebrow">
-            {{ workspace === "retired" ? "History" : "Inventory" }}
+            {{ workspace === "retired" ? t("cameras.history") : t("cameras.inventory") }}
           </p>
           <h2>{{ inventoryTitle }}</h2>
         </div>
@@ -196,8 +203,8 @@ onBeforeUnmount(() => {
         <strong>
           {{
             workspace === "retired"
-              ? "No retired cameras"
-              : "No cameras configured"
+              ? t("cameras.noRetiredCameras")
+              : t("cameras.noCamerasConfigured")
           }}
         </strong>
         <p
@@ -206,14 +213,13 @@ onBeforeUnmount(() => {
             workspace !== 'retired'
           "
         >
-          Use Add camera for ONVIF discovery/import or a manually supplied RTSP
-          source.
+          {{ t("cameras.addCameraHint") }}
         </p>
         <p v-else-if="workspace === 'retired'">
-          Retired cameras keep their recordings and event history.
+          {{ t("cameras.retiredHint") }}
         </p>
         <p v-else>
-          No Cameras are visible within your current scope.
+          {{ t("cameras.scopeEmpty") }}
         </p>
       </div>
 
@@ -221,11 +227,11 @@ onBeforeUnmount(() => {
         <table class="data-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Location</th>
-              <th>Adapter</th>
-              <th>Storage label</th>
-              <th>Status</th>
+              <th>{{ t("cameras.name") }}</th>
+              <th>{{ t("cameras.location") }}</th>
+              <th>{{ t("cameras.adapterLabel") }}</th>
+              <th>{{ t("cameras.storageLabel") }}</th>
+              <th>{{ t("cameras.status") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -247,7 +253,7 @@ onBeforeUnmount(() => {
                 </button>
               </td>
               <td>{{ camera.location || "—" }}</td>
-              <td>{{ camera.adapter_type || "manual" }}</td>
+              <td>{{ adapterLabel(camera.adapter_type) }}</td>
               <td>{{ camera.storage_label || "—" }}</td>
               <td>
                 <span
@@ -262,10 +268,10 @@ onBeforeUnmount(() => {
                 >
                   {{
                     camera.retired_at
-                      ? "Retired"
+                      ? t("cameras.retired")
                       : camera.enabled
-                        ? "Enabled"
-                        : "Disabled"
+                        ? t("cameras.enabled")
+                        : t("cameras.disabled")
                   }}
                 </span>
               </td>
