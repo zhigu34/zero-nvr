@@ -2228,7 +2228,7 @@ onBeforeUnmount(() => {
                 title="Edit target"
                 @click="openEditNotification(item)"
               >
-                <UiIcon name="settings" :size="14" />
+                <UiIcon name="system" :size="14" />
               </button>
               <button class="icon-button" type="button" @click="toggleNotification(item)">
                 <UiIcon :name="item.enabled ? 'pause' : 'play'" :size="14" />
