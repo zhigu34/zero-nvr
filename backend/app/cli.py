@@ -1163,6 +1163,25 @@ def _parse_aware_datetime(
     return parsed.astimezone(UTC)
 
 
+def _soak_database_status(
+    database: Database,
+) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "backend": database.url.get_backend_name(),
+        "sqlite_wal_bytes": None,
+        "sqlite_write_pressure": None,
+    }
+    sqlite = database.sqlite_runtime_health()
+    if sqlite is not None:
+        payload["sqlite_wal_bytes"] = (
+            sqlite.wal_bytes
+        )
+        payload["sqlite_write_pressure"] = (
+            sqlite.write_pressure
+        )
+    return payload
+
+
 def soak_status_command(
     args: argparse.Namespace,
 ) -> int:
@@ -1202,6 +1221,11 @@ def soak_status_command(
                     ),
                     "required_health": (
                         status.required_health
+                    ),
+                    "database": (
+                        _soak_database_status(
+                            database
+                        )
                     ),
                     "runtime": {
                         "passed": (

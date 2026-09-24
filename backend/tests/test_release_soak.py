@@ -343,3 +343,28 @@ def test_soak_reports_required_health_failure_without_early_progress_gate(
         )
     finally:
         database.close()
+
+
+
+def test_soak_database_status_reports_sqlite_wal(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    database.initialize_runtime()
+    try:
+        from app import cli
+
+        status = cli._soak_database_status(
+            database
+        )
+        assert status["backend"] == "sqlite"
+        assert isinstance(
+            status["sqlite_wal_bytes"],
+            int,
+        )
+        assert (
+            status["sqlite_write_pressure"]
+            in {"normal", "elevated", "high"}
+        )
+    finally:
+        database.close()

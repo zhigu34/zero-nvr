@@ -377,11 +377,32 @@ SQLite
 
 for at least one hour.
 
-Record resource history and failure count.
+Supported acceptance command:
+
+~~~text
+./deploy.sh soak 2 --duration 3600 --interval 30
+~~~
+
+The report is persisted separately as
+`latest-small-host-2.json`; it never replaces the 8-camera release soak.
+Acceptance requires exactly two configured active recording cameras, all of
+them in persistent recording with verified local media progress, SQLite, no
+Core container restart during the window, and a real host class no larger than
+2 CPU cores / 2.5 GiB RAM. The report records every sampled Core RAM/CPU value,
+minimum host available RAM, SQLite WAL peak, RECORD stream count, container
+restart deltas, and measured recording write bitrate.
 
 ### R3 — 4-camera soak
 
-Repeat with four cameras.
+Repeat with:
+
+~~~text
+./deploy.sh soak 4 --duration 3600 --interval 30
+~~~
+
+using the same acceptance rules. Its evidence is persisted independently as
+`latest-small-host-4.json`. Both R2 and R3 remain incomplete until their
+one-hour reports are produced on the intended small-host class and reviewed.
 
 ### 16-camera extended target
 

@@ -478,6 +478,24 @@ item can be accepted.
 
 ### soak
 
+The same soak engine supports both release-scale and small-host validation.
+
+Plan 04 R2/R3 small-host acceptance:
+
+```bash
+./deploy.sh soak 2 --duration 3600 --interval 30
+./deploy.sh soak 4 --duration 3600 --interval 30
+```
+
+The 2/4-camera modes are strict acceptance runs: they require SQLite, exactly
+the requested number of active persistent-recording cameras, at least one hour,
+no Core container restart, and an observed host class of no more than 2 CPU
+cores / 2.5 GiB RAM. They record Core RAM/CPU history, host available RAM,
+SQLite WAL peak, RECORD stream count, measured recording write bitrate, and
+restart deltas. Results are stored as `latest-small-host-2.json` and
+`latest-small-host-4.json`, so they do not overwrite the 8-camera release
+soak evidence.
+
 Longer release validation is host-operated:
 
 ```bash

@@ -29,6 +29,12 @@ persist_release_validation_report \
 
 test -f "$tmp/data/release-validation/latest-resource-baseline.json"
 
+persist_release_validation_report \
+  small-host-2 \
+  '{"profile":"2-camera-small-host-soak","passed":true}'
+
+test -f "$tmp/data/release-validation/latest-small-host-2.json"
+
 if persist_release_validation_report   invalid   '{}' >/dev/null 2>&1; then
   echo "expected invalid report kind to fail" >&2
   exit 1

@@ -7,7 +7,7 @@ persist_release_validation_report() {
   local data_root report_dir target tmp
 
   case "$kind" in
-    benchmark|soak|resource-baseline)
+    benchmark|soak|resource-baseline|small-host-2|small-host-4)
       ;;
     *)
       echo "error: invalid release validation report kind: $kind" >&2

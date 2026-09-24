@@ -74,7 +74,7 @@ jobs:
           ./deploy.sh help | grep -Fq "database migrate"
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
           ./deploy.sh help | grep -Fq "resource-baseline"
-          ./deploy.sh help | grep -Fq "soak <8|16>"
+          ./deploy.sh help | grep -Fq "soak <2|4|8|16>"
           ./deploy.sh help | grep -Fq "secret rotate"
           ./deploy.sh help | grep -Fq "recovery-kit decrypt"
           ./deploy.sh help | grep -Fq "update-preflight"
