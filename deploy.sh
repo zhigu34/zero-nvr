@@ -319,7 +319,7 @@ update_stack() {
       "$backup_policy"
   fi
   SAFETY_SNAPSHOT_REL=""
-  if [[ -n "$(compose images -q zero-nvr 2>/dev/null || true)" ]]; then
+  if [[ -n "$(compose ps -q zero-nvr 2>/dev/null || true)" ]]; then
     echo "Creating pre-upgrade database safety snapshot..."
     create_local_safety_snapshot
 
