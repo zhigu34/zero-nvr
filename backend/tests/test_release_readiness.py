@@ -318,7 +318,6 @@ def test_release_readiness_rejects_short_8_camera_soak(
         database.close()
 
 
-
 def test_release_readiness_16_uses_extended_benchmark_only(
     tmp_path: Path,
 ) -> None:
