@@ -2497,13 +2497,14 @@ onBeforeUnmount(() => {
         <section class="backup-recovery-card">
           <div class="backup-recovery-card__heading">
             <div>
-              <strong>Host recovery</strong>
+              <strong>Disaster recovery</strong>
               <span>
-                Restore and RecoveryKit operations remain host-only so the
-                API never controls Docker or replaces its own live database.
+                Generate the encrypted RecoveryKit here. Decryption and
+                restore remain host-only so the API never controls Docker or
+                replaces its own live database.
               </span>
             </div>
-            <span class="status-pill">Host only</span>
+            <span class="status-pill">Restore host-only</span>
           </div>
 
           <SystemRecoveryKitPanel

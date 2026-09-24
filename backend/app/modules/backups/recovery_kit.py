@@ -225,9 +225,18 @@ class RecoveryKitService:
             }
 
         values = {
-            "ZERO_NVR_DATA_PATH": "./data/zero-nvr",
-            "ZERO_NVR_CACHE_PATH": "./data/cache",
-            "ZERO_NVR_RECORDINGS_PATH": "./data/recordings",
+            "ZERO_NVR_DATA_PATH": os.environ.get(
+                "ZERO_NVR_DATA_PATH",
+                "./data/zero-nvr",
+            ),
+            "ZERO_NVR_CACHE_PATH": os.environ.get(
+                "ZERO_NVR_CACHE_PATH",
+                "./data/cache",
+            ),
+            "ZERO_NVR_RECORDINGS_PATH": os.environ.get(
+                "ZERO_NVR_RECORDINGS_PATH",
+                "./data/recordings",
+            ),
             "ZERO_NVR_SECRET_KEY": active_key,
             "ZERO_NVR_SECRET_KEY_FILE": "",
             "ZERO_NVR_ZLM_API_SECRET": zlm_api_secret,
@@ -340,6 +349,26 @@ class RecoveryKitService:
                 "COMPOSE_PROFILES",
                 "",
             ),
+            "deployment_paths": {
+                key: os.environ.get(
+                    key,
+                    fallback,
+                )
+                for key, fallback in (
+                    (
+                        "ZERO_NVR_DATA_PATH",
+                        "./data/zero-nvr",
+                    ),
+                    (
+                        "ZERO_NVR_CACHE_PATH",
+                        "./data/cache",
+                    ),
+                    (
+                        "ZERO_NVR_RECORDINGS_PATH",
+                        "./data/recordings",
+                    ),
+                )
+            },
             "policy_id": str(policy.id),
             "policy_updated_at": (
                 policy.updated_at.astimezone(UTC).isoformat()
