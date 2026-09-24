@@ -246,7 +246,6 @@ def test_release_readiness_rejects_stale_mismatched_or_missing_gates(
         database.close()
 
 
-
 def test_release_readiness_rejects_short_8_camera_soak(
     tmp_path: Path,
 ) -> None:
