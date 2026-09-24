@@ -6,6 +6,7 @@ import {
   ref
 } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import {
   acknowledgeAlert,
@@ -30,6 +31,9 @@ type Period = "24h" | "7d" | "30d" | "all"
 
 const router = useRouter()
 const auth = useAuthStore()
+const { locale, t, te } = useI18n({
+  useScope: "global"
+})
 
 const cameras = ref<CameraSummary[]>([])
 const events = ref<EventItem[]>([])
@@ -120,13 +124,19 @@ function periodRange(): [Date | null, Date | null] {
 }
 
 function cameraName(item: EventItem): string {
-  if (!item.camera_id) return "System"
-  return cameraMap.value.get(item.camera_id)?.name ?? "Unknown camera"
+  if (!item.camera_id) return t("events.system")
+  return (
+    cameraMap.value.get(item.camera_id)?.name ??
+    t("events.unknownCamera")
+  )
 }
 
 function alertCameraName(item: AlertItem): string {
-  if (!item.camera_id) return "System"
-  return cameraMap.value.get(item.camera_id)?.name ?? "Unknown camera"
+  if (!item.camera_id) return t("events.system")
+  return (
+    cameraMap.value.get(item.camera_id)?.name ??
+    t("events.unknownCamera")
+  )
 }
 
 function eventActiveAlert(item: EventItem): AlertItem | null {
@@ -146,14 +156,14 @@ function alertStateClass(item: AlertItem): string {
 }
 
 function formatDate(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric"
   }).format(new Date(value))
 }
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
@@ -171,10 +181,21 @@ function formatDuration(item: EventItem): string | null {
         1000
     )
   )
-  if (seconds < 60) return `${seconds}s`
+  if (seconds < 60) {
+    return locale.value === "zh-CN"
+      ? `${seconds} 秒`
+      : `${seconds}s`
+  }
   const minutes = Math.floor(seconds / 60)
   const remaining = seconds % 60
-  return remaining ? `${minutes}m ${remaining}s` : `${minutes}m`
+  if (locale.value === "zh-CN") {
+    return remaining
+      ? `${minutes} 分 ${remaining} 秒`
+      : `${minutes} 分`
+  }
+  return remaining
+    ? `${minutes}m ${remaining}s`
+    : `${minutes}m`
 }
 
 function confidenceLabel(value: number | null): string | null {
@@ -182,9 +203,25 @@ function confidenceLabel(value: number | null): string | null {
 }
 
 function pretty(value: string): string {
-  return value.replaceAll("_", " ").replace(/\b\w/g, (match) =>
-    match.toUpperCase()
-  )
+  const normalized = value
+    .toLowerCase()
+    .replaceAll("-", "_")
+    .replaceAll(".", "_")
+
+  for (const prefix of [
+    "events.status",
+    "events.sourceMap",
+    "events.categoryMap"
+  ]) {
+    const key = `${prefix}.${normalized}`
+    if (te(key)) return t(key)
+  }
+
+  return value
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (match) =>
+      match.toUpperCase()
+    )
 }
 
 function metadataRows(item: EventItem): Array<[string, string]> {
@@ -193,23 +230,32 @@ function metadataRows(item: EventItem): Array<[string, string]> {
 
   const description = metadata.description
   if (typeof description === "string" && description.trim()) {
-    rows.push(["Description", description.trim()])
+    rows.push([
+      t("events.metadata.description"),
+      description.trim()
+    ])
   }
 
   const plate = metadata.recognized_license_plate
   if (typeof plate === "string" && plate.trim()) {
-    rows.push(["Plate", plate.trim()])
+    rows.push([
+      t("events.metadata.plate"),
+      plate.trim()
+    ])
   }
 
   const speed = metadata.average_estimated_speed
   if (typeof speed === "number" || typeof speed === "string") {
-    rows.push(["Estimated speed", String(speed)])
+    rows.push([
+      t("events.metadata.estimatedSpeed"),
+      String(speed)
+    ])
   }
 
   const zones = metadata.zones
   if (Array.isArray(zones) && zones.length) {
     rows.push([
-      "Zones",
+      t("events.metadata.zones"),
       zones.filter((value) => typeof value === "string").join(", ")
     ])
   }
@@ -408,9 +454,9 @@ onBeforeUnmount(() => {
   <section class="events-workspace">
     <header class="events-header">
       <div class="events-header__copy">
-        <strong>Events</strong>
+        <strong>{{ t("events.title") }}</strong>
         <span>
-          Provider-neutral activity from cameras and AI integrations.
+          {{ t("events.description") }}
         </span>
       </div>
 
@@ -421,25 +467,25 @@ onBeforeUnmount(() => {
         @click="refresh"
       >
         <UiIcon name="refresh" :size="15" />
-        Refresh
+        {{ t("events.refresh") }}
       </button>
     </header>
 
     <div class="events-filters">
       <label class="events-filter">
-        <span>Period</span>
+        <span>{{ t("events.period") }}</span>
         <select v-model="period" @change="refresh">
-          <option value="24h">Last 24 hours</option>
-          <option value="7d">Last 7 days</option>
-          <option value="30d">Last 30 days</option>
-          <option value="all">All time</option>
+          <option value="24h">{{ t("events.last24Hours") }}</option>
+          <option value="7d">{{ t("events.last7Days") }}</option>
+          <option value="30d">{{ t("events.last30Days") }}</option>
+          <option value="all">{{ t("events.allTime") }}</option>
         </select>
       </label>
 
       <label class="events-filter">
-        <span>Camera</span>
+        <span>{{ t("events.camera") }}</span>
         <select v-model="cameraId" @change="refresh">
-          <option value="">All cameras</option>
+          <option value="">{{ t("events.allCameras") }}</option>
           <option
             v-for="camera in cameras"
             :key="camera.id"
@@ -451,9 +497,9 @@ onBeforeUnmount(() => {
       </label>
 
       <label class="events-filter">
-        <span>Type</span>
+        <span>{{ t("events.type") }}</span>
         <select v-model="category" @change="refresh">
-          <option value="">All types</option>
+          <option value="">{{ t("events.allTypes") }}</option>
           <option
             v-for="item in categories"
             :key="item"
@@ -465,13 +511,13 @@ onBeforeUnmount(() => {
       </label>
 
       <label class="events-filter events-filter--search">
-        <span>Label</span>
+        <span>{{ t("events.label") }}</span>
         <div class="events-filter-search">
           <UiIcon name="search" :size="14" />
           <input
             v-model="label"
             type="search"
-            placeholder="person, car…"
+            :placeholder="t('events.labelPlaceholder')"
             @keydown.enter="refresh"
           />
         </div>
@@ -483,7 +529,7 @@ onBeforeUnmount(() => {
         type="button"
         @click="resetFilters"
       >
-        Clear {{ activeFilterCount }}
+        {{ t("events.clearFilters", { count: activeFilterCount }) }}
       </button>
     </div>
 
@@ -498,8 +544,8 @@ onBeforeUnmount(() => {
     >
       <div class="events-alerts__heading">
         <div>
-          <strong>Active alerts</strong>
-          <span>{{ activeAlerts.length }} require attention</span>
+          <strong>{{ t("events.activeAlerts") }}</strong>
+          <span>{{ t("events.requireAttention", { count: activeAlerts.length }) }}</span>
         </div>
       </div>
 
@@ -530,7 +576,7 @@ onBeforeUnmount(() => {
               class="status-pill"
               :class="alertStateClass(alert)"
             >
-              {{ alert.state }}
+              {{ pretty(alert.state) }}
             </span>
           </button>
 
@@ -545,7 +591,7 @@ onBeforeUnmount(() => {
               :disabled="alertActionId === alert.id"
               @click="acknowledge(alert)"
             >
-              Acknowledge
+              {{ t("events.acknowledge") }}
             </button>
             <button
               v-if="auth.hasPermission('alert.manage')"
@@ -554,7 +600,7 @@ onBeforeUnmount(() => {
               :disabled="alertActionId === alert.id"
               @click="resolve(alert)"
             >
-              Resolve
+              {{ t("events.resolve") }}
             </button>
           </div>
         </article>
@@ -565,7 +611,7 @@ onBeforeUnmount(() => {
       <div class="events-feed">
         <div v-if="loading && !events.length" class="events-empty">
           <UiIcon name="events" :size="30" />
-          <strong>Loading events…</strong>
+          <strong>{{ t("events.loadingEvents") }}</strong>
         </div>
 
         <div
@@ -573,8 +619,8 @@ onBeforeUnmount(() => {
           class="events-empty"
         >
           <UiIcon name="events" :size="30" />
-          <strong>No events found</strong>
-          <span>Try a wider time range or clear the filters.</span>
+          <strong>{{ t("events.noEvents") }}</strong>
+          <span>{{ t("events.noEventsHint") }}</span>
         </div>
 
         <div v-else class="event-card-grid">
@@ -593,7 +639,7 @@ onBeforeUnmount(() => {
               <img
                 v-if="canShowSnapshot(item)"
                 :src="eventSnapshotUrl(item.id)"
-                :alt="`${item.label || item.category} event`"
+                :alt="t('events.eventAlt', { name: item.label || pretty(item.category) })"
                 loading="lazy"
                 @error="snapshotFailed(item.id)"
               />
@@ -617,7 +663,7 @@ onBeforeUnmount(() => {
                 class="event-card__alert"
                 :class="`event-card__alert--${eventActiveAlert(item)?.severity}`"
               >
-                {{ eventActiveAlert(item)?.state }}
+                {{ eventActiveAlert(item) ? pretty(eventActiveAlert(item)!.state) : "" }}
               </span>
             </div>
 
@@ -648,7 +694,7 @@ onBeforeUnmount(() => {
           :disabled="loadingMore"
           @click="loadMore"
         >
-          {{ loadingMore ? "Loading…" : "Load more" }}
+          {{ loadingMore ? t("events.loading") : t("events.loadMore") }}
         </button>
       </div>
 
@@ -666,8 +712,8 @@ onBeforeUnmount(() => {
           <button
             class="icon-button"
             type="button"
-            aria-label="Close event details"
-            title="Close"
+            :aria-label="t('events.closeDetails')"
+            :title="t('events.close')"
             @click="selectedEvent = null"
           >
             <UiIcon name="close" :size="16" />
@@ -678,7 +724,7 @@ onBeforeUnmount(() => {
           <img
             v-if="canShowSnapshot(selectedEvent)"
             :src="eventSnapshotUrl(selectedEvent.id)"
-            alt="Event snapshot"
+            :alt="t('events.snapshotAlt')"
             @error="snapshotFailed(selectedEvent.id)"
           />
           <div v-else class="event-detail__placeholder">
@@ -694,27 +740,27 @@ onBeforeUnmount(() => {
 
           <dl class="event-detail__facts">
             <div>
-              <dt>Type</dt>
+              <dt>{{ t("events.type") }}</dt>
               <dd>{{ pretty(selectedEvent.category) }}</dd>
             </div>
             <div>
-              <dt>Source</dt>
+              <dt>{{ t("events.source") }}</dt>
               <dd>{{ pretty(selectedEvent.source) }}</dd>
             </div>
             <div v-if="selectedEvent.zone">
-              <dt>Zone</dt>
+              <dt>{{ t("events.zone") }}</dt>
               <dd>{{ selectedEvent.zone }}</dd>
             </div>
             <div v-if="confidenceLabel(selectedEvent.confidence)">
-              <dt>Confidence</dt>
+              <dt>{{ t("events.confidence") }}</dt>
               <dd>{{ confidenceLabel(selectedEvent.confidence) }}</dd>
             </div>
             <div v-if="formatDuration(selectedEvent)">
-              <dt>Duration</dt>
+              <dt>{{ t("events.duration") }}</dt>
               <dd>{{ formatDuration(selectedEvent) }}</dd>
             </div>
             <div v-if="selectedEvent.severity">
-              <dt>Severity</dt>
+              <dt>{{ t("events.severity") }}</dt>
               <dd>{{ pretty(selectedEvent.severity) }}</dd>
             </div>
           </dl>
@@ -724,7 +770,7 @@ onBeforeUnmount(() => {
           v-if="selectedEventAlerts.length"
           class="event-detail__section event-detail__alerts"
         >
-          <h3>Alerts</h3>
+          <h3>{{ t("events.alerts") }}</h3>
           <article
             v-for="alert in selectedEventAlerts"
             :key="alert.id"
@@ -738,7 +784,7 @@ onBeforeUnmount(() => {
               class="status-pill"
               :class="alertStateClass(alert)"
             >
-              {{ alert.state }}
+              {{ pretty(alert.state) }}
             </span>
             <div class="event-detail-alert__actions">
               <button
@@ -751,7 +797,7 @@ onBeforeUnmount(() => {
                 :disabled="alertActionId === alert.id"
                 @click="acknowledge(alert)"
               >
-                Acknowledge
+                {{ t("events.acknowledge") }}
               </button>
               <button
                 v-if="
@@ -763,7 +809,7 @@ onBeforeUnmount(() => {
                 :disabled="alertActionId === alert.id"
                 @click="resolve(alert)"
               >
-                Resolve
+                {{ t("events.resolve") }}
               </button>
             </div>
           </article>
@@ -773,7 +819,7 @@ onBeforeUnmount(() => {
           v-if="metadataRows(selectedEvent).length"
           class="event-detail__section"
         >
-          <h3>Details</h3>
+          <h3>{{ t("events.details") }}</h3>
           <dl class="event-detail__facts">
             <div
               v-for="[key, value] in metadataRows(selectedEvent)"
@@ -793,7 +839,7 @@ onBeforeUnmount(() => {
             @click="viewRecording(selectedEvent)"
           >
             <UiIcon name="playback" :size="15" />
-            View recording
+            {{ t("events.viewRecording") }}
           </button>
         </div>
       </aside>

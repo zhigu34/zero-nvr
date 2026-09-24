@@ -176,8 +176,9 @@ current code/tests.
 - [~] V1 frontend localization: persisted English / Simplified Chinese switch,
   localized route titles/navigation/auth/setup/account controls, Dashboard,
   Live (including camera tiles/PTZ/manual-recording controls), and Playback
-  (timeline, synchronized playback, protection/export/share controls);
-  complete Simplified Chinese coverage for all remaining V1 user-facing
+  (timeline, synchronized playback, protection/export/share controls), and
+  Events (filters, event details, alert actions, metadata); complete
+  Simplified Chinese coverage for all remaining V1 user-facing
   views/components before acceptance.
 - [x] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.

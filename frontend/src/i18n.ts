@@ -504,6 +504,75 @@ const messages = {
         no_recording: "No recording",
         not_recorded: "Not recorded"
       }
+    },
+    events: {
+      title: "Events",
+      description:
+        "Provider-neutral activity from cameras and integrations.",
+      refresh: "Refresh",
+      period: "Period",
+      last24Hours: "Last 24 hours",
+      last7Days: "Last 7 days",
+      last30Days: "Last 30 days",
+      allTime: "All time",
+      camera: "Camera",
+      allCameras: "All cameras",
+      type: "Type",
+      allTypes: "All types",
+      label: "Label",
+      labelPlaceholder: "person, car…",
+      clearFilters: "Clear {count}",
+      activeAlerts: "Active alerts",
+      requireAttention: "{count} require attention",
+      acknowledge: "Acknowledge",
+      resolve: "Resolve",
+      loadingEvents: "Loading events…",
+      noEvents: "No events found",
+      noEventsHint: "Try a wider time range or clear the filters.",
+      eventAlt: "{name} event",
+      loading: "Loading…",
+      loadMore: "Load more",
+      closeDetails: "Close event details",
+      close: "Close",
+      snapshotAlt: "Event snapshot",
+      source: "Source",
+      zone: "Zone",
+      confidence: "Confidence",
+      duration: "Duration",
+      severity: "Severity",
+      alerts: "Alerts",
+      details: "Details",
+      viewRecording: "View recording",
+      system: "System",
+      unknownCamera: "Unknown camera",
+      metadata: {
+        description: "Description",
+        plate: "Plate",
+        estimatedSpeed: "Estimated speed",
+        zones: "Zones"
+      },
+      status: {
+        open: "Open",
+        acknowledged: "Acknowledged",
+        resolved: "Resolved",
+        critical: "Critical",
+        warning: "Warning",
+        info: "Info"
+      },
+      sourceMap: {
+        system: "System",
+        manual: "Manual",
+        api: "API",
+        onvif: "ONVIF"
+      },
+      categoryMap: {
+        motion: "Motion",
+        line_crossing: "Line crossing",
+        intrusion: "Intrusion",
+        tamper: "Tamper",
+        audio: "Audio",
+        manual: "Manual"
+      }
     }
   },
   "zh-CN": {
@@ -988,6 +1057,74 @@ const messages = {
         outside_retention: "超出保留范围",
         no_recording: "没有录像",
         not_recorded: "未录像"
+      }
+    },
+    events: {
+      title: "事件",
+      description: "查看来自摄像机和各类集成的统一事件活动。",
+      refresh: "刷新",
+      period: "时间范围",
+      last24Hours: "最近 24 小时",
+      last7Days: "最近 7 天",
+      last30Days: "最近 30 天",
+      allTime: "全部时间",
+      camera: "摄像机",
+      allCameras: "全部摄像机",
+      type: "类型",
+      allTypes: "全部类型",
+      label: "标签",
+      labelPlaceholder: "人员、车辆…",
+      clearFilters: "清除 {count} 个筛选",
+      activeAlerts: "活动告警",
+      requireAttention: "{count} 条需要关注",
+      acknowledge: "确认",
+      resolve: "解决",
+      loadingEvents: "正在加载事件…",
+      noEvents: "未找到事件",
+      noEventsHint: "尝试扩大时间范围或清除筛选条件。",
+      eventAlt: "{name} 事件",
+      loading: "正在加载…",
+      loadMore: "加载更多",
+      closeDetails: "关闭事件详情",
+      close: "关闭",
+      snapshotAlt: "事件快照",
+      source: "来源",
+      zone: "区域",
+      confidence: "置信度",
+      duration: "持续时间",
+      severity: "严重级别",
+      alerts: "告警",
+      details: "详情",
+      viewRecording: "查看录像",
+      system: "系统",
+      unknownCamera: "未知摄像机",
+      metadata: {
+        description: "描述",
+        plate: "车牌",
+        estimatedSpeed: "估算速度",
+        zones: "区域"
+      },
+      status: {
+        open: "待处理",
+        acknowledged: "已确认",
+        resolved: "已解决",
+        critical: "严重",
+        warning: "警告",
+        info: "信息"
+      },
+      sourceMap: {
+        system: "系统",
+        manual: "手动",
+        api: "API",
+        onvif: "ONVIF"
+      },
+      categoryMap: {
+        motion: "移动侦测",
+        line_crossing: "越线",
+        intrusion: "入侵",
+        tamper: "遮挡/防拆",
+        audio: "音频",
+        manual: "手动"
       }
     }
   }
