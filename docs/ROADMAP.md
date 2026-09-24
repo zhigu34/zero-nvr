@@ -29,8 +29,11 @@ in the sequence below, and keep each session narrow.
 6. **Finish Phase 9 — Event Recording using non-AI sources first**:
    ONVIF/manual/API/system-health flows and remaining pre-roll/linkage gaps.
    AI-trigger entry points are not a V1 release gate.
-7. **Finish Phase 11 — Operations, Backup, Recovery, and Release**, followed by
-   the remaining real-host/camera acceptance and resource-budget validation.
+7. **Finish Phase 11 — Operations, Backup, Recovery, and Release**.
+8. **Complete V1 frontend localization**: English remains supported and the
+   full V1 user-facing frontend must support a persisted Simplified Chinese
+   switch before release acceptance.
+9. Run the remaining real-host/camera acceptance and resource-budget validation.
 
 Continuation rule:
 
@@ -170,6 +173,9 @@ current code/tests.
 
 - [x] Backend project bootstrap.
 - [x] Frontend project bootstrap.
+- [~] V1 frontend localization: persisted English / Simplified Chinese switch,
+  localized route titles/navigation/auth/setup/account controls, and complete
+  Simplified Chinese coverage for all remaining V1 user-facing views/components.
 - [x] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [x] PostgreSQL optional bundled/external production profile.

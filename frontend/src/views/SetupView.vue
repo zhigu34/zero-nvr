@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import { errorMessage } from "../api/client"
+import LanguageControl from "../components/ui/LanguageControl.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
 import { useAuthStore } from "../stores/auth"
 
 const auth = useAuthStore()
 const router = useRouter()
+const { t } = useI18n({ useScope: "global" })
 const username = ref("admin")
 const displayName = ref("Administrator")
 const email = ref("")
@@ -19,7 +22,7 @@ const error = ref<string | null>(null)
 async function submit(): Promise<void> {
   error.value = null
   if (password.value !== passwordConfirm.value) {
-    error.value = "Passwords do not match."
+    error.value = t("auth.passwordsDoNotMatch")
     return
   }
 
@@ -45,6 +48,7 @@ async function submit(): Promise<void> {
 
 <template>
   <div class="auth-page">
+    <LanguageControl class="auth-language-control" />
     <ThemeControl class="auth-theme-control" />
 
     <section class="auth-card auth-card--wide">
@@ -52,39 +56,38 @@ async function submit(): Promise<void> {
         <div class="brand__mark">0</div>
         <div class="brand__copy">
           <strong>zero-nvr</strong>
-          <span>first-run setup</span>
+          <span>{{ t("brand.firstRunSetup") }}</span>
         </div>
       </div>
 
       <div class="auth-card__heading">
-        <p class="eyebrow">One-time bootstrap</p>
-        <h1>Create the administrator</h1>
+        <p class="eyebrow">{{ t("setup.oneTimeBootstrap") }}</p>
+        <h1>{{ t("setup.createAdministrator") }}</h1>
         <p>
-          zero-nvr ships without a default account or password.
-          This form is available only before the first administrator exists.
+          {{ t("setup.description") }}
         </p>
       </div>
 
       <form class="form-stack" @submit.prevent="submit">
         <div class="form-grid">
           <label class="field">
-            <span>Username</span>
+            <span>{{ t("setup.username") }}</span>
             <input v-model="username" autocomplete="username" required />
           </label>
           <label class="field">
-            <span>Display name</span>
+            <span>{{ t("setup.displayName") }}</span>
             <input v-model="displayName" autocomplete="name" required />
           </label>
         </div>
 
         <label class="field">
-          <span>Email <small>optional</small></span>
+          <span>{{ t("setup.email") }} <small>{{ t("setup.optional") }}</small></span>
           <input v-model="email" type="email" autocomplete="email" />
         </label>
 
         <div class="form-grid">
           <label class="field">
-            <span>Password</span>
+            <span>{{ t("setup.password") }}</span>
             <input
               v-model="password"
               type="password"
@@ -94,7 +97,7 @@ async function submit(): Promise<void> {
             />
           </label>
           <label class="field">
-            <span>Confirm password</span>
+            <span>{{ t("setup.confirmPassword") }}</span>
             <input
               v-model="passwordConfirm"
               type="password"
@@ -106,8 +109,7 @@ async function submit(): Promise<void> {
         </div>
 
         <p class="field-hint">
-          Minimum 12 characters. Emergency recovery remains available
-          through the deploy.sh administrator recovery path.
+          {{ t("setup.minimumHint") }}
         </p>
         <p v-if="error" class="form-error" role="alert">{{ error }}</p>
 
@@ -116,7 +118,7 @@ async function submit(): Promise<void> {
           type="submit"
           :disabled="submitting"
         >
-          {{ submitting ? "Creating administrator…" : "Create administrator" }}
+          {{ submitting ? t("setup.creatingAdministrator") : t("setup.createAdministratorAction") }}
         </button>
       </form>
     </section>

@@ -15,6 +15,7 @@ import PlaybackView from "./views/PlaybackView.vue"
 import SetupView from "./views/SetupView.vue"
 import StorageView from "./views/StorageView.vue"
 import SystemView from "./views/SystemView.vue"
+import { i18n } from "./i18n"
 import { useAuthStore } from "./stores/auth"
 
 const routes: RouteRecordRaw[] = [
@@ -22,13 +23,13 @@ const routes: RouteRecordRaw[] = [
     path: "/login",
     name: "login",
     component: LoginView,
-    meta: { public: true, title: "Sign in" }
+    meta: { public: true, titleKey: "route.signIn" }
   },
   {
     path: "/setup",
     name: "setup",
     component: SetupView,
-    meta: { public: true, title: "Initial setup" }
+    meta: { public: true, titleKey: "route.initialSetup" }
   },
   {
     path: "/",
@@ -39,14 +40,14 @@ const routes: RouteRecordRaw[] = [
         path: "dashboard",
         name: "dashboard",
         component: DashboardView,
-        meta: { title: "Dashboard" }
+        meta: { titleKey: "route.dashboard" }
       },
       {
         path: "live",
         name: "live",
         component: LiveView,
         meta: {
-          title: "Live"
+          titleKey: "route.live"
         }
       },
       {
@@ -54,7 +55,7 @@ const routes: RouteRecordRaw[] = [
         name: "playback",
         component: PlaybackView,
         meta: {
-          title: "Playback"
+          titleKey: "route.playback"
         }
       },
       {
@@ -62,7 +63,7 @@ const routes: RouteRecordRaw[] = [
         name: "events",
         component: EventsView,
         meta: {
-          title: "Events"
+          titleKey: "route.events"
         }
       },
       {
@@ -70,21 +71,21 @@ const routes: RouteRecordRaw[] = [
         name: "alerts",
         component: AlertsView,
         meta: {
-          title: "Alerts"
+          titleKey: "route.alerts"
         }
       },
       {
         path: "cameras",
         name: "cameras",
         component: CamerasView,
-        meta: { title: "Cameras" }
+        meta: { titleKey: "route.cameras" }
       },
       {
         path: "storage",
         name: "storage",
         component: StorageView,
         meta: {
-          title: "Storage"
+          titleKey: "route.storage"
         }
       },
       {
@@ -92,7 +93,7 @@ const routes: RouteRecordRaw[] = [
         name: "system",
         component: SystemView,
         meta: {
-          title: "System"
+          titleKey: "route.system"
         }
       }
     ]
@@ -105,13 +106,19 @@ export const router = createRouter({
   routes
 })
 
+function updateDocumentTitle(
+  route: typeof router.currentRoute.value
+): void {
+  const key = route.meta.titleKey
+  document.title =
+    typeof key === "string"
+      ? `${i18n.global.t(key)} · zero-nvr`
+      : "zero-nvr"
+}
+
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
   await auth.bootstrap()
-
-  document.title = to.meta.title
-    ? `${String(to.meta.title)} · zero-nvr`
-    : "zero-nvr"
 
   if (auth.setupRequired) {
     return to.name === "setup" ? true : { name: "setup" }
@@ -135,3 +142,12 @@ router.beforeEach(async (to) => {
 
   return true
 })
+
+router.afterEach((to) => {
+  updateDocumentTitle(to)
+})
+
+window.addEventListener(
+  "zero-nvr:locale-changed",
+  () => updateDocumentTitle(router.currentRoute.value)
+)

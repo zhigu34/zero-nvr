@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   type ThemePreference,
@@ -8,18 +9,21 @@ import {
 import UiIcon from "./UiIcon.vue"
 
 const { themePreference, resolvedTheme, setTheme } = useTheme()
+const { t } = useI18n({ useScope: "global" })
 const root = ref<HTMLElement | null>(null)
 const open = ref(false)
 
-const options: Array<{
-  value: ThemePreference
-  label: string
-  icon: string
-}> = [
-  { value: "system", label: "System", icon: "monitor" },
-  { value: "light", label: "Light", icon: "sun" },
-  { value: "dark", label: "Dark", icon: "moon" }
-]
+const options = computed<
+  Array<{
+    value: ThemePreference
+    label: string
+    icon: string
+  }>
+>(() => [
+  { value: "system", label: t("theme.system"), icon: "monitor" },
+  { value: "light", label: t("theme.light"), icon: "sun" },
+  { value: "dark", label: t("theme.dark"), icon: "moon" }
+])
 
 const currentIcon = computed(() => {
   if (themePreference.value === "system") return "monitor"
@@ -56,15 +60,15 @@ onBeforeUnmount(() => {
     <button
       class="icon-button topbar-icon-button"
       type="button"
-      aria-label="Change theme"
+      :aria-label="t('theme.change')"
       :aria-expanded="open"
-      title="Theme"
+      :title="t('theme.title')"
       @click="open = !open"
     >
       <UiIcon :name="currentIcon" :size="17" />
     </button>
 
-    <div v-if="open" class="theme-menu" role="menu" aria-label="Theme">
+    <div v-if="open" class="theme-menu" role="menu" :aria-label="t('theme.title')">
       <button
         v-for="option in options"
         :key="option.value"

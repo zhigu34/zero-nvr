@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import {
   completePasswordReset,
@@ -9,6 +10,7 @@ import {
   type OidcPublicProvider
 } from "../api/auth"
 import { errorMessage } from "../api/client"
+import LanguageControl from "../components/ui/LanguageControl.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
 import { useAuthStore } from "../stores/auth"
 
@@ -17,6 +19,7 @@ type AuthMode = "login" | "request-reset" | "complete-reset"
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n({ useScope: "global" })
 
 const mode = ref<AuthMode>("login")
 const username = ref("")
@@ -44,8 +47,7 @@ function oidcLogin(provider: OidcPublicProvider): void {
 
 onMounted(async () => {
   if (typeof route.query.oidc_error === "string") {
-    error.value =
-      "OIDC sign-in failed. Check the provider configuration or account access."
+    error.value = t("auth.oidcFailed")
   }
   try {
     oidcProviders.value =
@@ -90,8 +92,7 @@ async function submitResetRequest(): Promise<void> {
   submitting.value = true
   try {
     await requestPasswordReset(identifier.value)
-    notice.value =
-      "If the account exists and password reset email is configured, a one-time token has been sent."
+    notice.value = t("auth.resetRequestNotice")
     mode.value = "complete-reset"
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -104,7 +105,7 @@ async function submitResetComplete(): Promise<void> {
   error.value = null
   notice.value = null
   if (newPassword.value !== confirmPassword.value) {
-    error.value = "Passwords do not match."
+    error.value = t("auth.passwordsDoNotMatch")
     return
   }
 
@@ -118,8 +119,7 @@ async function submitResetComplete(): Promise<void> {
     newPassword.value = ""
     confirmPassword.value = ""
     mode.value = "login"
-    notice.value =
-      "Password reset complete. Sign in with your new password."
+    notice.value = t("auth.resetCompleteNotice")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -130,6 +130,7 @@ async function submitResetComplete(): Promise<void> {
 
 <template>
   <div class="auth-page">
+    <LanguageControl class="auth-language-control" />
     <ThemeControl class="auth-theme-control" />
 
     <section class="auth-card">
@@ -137,32 +138,29 @@ async function submitResetComplete(): Promise<void> {
         <div class="brand__mark">0</div>
         <div class="brand__copy">
           <strong>zero-nvr</strong>
-          <span>self-hosted NVR</span>
+          <span>{{ t("brand.selfHostedNvr") }}</span>
         </div>
       </div>
 
       <div class="auth-card__heading">
-        <p class="eyebrow">Control plane</p>
+        <p class="eyebrow">{{ t("auth.controlPlane") }}</p>
         <h1>
           {{
             mode === "login"
-              ? "Sign in"
+              ? t("auth.signIn")
               : mode === "request-reset"
-                ? "Reset password"
-                : "Enter reset token"
+                ? t("auth.resetPassword")
+                : t("auth.enterResetToken")
           }}
         </h1>
         <p v-if="mode === 'login'">
-          Use your local zero-nvr account. Camera credentials never
-          leave the control plane.
+          {{ t("auth.signInDescription") }}
         </p>
         <p v-else-if="mode === 'request-reset'">
-          Enter your username or email. The response is intentionally
-          the same whether or not the account exists.
+          {{ t("auth.resetRequestDescription") }}
         </p>
         <p v-else>
-          Paste the one-time token from your reset email and choose a
-          new password.
+          {{ t("auth.resetTokenDescription") }}
         </p>
       </div>
 
@@ -172,7 +170,7 @@ async function submitResetComplete(): Promise<void> {
         @submit.prevent="submit"
       >
         <label class="field">
-          <span>Username</span>
+          <span>{{ t("auth.username") }}</span>
           <input
             v-model="username"
             autocomplete="username"
@@ -182,7 +180,7 @@ async function submitResetComplete(): Promise<void> {
         </label>
 
         <label class="field">
-          <span>Password</span>
+          <span>{{ t("auth.password") }}</span>
           <input
             v-model="password"
             type="password"
@@ -199,7 +197,7 @@ async function submitResetComplete(): Promise<void> {
           type="submit"
           :disabled="submitting"
         >
-          {{ submitting ? "Signing in…" : "Sign in" }}
+          {{ submitting ? t("auth.signingIn") : t("auth.signIn") }}
         </button>
 
         <div
@@ -207,7 +205,7 @@ async function submitResetComplete(): Promise<void> {
           class="auth-oidc-providers"
         >
           <div class="auth-oidc-providers__divider">
-            <span>or continue with</span>
+            <span>{{ t("auth.orContinueWith") }}</span>
           </div>
           <button
             v-for="provider in oidcProviders"
@@ -226,14 +224,14 @@ async function submitResetComplete(): Promise<void> {
             type="button"
             @click="setMode('request-reset')"
           >
-            Forgot password
+            {{ t("auth.forgotPassword") }}
           </button>
           <button
             class="button button--ghost button--wide"
             type="button"
             @click="setMode('complete-reset')"
           >
-            I have a reset token
+            {{ t("auth.haveResetToken") }}
           </button>
         </div>
       </form>
@@ -244,7 +242,7 @@ async function submitResetComplete(): Promise<void> {
         @submit.prevent="submitResetRequest"
       >
         <label class="field">
-          <span>Username or email</span>
+          <span>{{ t("auth.usernameOrEmail") }}</span>
           <input
             v-model="identifier"
             autocomplete="username"
@@ -260,14 +258,14 @@ async function submitResetComplete(): Promise<void> {
           type="submit"
           :disabled="submitting"
         >
-          {{ submitting ? "Requesting…" : "Send reset token" }}
+          {{ submitting ? t("auth.requesting") : t("auth.sendResetToken") }}
         </button>
         <button
           class="button button--ghost button--wide"
           type="button"
           @click="setMode('login')"
         >
-          Back to sign in
+          {{ t("auth.backToSignIn") }}
         </button>
       </form>
 
@@ -279,7 +277,7 @@ async function submitResetComplete(): Promise<void> {
         <p v-if="notice" class="field-hint" role="status">{{ notice }}</p>
 
         <label class="field">
-          <span>Reset token</span>
+          <span>{{ t("auth.resetToken") }}</span>
           <input
             v-model="resetToken"
             autocomplete="one-time-code"
@@ -289,7 +287,7 @@ async function submitResetComplete(): Promise<void> {
         </label>
 
         <label class="field">
-          <span>New password</span>
+          <span>{{ t("auth.newPassword") }}</span>
           <input
             v-model="newPassword"
             type="password"
@@ -300,7 +298,7 @@ async function submitResetComplete(): Promise<void> {
         </label>
 
         <label class="field">
-          <span>Confirm password</span>
+          <span>{{ t("auth.confirmPassword") }}</span>
           <input
             v-model="confirmPassword"
             type="password"
@@ -317,7 +315,7 @@ async function submitResetComplete(): Promise<void> {
           type="submit"
           :disabled="submitting"
         >
-          {{ submitting ? "Resetting…" : "Reset password" }}
+          {{ submitting ? t("auth.resetting") : t("auth.resetPassword") }}
         </button>
         <button
           class="button button--ghost button--wide"

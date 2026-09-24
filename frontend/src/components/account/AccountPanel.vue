@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   listSessions,
@@ -15,6 +16,7 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
+const { locale, t } = useI18n({ useScope: "global" })
 const sessions = ref<SessionSummary[]>([])
 const loading = ref(false)
 const savingPassword = ref(false)
@@ -33,7 +35,7 @@ const otherSessions = computed(() =>
 )
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -44,14 +46,14 @@ function formatTime(value: string): string {
 
 function sourceIp(item: SessionSummary): string {
   const value = item.client_info?.source_ip
-  return typeof value === "string" && value ? value : "Unknown IP"
+  return typeof value === "string" && value ? value : t("account.unknownIp")
 }
 
 function userAgent(item: SessionSummary): string {
   const value = item.client_info?.user_agent
   return typeof value === "string" && value
     ? value
-    : "Unknown client"
+    : t("account.unknownClient")
 }
 
 async function refreshSessions(): Promise<void> {
@@ -71,7 +73,7 @@ async function changePassword(): Promise<void> {
     passwordForm.newPassword !==
     passwordForm.confirmPassword
   ) {
-    error.value = "New passwords do not match."
+    error.value = t("account.passwordMismatch")
     return
   }
 
@@ -86,8 +88,7 @@ async function changePassword(): Promise<void> {
     passwordForm.currentPassword = ""
     passwordForm.newPassword = ""
     passwordForm.confirmPassword = ""
-    notice.value =
-      "Password changed. Previous sessions were revoked."
+    notice.value = t("account.passwordChanged")
     await refreshSessions()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -106,7 +107,7 @@ async function revoke(item: SessionSummary): Promise<void> {
     sessions.value = sessions.value.filter(
       (current) => current.id !== item.id
     )
-    notice.value = "Session revoked."
+    notice.value = t("account.sessionRevoked")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -141,8 +142,8 @@ onMounted(() => {
       <button
         class="icon-button"
         type="button"
-        title="Close account"
-        aria-label="Close account"
+        :title="t('account.close')"
+        :aria-label="t('account.close')"
         @click="emit('close')"
       >
         <UiIcon name="close" :size="16" />
@@ -159,10 +160,9 @@ onMounted(() => {
     <section class="account-panel__section">
       <div class="account-panel__section-heading">
         <div>
-          <strong>Change password</strong>
+          <strong>{{ t("account.changePassword") }}</strong>
           <span>
-            Changing your password revokes every previous session and
-            keeps this browser signed in with a new session.
+            {{ t("account.changePasswordDescription") }}
           </span>
         </div>
       </div>
@@ -172,7 +172,7 @@ onMounted(() => {
         @submit.prevent="changePassword"
       >
         <label>
-          <span>Current password</span>
+          <span>{{ t("account.currentPassword") }}</span>
           <input
             v-model="passwordForm.currentPassword"
             type="password"
@@ -181,7 +181,7 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>New password</span>
+          <span>{{ t("account.newPassword") }}</span>
           <input
             v-model="passwordForm.newPassword"
             type="password"
@@ -192,7 +192,7 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Confirm new password</span>
+          <span>{{ t("account.confirmNewPassword") }}</span>
           <input
             v-model="passwordForm.confirmPassword"
             type="password"
@@ -211,8 +211,8 @@ onMounted(() => {
           >
             {{
               savingPassword
-                ? "Changing…"
-                : "Change password"
+                ? t("account.changing")
+                : t("account.changePassword")
             }}
           </button>
         </div>
@@ -222,9 +222,9 @@ onMounted(() => {
     <section class="account-panel__section">
       <div class="account-panel__section-heading account-panel__section-heading--row">
         <div>
-          <strong>Active sessions</strong>
+          <strong>{{ t("account.activeSessions") }}</strong>
           <span>
-            Revoke browsers or devices you no longer use.
+            {{ t("account.activeSessionsDescription") }}
           </span>
         </div>
         <button
@@ -234,12 +234,12 @@ onMounted(() => {
           @click="refreshSessions"
         >
           <UiIcon name="refresh" :size="13" />
-          Refresh
+          {{ t("account.refresh") }}
         </button>
       </div>
 
       <div v-if="loading && !sessions.length" class="account-sessions-empty">
-        Loading sessions…
+        {{ t("account.loadingSessions") }}
       </div>
 
       <div v-else class="account-session-list">
@@ -255,19 +255,21 @@ onMounted(() => {
           <div class="account-session__main">
             <div>
               <strong>
-                {{ item.current ? "This browser" : sourceIp(item) }}
+                {{ item.current ? t("account.thisBrowser") : sourceIp(item) }}
               </strong>
               <span
                 v-if="item.current"
                 class="status-pill status-pill--ok"
               >
-                Current
+                {{ t("account.current") }}
               </span>
             </div>
             <span>{{ userAgent(item) }}</span>
             <small>
-              Last active {{ formatTime(item.last_seen_at) }}
-              · expires {{ formatTime(item.expires_at) }}
+              {{ t("account.lastActive", {
+                last: formatTime(item.last_seen_at),
+                expires: formatTime(item.expires_at)
+              }) }}
             </small>
           </div>
 
@@ -280,8 +282,8 @@ onMounted(() => {
           >
             {{
               revokingId === item.id
-                ? "Revoking…"
-                : "Revoke"
+                ? t("account.revoking")
+                : t("account.revoke")
             }}
           </button>
         </article>
@@ -291,7 +293,7 @@ onMounted(() => {
         v-if="!loading && !otherSessions.length"
         class="account-panel__hint"
       >
-        No other active sessions.
+        {{ t("account.noOtherSessions") }}
       </p>
     </section>
   </aside>

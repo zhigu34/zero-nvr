@@ -886,11 +886,19 @@ strong {
   background: var(--surface-base);
 }
 
-.auth-theme-control {
+.auth-theme-control,
+.auth-language-control {
   position: fixed;
   top: 14px;
-  right: 14px;
   z-index: 10;
+}
+
+.auth-theme-control {
+  right: 14px;
+}
+
+.auth-language-control {
+  right: 54px;
 }
 
 .auth-card {

@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from "vue"
 import { useRoute, useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import AccountPanel from "../components/account/AccountPanel.vue"
+import LanguageControl from "../components/ui/LanguageControl.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -10,6 +12,7 @@ import { useAuthStore } from "../stores/auth"
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
+const { t } = useI18n({ useScope: "global" })
 
 const sidebarOpen = ref(false)
 const sidebarCollapsed = ref(
@@ -18,19 +21,19 @@ const sidebarCollapsed = ref(
 const accountOpen = ref(false)
 
 const navigation = [
-  { to: "/dashboard", label: "Dashboard", icon: "dashboard" },
-  { to: "/live", label: "Live", icon: "live" },
-  { to: "/playback", label: "Playback", icon: "playback" },
-  { to: "/events", label: "Events", icon: "events" },
+  { to: "/dashboard", labelKey: "nav.dashboard", icon: "dashboard" },
+  { to: "/live", labelKey: "nav.live", icon: "live" },
+  { to: "/playback", labelKey: "nav.playback", icon: "playback" },
+  { to: "/events", labelKey: "nav.events", icon: "events" },
   {
     to: "/alerts",
-    label: "Alerts",
+    labelKey: "nav.alerts",
     icon: "bell",
     permission: "alert.view"
   },
-  { to: "/cameras", label: "Cameras", icon: "cameras" },
-  { to: "/storage", label: "Storage", icon: "storage" },
-  { to: "/system", label: "System", icon: "system" }
+  { to: "/cameras", labelKey: "nav.cameras", icon: "cameras" },
+  { to: "/storage", labelKey: "nav.storage", icon: "storage" },
+  { to: "/system", labelKey: "nav.system", icon: "system" }
 ]
 
 const visibleNavigation = computed(() =>
@@ -42,7 +45,10 @@ const visibleNavigation = computed(() =>
   )
 )
 
-const pageTitle = computed(() => String(route.meta.title ?? "zero-nvr"))
+const pageTitle = computed(() => {
+  const key = route.meta.titleKey
+  return typeof key === "string" ? t(key) : "zero-nvr"
+})
 const userInitial = computed(() => {
   const source = auth.user?.display_name || auth.user?.username || "Z"
   return source.trim().charAt(0).toUpperCase()
@@ -115,34 +121,34 @@ onBeforeUnmount(() => {
         </div>
         <div class="brand__copy">
           <strong>zero-nvr</strong>
-          <span>video security</span>
+          <span>{{ t("brand.videoSecurity") }}</span>
         </div>
       </div>
 
-      <nav class="primary-nav" aria-label="Primary navigation">
+      <nav class="primary-nav" :aria-label="t('shell.primaryNavigation')">
         <RouterLink
           v-for="item in visibleNavigation"
           :key="item.to"
           :to="item.to"
           class="primary-nav__item"
-          :title="sidebarCollapsed ? item.label : undefined"
+          :title="sidebarCollapsed ? t(item.labelKey) : undefined"
           @click="sidebarOpen = false"
         >
           <UiIcon class="primary-nav__icon" :name="item.icon" :size="18" />
-          <span class="primary-nav__label">{{ item.label }}</span>
+          <span class="primary-nav__label">{{ t(item.labelKey) }}</span>
         </RouterLink>
       </nav>
 
       <div class="sidebar__footer">
         <span class="status-dot status-dot--ok" />
-        <span class="sidebar__footer-label">Core online</span>
+        <span class="sidebar__footer-label">{{ t("shell.coreOnline") }}</span>
       </div>
     </aside>
 
     <button
       v-if="sidebarOpen"
       class="sidebar-backdrop"
-      aria-label="Close navigation"
+      :aria-label="t('shell.closeNavigation')"
       @click="sidebarOpen = false"
     />
 
@@ -152,8 +158,8 @@ onBeforeUnmount(() => {
           <button
             class="icon-button topbar-icon-button"
             type="button"
-            aria-label="Toggle navigation"
-            title="Toggle navigation"
+            :aria-label="t('shell.toggleNavigation')"
+            :title="t('shell.toggleNavigation')"
             @click="toggleNavigation"
           >
             <UiIcon
@@ -166,14 +172,15 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="topbar__actions">
+          <LanguageControl />
           <ThemeControl />
 
           <button
             class="topbar__user"
             :class="{ 'topbar__user--active': accountOpen }"
             type="button"
-            aria-label="Open account"
-            title="Account"
+            :aria-label="t('shell.openAccount')"
+            :title="t('shell.account')"
             @click="toggleAccount"
           >
             <span class="user-avatar">{{ userInitial }}</span>
@@ -186,8 +193,8 @@ onBeforeUnmount(() => {
           <button
             class="icon-button topbar-icon-button"
             type="button"
-            aria-label="Sign out"
-            title="Sign out"
+            :aria-label="t('shell.signOut')"
+            :title="t('shell.signOut')"
             @click="logout"
           >
             <UiIcon name="logout" :size="17" />
