@@ -745,6 +745,12 @@ const messages = {
       deliveryFailed: "Failed",
       deliverySkipped: "Skipped",
       deliveryPending: "Pending"
+    },
+    workspace: {
+      title: "Workspace",
+      description: "This workspace will be connected to its existing zero-nvr backend APIs.",
+      frontendSlice: "{title} frontend slice",
+      apiBoundaryHint: "This page stays inside /api/v1 and will be filled without bypassing zero-nvr to third-party admin APIs."
     }
   },
   "zh-CN": {
@@ -1470,6 +1476,12 @@ const messages = {
       deliveryFailed: "失败",
       deliverySkipped: "已跳过",
       deliveryPending: "等待中"
+    },
+    workspace: {
+      title: "工作区",
+      description: "该工作区将连接到 zero-nvr 已有的后端 API。",
+      frontendSlice: "{title} 前端模块",
+      apiBoundaryHint: "此页面继续使用 /api/v1，不会绕过 zero-nvr 直接访问第三方管理 API。"
     }
   }
 } as const
