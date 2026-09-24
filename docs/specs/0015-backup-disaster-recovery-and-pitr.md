@@ -310,6 +310,21 @@ The exact repository can be local, NAS, SFTP, S3-compatible, or another restic-s
 
 Recording archive and system backup may use the same physical provider but should use separate namespaces/credentials/retention semantics where practical.
 
+## Restore diagnostics
+
+Restore preflight runs before the live database is replaced. New backup
+manifests record the non-secret SecretStore key IDs required by the backup.
+The preflight compares those IDs with the configured active/previous keyring;
+SQLite backups also verify the staged encrypted records directly. Legacy
+PostgreSQL dumps without key metadata are inspected with `pg_restore` before
+replacement.
+
+Repository-open failures are reduced to operator-safe diagnostic categories:
+missing bootstrap values, wrong restic repository password, unavailable/rejected
+provider credentials, or a generally unavailable repository. Raw provider
+stderr is not repeated as the primary diagnostic because it may contain
+deployment-specific details.
+
 ## Failure behavior
 
 Backup failure:

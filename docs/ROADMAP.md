@@ -515,11 +515,11 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] SQLite Online Backup API consistent snapshot backend.
 - [x] PostgreSQL pg_dump backup backend.
 - [x] restic backup repository integration, retention, snapshot identity, and periodic check.
-- [~] encrypted RecoveryKit generation/download/staleness tracking.
+- [x] encrypted RecoveryKit generation/download/staleness tracking.
 - [x] backup-target bootstrap recovery without depending on the lost production database.
 - [x] scheduled/manual/pre-upgrade backup reasons and protected rollback retention.
 - [x] clean-host restore via deploy.sh + compatible release + RecoveryKit.
-- [ ] restore diagnostics for missing/wrong keyring and unavailable repository credentials.
+- [~] restore diagnostics for missing/wrong keyring and unavailable repository credentials.
 - [x] non-destructive post-restore RecordingLocation/media reconciliation.
 - [x] configuration-only export distinct from disaster backup.
 - [ ] backup/restore authorization and audit.

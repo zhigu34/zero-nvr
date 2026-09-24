@@ -81,6 +81,22 @@ class SecretStore:
 
         self.primary_key_id = next(iter(self._keys))
 
+    @property
+    def configured_key_ids(self) -> frozenset[str]:
+        return frozenset(self._keys)
+
+    def record_key_ids(
+        self,
+        session: Session,
+    ) -> frozenset[str]:
+        record_type = self._secret_record_type()
+        return frozenset(
+            str(value)
+            for value in session.scalars(
+                select(record_type.key_id).distinct()
+            )
+        )
+
     @staticmethod
     def _build_key(value: SecretStr) -> tuple[str, Fernet]:
         raw = value.get_secret_value().encode("utf-8")

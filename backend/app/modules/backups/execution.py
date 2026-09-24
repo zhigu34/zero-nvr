@@ -15,6 +15,7 @@ from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.core.security import SecretStore
 from app.integrations.restic import (
     ResticAdapter,
     ResticIntegrationError,
@@ -251,6 +252,12 @@ class BackupExecutionService:
         snapshot_path: Path,
     ) -> Path:
         path = plan.work_dir / "manifest.json"
+        with database.session() as session:
+            secret_store_key_ids = sorted(
+                SecretStore(
+                    settings
+                ).record_key_ids(session)
+            )
         payload = {
             "backup_set_id": str(plan.backup_set_id),
             "policy_id": str(plan.policy_id),
@@ -263,6 +270,7 @@ class BackupExecutionService:
             "database_snapshot": snapshot_path.name,
             "recordings_included": False,
             "recovery_kit_required": True,
+            "secret_store_key_ids": secret_store_key_ids,
         }
         path.write_text(
             json.dumps(

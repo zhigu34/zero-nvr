@@ -4,6 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 
+. "$SCRIPT_DIR/restore-diagnostics.sh"
+
 recovery_env="${ZERO_NVR_RECOVERY_ENV:-$ROOT_DIR/deploy/recovery.env}"
 
 usage() {
@@ -26,7 +28,9 @@ fi
 recovery_env="$(CDPATH= cd -- "$(dirname -- "$recovery_env")" && pwd)/$(basename -- "$recovery_env")"
 
 run_restic() {
-  compose run --rm --no-deps \
+  local error_file exit_code
+  error_file="$(mktemp)"
+  if compose run --rm --no-deps \
     -v "$recovery_env:/run/zero-nvr-recovery.env:ro" \
     zero-nvr \
     sh -ec '
@@ -36,7 +40,19 @@ run_restic() {
       : "${RESTIC_REPOSITORY:?RESTIC_REPOSITORY is required}"
       : "${RESTIC_PASSWORD:?RESTIC_PASSWORD is required}"
       exec restic "$@"
-    ' restic "$@"
+    ' restic "$@" 2>"$error_file"
+  then
+    cat "$error_file" >&2
+    rm -f "$error_file"
+    return 0
+  else
+    exit_code=$?
+    report_restore_repository_error "$(
+      cat "$error_file"
+    )"
+    rm -f "$error_file"
+    return "$exit_code"
+  fi
 }
 
 command="${1:-latest}"
@@ -72,9 +88,6 @@ fi
 snapshot="$command"
 staging="/var/cache/zero-nvr/restore-staging"
 
-echo "Stopping zero-nvr control plane; ZLMediaKit remains running..."
-compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
-
 compose run --rm --no-deps zero-nvr \
   sh -ec 'rm -rf /var/cache/zero-nvr/restore-staging && mkdir -p /var/cache/zero-nvr/restore-staging'
 
@@ -87,7 +100,21 @@ else
     --target "$staging"
 fi
 
-echo "Validating staged backup and replacing database atomically..."
+echo "Preflighting staged backup, schema compatibility and SecretStore keyring..."
+if ! compose run --rm --no-deps zero-nvr \
+  python -m app.cli restore-preflight \
+  --root "$staging"
+then
+  compose run --rm --no-deps zero-nvr \
+    sh -ec 'rm -rf /var/cache/zero-nvr/restore-staging' \
+    >/dev/null 2>&1 || true
+  exit 1
+fi
+
+echo "Stopping zero-nvr control plane; ZLMediaKit remains running..."
+compose stop zero-nvr-worker zero-nvr >/dev/null 2>&1 || true
+
+echo "Replacing database atomically..."
 compose run --rm --no-deps zero-nvr \
   python -m app.cli restore-staged \
   --root "$staging" \

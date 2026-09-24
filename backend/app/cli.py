@@ -1008,6 +1008,175 @@ def _known_revisions() -> set[str]:
     }
 
 
+def _postgres_snapshot_secret_key_ids(
+    *,
+    settings: Settings,
+    snapshot: Path,
+) -> set[str]:
+    try:
+        result = subprocess.run(
+            [
+                "pg_restore",
+                "--data-only",
+                "--table=secret_records",
+                "--file=-",
+                str(snapshot),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=(
+                settings.database_backup_timeout_seconds
+            ),
+        )
+    except (
+        OSError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as exc:
+        raise RuntimeError(
+            "restore diagnostic [secret_keyring_inspection_failed]: "
+            "could not inspect SecretStore key IDs in the PostgreSQL "
+            "backup before restore"
+        ) from exc
+
+    key_ids: set[str] = set()
+    key_index: int | None = None
+    in_copy = False
+    for line in result.stdout.splitlines():
+        if (
+            not in_copy
+            and line.startswith("COPY ")
+            and "secret_records" in line
+            and line.endswith(" FROM stdin;")
+        ):
+            left = line.find("(")
+            right = line.rfind(") FROM stdin;")
+            if left < 0 or right <= left:
+                continue
+            columns = [
+                item.strip().strip('"')
+                for item in line[left + 1:right].split(",")
+            ]
+            if "key_id" not in columns:
+                continue
+            key_index = columns.index("key_id")
+            in_copy = True
+            continue
+
+        if not in_copy:
+            continue
+        if line == r"\.":
+            break
+        values = line.split("\t")
+        if (
+            key_index is not None
+            and key_index < len(values)
+            and values[key_index] != r"\N"
+        ):
+            key_ids.add(values[key_index])
+
+    return key_ids
+
+
+def _sqlite_snapshot_secret_health(
+    *,
+    settings: Settings,
+    snapshot: Path,
+):
+    staged_settings = settings.model_copy(
+        update={
+            "database_url": f"sqlite:///{snapshot}",
+        }
+    )
+    staged_database = Database(staged_settings)
+    try:
+        with staged_database.session() as session:
+            store = SecretStore(settings)
+            required = set(
+                store.record_key_ids(session)
+            )
+            health = store.inspect_records(session)
+        return required, health
+    except Exception as exc:
+        raise RuntimeError(
+            "restore diagnostic [secret_keyring_inspection_failed]: "
+            "could not inspect SecretStore records in the staged "
+            "SQLite backup"
+        ) from exc
+    finally:
+        staged_database.close()
+
+
+def _validate_restore_keyring(
+    *,
+    settings: Settings,
+    manifest: dict[str, object],
+    engine: str,
+    snapshot: Path,
+) -> None:
+    store = SecretStore(settings)
+    configured = set(store.configured_key_ids)
+
+    raw_required = manifest.get(
+        "secret_store_key_ids"
+    )
+    required: set[str] | None = None
+    if raw_required is not None:
+        if (
+            not isinstance(raw_required, list)
+            or not all(
+                isinstance(value, str)
+                and value
+                for value in raw_required
+            )
+        ):
+            raise RuntimeError(
+                "restore diagnostic [secret_keyring_metadata_invalid]: "
+                "backup SecretStore key metadata is invalid"
+            )
+        required = set(raw_required)
+
+    sqlite_health = None
+    if engine == "sqlite":
+        inspected, sqlite_health = (
+            _sqlite_snapshot_secret_health(
+                settings=settings,
+                snapshot=snapshot,
+            )
+        )
+        if required is None:
+            required = inspected
+    elif engine == "postgresql" and required is None:
+        required = _postgres_snapshot_secret_key_ids(
+            settings=settings,
+            snapshot=snapshot,
+        )
+
+    required = required or set()
+    missing = sorted(required - configured)
+    if missing:
+        raise RuntimeError(
+            "restore diagnostic [secret_keyring_mismatch]: "
+            "the backup requires SecretStore key id(s) "
+            + ", ".join(missing)
+            + " that are not present in ZERO_NVR_SECRET_KEY / "
+            "ZERO_NVR_SECRET_KEY_PREVIOUS; decrypt the matching "
+            "RecoveryKit and restore its keyring before retrying"
+        )
+
+    if (
+        sqlite_health is not None
+        and sqlite_health.unreadable_records
+    ):
+        raise RuntimeError(
+            "restore diagnostic [secret_keyring_unreadable]: "
+            f"{sqlite_health.unreadable_records} encrypted "
+            "SecretStore record(s) in the staged backup cannot be "
+            "decrypted by the configured keyring"
+        )
+
+
 def _validate_restore_manifest(
     *,
     settings: Settings,
@@ -1060,6 +1229,13 @@ def _validate_restore_manifest(
         raise RuntimeError(
             "backup database snapshot is missing"
         )
+
+    _validate_restore_keyring(
+        settings=settings,
+        manifest=manifest,
+        engine=engine,
+        snapshot=snapshot,
+    )
     return manifest_path, manifest, snapshot
 
 
@@ -1320,6 +1496,44 @@ def restore_safety_snapshot_command(
                         else None
                     ),
                     "recordings_modified": False,
+                },
+                sort_keys=True,
+            )
+        )
+        return 0
+    finally:
+        database.close()
+
+
+def restore_preflight_command(
+    args: argparse.Namespace,
+) -> int:
+    settings = Settings()
+    database = Database(settings)
+    try:
+        root = Path(args.root).resolve()
+        if not root.is_dir():
+            raise RuntimeError(
+                "restore staging directory is unavailable"
+            )
+        _manifest_path, manifest, _snapshot = (
+            _validate_restore_manifest(
+                settings=settings,
+                database=database,
+                root=root,
+            )
+        )
+        print(
+            json.dumps(
+                {
+                    "restore_preflight": "ok",
+                    "backup_set_id": manifest.get(
+                        "backup_set_id"
+                    ),
+                    "database_engine": manifest.get(
+                        "database_engine"
+                    ),
+                    "secret_keyring": "readable",
                 },
                 sort_keys=True,
             )
@@ -1642,6 +1856,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     safety_restore.set_defaults(
         handler=restore_safety_snapshot_command
+    )
+
+    restore_preflight = sub.add_parser(
+        "restore-preflight"
+    )
+    restore_preflight.add_argument(
+        "--root",
+        required=True,
+    )
+    restore_preflight.set_defaults(
+        handler=restore_preflight_command
     )
 
     restore = sub.add_parser("restore-staged")

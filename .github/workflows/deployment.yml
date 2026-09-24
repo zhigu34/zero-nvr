@@ -74,6 +74,11 @@ jobs:
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
           ./deploy.sh help | grep -Fq "soak <8|16>"
           ./deploy.sh help | grep -Fq "secret rotate"
+          ./deploy.sh help | grep -Fq "recovery-kit decrypt"
+          source scripts/restore-diagnostics.sh
+          test "$(restore_repository_error_code 'Fatal: wrong password or no key found')" = "repository_password_invalid"
+          test "$(restore_repository_error_code 'AccessDenied: credentials rejected')" = "repository_credentials_unavailable"
+          test "$(restore_repository_error_code 'RESTIC_PASSWORD is required')" = "repository_bootstrap_missing"
 
       - name: Test deployment state helpers
         shell: bash
