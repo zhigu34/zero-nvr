@@ -522,8 +522,8 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] restore diagnostics for missing/wrong keyring and unavailable repository credentials.
 - [x] non-destructive post-restore RecordingLocation/media reconciliation.
 - [x] configuration-only export distinct from disaster backup.
-- [~] backup/restore authorization and audit.
-- [ ] Backup & Recovery UI for normal administration.
+- [x] backup/restore authorization and audit.
+- [~] Backup & Recovery UI for normal administration.
 - [x] user/role/camera-scope administration UI.
 - [x] audit UI.
 - [ ] release manifest/version/digest compatibility metadata.

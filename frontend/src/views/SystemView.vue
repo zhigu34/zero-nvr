@@ -133,6 +133,7 @@ const backups = ref<BackupSet[]>([])
 const backupPanelOpen = ref(false)
 const editingBackupPolicy = ref<BackupPolicy | null>(null)
 const backupSaving = ref(false)
+const backupRefreshing = ref(false)
 const runningBackupId = ref<string | null>(null)
 const verifyingBackupId = ref<string | null>(null)
 const configImportInput = ref<HTMLInputElement | null>(null)
@@ -146,6 +147,7 @@ const backupForm = reactive({
   name: "System backup",
   repository: "",
   password: "",
+  environmentCredentials: "",
   initializeIfMissing: true,
   scheduled: true,
   cron: "0 3 * * *",
@@ -287,6 +289,53 @@ const latestBackupByPolicy = computed(() => {
   }
   return map
 })
+
+function backupPolicyName(policyId: string): string {
+  return (
+    backupPolicies.value.find(
+      (policy) => policy.id === policyId
+    )?.name ?? "Unknown policy"
+  )
+}
+
+function parseBackupEnvironment(
+  raw: string
+): Record<string, string> {
+  const environment: Record<string, string> = {}
+  const reserved = new Set([
+    "RESTIC_REPOSITORY",
+    "RESTIC_PASSWORD",
+    "RESTIC_PASSWORD_FILE"
+  ])
+
+  for (const [index, source] of raw.split(/\r?\n/).entries()) {
+    const line = source.trim()
+    if (!line || line.startsWith("#")) continue
+
+    const separator = line.indexOf("=")
+    if (separator <= 0) {
+      throw new Error(
+        `Repository credential line ${index + 1} must use KEY=value.`
+      )
+    }
+
+    const key = line.slice(0, separator).trim()
+    const value = line.slice(separator + 1)
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
+      throw new Error(
+        `Repository credential line ${index + 1} has an invalid environment key.`
+      )
+    }
+    if (reserved.has(key)) {
+      throw new Error(
+        `${key} is managed by the repository/password fields and cannot be entered as an environment credential.`
+      )
+    }
+    environment[key] = value
+  }
+
+  return environment
+}
 
 function exportConfiguration(): void {
   window.location.assign(
@@ -665,6 +714,7 @@ async function loadFrigate(): Promise<void> {
 
 async function loadBackups(): Promise<void> {
   if (!auth.hasPermission("system.view")) return
+  backupRefreshing.value = true
   try {
     const [policyPage, backupPage] = await Promise.all([
       listBackupPolicies(),
@@ -674,6 +724,8 @@ async function loadBackups(): Promise<void> {
     backups.value = backupPage.items
   } catch (caught) {
     error.value = errorMessage(caught)
+  } finally {
+    backupRefreshing.value = false
   }
 }
 
@@ -1159,6 +1211,7 @@ function openBackupPanel(): void {
   backupForm.name = "System backup"
   backupForm.repository = ""
   backupForm.password = ""
+  backupForm.environmentCredentials = ""
   backupForm.initializeIfMissing = true
   backupForm.scheduled = true
   backupForm.cron = "0 3 * * *"
@@ -1188,6 +1241,7 @@ function openEditBackupPolicy(policy: BackupPolicy): void {
   backupForm.name = policy.name
   backupForm.repository = ""
   backupForm.password = ""
+  backupForm.environmentCredentials = ""
   backupForm.initializeIfMissing = false
   backupForm.scheduled =
     typeof policy.schedule.cron === "string" &&
@@ -1230,6 +1284,12 @@ async function saveBackupPolicy(): Promise<void> {
   const timezone =
     settings.value?.time.recording_timezone || "UTC"
   try {
+    const environment = parseBackupEnvironment(
+      backupForm.environmentCredentials
+    )
+    const hasEnvironmentCredentials =
+      Object.keys(environment).length > 0
+
     const schedule = backupForm.scheduled
       ? {
           cron: backupForm.cron.trim(),
@@ -1253,7 +1313,10 @@ async function saveBackupPolicy(): Promise<void> {
         include_deployment_config: boolean
         repository?: string
         credentials_action: "keep" | "replace"
-        credentials?: { password?: string }
+        credentials?: {
+          password?: string
+          environment?: Record<string, string>
+        }
       } = {
         name: backupForm.name.trim(),
         enabled: backupForm.enabled,
@@ -1262,17 +1325,27 @@ async function saveBackupPolicy(): Promise<void> {
         verify_after_backup: backupForm.verifyAfter,
         include_deployment_config:
           backupForm.includeDeploymentConfig,
-        credentials_action: backupForm.password
-          ? "replace"
-          : "keep"
+        credentials_action:
+          backupForm.password || hasEnvironmentCredentials
+            ? "replace"
+            : "keep"
       }
 
       if (backupForm.repository.trim()) {
         changes.repository = backupForm.repository.trim()
       }
-      if (backupForm.password) {
-        changes.credentials = {
-          password: backupForm.password
+      if (
+        backupForm.password ||
+        hasEnvironmentCredentials
+      ) {
+        changes.credentials = {}
+        if (backupForm.password) {
+          changes.credentials.password =
+            backupForm.password
+        }
+        if (hasEnvironmentCredentials) {
+          changes.credentials.environment =
+            environment
         }
       }
 
@@ -1288,7 +1361,7 @@ async function saveBackupPolicy(): Promise<void> {
         repository: backupForm.repository.trim(),
         credentials: {
           password: backupForm.password,
-          environment: {}
+          environment
         },
         initialize_if_missing: backupForm.initializeIfMissing,
         database_backend: info.value?.database_backend || "sqlite",
@@ -2484,6 +2557,15 @@ onBeforeUnmount(() => {
               Export configuration
             </button>
             <button
+              class="button button--ghost"
+              type="button"
+              :disabled="backupRefreshing"
+              @click="loadBackups"
+            >
+              <UiIcon name="refresh" :size="14" />
+              {{ backupRefreshing ? "Refreshing…" : "Refresh" }}
+            </button>
+            <button
               class="button button--primary"
               type="button"
               @click="openBackupPanel"
@@ -2886,16 +2968,28 @@ onBeforeUnmount(() => {
                 </dd>
               </div>
             </dl>
-            <button
+            <div
               v-if="auth.hasPermission('system.manage')"
-              class="button button--ghost"
-              type="button"
-              :disabled="runningBackupId === policy.id"
-              @click="runPolicy(policy)"
+              class="system-form-actions"
             >
-              <UiIcon name="backup" :size="14" />
-              {{ runningBackupId === policy.id ? "Starting…" : "Run now" }}
-            </button>
+              <button
+                class="button button--ghost"
+                type="button"
+                @click="openEditBackupPolicy(policy)"
+              >
+                <UiIcon name="settings" :size="14" />
+                Edit
+              </button>
+              <button
+                class="button button--ghost"
+                type="button"
+                :disabled="runningBackupId === policy.id"
+                @click="runPolicy(policy)"
+              >
+                <UiIcon name="backup" :size="14" />
+                {{ runningBackupId === policy.id ? "Starting…" : "Run now" }}
+              </button>
+            </div>
           </article>
         </div>
 
@@ -2908,7 +3002,7 @@ onBeforeUnmount(() => {
             <table class="system-table">
               <thead>
                 <tr>
-                  <th>Started</th>
+                  <th>Backup</th>
                   <th>State</th>
                   <th>Size</th>
                   <th>Verification</th>
@@ -2918,7 +3012,21 @@ onBeforeUnmount(() => {
               </thead>
               <tbody>
                 <tr v-for="item in backups" :key="item.id">
-                  <td>{{ formatTime(item.started_at) }}</td>
+                  <td>
+                    <strong>
+                      {{ backupPolicyName(item.backup_policy_id) }}
+                    </strong>
+                    <small>
+                      {{ formatTime(item.started_at) }} ·
+                      {{ pretty(item.reason) }}
+                    </small>
+                    <small v-if="item.error_code">
+                      {{ pretty(item.error_code) }}
+                      <template v-if="item.sanitized_error">
+                        · {{ item.sanitized_error }}
+                      </template>
+                    </small>
+                  </td>
                   <td>
                     <span class="status-pill" :class="statusClass(item.state)">
                       {{ item.state }}
@@ -2990,6 +3098,23 @@ onBeforeUnmount(() => {
               />
               <small v-if="editingBackupPolicy">
                 Leave blank to keep the current password. A password-only change preserves repository environment credentials.
+              </small>
+            </label>
+            <label>
+              <span>Repository environment credentials</span>
+              <textarea
+                v-model="backupForm.environmentCredentials"
+                rows="5"
+                spellcheck="false"
+                placeholder="AWS_ACCESS_KEY_ID=…&#10;AWS_SECRET_ACCESS_KEY=…"
+              />
+              <small>
+                One KEY=value per line. Values are encrypted in SecretStore.
+                {{
+                  editingBackupPolicy
+                    ? " Leave blank to keep the existing encrypted environment credentials."
+                    : " Use this for S3/B2/SFTP backend-specific secret environment variables when required."
+                }}
               </small>
             </label>
             <label

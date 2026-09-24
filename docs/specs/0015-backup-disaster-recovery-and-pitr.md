@@ -340,6 +340,17 @@ user identity. Failure to append that final audit row is surfaced as a warning
 and must not turn an already completed database restore into a destructive
 secondary failure.
 
+## Normal administration UI
+
+System > Backup is the normal administration surface for backup policy creation
+and editing, scheduling, retention, manual runs, verification status/history,
+failure diagnostics, configuration export/import, and encrypted RecoveryKit
+generation. Restic provider environment credentials may be entered as
+`KEY=value` lines and are stored through SecretStore; existing encrypted
+credential values are never returned to the browser. Destructive disaster
+restore remains host-only and the UI shows/copies the corresponding
+`deploy.sh` commands rather than invoking Docker.
+
 ## Failure behavior
 
 Backup failure:
