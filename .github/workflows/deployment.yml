@@ -74,6 +74,7 @@ jobs:
           ./deploy.sh help | grep -Fq "database migrate"
           ./deploy.sh help | grep -Fq "benchmark <8|16>"
           ./deploy.sh help | grep -Fq "resource-baseline"
+          ./deploy.sh help | grep -Fq "resource-check static"
           ./deploy.sh help | grep -Fq "soak <8|16>"
           ./deploy.sh help | grep -Fq "small-host-soak <2|4>"
           ./deploy.sh help | grep -Fq "secret rotate"
@@ -94,6 +95,7 @@ jobs:
           bash scripts/test-rollback.sh
           bash scripts/test-benchmark.sh
           bash scripts/test-resource-baseline.sh
+          python3 scripts/test_resource_check.py
           bash scripts/test-soak.sh
           python3 scripts/test_small_host_soak.py
           bash scripts/test-release-validation.sh

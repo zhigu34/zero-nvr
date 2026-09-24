@@ -432,6 +432,19 @@ The command exits non-zero when the static footprint is at least 2 GiB, peak
 three-container idle memory is at least 1 GiB, optional services are active, or
 the camera inventory is not clean.
 
+After collecting R1 evidence, independently validate the static-footprint gate:
+
+~~~bash
+./deploy.sh resource-check static
+./deploy.sh resource-check static --max-age-hours 24
+~~~
+
+The validator rechecks the fixed <2 GiB threshold, recomputes the component
+sum, requires clean-Core/zero-camera evidence, rejects stale evidence, and
+requires the recorded API/worker/ZLM image IDs to match the currently running
+Core containers. Therefore an old R1 report cannot remain valid after an image
+change.
+
 ### benchmark
 
 Release-gate validation is host-operated:

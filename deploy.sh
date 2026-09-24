@@ -22,6 +22,7 @@ Usage:
   ./deploy.sh doctor
   ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
   ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
+  ./deploy.sh resource-check static [--max-age-hours HOURS]
   ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
   ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
@@ -905,6 +906,13 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     "$SCRIPT_DIR/resource-baseline.sh" "$@"
+    ;;
+  resource-check)
+    ensure_env
+    ensure_host_dirs
+    require_command python3
+    ZERO_NVR_ENV_FILE="$ENV_FILE" \
+      python3 "$SCRIPT_DIR/resource_check.py" "$@"
     ;;
   soak)
     ensure_env

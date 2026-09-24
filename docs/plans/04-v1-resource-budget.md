@@ -499,6 +499,17 @@ Do not implement the collector before the production runtime image exists merely
 
 ### PASS
 
+Static evidence is revalidated after collection with:
+
+~~~text
+./deploy.sh resource-check static
+~~~
+
+The check refuses missing/stale/tampered evidence and rejects the report when
+the running Core image identities no longer match the R1 measurement. It
+independently recomputes the static total and applies the fixed <2 GiB hard
+limit rather than trusting the report's boolean alone.
+
 - static Core < 2 GB;
 - no-camera idle < 1 GB;
 - small-host camera soak completes without OOM/restart/resource runaway;
