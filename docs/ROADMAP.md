@@ -174,8 +174,9 @@ current code/tests.
 - [x] Backend project bootstrap.
 - [x] Frontend project bootstrap.
 - [~] V1 frontend localization: persisted English / Simplified Chinese switch,
-  localized route titles/navigation/auth/setup/account controls, and complete
-  Simplified Chinese coverage for all remaining V1 user-facing views/components.
+  localized route titles/navigation/auth/setup/account controls and Dashboard;
+  complete Simplified Chinese coverage for all remaining V1 user-facing
+  views/components before acceptance.
 - [x] SQLAlchemy/Alembic shared logical schema for SQLite and PostgreSQL.
 - [x] SQLite default production profile with WAL/busy-timeout/checkpoint/write-pressure health.
 - [x] PostgreSQL optional bundled/external production profile.

@@ -6,6 +6,7 @@ import {
   ref
 } from "vue"
 import { useRouter } from "vue-router"
+import { useI18n } from "vue-i18n"
 
 import {
   acknowledgeAlert,
@@ -37,6 +38,9 @@ import { useAuthStore } from "../stores/auth"
 
 const router = useRouter()
 const auth = useAuthStore()
+const { locale, t, te } = useI18n({
+  useScope: "global"
+})
 
 const health = ref<SystemHealth | null>(null)
 const cameras = ref<CameraSummary[]>([])
@@ -169,13 +173,16 @@ async function refresh(): Promise<void> {
 }
 
 function cameraName(cameraId: string | null): string {
-  if (!cameraId) return "System"
-  return cameraMap.value.get(cameraId)?.name ?? "Unknown camera"
+  if (!cameraId) return t("dashboard.systemSource")
+  return (
+    cameraMap.value.get(cameraId)?.name ??
+    t("dashboard.unknownCamera")
+  )
 }
 
 function formatTime(value: string | null): string {
   if (!value) return "—"
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false
@@ -183,8 +190,8 @@ function formatTime(value: string | null): string {
 }
 
 function formatDateTime(value: string | null): string {
-  if (!value) return "Never"
-  return new Intl.DateTimeFormat(undefined, {
+  if (!value) return t("dashboard.never")
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -194,8 +201,16 @@ function formatDateTime(value: string | null): string {
 }
 
 function pretty(value: string): string {
+  const normalized = value
+    .toLowerCase()
+    .replaceAll(".", "_")
+    .replaceAll("-", "_")
+  const statusKey = `dashboard.status.${normalized}`
+  if (te(statusKey)) return t(statusKey)
+
   return value
     .replaceAll("_", " ")
+    .replaceAll(".", " · ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
 }
 
@@ -275,8 +290,8 @@ onBeforeUnmount(() => {
   <section class="dashboard-workspace">
     <header class="dashboard-header">
       <div>
-        <strong>Overview</strong>
-        <span>Live operational state across video, events and storage.</span>
+        <strong>{{ t("dashboard.overview") }}</strong>
+        <span>{{ t("dashboard.description") }}</span>
       </div>
       <button
         class="button button--ghost"
@@ -285,7 +300,7 @@ onBeforeUnmount(() => {
         @click="refresh"
       >
         <UiIcon name="refresh" :size="14" />
-        {{ loading ? "Refreshing…" : "Refresh" }}
+        {{ loading ? t("dashboard.refreshing") : t("dashboard.refresh") }}
       </button>
     </header>
 
@@ -300,10 +315,10 @@ onBeforeUnmount(() => {
           <UiIcon name="activity" :size="18" />
         </div>
         <div>
-          <span>System health</span>
+          <span>{{ t("dashboard.systemHealth") }}</span>
           <strong>{{ health?.status || "—" }}</strong>
           <small>
-            {{ healthComponents.length }} monitored components
+            {{ t("dashboard.monitoredComponents", { count: healthComponents.length }) }}
           </small>
         </div>
       </RouterLink>
@@ -313,13 +328,13 @@ onBeforeUnmount(() => {
           <UiIcon name="cameras" :size="18" />
         </div>
         <div>
-          <span>Cameras</span>
+          <span>{{ t("dashboard.cameras") }}</span>
           <strong>{{ enabledCameraCount }}/{{ cameras.length }}</strong>
           <small>
             {{
               disabledCameraCount
-                ? `${disabledCameraCount} disabled`
-                : "All enabled"
+                ? t("dashboard.disabledCount", { count: disabledCameraCount })
+                : t("dashboard.allEnabled")
             }}
           </small>
         </div>
@@ -330,9 +345,9 @@ onBeforeUnmount(() => {
           <UiIcon name="events" :size="18" />
         </div>
         <div>
-          <span>Events · 24h</span>
+          <span>{{ t("dashboard.events24h") }}</span>
           <strong>{{ events.length }}</strong>
-          <small>Most recent activity loaded</small>
+          <small>{{ t("dashboard.recentActivityLoaded") }}</small>
         </div>
       </RouterLink>
 
@@ -344,13 +359,13 @@ onBeforeUnmount(() => {
           <UiIcon name="bell" :size="18" />
         </div>
         <div>
-          <span>Open alerts</span>
+          <span>{{ t("dashboard.openAlerts") }}</span>
           <strong>{{ openAlertCount }}</strong>
           <small>
             {{
               criticalAlertCount
-                ? `${criticalAlertCount} critical`
-                : "No critical alerts"
+                ? t("dashboard.criticalCount", { count: criticalAlertCount })
+                : t("dashboard.noCriticalAlerts")
             }}
           </small>
         </div>
@@ -360,19 +375,19 @@ onBeforeUnmount(() => {
     <div class="dashboard-quick-actions">
       <RouterLink to="/live">
         <UiIcon name="live" :size="15" />
-        Live view
+        {{ t("dashboard.liveView") }}
       </RouterLink>
       <RouterLink to="/playback">
         <UiIcon name="playback" :size="15" />
-        Playback
+        {{ t("dashboard.playback") }}
       </RouterLink>
       <RouterLink to="/events">
         <UiIcon name="events" :size="15" />
-        Events
+        {{ t("dashboard.events") }}
       </RouterLink>
       <RouterLink to="/cameras">
         <UiIcon name="cameras" :size="15" />
-        Cameras
+        {{ t("dashboard.cameras") }}
       </RouterLink>
     </div>
 
@@ -380,15 +395,15 @@ onBeforeUnmount(() => {
       <section class="dashboard-panel dashboard-panel--events">
         <header>
           <div>
-            <strong>Recent activity</strong>
-            <span>Latest provider-neutral events.</span>
+            <strong>{{ t("dashboard.recentActivity") }}</strong>
+            <span>{{ t("dashboard.recentActivityDescription") }}</span>
           </div>
-          <RouterLink to="/events">View all</RouterLink>
+          <RouterLink to="/events">{{ t("dashboard.viewAll") }}</RouterLink>
         </header>
 
         <div v-if="!recentEvents.length" class="dashboard-empty">
           <UiIcon name="events" :size="22" />
-          <span>No recent events.</span>
+          <span>{{ t("dashboard.noRecentEvents") }}</span>
         </div>
 
         <div v-else class="dashboard-event-strip">
@@ -421,14 +436,14 @@ onBeforeUnmount(() => {
       <section class="dashboard-panel">
         <header>
           <div>
-            <strong>Alerts</strong>
-            <span>Items that may need attention.</span>
+            <strong>{{ t("dashboard.alerts") }}</strong>
+            <span>{{ t("dashboard.alertsDescription") }}</span>
           </div>
         </header>
 
         <div v-if="!recentAlerts.length" class="dashboard-empty">
           <UiIcon name="check" :size="22" />
-          <span>No active alerts.</span>
+          <span>{{ t("dashboard.noActiveAlerts") }}</span>
         </div>
 
         <div v-else class="dashboard-alert-list">
@@ -456,14 +471,14 @@ onBeforeUnmount(() => {
               :disabled="acknowledgingId === item.id"
               @click="acknowledge(item)"
             >
-              {{ acknowledgingId === item.id ? "…" : "Acknowledge" }}
+              {{ acknowledgingId === item.id ? "…" : t("dashboard.acknowledge") }}
             </button>
             <span
               v-else
               class="status-pill"
               :class="statusClass(item.state)"
             >
-              {{ item.state }}
+              {{ pretty(item.state) }}
             </span>
           </article>
         </div>
@@ -472,15 +487,15 @@ onBeforeUnmount(() => {
       <section class="dashboard-panel">
         <header>
           <div>
-            <strong>Camera inventory</strong>
-            <span>Configured sources and current administrative state.</span>
+            <strong>{{ t("dashboard.cameraInventory") }}</strong>
+            <span>{{ t("dashboard.cameraInventoryDescription") }}</span>
           </div>
-          <RouterLink to="/cameras">Manage</RouterLink>
+          <RouterLink to="/cameras">{{ t("dashboard.manage") }}</RouterLink>
         </header>
 
         <div v-if="!cameras.length" class="dashboard-empty">
           <UiIcon name="cameras" :size="22" />
-          <span>No cameras configured.</span>
+          <span>{{ t("dashboard.noCameras") }}</span>
         </div>
 
         <div v-else class="dashboard-camera-list">
@@ -496,9 +511,9 @@ onBeforeUnmount(() => {
             />
             <div>
               <strong>{{ camera.name }}</strong>
-              <small>{{ camera.location || "No location" }}</small>
+              <small>{{ camera.location || t("dashboard.noLocation") }}</small>
             </div>
-            <span>{{ camera.adapter_type || "manual" }}</span>
+            <span>{{ camera.adapter_type || t("dashboard.manual") }}</span>
           </article>
         </div>
       </section>
@@ -506,10 +521,10 @@ onBeforeUnmount(() => {
       <section class="dashboard-panel">
         <header>
           <div>
-            <strong>Core services</strong>
-            <span>Capability health from the control plane.</span>
+            <strong>{{ t("dashboard.coreServices") }}</strong>
+            <span>{{ t("dashboard.coreServicesDescription") }}</span>
           </div>
-          <RouterLink to="/system">System</RouterLink>
+          <RouterLink to="/system">{{ t("dashboard.system") }}</RouterLink>
         </header>
 
         <div class="dashboard-health-list">
@@ -522,7 +537,7 @@ onBeforeUnmount(() => {
               :class="`status-dot--${component.status.toLowerCase()}`"
             />
             <strong>{{ pretty(name) }}</strong>
-            <span>{{ component.status }}</span>
+            <span>{{ pretty(component.status) }}</span>
           </article>
         </div>
       </section>
@@ -536,38 +551,38 @@ onBeforeUnmount(() => {
       >
         <header>
           <div>
-            <strong>Storage & backup</strong>
-            <span>Recording destinations and recoverability.</span>
+            <strong>{{ t("dashboard.storageBackup") }}</strong>
+            <span>{{ t("dashboard.storageBackupDescription") }}</span>
           </div>
-          <RouterLink to="/storage">Storage</RouterLink>
+          <RouterLink to="/storage">{{ t("dashboard.storage") }}</RouterLink>
         </header>
 
         <div class="dashboard-storage-row">
           <div>
             <UiIcon name="drive" :size="17" />
-            <span>Local recording</span>
+            <span>{{ t("dashboard.localRecording") }}</span>
             <strong>{{ localTargetCount }}</strong>
           </div>
           <div>
             <UiIcon name="cloud" :size="17" />
-            <span>Remote archive</span>
+            <span>{{ t("dashboard.remoteArchive") }}</span>
             <strong>{{ archiveTargetCount }}</strong>
           </div>
           <div>
             <UiIcon name="backup" :size="17" />
-            <span>Latest backup</span>
+            <span>{{ t("dashboard.latestBackup") }}</span>
             <strong>
               {{
                 latestBackup
                   ? pretty(latestBackup.state)
-                  : "Never"
+                  : t("dashboard.never")
               }}
             </strong>
             <small>
               {{
                 latestBackup
                   ? formatDateTime(latestBackup.started_at)
-                  : "No backup set"
+                  : t("dashboard.noBackupSet")
               }}
             </small>
           </div>
