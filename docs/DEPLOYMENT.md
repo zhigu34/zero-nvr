@@ -455,11 +455,22 @@ Longer release validation is host-operated:
 ./deploy.sh soak 8 --duration 1800 --interval 30
 ```
 
-The default run is 10 minutes with a 30-second sample interval. Every sample
-requires the selected camera workload to keep its recording streams/recorders
-healthy and also requires the database, worker heartbeat, ZLMediaKit, and
-recording storage health components to remain OK. A transient failed sample is
-retained in the final failure counts even when the final sample later recovers.
+The default run is 10 minutes with a 30-second sample interval. That default is
+a diagnostic soak, not sufficient evidence for the V1 8-camera long-duration
+baseline. Release acceptance requires at least one hour:
+
+```bash
+./deploy.sh benchmark 8
+./deploy.sh soak 8 --duration 3600 --interval 30
+./deploy.sh release-check 8
+```
+
+`release-check 8` rejects an otherwise-passing soak report whose
+`duration_seconds` is below 3600. Every sample requires the selected camera
+workload to keep its recording streams/recorders healthy and also requires the
+database, worker heartbeat, ZLMediaKit, and recording storage health components
+to remain OK. A transient failed sample is retained in the final failure counts
+even when the final sample later recovers.
 
 At the final sample, every camera that is currently in persistent recording
 mode must also have produced at least one non-empty `RecordingSegment` with

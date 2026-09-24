@@ -44,6 +44,7 @@ def write_report(
     profile: str,
     passed: bool,
     generated_at: datetime,
+    duration_seconds: int | None = None,
 ) -> None:
     root = (
         settings.data_dir
@@ -57,6 +58,15 @@ def write_report(
                 "passed": passed,
                 "generated_at": (
                     generated_at.isoformat()
+                ),
+                **(
+                    {
+                        "duration_seconds": (
+                            duration_seconds
+                        )
+                    }
+                    if duration_seconds is not None
+                    else {}
                 ),
             }
         ),
@@ -147,6 +157,7 @@ def test_release_readiness_passes_with_matching_fresh_gates(
             generated_at=(
                 now - timedelta(hours=2)
             ),
+            duration_seconds=3600,
         )
         backup_id = add_verified_backup(
             database,
@@ -206,6 +217,7 @@ def test_release_readiness_rejects_stale_mismatched_or_missing_gates(
             generated_at=(
                 now - timedelta(days=2)
             ),
+            duration_seconds=3600,
         )
 
         result = ReleaseReadinessService(
@@ -230,5 +242,78 @@ def test_release_readiness_rejects_stale_mismatched_or_missing_gates(
                 "verified_backup_missing"
             ),
         }
+    finally:
+        database.close()
+
+
+
+def test_release_readiness_rejects_short_8_camera_soak(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+    now = datetime(
+        2026,
+        9,
+        21,
+        1,
+        0,
+        tzinfo=UTC,
+    )
+    try:
+        write_report(
+            settings,
+            kind="benchmark",
+            profile="8-camera-baseline",
+            passed=True,
+            generated_at=(
+                now - timedelta(minutes=20)
+            ),
+        )
+        write_report(
+            settings,
+            kind="soak",
+            profile="8-camera-soak",
+            passed=True,
+            generated_at=(
+                now - timedelta(minutes=10)
+            ),
+            duration_seconds=600,
+        )
+        add_verified_backup(
+            database,
+            completed_at=(
+                now - timedelta(minutes=5)
+            ),
+        )
+
+        result = ReleaseReadinessService(
+            settings,
+            database,
+        ).collect(
+            expected_cameras=8,
+            max_age_hours=24,
+            now=now,
+        )
+
+        assert result.passed is False
+        soak = next(
+            item
+            for item in result.checks
+            if item.name == "soak"
+        )
+        assert (
+            soak.code
+            == "release_validation_duration_insufficient"
+        )
+        assert (
+            soak.details["duration_seconds"]
+            == 600
+        )
+        assert (
+            soak.details[
+                "minimum_duration_seconds"
+            ]
+            == 3600
+        )
     finally:
         database.close()

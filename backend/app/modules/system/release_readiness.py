@@ -32,6 +32,9 @@ class ReleaseReadiness:
     checks: tuple[ReleaseReadinessCheck, ...]
 
 
+BASELINE_SOAK_MIN_DURATION_SECONDS = 60 * 60
+
+
 class ReleaseReadinessService:
     def __init__(
         self,
@@ -77,6 +80,7 @@ class ReleaseReadinessService:
         expected_profile: str,
         now: datetime,
         max_age: timedelta,
+        minimum_duration_seconds: int | None = None,
     ) -> ReleaseReadinessCheck:
         details: dict[str, object] = {
             "state": artifact.state,
@@ -133,6 +137,42 @@ class ReleaseReadinessService:
                 code="release_validation_timestamp_missing",
                 details=details,
             )
+
+        if minimum_duration_seconds is not None:
+            raw_duration = report.get(
+                "duration_seconds"
+            )
+            duration_seconds = (
+                raw_duration
+                if (
+                    isinstance(raw_duration, int)
+                    and not isinstance(
+                        raw_duration,
+                        bool,
+                    )
+                )
+                else None
+            )
+            details[
+                "minimum_duration_seconds"
+            ] = minimum_duration_seconds
+            details["duration_seconds"] = (
+                duration_seconds
+            )
+            if (
+                duration_seconds is None
+                or duration_seconds
+                < minimum_duration_seconds
+            ):
+                return ReleaseReadinessCheck(
+                    name=name,
+                    passed=False,
+                    code=(
+                        "release_validation_"
+                        "duration_insufficient"
+                    ),
+                    details=details,
+                )
 
         age = now - generated_at
         details["age_seconds"] = max(
@@ -275,6 +315,11 @@ class ReleaseReadinessService:
                 ),
                 now=checked_at,
                 max_age=max_age,
+                minimum_duration_seconds=(
+                    BASELINE_SOAK_MIN_DURATION_SECONDS
+                    if expected_cameras == 8
+                    else None
+                ),
             ),
             self._backup_check(
                 now=checked_at,

@@ -381,7 +381,8 @@ The UI should guide users to the relevant `deploy.sh` feature command when a man
 V1 cannot be declared production-ready until:
 
 - design-freeze media/storage POCs pass;
-- 8-camera baseline validation passes;
+- 8-camera baseline validation passes, including a real-host soak of at least
+  3600 seconds; shorter diagnostic soaks do not satisfy this release gate;
 - 16-camera extended benchmark is documented;
 - Core static footprint target (<2 GB) is measured;
 - Core idle-RAM target (<1 GB excluding page cache/large ZLM buffers) is measured;

@@ -360,6 +360,23 @@ Record resource history and failure count.
 
 Repeat with four cameras.
 
+### 8-camera V1 baseline acceptance
+
+The 8-camera release baseline is a real-host acceptance gate, not a synthetic CI
+workload. The intended host must have at least eight enabled cameras actively
+recording through ZLMediaKit. Evidence consists of:
+
+~~~text
+./deploy.sh benchmark 8
+./deploy.sh soak 8 --duration 3600 --interval 30
+./deploy.sh release-check 8
+~~~
+
+The long-duration soak must be at least one hour. Shorter soak runs remain useful
+for diagnostics but do not satisfy the V1 baseline release gate. The final
+release check also requires the matching benchmark evidence and a recent
+verified system backup.
+
 ### R4 — background-work spike
 
 From the same 4-camera baseline, separately test:

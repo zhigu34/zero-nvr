@@ -533,12 +533,12 @@ These items do not block V1 unless explicitly re-promoted by product decision.
 - [x] Alembic migration classes A/B/C and SQLite batch/table-rebuild safety.
 - [x] PostgreSQL bounded-lock/restartable migration behavior where required.
 - [x] startup application/database/schema compatibility gate.
-- [~] pinned previous artifacts until successful update/rollback decision.
+- [x] pinned previous artifacts until successful update/rollback decision.
 - [x] post-upgrade readiness and media/catalog reconciliation.
 - [x] rollback command/path for compatible and recovery-point rollback.
 - [x] separate SQLite <-> PostgreSQL migration workflow with validation and rollback grace period.
 - [x] deploy.sh status / doctor / backup / restore / rollback flows.
-- [ ] long-duration 8-camera baseline acceptance.
+- [~] long-duration 8-camera baseline acceptance.
 - [ ] 16-camera extended-target benchmark.
 - [ ] execute Plan 04 R1 clean-Core image/static-footprint + no-camera idle measurement.
 - [ ] execute Plan 04 R2/R3 2-camera and 4-camera small-host soaks.
