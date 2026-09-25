@@ -580,6 +580,21 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         assert "camera-token" not in serialized
         assert "rtsp://" not in serialized
 
+        keepalive = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/live/session/{media_session_id}/keepalive"
+            )
+        )
+        assert keepalive.status_code == 200
+        assert keepalive.headers[
+            "cache-control"
+        ] == "private, no-store"
+        assert keepalive.json()["expires_at"]
+        assert app.state.media_sessions.active(
+            uuid.UUID(media_session_id)
+        )
+
         revoked = client.delete(
             (
                 f"/api/v1/cameras/{camera_id}"

@@ -951,7 +951,7 @@ def test_play_hook_allows_signed_compatibility_derivative(
 
 
 
-def test_play_hook_rejects_revoked_live_media_session(
+def test_play_hook_allows_expired_live_grant_only_while_session_active(
     tmp_path: Path,
 ) -> None:
     app = make_app(tmp_path)
@@ -973,6 +973,7 @@ def test_play_hook_rejects_revoked_live_media_session(
         app="zero-nvr",
         stream="profile-live",
         ttl_seconds=300,
+        now_epoch=1_000,
         session_id=media_session_id,
     )
     from urllib.parse import urlsplit

@@ -89,6 +89,52 @@ def test_media_session_is_owner_camera_scoped_and_revocable() -> None:
     assert cleaned == ["done"]
 
 
+def test_media_session_renewal_replaces_expiry_without_cleanup() -> None:
+    FakeTimer.created = []
+    registry = MediaSessionRegistry(
+        timer_factory=FakeTimer
+    )
+    user_id = uuid.uuid4()
+    camera_id = uuid.uuid4()
+    cleaned: list[str] = []
+    session_id = registry.issue(
+        owner_user_id=user_id,
+        camera_id=camera_id,
+        ttl_seconds=15,
+    )
+    assert registry.register_cleanup(
+        session_id,
+        key="transport:test",
+        cleanup=lambda: cleaned.append("expired"),
+    )
+
+    original = FakeTimer.created[-1]
+    assert registry.renew(
+        session_id,
+        owner_user_id=user_id,
+        camera_id=camera_id,
+        ttl_seconds=30,
+    )
+    renewed = FakeTimer.created[-1]
+
+    assert original.cancelled
+    assert renewed is not original
+    assert renewed.seconds == 30
+    assert renewed.started
+    assert registry.active(session_id)
+    assert cleaned == []
+
+    # A stale expiry callback must not revoke the renewed session even if it
+    # races with timer cancellation.
+    original.callback(*original.args)
+    assert registry.active(session_id)
+    assert cleaned == []
+
+    renewed.fire()
+    assert not registry.active(session_id)
+    assert cleaned == ["expired"]
+
+
 def test_media_session_expiry_runs_registered_cleanup() -> None:
     FakeTimer.created = []
     registry = MediaSessionRegistry(

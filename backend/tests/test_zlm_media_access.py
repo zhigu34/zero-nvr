@@ -80,6 +80,35 @@ def test_session_bound_media_grant_cannot_drop_or_swap_session_id() -> None:
     )
 
 
+def test_expired_session_bound_grant_requires_explicit_override() -> None:
+    access = ZlmMediaAccess(settings())
+    session_id = uuid.uuid4()
+    signed, _expires_at = access.sign_url(
+        "http://media.local/zero-nvr/profile-live/hls.m3u8",
+        app="zero-nvr",
+        stream="profile-live",
+        ttl_seconds=300,
+        now_epoch=1_000,
+        session_id=session_id,
+    )
+    from urllib.parse import urlsplit
+
+    params = urlsplit(signed).query
+    assert not access.verify(
+        app="zero-nvr",
+        stream="profile-live",
+        params=params,
+        now_epoch=2_000,
+    )
+    assert access.verify(
+        app="zero-nvr",
+        stream="profile-live",
+        params=params,
+        now_epoch=2_000,
+        allow_expired=True,
+    )
+
+
 def test_legacy_unscoped_grant_remains_valid_for_non_live_callers() -> None:
     access = ZlmMediaAccess(settings())
     signed, _expires_at = access.sign_url(
