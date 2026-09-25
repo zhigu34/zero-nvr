@@ -154,6 +154,7 @@ ensure_env() {
     cp "$ROOT_DIR/.env.example" "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "created: $ENV_FILE"
+    configure_build_source_first_install
   fi
 
   local key value secret_key

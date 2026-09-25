@@ -90,6 +90,7 @@ jobs:
       - name: Test deployment state helpers
         shell: bash
         run: |
+          bash scripts/test-build-sources.sh
           bash scripts/test-deployment-state.sh
           bash scripts/test-artifact-pins.sh
           bash scripts/test-feature-profiles.sh

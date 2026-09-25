@@ -76,6 +76,11 @@ The Core build follows the same local-first pattern used by camera-recorder:
 - when a base image is missing, `DEPLOY_AUTO_PULL=1` allows an explicit pull;
 - `DEPLOY_AUTO_PULL=0` supports offline/preloaded hosts using `docker save` / `docker load`;
 - `ZERO_NVR_NODE_BASE_IMAGE` and `ZERO_NVR_PYTHON_BASE_IMAGE` may point at operator-controlled registries;
+- on the first interactive install, when `.env` does not yet exist, the
+  deployment script asks once which build-source policy to save; Enter accepts
+  the recommended `auto` mode, while non-interactive/CI installs use
+  `auto` without blocking;
+- existing `.env` files are never re-prompted;
 - Debian, PyPI and npm package sources support
   `ZERO_NVR_BUILD_SOURCE_MODE=auto|official|cn|custom`;
 - `auto` is the deployment default: it probes the official Debian/PyPI/npm

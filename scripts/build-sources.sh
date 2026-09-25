@@ -1,6 +1,97 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+build_source_interactive() {
+  [[ -t 0 && -t 1 ]]
+}
+
+configure_build_source_first_install() {
+  local answer mode value
+
+  if [[ -n "${ZERO_NVR_BUILD_SOURCE_MODE:-}" ]]; then
+    mode="$ZERO_NVR_BUILD_SOURCE_MODE"
+    case "$mode" in
+      auto|official|cn|custom) ;;
+      *)
+        echo "error: ZERO_NVR_BUILD_SOURCE_MODE must be auto, official, cn, or custom" >&2
+        return 2
+        ;;
+    esac
+    set_env_value ZERO_NVR_BUILD_SOURCE_MODE "$mode"
+    if [[ "$mode" == "custom" ]]; then
+      for key in DEBIAN_MIRROR DEBIAN_SECURITY_MIRROR PYPI_INDEX_URL NPM_REGISTRY; do
+        value="${!key:-}"
+        [[ -n "$value" ]] && set_env_value "$key" "$value"
+      done
+    fi
+    echo "首次部署构建依赖源: $mode（来自环境变量）"
+    return 0
+  fi
+
+  if ! build_source_interactive; then
+    set_env_value ZERO_NVR_BUILD_SOURCE_MODE auto
+    echo "首次部署构建依赖源: auto（非交互环境）"
+    return 0
+  fi
+
+  echo
+  echo "请选择构建依赖源："
+  echo "  1) 自动检测（推荐）"
+  echo "  2) 中国大陆加速（清华 Debian/PyPI + npmmirror）"
+  echo "  3) 官方源（Debian/PyPI/npm）"
+  echo "  4) 自定义"
+  while true; do
+    printf '请选择 [1]: '
+    if ! IFS= read -r answer; then
+      answer="1"
+    fi
+    answer="${answer:-1}"
+    case "$answer" in
+      1|auto)
+        mode="auto"
+        ;;
+      2|cn)
+        mode="cn"
+        ;;
+      3|official)
+        mode="official"
+        ;;
+      4|custom)
+        mode="custom"
+        ;;
+      *)
+        echo "请输入 1、2、3 或 4。"
+        continue
+        ;;
+    esac
+    break
+  done
+
+  set_env_value ZERO_NVR_BUILD_SOURCE_MODE "$mode"
+
+  if [[ "$mode" == "custom" ]]; then
+    echo "请输入自定义构建源；直接回车则该项回退到官方源。"
+
+    printf 'Debian 镜像地址: '
+    IFS= read -r value || value=""
+    set_env_value DEBIAN_MIRROR "$value"
+
+    printf 'Debian Security 镜像地址: '
+    IFS= read -r value || value=""
+    set_env_value DEBIAN_SECURITY_MIRROR "$value"
+
+    printf 'PyPI 地址: '
+    IFS= read -r value || value=""
+    set_env_value PYPI_INDEX_URL "$value"
+
+    printf 'npm registry 地址: '
+    IFS= read -r value || value=""
+    set_env_value NPM_REGISTRY "$value"
+  fi
+
+  echo "已保存构建依赖源模式: $mode"
+}
+
 build_source_env_value_or() {
   local value
   value="$(env_get "$1" "")"
