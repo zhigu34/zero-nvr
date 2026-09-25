@@ -919,6 +919,12 @@ async function attachHls(
   if (!element) return
 
   releaseWebRtcSession()
+  if (element.srcObject) {
+    element.pause()
+    element.srcObject = null
+  }
+  element.removeAttribute("src")
+  element.load()
   const source = browserMediaUrl(stream.hls_url)
 
   if (element.canPlayType("application/vnd.apple.mpegurl")) {
