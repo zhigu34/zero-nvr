@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import { errorMessage } from "../../api/client"
 import {
@@ -12,6 +13,8 @@ import {
   type Role
 } from "../../api/system"
 import UiIcon from "../ui/UiIcon.vue"
+
+const { t } = useI18n({ useScope: "global" })
 
 const providers = ref<OidcProvider[]>([])
 const roles = ref<Role[]>([])
@@ -125,7 +128,7 @@ async function save(): Promise<void> {
         changes.client_secret = form.clientSecret
       }
       await updateOidcProvider(editing.value.key, changes)
-      notice.value = form.name.trim() + " updated."
+      notice.value = t("system.oidc.updated", { name: form.name.trim() })
     } else {
       await createOidcProvider({
         key: form.key.trim().toLowerCase(),
@@ -138,7 +141,7 @@ async function save(): Promise<void> {
         email_linking: form.emailLinking,
         default_role_ids: [...form.defaultRoleIds]
       })
-      notice.value = form.name.trim() + " created."
+      notice.value = t("system.oidc.created", { name: form.name.trim() })
     }
     form.clientSecret = ""
     editorOpen.value = false
@@ -154,9 +157,7 @@ async function save(): Promise<void> {
 async function remove(item: OidcProvider): Promise<void> {
   if (
     !window.confirm(
-      'Delete OIDC provider "' +
-        item.name +
-        '"? Existing linked identities remain in zero-nvr, but this provider can no longer sign in.'
+      t("system.oidc.deleteConfirm", { name: item.name })
     )
   ) {
     return
@@ -165,7 +166,7 @@ async function remove(item: OidcProvider): Promise<void> {
   error.value = null
   try {
     await deleteOidcProvider(item.key)
-    notice.value = item.name + " deleted."
+    notice.value = t("system.oidc.deleted", { name: item.name })
     await load()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -181,9 +182,9 @@ onMounted(() => {
   <section class="oidc-panel">
     <header class="system-page-header">
       <div>
-        <strong>OpenID Connect</strong>
+        <strong>{{ t("system.oidc.title") }}</strong>
         <span>
-          External SSO through Authentik, Authelia, Keycloak or another OIDC provider.
+          {{ t("system.oidc.description") }}
         </span>
       </div>
       <button
@@ -192,7 +193,7 @@ onMounted(() => {
         @click="openCreate"
       >
         <UiIcon name="plus" :size="14" />
-        Add provider
+        {{ t("system.oidc.addProvider") }}
       </button>
     </header>
 
@@ -206,13 +207,13 @@ onMounted(() => {
     </div>
 
     <div v-if="loading" class="empty-state">
-      Loading OIDC providers…
+      {{ t("system.oidc.loading") }}
     </div>
 
     <div v-else-if="!providers.length" class="empty-state empty-state--large">
-      <strong>No OIDC providers configured</strong>
+      <strong>{{ t("system.oidc.empty") }}</strong>
       <p>
-        Local authentication and host-local recovery remain available even when SSO is enabled.
+        {{ t("system.oidc.emptyHint") }}
       </p>
     </div>
 
@@ -235,32 +236,32 @@ onMounted(() => {
                 : 'status-pill--muted'
             "
           >
-            {{ item.enabled ? "Enabled" : "Disabled" }}
+            {{ item.enabled ? t("system.oidc.enabled") : t("system.oidc.disabled") }}
           </span>
         </div>
 
         <dl>
           <div>
-            <dt>Key</dt>
+            <dt>{{ t("system.oidc.key") }}</dt>
             <dd>{{ item.key }}</dd>
           </div>
           <div>
-            <dt>Client</dt>
+            <dt>{{ t("system.oidc.client") }}</dt>
             <dd>{{ item.client_id }}</dd>
           </div>
           <div>
-            <dt>Provisioning</dt>
+            <dt>{{ t("system.oidc.provisioning") }}</dt>
             <dd>
               {{
                 item.auto_provision
-                  ? item.default_role_ids.length + " default role(s)"
-                  : "Link existing users only"
+                  ? t("system.oidc.defaultRoleCount", { count: item.default_role_ids.length })
+                  : t("system.oidc.linkExistingOnly")
               }}
             </dd>
           </div>
           <div>
-            <dt>Email linking</dt>
-            <dd>{{ item.email_linking ? "Verified email allowed" : "Off" }}</dd>
+            <dt>{{ t("system.oidc.emailLinking") }}</dt>
+            <dd>{{ item.email_linking ? t("system.oidc.verifiedEmailAllowed") : t("system.oidc.off") }}</dd>
           </div>
         </dl>
 
@@ -270,14 +271,14 @@ onMounted(() => {
             type="button"
             @click="openEdit(item)"
           >
-            Edit
+            {{ t("system.oidc.edit") }}
           </button>
           <button
             class="button button--ghost button--compact"
             type="button"
             @click="remove(item)"
           >
-            Delete
+            {{ t("system.oidc.delete") }}
           </button>
         </footer>
       </article>
@@ -287,9 +288,9 @@ onMounted(() => {
       <header class="storage-editor__header">
         <div>
           <strong>
-            {{ editing ? "Edit OIDC provider" : "Add OIDC provider" }}
+            {{ editing ? t("system.oidc.editTitle") : t("system.oidc.addTitle") }}
           </strong>
-          <span>Authorization Code + OpenID Connect discovery</span>
+          <span>{{ t("system.oidc.discovery") }}</span>
         </div>
         <button
           class="icon-button"
@@ -305,32 +306,32 @@ onMounted(() => {
         @submit.prevent="save"
       >
         <label>
-          <span>Provider key</span>
+          <span>{{ t("system.oidc.providerKey") }}</span>
           <input
             v-model="form.key"
             required
             maxlength="64"
             pattern="[a-z0-9][a-z0-9_-]{0,63}"
             :disabled="Boolean(editing)"
-            placeholder="authentik"
+            :placeholder="t('system.oidc.authentikKey')"
           />
           <small>
-            Stable URL identifier. It cannot be changed after creation.
+            {{ t("system.oidc.providerKeyHint") }}
           </small>
         </label>
 
         <label>
-          <span>Display name</span>
+          <span>{{ t("system.oidc.displayName") }}</span>
           <input
             v-model="form.name"
             required
             maxlength="128"
-            placeholder="Authentik"
+            :placeholder="t('system.oidc.authentikName')"
           />
         </label>
 
         <label>
-          <span>Issuer URL</span>
+          <span>{{ t("system.oidc.issuerUrl") }}</span>
           <input
             v-model="form.issuer"
             required
@@ -338,12 +339,12 @@ onMounted(() => {
             placeholder="https://id.example.com/application/o/zero-nvr/"
           />
           <small>
-            HTTPS is required except localhost/loopback development.
+            {{ t("system.oidc.httpsHint") }}
           </small>
         </label>
 
         <label>
-          <span>Client ID</span>
+          <span>{{ t("system.oidc.clientId") }}</span>
           <input
             v-model="form.clientId"
             required
@@ -352,7 +353,7 @@ onMounted(() => {
         </label>
 
         <label>
-          <span>Client secret</span>
+          <span>{{ t("system.oidc.clientSecret") }}</span>
           <input
             v-model="form.clientSecret"
             type="password"
@@ -362,20 +363,20 @@ onMounted(() => {
           <small>
             {{
               editing
-                ? "Leave blank to preserve the encrypted client secret."
-                : "Stored encrypted through zero-nvr SecretStore."
+                ? t("system.oidc.keepSecretHint")
+                : t("system.oidc.encryptedSecretHint")
             }}
           </small>
         </label>
 
         <label v-if="callbackUrl">
-          <span>Redirect / callback URL</span>
+          <span>{{ t("system.oidc.callbackUrl") }}</span>
           <input
             :value="callbackUrl"
             readonly
           />
           <small>
-            Register this exact URL in the OIDC provider.
+            {{ t("system.oidc.callbackHint") }}
           </small>
         </label>
 
@@ -384,7 +385,7 @@ onMounted(() => {
             v-model="form.enabled"
             type="checkbox"
           />
-          <span>Provider enabled</span>
+          <span>{{ t("system.oidc.providerEnabled") }}</span>
         </label>
 
         <label class="storage-check">
@@ -393,9 +394,9 @@ onMounted(() => {
             type="checkbox"
           />
           <span>
-            Allow verified-email linking
+            {{ t("system.oidc.allowEmailLinking") }}
             <small>
-              Only email_verified=true may link an existing local user.
+              {{ t("system.oidc.emailLinkingHint") }}
             </small>
           </span>
         </label>
@@ -406,15 +407,15 @@ onMounted(() => {
             type="checkbox"
           />
           <span>
-            Auto-provision new users
+            {{ t("system.oidc.autoProvision") }}
             <small>
-              New users receive only the default roles selected below.
+              {{ t("system.oidc.autoProvisionHint") }}
             </small>
           </span>
         </label>
 
         <fieldset class="system-role-list">
-          <legend>Default roles</legend>
+          <legend>{{ t("system.oidc.defaultRoles") }}</legend>
           <label
             v-for="role in roles"
             :key="role.id"
@@ -426,7 +427,7 @@ onMounted(() => {
             />
             <span>
               <strong>{{ role.name }}</strong>
-              <small>{{ role.description || "No description" }}</small>
+              <small>{{ role.description || t("system.oidc.noDescription") }}</small>
             </span>
           </label>
         </fieldset>
@@ -437,7 +438,7 @@ onMounted(() => {
             type="button"
             @click="editorOpen = false"
           >
-            Cancel
+            {{ t("system.oidc.cancel") }}
           </button>
           <button
             class="button button--primary"
@@ -446,10 +447,10 @@ onMounted(() => {
           >
             {{
               saving
-                ? "Saving…"
+                ? t("system.oidc.saving")
                 : editing
-                  ? "Save provider"
-                  : "Create provider"
+                  ? t("system.oidc.saveProvider")
+                  : t("system.oidc.createProvider")
             }}
           </button>
         </div>

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   createApiToken,
@@ -13,6 +14,7 @@ import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
 
 const auth = useAuthStore()
+const { locale, t } = useI18n({ useScope: "global" })
 const tokens = ref<PersonalApiToken[]>([])
 const loading = ref(false)
 const saving = ref(false)
@@ -42,9 +44,15 @@ function status(item: PersonalApiToken): string {
   return "ACTIVE"
 }
 
+function statusLabel(value: string): string {
+  if (value === "REVOKED") return t("system.apiTokens.revoked")
+  if (value === "EXPIRED") return t("system.apiTokens.expired")
+  return t("system.apiTokens.active")
+}
+
 function formatTime(value: string | null): string {
   if (!value) return "—"
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -91,8 +99,7 @@ async function save(): Promise<void> {
       permissions: [...form.permissions],
       expires_at: expiresAt
     })
-    notice.value =
-      "Token created. Copy it now; the plaintext will not be shown again."
+    notice.value = t("system.apiTokens.createdNotice")
     await load()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -104,7 +111,7 @@ async function save(): Promise<void> {
 async function revoke(item: PersonalApiToken): Promise<void> {
   if (
     !window.confirm(
-      `Revoke API token "${item.name}"? Existing clients will stop authenticating immediately.`
+      t("system.apiTokens.revokeConfirm", { name: item.name })
     )
   ) {
     return
@@ -112,7 +119,7 @@ async function revoke(item: PersonalApiToken): Promise<void> {
   error.value = null
   try {
     await revokeApiToken(item.id)
-    notice.value = `${item.name} revoked.`
+    notice.value = t("system.apiTokens.revokedNotice", { name: item.name })
     await load()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -125,10 +132,9 @@ async function copyCreated(): Promise<void> {
     await navigator.clipboard.writeText(
       created.value.token
     )
-    notice.value = "Token copied to clipboard."
+    notice.value = t("system.apiTokens.copied")
   } catch {
-    notice.value =
-      "Copy was blocked by the browser. Select the token and copy it manually."
+    notice.value = t("system.apiTokens.copyBlocked")
   }
 }
 
@@ -141,9 +147,9 @@ onMounted(() => {
   <section class="api-token-panel">
     <header class="system-page-header">
       <div>
-        <strong>Personal API tokens</strong>
+        <strong>{{ t("system.apiTokens.title") }}</strong>
         <span>
-          Bearer credentials for Home Assistant, scripts and automation.
+          {{ t("system.apiTokens.description") }}
         </span>
       </div>
       <button
@@ -152,7 +158,7 @@ onMounted(() => {
         @click="openCreate"
       >
         <UiIcon name="plus" :size="14" />
-        Create token
+        {{ t("system.apiTokens.createToken") }}
       </button>
     </header>
 
@@ -169,25 +175,25 @@ onMounted(() => {
       <table class="system-table">
         <thead>
           <tr>
-            <th>Token</th>
-            <th>Permissions</th>
-            <th>Status</th>
-            <th>Last used</th>
-            <th>Expires</th>
+            <th>{{ t("system.apiTokens.token") }}</th>
+            <th>{{ t("system.apiTokens.permissions") }}</th>
+            <th>{{ t("system.apiTokens.status") }}</th>
+            <th>{{ t("system.apiTokens.lastUsed") }}</th>
+            <th>{{ t("system.apiTokens.expires") }}</th>
             <th />
           </tr>
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="6">Loading tokens…</td>
+            <td colspan="6">{{ t("system.apiTokens.loading") }}</td>
           </tr>
           <tr v-else-if="!tokens.length">
-            <td colspan="6">No personal API tokens.</td>
+            <td colspan="6">{{ t("system.apiTokens.empty") }}</td>
           </tr>
           <tr v-for="item in tokens" :key="item.id">
             <td>
               <strong>{{ item.name }}</strong>
-              <small>Created {{ formatTime(item.created_at) }}</small>
+              <small>{{ t("system.apiTokens.createdAt", { time: formatTime(item.created_at) }) }}</small>
             </td>
             <td>
               <span class="api-token-panel__permission-count">
@@ -203,7 +209,7 @@ onMounted(() => {
                     : 'status-pill--muted'
                 "
               >
-                {{ status(item) }}
+                {{ statusLabel(status(item)) }}
               </span>
             </td>
             <td>{{ formatTime(item.last_used_at) }}</td>
@@ -215,7 +221,7 @@ onMounted(() => {
                 type="button"
                 @click="revoke(item)"
               >
-                Revoke
+                {{ t("system.apiTokens.revoke") }}
               </button>
             </td>
           </tr>
@@ -226,8 +232,8 @@ onMounted(() => {
     <aside v-if="panelOpen" class="system-drawer">
       <header class="storage-editor__header">
         <div>
-          <strong>Create API token</strong>
-          <span>Plaintext is displayed exactly once</span>
+          <strong>{{ t("system.apiTokens.createTitle") }}</strong>
+          <span>{{ t("system.apiTokens.plaintextOnce") }}</span>
         </div>
         <button
           class="icon-button"
@@ -239,10 +245,9 @@ onMounted(() => {
       </header>
 
       <div v-if="created" class="api-token-panel__created">
-        <strong>Save this token now</strong>
+        <strong>{{ t("system.apiTokens.saveNow") }}</strong>
         <p>
-          zero-nvr stores only its hash. Losing it requires creating a
-          replacement token.
+          {{ t("system.apiTokens.hashHint") }}
         </p>
         <textarea
           :value="created.token"
@@ -256,14 +261,14 @@ onMounted(() => {
             type="button"
             @click="copyCreated"
           >
-            Copy token
+            {{ t("system.apiTokens.copyToken") }}
           </button>
           <button
             class="button button--primary"
             type="button"
             @click="panelOpen = false"
           >
-            Done
+            {{ t("system.apiTokens.done") }}
           </button>
         </div>
       </div>
@@ -274,27 +279,27 @@ onMounted(() => {
         @submit.prevent="save"
       >
         <label>
-          <span>Name</span>
+          <span>{{ t("system.apiTokens.name") }}</span>
           <input
             v-model="form.name"
             required
             maxlength="128"
-            placeholder="Home Assistant"
+            :placeholder="t('system.apiTokens.homeAssistant')"
           />
         </label>
 
         <label>
-          <span>Expires after</span>
+          <span>{{ t("system.apiTokens.expiresAfter") }}</span>
           <select v-model.number="form.expiryDays">
-            <option :value="30">30 days</option>
-            <option :value="90">90 days</option>
-            <option :value="365">1 year</option>
-            <option :value="0">Never</option>
+            <option :value="30">{{ t("system.apiTokens.days30") }}</option>
+            <option :value="90">{{ t("system.apiTokens.days90") }}</option>
+            <option :value="365">{{ t("system.apiTokens.year1") }}</option>
+            <option :value="0">{{ t("system.apiTokens.never") }}</option>
           </select>
         </label>
 
         <fieldset class="system-role-list">
-          <legend>Permissions</legend>
+          <legend>{{ t("system.apiTokens.permissions") }}</legend>
           <label
             v-for="permission in availablePermissions"
             :key="permission"
@@ -307,7 +312,7 @@ onMounted(() => {
             <span>
               <strong>{{ permission }}</strong>
               <small>
-                Cannot exceed your current account permissions.
+                {{ t("system.apiTokens.permissionHint") }}
               </small>
             </span>
           </label>
@@ -319,14 +324,14 @@ onMounted(() => {
             type="button"
             @click="panelOpen = false"
           >
-            Cancel
+            {{ t("system.apiTokens.cancel") }}
           </button>
           <button
             class="button button--primary"
             type="submit"
             :disabled="saving"
           >
-            {{ saving ? "Creating…" : "Create token" }}
+            {{ saving ? t("system.apiTokens.creating") : t("system.apiTokens.createToken") }}
           </button>
         </div>
       </form>

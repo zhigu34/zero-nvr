@@ -5,6 +5,7 @@ import {
   reactive,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   listCameraGroups,
@@ -37,6 +38,8 @@ import {
   type Role
 } from "../../api/system"
 import UiIcon from "../ui/UiIcon.vue"
+
+const { locale, t } = useI18n({ useScope: "global" })
 
 type AccessTab = "users" | "roles" | "oidc"
 type EditorKind =
@@ -195,7 +198,7 @@ async function saveUser(): Promise<void> {
         email: userForm.email.trim() || null,
         role_ids: [...userForm.roleIds]
       })
-      notice.value = `Updated @${editingUser.value.username}.`
+      notice.value = t("system.access.userUpdated", { username: editingUser.value.username })
     } else {
       await createUser({
         username: userForm.username.trim(),
@@ -204,7 +207,7 @@ async function saveUser(): Promise<void> {
         password: userForm.password,
         role_ids: [...userForm.roleIds]
       })
-      notice.value = "User created."
+      notice.value = t("system.access.userCreated")
     }
     closeEditor()
     await refresh()
@@ -242,8 +245,7 @@ async function savePasswordReset(): Promise<void> {
       await issueUserPasswordReset(
         editingUser.value.id
       )
-    notice.value =
-      `One-time reset token issued for @${editingUser.value.username}.`
+    notice.value = t("system.access.resetIssued", { username: editingUser.value.username })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -257,10 +259,9 @@ async function copyIssuedReset(): Promise<void> {
     await navigator.clipboard.writeText(
       issuedReset.value.token
     )
-    notice.value = "Reset token copied."
+    notice.value = t("system.access.resetCopied")
   } catch {
-    notice.value =
-      "Copy was blocked by the browser. Select the token and copy it manually."
+    notice.value = t("system.access.copyBlocked")
   }
 }
 
@@ -288,21 +289,21 @@ async function saveRole(): Promise<void> {
   try {
     if (editingRole.value) {
       if (editingRole.value.built_in) {
-        throw new Error("Built-in roles cannot be modified.")
+        throw new Error(t("system.access.builtinRoleImmutable"))
       }
       await updateRole(editingRole.value.id, {
         name: roleForm.name.trim(),
         description: roleForm.description.trim() || null,
         permissions: [...roleForm.permissionIds]
       })
-      notice.value = "Role updated."
+      notice.value = t("system.access.roleUpdated")
     } else {
       await createRole({
         name: roleForm.name.trim(),
         description: roleForm.description.trim() || null,
         permissions: [...roleForm.permissionIds]
       })
-      notice.value = "Role created."
+      notice.value = t("system.access.roleCreated")
     }
     closeEditor()
     await refresh()
@@ -361,7 +362,7 @@ async function saveOidc(): Promise<void> {
       !oidcForm.defaultRoleIds.length
     ) {
       throw new Error(
-        "Select at least one default role when auto-provisioning is enabled."
+        t("system.access.defaultRoleRequired")
       )
     }
 
@@ -394,7 +395,7 @@ async function saveOidc(): Promise<void> {
         editingOidc.value.key,
         changes
       )
-      notice.value = "OIDC provider updated."
+      notice.value = t("system.access.oidcUpdated")
     } else {
       await createOidcProvider({
         key: oidcForm.key.trim(),
@@ -412,7 +413,7 @@ async function saveOidc(): Promise<void> {
           ...oidcForm.defaultRoleIds
         ]
       })
-      notice.value = "OIDC provider created."
+      notice.value = t("system.access.oidcCreated")
     }
     closeEditor()
     await refresh()
@@ -428,7 +429,7 @@ async function removeOidc(
 ): Promise<void> {
   if (
     !window.confirm(
-      `Delete OIDC provider "${provider.name}"? Existing external identity links remain in user history, but this provider can no longer sign users in.`
+      t("system.access.deleteOidcConfirm", { name: provider.name })
     )
   ) {
     return
@@ -437,8 +438,7 @@ async function removeOidc(
   error.value = null
   try {
     await deleteOidcProvider(provider.key)
-    notice.value =
-      `${provider.name} deleted.`
+    notice.value = t("system.access.oidcDeleted", { name: provider.name })
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -518,7 +518,7 @@ async function saveScope(): Promise<void> {
       })
     } else {
       if (scopeForm.mode === "inherit") {
-        throw new Error("Role scope cannot inherit.")
+        throw new Error(t("system.access.roleScopeNoInherit"))
       }
       await setRoleCameraScope(scopeOwnerId.value, {
         mode: scopeForm.mode,
@@ -527,13 +527,21 @@ async function saveScope(): Promise<void> {
       })
     }
 
-    notice.value = `Camera access updated for ${scopeOwnerLabel.value}.`
+    notice.value = t("system.access.cameraAccessUpdated", { owner: scopeOwnerLabel.value })
     closeEditor()
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
     saving.value = false
   }
+}
+
+function formatResetExpiry(value: string): string {
+  return new Intl.DateTimeFormat(locale.value, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value))
+}
+
+function directCameraCount(count: number): string {
+  return t("system.access.directCameraCount", { count })
 }
 
 function permissionLabel(permission: string): string {
@@ -550,9 +558,9 @@ onMounted(() => {
   <section class="access-control-panel">
     <header class="system-page-header">
       <div>
-        <strong>Users & access</strong>
+        <strong>{{ t("system.access.title") }}</strong>
         <span>
-          Accounts, roles, permissions and per-camera visibility.
+          {{ t("system.access.description") }}
         </span>
       </div>
 
@@ -564,7 +572,7 @@ onMounted(() => {
           @click="refresh"
         >
           <UiIcon name="refresh" :size="14" />
-          Refresh
+          {{ t("system.access.refresh") }}
         </button>
         <button
           v-if="tab === 'users'"
@@ -573,7 +581,7 @@ onMounted(() => {
           @click="openCreateUser"
         >
           <UiIcon name="plus" :size="14" />
-          Add user
+          {{ t("system.access.addUser") }}
         </button>
         <button
           v-else-if="tab === 'roles'"
@@ -582,7 +590,7 @@ onMounted(() => {
           @click="openCreateRole"
         >
           <UiIcon name="plus" :size="14" />
-          Add role
+          {{ t("system.access.addRole") }}
         </button>
         <button
           v-else
@@ -591,7 +599,7 @@ onMounted(() => {
           @click="openCreateOidc"
         >
           <UiIcon name="plus" :size="14" />
-          Add OIDC provider
+          {{ t("system.access.addOidc") }}
         </button>
       </div>
     </header>
@@ -602,7 +610,7 @@ onMounted(() => {
         :class="{ 'access-tab--active': tab === 'users' }"
         @click="tab = 'users'"
       >
-        Users
+        {{ t("system.access.users") }}
         <span>{{ users.length }}</span>
       </button>
       <button
@@ -610,7 +618,7 @@ onMounted(() => {
         :class="{ 'access-tab--active': tab === 'roles' }"
         @click="tab = 'roles'"
       >
-        Roles
+        {{ t("system.access.roles") }}
         <span>{{ roles.length }}</span>
       </button>
       <button
@@ -636,10 +644,10 @@ onMounted(() => {
       <table class="system-table">
         <thead>
           <tr>
-            <th>User</th>
-            <th>Roles</th>
-            <th>Email</th>
-            <th>Status</th>
+            <th>{{ t("system.access.user") }}</th>
+            <th>{{ t("system.access.roles") }}</th>
+            <th>{{ t("system.access.email") }}</th>
+            <th>{{ t("system.access.status") }}</th>
             <th />
           </tr>
         </thead>
@@ -650,13 +658,13 @@ onMounted(() => {
               <small>@{{ user.username }}</small>
             </td>
             <td>
-              {{ user.roles.map((item) => item.name).join(", ") || "No roles" }}
+              {{ user.roles.map((item) => item.name).join(", ") || t("system.access.noRoles") }}
             </td>
             <td>
               <template v-if="user.email">
                 {{ user.email }}
                 <small>
-                  {{ user.email_verified ? "Verified" : "Unverified" }}
+                  {{ user.email_verified ? t("system.access.verified") : t("system.access.unverified") }}
                 </small>
               </template>
               <template v-else>—</template>
@@ -666,7 +674,7 @@ onMounted(() => {
                 class="status-pill"
                 :class="user.enabled ? 'status-pill--ok' : 'status-pill--muted'"
               >
-                {{ user.enabled ? "Enabled" : "Disabled" }}
+                {{ user.enabled ? t("system.access.enabled") : t("system.access.disabled") }}
               </span>
             </td>
             <td class="system-table__actions">
@@ -676,28 +684,28 @@ onMounted(() => {
                   type="button"
                   @click="openUserScope(user)"
                 >
-                  Cameras
+                  {{ t("system.access.cameras") }}
                 </button>
                 <button
                   class="button button--ghost button--compact"
                   type="button"
                   @click="openEditUser(user)"
                 >
-                  Edit
+                  {{ t("system.access.edit") }}
                 </button>
                 <button
                   class="button button--ghost button--compact"
                   type="button"
                   @click="openPasswordReset(user)"
                 >
-                  Password
+                  {{ t("system.access.password") }}
                 </button>
                 <button
                   class="button button--ghost button--compact"
                   type="button"
                   @click="toggleUser(user)"
                 >
-                  {{ user.enabled ? "Disable" : "Enable" }}
+                  {{ user.enabled ? t("system.access.disable") : t("system.access.enable") }}
                 </button>
               </div>
             </td>
@@ -719,14 +727,14 @@ onMounted(() => {
           <div>
             <strong>{{ role.name }}</strong>
             <span>
-              {{ role.description || "No description" }}
+              {{ role.description || t("system.access.noDescription") }}
             </span>
           </div>
           <span
             v-if="role.built_in"
             class="status-pill"
           >
-            Built-in
+            {{ t("system.access.builtin") }}
           </span>
         </header>
 
@@ -745,7 +753,7 @@ onMounted(() => {
             type="button"
             @click="openRoleScope(role)"
           >
-            Camera scope
+            {{ t("system.access.cameraScope") }}
           </button>
           <button
             v-if="!role.built_in"
@@ -753,7 +761,7 @@ onMounted(() => {
             type="button"
             @click="openEditRole(role)"
           >
-            Edit role
+            {{ t("system.access.editRole") }}
           </button>
         </footer>
       </article>
@@ -763,10 +771,10 @@ onMounted(() => {
       <table class="system-table">
         <thead>
           <tr>
-            <th>Provider</th>
-            <th>Issuer</th>
-            <th>Provisioning</th>
-            <th>Status</th>
+            <th>{{ t("system.access.provider") }}</th>
+            <th>{{ t("system.access.issuer") }}</th>
+            <th>{{ t("system.access.provisioning") }}</th>
+            <th>{{ t("system.access.status") }}</th>
             <th />
           </tr>
         </thead>
@@ -788,10 +796,10 @@ onMounted(() => {
             <td>
               {{
                 provider.auto_provision
-                  ? "Auto-provision"
+                  ? t("system.access.autoProvisionShort")
                   : provider.email_linking
-                    ? "Verified email linking"
-                    : "Linked identities only"
+                    ? t("system.access.verifiedEmailLinking")
+                    : t("system.access.linkedIdentitiesOnly")
               }}
             </td>
             <td>
@@ -803,7 +811,7 @@ onMounted(() => {
                     : 'status-pill--muted'
                 "
               >
-                {{ provider.enabled ? "Enabled" : "Disabled" }}
+                {{ provider.enabled ? t("system.access.enabled") : t("system.access.disabled") }}
               </span>
             </td>
             <td class="system-table__actions">
@@ -813,14 +821,14 @@ onMounted(() => {
                   type="button"
                   @click="openEditOidc(provider)"
                 >
-                  Edit
+                  {{ t("system.access.edit") }}
                 </button>
                 <button
                   class="button button--ghost button--compact"
                   type="button"
                   @click="removeOidc(provider)"
                 >
-                  Delete
+                  {{ t("system.access.delete") }}
                 </button>
               </div>
             </td>
@@ -836,13 +844,13 @@ onMounted(() => {
       <header class="storage-editor__header">
         <div>
           <strong>
-            {{ editingUser ? "Edit user" : "Add user" }}
+            {{ editingUser ? t("system.access.editUser") : t("system.access.addUser") }}
           </strong>
           <span>
             {{
               editingUser
-                ? "Roles and account metadata"
-                : "Create a local zero-nvr account"
+                ? t("system.access.rolesMetadata")
+                : t("system.access.createLocalAccount")
             }}
           </span>
         </div>
@@ -857,7 +865,7 @@ onMounted(() => {
 
       <form class="storage-editor__form" @submit.prevent="saveUser">
         <label>
-          <span>Username</span>
+          <span>{{ t("system.access.username") }}</span>
           <input
             v-model="userForm.username"
             required
@@ -865,15 +873,15 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Display name</span>
+          <span>{{ t("system.access.displayName") }}</span>
           <input v-model="userForm.displayName" required />
         </label>
         <label>
-          <span>Email</span>
+          <span>{{ t("system.access.email") }}</span>
           <input v-model="userForm.email" type="email" />
         </label>
         <label v-if="!editingUser">
-          <span>Initial password</span>
+          <span>{{ t("system.access.initialPassword") }}</span>
           <input
             v-model="userForm.password"
             type="password"
@@ -885,7 +893,7 @@ onMounted(() => {
         </label>
 
         <fieldset class="system-role-list">
-          <legend>Roles</legend>
+          <legend>{{ t("system.access.roles") }}</legend>
           <label v-for="role in roles" :key="role.id">
             <input
               v-model="userForm.roleIds"
@@ -894,7 +902,7 @@ onMounted(() => {
             />
             <span>
               <strong>{{ role.name }}</strong>
-              <small>{{ role.description || "No description" }}</small>
+              <small>{{ role.description || t("system.access.noDescription") }}</small>
             </span>
           </label>
         </fieldset>
@@ -905,7 +913,7 @@ onMounted(() => {
             type="button"
             @click="closeEditor"
           >
-            Cancel
+            {{ t("system.access.cancel") }}
           </button>
           <button
             class="button button--primary"
@@ -914,10 +922,10 @@ onMounted(() => {
           >
             {{
               saving
-                ? "Saving…"
+                ? t("system.access.saving")
                 : editingUser
-                  ? "Save user"
-                  : "Create user"
+                  ? t("system.access.saveUser")
+                  : t("system.access.createUser")
             }}
           </button>
         </div>
@@ -930,7 +938,7 @@ onMounted(() => {
     >
       <header class="storage-editor__header">
         <div>
-          <strong>Issue password reset</strong>
+          <strong>{{ t("system.access.issuePasswordReset") }}</strong>
           <span>
             {{ editingUser.display_name }} · @{{ editingUser.username }}
           </span>
@@ -949,13 +957,10 @@ onMounted(() => {
         class="storage-editor__form"
       >
         <p class="access-warning">
-          This token is shown once and expires at
-          {{ new Date(issuedReset.expires_at).toLocaleString() }}.
-          The user must open the sign-in page, choose “I have a reset
-          token”, and set their own new password.
+          {{ t("system.access.resetShownOnce", { time: formatResetExpiry(issuedReset.expires_at) }) }}
         </p>
         <label>
-          <span>One-time reset token</span>
+          <span>{{ t("system.access.oneTimeResetToken") }}</span>
           <textarea
             :value="issuedReset.token"
             rows="4"
@@ -969,14 +974,14 @@ onMounted(() => {
             type="button"
             @click="copyIssuedReset"
           >
-            Copy token
+            {{ t("system.access.copyToken") }}
           </button>
           <button
             class="button button--primary"
             type="button"
             @click="closeEditor"
           >
-            Done
+            {{ t("system.access.done") }}
           </button>
         </div>
       </div>
@@ -987,9 +992,7 @@ onMounted(() => {
         @submit.prevent="savePasswordReset"
       >
         <p class="access-warning">
-          This issues a single-use 30-minute token. The administrator
-          never chooses or learns the user’s new password. Existing
-          sessions remain active until the user consumes the token.
+          {{ t("system.access.resetIssueHint") }}
         </p>
         <div class="storage-editor__actions">
           <button
@@ -997,14 +1000,14 @@ onMounted(() => {
             type="button"
             @click="closeEditor"
           >
-            Cancel
+            {{ t("system.access.cancel") }}
           </button>
           <button
             class="button button--primary"
             type="submit"
             :disabled="saving"
           >
-            {{ saving ? "Issuing…" : "Issue reset token" }}
+            {{ saving ? t("system.access.issuing") : t("system.access.issueResetToken") }}
           </button>
         </div>
       </form>
@@ -1019,12 +1022,12 @@ onMounted(() => {
           <strong>
             {{
               editingOidc
-                ? "Edit OIDC provider"
-                : "Add OIDC provider"
+                ? t("system.access.editOidc")
+                : t("system.access.addOidc")
             }}
           </strong>
           <span>
-            OpenID Connect identity provider
+            {{ t("system.access.oidcIdentityProvider") }}
           </span>
         </div>
         <button
@@ -1041,32 +1044,32 @@ onMounted(() => {
         @submit.prevent="saveOidc"
       >
         <label>
-          <span>Provider key</span>
+          <span>{{ t("system.access.providerKey") }}</span>
           <input
             v-model="oidcForm.key"
             required
             maxlength="64"
             pattern="[a-z0-9][a-z0-9_-]{0,63}"
             :disabled="Boolean(editingOidc)"
-            placeholder="authentik"
+            :placeholder="t('system.access.authentikKey')"
           />
           <small>
-            Lowercase identifier used in the callback URL.
+            {{ t("system.access.providerKeyHint") }}
           </small>
         </label>
 
         <label>
-          <span>Display name</span>
+          <span>{{ t("system.access.displayName") }}</span>
           <input
             v-model="oidcForm.name"
             required
             maxlength="128"
-            placeholder="Authentik"
+            :placeholder="t('system.access.authentikName')"
           />
         </label>
 
         <label>
-          <span>Issuer URL</span>
+          <span>{{ t("system.access.issuerUrl") }}</span>
           <input
             v-model="oidcForm.issuer"
             required
@@ -1074,12 +1077,12 @@ onMounted(() => {
             placeholder="https://id.example.com/application/o/zero-nvr/"
           />
           <small>
-            HTTPS required except localhost/loopback development.
+            {{ t("system.access.httpsHint") }}
           </small>
         </label>
 
         <label>
-          <span>Client ID</span>
+          <span>{{ t("system.access.clientId") }}</span>
           <input
             v-model="oidcForm.clientId"
             required
@@ -1088,7 +1091,7 @@ onMounted(() => {
         </label>
 
         <label>
-          <span>Client secret</span>
+          <span>{{ t("system.access.clientSecret") }}</span>
           <input
             v-model="oidcForm.clientSecret"
             type="password"
@@ -1096,12 +1099,12 @@ onMounted(() => {
             autocomplete="new-password"
             :placeholder="
               editingOidc
-                ? 'Leave blank to keep the current secret'
+                ? t("system.access.keepSecretPlaceholder")
                 : ''
             "
           />
           <small>
-            Stored encrypted and never returned to the browser.
+            {{ t("system.access.encryptedHint") }}
           </small>
         </label>
 
@@ -1110,7 +1113,7 @@ onMounted(() => {
             v-model="oidcForm.enabled"
             type="checkbox"
           />
-          <span>Provider enabled</span>
+          <span>{{ t("system.access.providerEnabled") }}</span>
         </label>
 
         <label class="storage-check">
@@ -1119,9 +1122,9 @@ onMounted(() => {
             type="checkbox"
           />
           <span>
-            Link existing users by verified email
+            {{ t("system.access.linkByVerifiedEmail") }}
             <small>
-              Only email_verified=true identities are eligible.
+              {{ t("system.access.emailVerifiedHint") }}
             </small>
           </span>
         </label>
@@ -1132,15 +1135,15 @@ onMounted(() => {
             type="checkbox"
           />
           <span>
-            Auto-provision new users
+            {{ t("system.access.autoProvision") }}
             <small>
-              New users receive only the default roles selected below.
+              {{ t("system.access.autoProvisionHint") }}
             </small>
           </span>
         </label>
 
         <fieldset class="system-role-list">
-          <legend>Default roles</legend>
+          <legend>{{ t("system.access.defaultRoles") }}</legend>
           <label
             v-for="role in roles"
             :key="role.id"
@@ -1153,7 +1156,7 @@ onMounted(() => {
             <span>
               <strong>{{ role.name }}</strong>
               <small>
-                {{ role.description || "No description" }}
+                {{ role.description || t("system.access.noDescription") }}
               </small>
             </span>
           </label>
@@ -1165,7 +1168,7 @@ onMounted(() => {
             type="button"
             @click="closeEditor"
           >
-            Cancel
+            {{ t("system.access.cancel") }}
           </button>
           <button
             class="button button--primary"
@@ -1174,10 +1177,10 @@ onMounted(() => {
           >
             {{
               saving
-                ? "Saving…"
+                ? t("system.access.saving")
                 : editingOidc
-                  ? "Save provider"
-                  : "Create provider"
+                  ? t("system.access.saveProvider")
+                  : t("system.access.createProvider")
             }}
           </button>
         </div>
@@ -1191,9 +1194,9 @@ onMounted(() => {
       <header class="storage-editor__header">
         <div>
           <strong>
-            {{ editingRole ? "Edit role" : "Add role" }}
+            {{ editingRole ? t("system.access.editRole") : t("system.access.addRole") }}
           </strong>
-          <span>Permission bundle</span>
+          <span>{{ t("system.access.permissionBundle") }}</span>
         </div>
         <button
           class="icon-button"
@@ -1206,7 +1209,7 @@ onMounted(() => {
 
       <form class="access-role-form" @submit.prevent="saveRole">
         <label>
-          <span>Name</span>
+          <span>{{ t("system.access.name") }}</span>
           <input
             v-model="roleForm.name"
             required
@@ -1214,7 +1217,7 @@ onMounted(() => {
           />
         </label>
         <label>
-          <span>Description</span>
+          <span>{{ t("system.access.descriptionLabel") }}</span>
           <textarea
             v-model="roleForm.description"
             rows="3"
@@ -1251,7 +1254,7 @@ onMounted(() => {
             type="button"
             @click="closeEditor"
           >
-            Cancel
+            {{ t("system.access.cancel") }}
           </button>
           <button
             class="button button--primary"
@@ -1260,10 +1263,10 @@ onMounted(() => {
           >
             {{
               saving
-                ? "Saving…"
+                ? t("system.access.saving")
                 : editingRole
-                  ? "Save role"
-                  : "Create role"
+                  ? t("system.access.saveRole")
+                  : t("system.access.createRole")
             }}
           </button>
         </div>
@@ -1276,7 +1279,7 @@ onMounted(() => {
     >
       <header class="storage-editor__header">
         <div>
-          <strong>Camera access</strong>
+          <strong>{{ t("system.access.cameraAccess") }}</strong>
           <span>{{ scopeOwnerLabel }}</span>
         </div>
         <button
@@ -1290,17 +1293,17 @@ onMounted(() => {
 
       <form class="access-scope-form" @submit.prevent="saveScope">
         <label>
-          <span>Scope mode</span>
+          <span>{{ t("system.access.scopeMode") }}</span>
           <select v-model="scopeForm.mode">
             <option
               v-if="scopeOwnerType === 'user'"
               value="inherit"
             >
-              Inherit from roles
+              {{ t("system.access.inheritRoles") }}
             </option>
-            <option value="all">All cameras</option>
-            <option value="selected">Selected cameras</option>
-            <option value="none">No cameras</option>
+            <option value="all">{{ t("system.access.allCameras") }}</option>
+            <option value="selected">{{ t("system.access.selectedCameras") }}</option>
+            <option value="none">{{ t("system.access.noCameras") }}</option>
           </select>
         </label>
 
@@ -1310,7 +1313,7 @@ onMounted(() => {
         >
           <div v-if="cameraGroups.length" class="access-scope-group-list">
             <span class="access-scope-selection__label">
-              Camera groups
+              {{ t("system.access.cameraGroups") }}
             </span>
             <button
               v-for="group in cameraGroups"
@@ -1325,7 +1328,7 @@ onMounted(() => {
               <UiIcon name="folder" :size="14" />
               <span>
                 <strong>{{ group.name }}</strong>
-                <small>{{ group.camera_ids.length }} direct camera(s)</small>
+                <small>{{ directCameraCount(group.camera_ids.length) }}</small>
               </span>
               <UiIcon
                 v-if="scopeForm.groupIds.includes(group.id)"
@@ -1336,7 +1339,7 @@ onMounted(() => {
           </div>
 
           <span class="access-scope-selection__label">
-            Individual cameras
+            {{ t("system.access.individualCameras") }}
           </span>
           <div class="access-camera-list">
           <button
@@ -1357,7 +1360,7 @@ onMounted(() => {
             />
             <span>
               <strong>{{ camera.name }}</strong>
-              <small>{{ camera.location || "No location" }}</small>
+              <small>{{ camera.location || t("system.access.noLocation") }}</small>
             </span>
             <UiIcon
               v-if="scopeForm.cameraIds.includes(camera.id)"
@@ -1374,7 +1377,7 @@ onMounted(() => {
             type="button"
             @click="closeEditor"
           >
-            Cancel
+            {{ t("system.access.cancel") }}
           </button>
           <button
             class="button button--primary"
@@ -1386,7 +1389,7 @@ onMounted(() => {
                 !scopeForm.groupIds.length)
             "
           >
-            {{ saving ? "Saving…" : "Save access" }}
+            {{ saving ? t("system.access.saving") : t("system.access.saveAccess") }}
           </button>
         </div>
       </form>
