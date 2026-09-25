@@ -205,7 +205,8 @@ grep -Fq "generated: ZERO_NVR_SECRET_KEY" "$OUTPUT" || fail "install did not rep
 grep -Fq "构建依赖源: official" "$OUTPUT" || fail "build source mode was not applied"
 grep -Fq "zero-nvr installed successfully" "$OUTPUT" || fail "install summary was not printed"
 grep -Fq "http://localhost:8000" "$OUTPUT" || fail "Web UI address was not printed"
-grep -Fq "ZLM WebRTC: 0.0.0.0:8001/tcp+udp" "$OUTPUT" || fail "effective WebRTC port was not printed"
+grep -Fq "HLS/fMP4:   same origin via /zlm" "$OUTPUT" || fail "same-origin HLS/fMP4 entry was not printed"
+grep -Fq "WebRTC:     0.0.0.0:8001/tcp+udp" "$OUTPUT" || fail "effective WebRTC port was not printed"
 grep -Fq "doctor: healthy" "$OUTPUT" || fail "post-install health check did not pass"
 
 grep -Fq "compose --env-file $STAGE/.env -f $STAGE/docker-compose.yml config --quiet" "$DOCKER_LOG" || fail "Compose model was not validated"
