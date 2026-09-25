@@ -117,6 +117,56 @@ def test_probe_keeps_sensitive_values_out_of_url_and_filters_response() -> None:
     assert SOURCE_URL not in repr(result)
 
 
+def test_media_probe_returns_only_matching_stream_tracks() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/getMediaList")
+        body = form(request)
+        assert body["app"] == ["zero-nvr"]
+        assert body["stream"] == ["profile-target"]
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": [
+                    {
+                        "stream": "profile-other",
+                        "tracks": [],
+                    },
+                    {
+                        "stream": "profile-target",
+                        "tracks": [
+                            {
+                                "codec_id_name": "H264",
+                                "ready": True,
+                                "width": 1280,
+                                "height": 720,
+                                "fps": 15,
+                            }
+                        ],
+                    },
+                ],
+            },
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        probe = adapter.media_probe(
+            app="zero-nvr",
+            stream="profile-target",
+        )
+
+    assert probe is not None
+    assert probe.stream == "profile-target"
+    assert probe.video is not None
+    assert probe.video.codec == "h264"
+    assert probe.video.ready is True
+    assert probe.video.width == 1280
+    assert probe.video.height == 720
+    assert probe.video.fps == 15
+
+
 def test_zlm_error_does_not_echo_sensitive_source_url() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

@@ -610,14 +610,25 @@ function nativeVideoFailure(): string {
   return t(`live.tile.errors.media.${key}`)
 }
 
+class FirstFrameTimeoutError extends Error {
+  constructor(
+    readonly transport: "webrtc" | "hls",
+    readonly timeoutMs: number
+  ) {
+    super(
+      t("live.tile.errors.firstFrameTimeout", {
+        transport: transport.toUpperCase(),
+        seconds: Math.round(timeoutMs / 1000)
+      })
+    )
+    this.name = "FirstFrameTimeoutError"
+  }
+}
+
 async function firstFrameTimeoutReason(
-  transport: "webrtc" | "hls",
-  timeoutMs: number
+  failure: FirstFrameTimeoutError
 ): Promise<string> {
-  const base = t("live.tile.errors.firstFrameTimeout", {
-    transport: transport.toUpperCase(),
-    seconds: Math.round(timeoutMs / 1000)
-  })
+  const base = failure.message
   const mediaSessionId = activeMediaSessionId
   if (!mediaSessionId) return base
 
@@ -691,11 +702,15 @@ function waitForFirstVideoFrame(
       resolve()
     }
 
-    const fail = (reason: string) => {
+    const fail = (reason: string | Error) => {
       if (settled) return
       settled = true
       cleanup()
-      reject(new Error(reason))
+      reject(
+        reason instanceof Error
+          ? reason
+          : new Error(reason)
+      )
     }
 
     const handleReady = () => {
@@ -712,10 +727,12 @@ function waitForFirstVideoFrame(
     }
 
     const timeout = window.setTimeout(() => {
-      void firstFrameTimeoutReason(
-        transport,
-        timeoutMs
-      ).then((reason) => fail(reason))
+      fail(
+        new FirstFrameTimeoutError(
+          transport,
+          timeoutMs
+        )
+      )
     }, timeoutMs)
 
     element.addEventListener("playing", handleReady)
@@ -981,11 +998,20 @@ async function attachHls(
   if (element.canPlayType("application/vnd.apple.mpegurl")) {
     activeTransport.value = "hls"
     element.src = source
-    await waitForFirstVideoFrame(
-      element,
-      "hls",
-      HLS_FIRST_FRAME_TIMEOUT_MS
-    )
+    try {
+      await waitForFirstVideoFrame(
+        element,
+        "hls",
+        HLS_FIRST_FRAME_TIMEOUT_MS
+      )
+    } catch (caught) {
+      if (caught instanceof FirstFrameTimeoutError) {
+        throw new Error(
+          await firstFrameTimeoutReason(caught)
+        )
+      }
+      throw caught
+    }
     return
   }
 
@@ -1017,11 +1043,20 @@ async function attachHls(
   activeTransport.value = "hls"
   hls.loadSource(source)
   hls.attachMedia(element)
-  await waitForFirstVideoFrame(
-    element,
-    "hls",
-    HLS_FIRST_FRAME_TIMEOUT_MS
-  )
+  try {
+    await waitForFirstVideoFrame(
+      element,
+      "hls",
+      HLS_FIRST_FRAME_TIMEOUT_MS
+    )
+  } catch (caught) {
+    if (caught instanceof FirstFrameTimeoutError) {
+      throw new Error(
+        await firstFrameTimeoutReason(caught)
+      )
+    }
+    throw caught
+  }
 }
 
 async function attachPreferredStream(
@@ -1039,7 +1074,17 @@ async function attachPreferredStream(
       return stream
     } catch (caught) {
       // WHEP is preferred but never blocks a compatible HLS fallback.
-      lastWebRtcFailure.value = liveDiagnosticMessage(caught)
+      if (caught instanceof FirstFrameTimeoutError) {
+        const initial = caught.message
+        lastWebRtcFailure.value = initial
+        void firstFrameTimeoutReason(caught).then((reason) => {
+          if (lastWebRtcFailure.value === initial) {
+            lastWebRtcFailure.value = reason
+          }
+        })
+      } else {
+        lastWebRtcFailure.value = liveDiagnosticMessage(caught)
+      }
     }
   }
 
