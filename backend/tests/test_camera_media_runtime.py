@@ -127,6 +127,72 @@ def test_desired_streams_deduplicate_bindings_and_hide_source_uri_in_repr(
         database.close()
 
 
+def test_desired_stream_resolves_only_selected_profile(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=PRIMARY_URL,
+                secondary_name="Sub",
+                secondary_url=SECONDARY_URL,
+            )
+            session.commit()
+            camera_id = camera.id
+
+        runtime = CameraMediaRuntimeService(
+            settings,
+            zlm_factory=FakeZlm,
+        )
+        resolved: list[object] = []
+
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            selected = next(
+                profile
+                for profile in camera.stream_profiles
+                if profile.adapter_profile_key
+                == "manual-secondary"
+            )
+
+            def resolve_only_selected(
+                _session,
+                profile,
+            ) -> str:
+                resolved.append(profile.id)
+                return SECONDARY_URL
+
+            runtime._camera_service.resolve_stream_uri = (
+                resolve_only_selected
+            )
+            desired = runtime.desired_stream(
+                session,
+                camera=camera,
+                profile=selected,
+            )
+
+        assert resolved == [selected.id]
+        assert desired.profile_id == selected.id
+        assert desired.source_uri == SECONDARY_URL
+        assert desired.stream == (
+            f"profile-{selected.id.hex}"
+        )
+    finally:
+        database.close()
+
+
 def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
     tmp_path: Path,
 ) -> None:

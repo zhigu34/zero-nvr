@@ -216,8 +216,10 @@ Live page baseline:
   without exposing media URLs, tokens, or credentials;
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
-- only the initial `/live` descriptor request ensures the selected ZLM source
-  runtime and binds the issued media session to that exact profile/purpose;
+- only the initial `/live` descriptor request resolves credentials for and
+  ensures the selected profile's ZLM source runtime, then binds the issued
+  media session to that exact profile/purpose; unrelated bound profiles are
+  not decrypted/resolved on the live-start critical path;
   authorized follow-up WHEP/diagnostic/compatibility requests reuse the
   session-bound deterministic stream reference instead of repeating ZLM online
   checks or accepting a later quality parameter as a profile switch; browser

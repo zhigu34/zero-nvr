@@ -2094,27 +2094,11 @@ def _select_live_stream(
     runtime = CameraMediaRuntimeService(
         request.app.state.settings
     )
-    desired = runtime.desired_streams(
+    selected = runtime.desired_stream(
         session,
         camera=camera,
+        profile=profile,
     )
-    selected = next(
-        (
-            item
-            for item in desired
-            if item.profile_id == profile.id
-        ),
-        None,
-    )
-    if selected is None:
-        raise ApiError(
-            status_code=409,
-            code="camera_live_stream_unavailable",
-            message=(
-                "Camera live stream is not "
-                "available."
-            ),
-        )
 
     try:
         references = runtime.ensure_streams(

@@ -84,6 +84,44 @@ class CameraMediaRuntimeService:
             stream=f"profile-{profile_id.hex}",
         )
 
+    def desired_stream(
+        self,
+        session: Session,
+        *,
+        camera: Camera,
+        profile: CameraStreamProfile,
+    ) -> DesiredZlmStream:
+        if not camera.enabled:
+            raise ApiError(
+                status_code=409,
+                code="camera_disabled",
+                message="Camera is disabled.",
+            )
+        if profile.camera_id != camera.id:
+            raise ApiError(
+                status_code=409,
+                code="camera_stream_binding_invalid",
+                message=(
+                    "Camera stream profile does not "
+                    "belong to this camera."
+                ),
+            )
+
+        reference = self.reference_for(
+            camera_id=camera.id,
+            profile_id=profile.id,
+        )
+        return DesiredZlmStream(
+            camera_id=camera.id,
+            profile_id=profile.id,
+            app=reference.app,
+            stream=reference.stream,
+            source_uri=self._camera_service.resolve_stream_uri(
+                session,
+                profile,
+            ),
+        )
+
     def desired_streams(
         self,
         session: Session,
@@ -119,26 +157,14 @@ class CameraMediaRuntimeService:
                 message="Camera stream binding references a missing profile.",
             )
 
-        desired: list[DesiredZlmStream] = []
-        for profile in profiles:
-            reference = self.reference_for(
-                camera_id=camera.id,
-                profile_id=profile.id,
+        return [
+            self.desired_stream(
+                session,
+                camera=camera,
+                profile=profile,
             )
-            desired.append(
-                DesiredZlmStream(
-                    camera_id=camera.id,
-                    profile_id=profile.id,
-                    app=reference.app,
-                    stream=reference.stream,
-                    source_uri=self._camera_service.resolve_stream_uri(
-                        session,
-                        profile,
-                    ),
-                )
-            )
-
-        return desired
+            for profile in profiles
+        ]
 
     @classmethod
     def stream_references(
