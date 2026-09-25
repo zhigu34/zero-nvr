@@ -232,9 +232,14 @@ Live page baseline:
   the browser keeps non-trickle SDP completeness but uses a one-entry ICE
   candidate pool to pre-gather candidates and reduce time spent in that phase;
 - only the initial `/live` descriptor request resolves credentials for and
-  ensures the selected profile's ZLM source runtime, then binds the issued
-  media session to that exact profile/purpose; unrelated bound profiles are
-  not decrypted/resolved on the live-start critical path;
+  ensures the selected profile's ZLM source runtime; when that request has to
+  start a new ZLM pull, it briefly waits for ZLM to report the media online
+  before returning the descriptor, preventing the browser's first WHEP/HLS
+  attempt from racing source registration; the bounded wait reuses ZLM state
+  and does not introduce a second reconnect engine;
+  the issued media session is then bound to that exact profile/purpose;
+  unrelated bound profiles are not decrypted/resolved on the live-start
+  critical path;
   authorized follow-up WHEP/diagnostic/compatibility requests reuse the
   session-bound deterministic stream reference instead of repeating ZLM online
   checks or accepting a later quality parameter as a profile switch; browser

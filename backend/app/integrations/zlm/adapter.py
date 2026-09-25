@@ -491,6 +491,36 @@ class ZlmAdapter:
         )
         return bool(payload.get("online", False))
 
+    def wait_media_online(
+        self,
+        *,
+        app: str,
+        stream: str,
+        timeout_seconds: float,
+        schema: str = "rtsp",
+    ) -> bool:
+        deadline = self._monotonic() + max(
+            0.0,
+            timeout_seconds,
+        )
+        while True:
+            if self.is_media_online(
+                app=app,
+                stream=stream,
+                schema=schema,
+            ):
+                return True
+
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return False
+            self._sleep(
+                min(
+                    self._poll_interval_seconds,
+                    remaining,
+                )
+            )
+
     def close_stream(
         self,
         *,

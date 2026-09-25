@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import ApiError
 from app.integrations.contracts import MediaPlane
-from app.integrations.zlm import ZlmAdapter
+from app.integrations.zlm import ZlmAdapter, ZlmIntegrationError
 
 from .models import Camera, CameraStreamProfile
 from .service import CameraService
@@ -60,6 +60,7 @@ class CameraMediaRuntimeService:
     """
 
     app_name = "zero-nvr"
+    live_start_timeout_seconds = 3.0
 
     def __init__(
         self,
@@ -191,6 +192,8 @@ class CameraMediaRuntimeService:
     def ensure_streams(
         self,
         desired: list[DesiredZlmStream],
+        *,
+        wait_online_seconds: float | None = None,
     ) -> list[ZlmStreamReference]:
         if not desired:
             return []
@@ -212,6 +215,22 @@ class CameraMediaRuntimeService:
                         auto_close=item.auto_close,
                         mp4_as_player=True,
                     )
+                    if (
+                        wait_online_seconds is not None
+                        and not zlm.wait_media_online(
+                            app=item.app,
+                            stream=item.stream,
+                            timeout_seconds=wait_online_seconds,
+                        )
+                    ):
+                        raise ZlmIntegrationError(
+                            "camera_stream_start_timeout",
+                            (
+                                "The camera stream did not become ready "
+                                "for live playback in time."
+                            ),
+                            status_code=504,
+                        )
                 references.append(item.reference)
         return references
 

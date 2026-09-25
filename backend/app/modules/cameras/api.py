@@ -2102,7 +2102,10 @@ def _select_live_stream(
 
     try:
         references = runtime.ensure_streams(
-            [selected]
+            [selected],
+            wait_online_seconds=(
+                runtime.live_start_timeout_seconds
+            ),
         )
     except ZlmIntegrationError as exc:
         raise ApiError(

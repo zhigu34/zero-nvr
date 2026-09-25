@@ -53,7 +53,12 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
 ) -> None:
     app = make_app(tmp_path)
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         return [item.reference for item in desired]
 
     monkeypatch.setattr(
@@ -163,7 +168,12 @@ def test_live_diagnostics_report_sanitized_zlm_track_state(
 ) -> None:
     app = make_app(tmp_path)
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         return [item.reference for item in desired]
 
     class FakeZlmAdapter:
@@ -282,7 +292,12 @@ def test_camera_snapshot_uses_internal_zlm_stream_only(
     app = make_app(tmp_path)
     captured: dict[str, str] = {}
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         return [item.reference for item in desired]
 
     class FakeZlmAdapter:
@@ -384,12 +399,21 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
     app.state.settings.zlm_webrtc_port = 9000
     captured: dict[str, object] = {
         "ensure_calls": 0,
+        "ensure_waits": [],
     }
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         captured["ensure_calls"] = (
             int(captured["ensure_calls"]) + 1
         )
+        waits = captured["ensure_waits"]
+        assert isinstance(waits, list)
+        waits.append(wait_online_seconds)
         return [item.reference for item in desired]
 
     class FakeZlmAdapter:
@@ -503,6 +527,9 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         )
         assert descriptor.status_code == 200
         assert captured["ensure_calls"] == 1
+        assert captured["ensure_waits"] == [
+            CameraMediaRuntimeService.live_start_timeout_seconds
+        ]
         descriptor_body = descriptor.json()
         media_session_id = descriptor_body[
             "media_session_id"
@@ -577,7 +604,12 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
         "11111111-2222-3333-4444-555555555555"
     )
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         return [item.reference for item in desired]
 
     class FakeTranscodes:
@@ -770,7 +802,12 @@ def test_live_ice_servers_require_authorized_media_session(
 ) -> None:
     app = make_app(tmp_path)
 
-    def fake_ensure(self, desired):
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
         return [
             item.reference
             for item in desired

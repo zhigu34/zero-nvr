@@ -39,6 +39,7 @@ class FakeZlm:
     def __init__(self, _settings) -> None:
         self.online_checks: list[str] = []
         self.add_calls: list[dict[str, object]] = []
+        self.wait_calls: list[dict[str, object]] = []
         self.close_calls: list[dict[str, object]] = []
         self.delete_calls: list[str] = []
         self.instances.append(self)
@@ -58,6 +59,24 @@ class FakeZlm:
     def add_stream_proxy(self, **kwargs):
         self.add_calls.append(kwargs)
         return f"__defaultVhost__/{kwargs['app']}/{kwargs['stream']}"
+
+    def wait_media_online(
+        self,
+        *,
+        app: str,
+        stream: str,
+        timeout_seconds: float,
+        schema: str = "rtsp",
+    ):
+        self.wait_calls.append(
+            {
+                "app": app,
+                "stream": stream,
+                "timeout_seconds": timeout_seconds,
+                "schema": schema,
+            }
+        )
+        return True
 
     def close_stream(self, **kwargs):
         self.close_calls.append(kwargs)
@@ -241,7 +260,10 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         to_add = desired[1]
         FakeZlm.online_streams = {already_online.stream}
 
-        references = runtime.ensure_streams(desired)
+        references = runtime.ensure_streams(
+            desired,
+            wait_online_seconds=3.0,
+        )
         ensure_zlm = FakeZlm.instances[-1]
 
         assert len(references) == 2
@@ -258,6 +280,14 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         assert add_call["retry_count"] == -1
         assert add_call["auto_close"] is True
         assert add_call["mp4_as_player"] is True
+        assert ensure_zlm.wait_calls == [
+            {
+                "app": "zero-nvr",
+                "stream": to_add.stream,
+                "timeout_seconds": 3.0,
+                "schema": "rtsp",
+            }
+        ]
 
         # Once both are online, stop should close both by deterministic ZLM
         # app/stream identity. No proxy-key runtime table is required.

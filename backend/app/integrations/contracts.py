@@ -77,6 +77,15 @@ class MediaPlane(Protocol):
         schema: str = "rtsp",
     ) -> bool: ...
 
+    def wait_media_online(
+        self,
+        *,
+        app: str,
+        stream: str,
+        timeout_seconds: float,
+        schema: str = "rtsp",
+    ) -> bool: ...
+
     def add_stream_proxy(
         self,
         *,

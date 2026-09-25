@@ -167,6 +167,45 @@ def test_media_probe_returns_only_matching_stream_tracks() -> None:
     assert probe.video.fps == 15
 
 
+def test_wait_media_online_polls_until_registered() -> None:
+    online = [False, False, True]
+    clock = [0.0]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/isMediaOnline")
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "online": online.pop(0),
+            },
+        )
+
+    def monotonic() -> float:
+        return clock[0]
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+        monotonic=monotonic,
+        sleep=sleep,
+        poll_interval_seconds=0.25,
+    ) as adapter:
+        assert adapter.wait_media_online(
+            app="zero-nvr",
+            stream="profile-live",
+            timeout_seconds=1.0,
+        ) is True
+
+    assert len(requests) == 3
+    assert clock[0] == pytest.approx(0.5)
+
+
 def test_add_stream_proxy_forwards_auto_close_policy() -> None:
     requests: list[httpx.Request] = []
 
