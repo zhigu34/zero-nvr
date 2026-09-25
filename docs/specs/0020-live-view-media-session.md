@@ -222,6 +222,13 @@ Live page baseline:
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;
+- long-running live playback renews the same authorized MediaSession before
+  expiry instead of tearing down and rebuilding WHEP/HLS every 30 minutes;
+  session-bound ZLM playback URLs continue to require a valid signature, but
+  their embedded timestamp does not force a player reload while that exact
+  MediaSession remains active; revocation/expiry of the MediaSession immediately
+  makes the old URL unauthorized, while non-session VOD/media grants keep their
+  normal strict timestamp expiry;
 - the initial `/live` descriptor carries the authorized short-lived
   ICE/TURN server bundle so first playback does not require a separate
   `/live/ice` round trip; the legacy ICE endpoint remains available for

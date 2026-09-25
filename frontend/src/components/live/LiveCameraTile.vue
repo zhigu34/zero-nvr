@@ -28,6 +28,7 @@ import {
   getCameraLiveDiagnostics,
   getCameraLiveStream,
   keepCameraCompatibilityLease,
+  keepCameraMediaSessionAlive,
   releaseCameraCompatibilityLease,
   revokeCameraMediaSession,
   type CameraLiveStream,
@@ -260,7 +261,38 @@ function scheduleTokenRefresh(expiresAt: string): void {
   )
   tokenRefreshTimer = window.setTimeout(() => {
     tokenRefreshTimer = null
-    void loadStream()
+    const mediaSessionId = activeMediaSessionId
+    if (
+      !mediaSessionId ||
+      playbackSuspended.value
+    ) {
+      return
+    }
+
+    void keepCameraMediaSessionAlive(
+      props.camera.id,
+      mediaSessionId
+    )
+      .then((renewed) => {
+        if (
+          activeMediaSessionId !== mediaSessionId ||
+          playbackSuspended.value
+        ) {
+          return
+        }
+        scheduleTokenRefresh(
+          renewed.expires_at
+        )
+      })
+      .catch(() => {
+        if (
+          activeMediaSessionId !== mediaSessionId ||
+          playbackSuspended.value
+        ) {
+          return
+        }
+        void loadStream()
+      })
   }, refreshIn)
 }
 

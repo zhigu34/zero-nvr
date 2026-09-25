@@ -231,6 +231,21 @@ export async function deleteCameraWhepSession(
 }
 
 
+export interface CameraLiveSessionKeepalive {
+  expires_at: string
+}
+
+export function keepCameraMediaSessionAlive(
+  cameraId: string,
+  mediaSessionId: string
+): Promise<CameraLiveSessionKeepalive> {
+  return apiRequest<CameraLiveSessionKeepalive>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/session/${encodeURIComponent(mediaSessionId)}/keepalive`,
+    { method: "POST" }
+  )
+}
+
+
 export function revokeCameraMediaSession(
   cameraId: string,
   mediaSessionId: string
