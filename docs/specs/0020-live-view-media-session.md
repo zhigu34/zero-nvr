@@ -216,7 +216,9 @@ Live page baseline:
   sessions; operators explicitly start/pause one tile or all visible tiles;
 - stopping, hiding, switching, or superseding a tile invalidates that playback
   attempt; stale asynchronous WebRTC work must not continue into WHEP, HLS
-  fallback, compatibility transcode, or later descriptor attachment;
+  fallback, compatibility transcode, or later descriptor attachment; frontend
+  Vitest/Vue Test Utils regression coverage verifies that a descriptor returned
+  after playback is stopped is revoked instead of attaching stale media;
 - camera pulls use ZLMediaKit `addStreamProxy.auto_close` together with
   `mp4_as_player`: idle streams close after ZLM's no-reader delay, while an
   active ZLM MP4 recorder counts as a reader and therefore keeps the recording

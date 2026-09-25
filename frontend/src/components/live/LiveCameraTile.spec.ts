@@ -1,0 +1,176 @@
+import {
+  flushPromises,
+  mount
+} from "@vue/test-utils"
+import {
+  nextTick
+} from "vue"
+import {
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi
+} from "vitest"
+
+import type {
+  CameraSummary
+} from "../../api/cameras"
+import type {
+  CameraLiveStream
+} from "../../api/live"
+import LiveCameraTile from "./LiveCameraTile.vue"
+
+const liveMocks = vi.hoisted(() => ({
+  getCameraLiveStream: vi.fn(),
+  getCameraCompatibleLiveStream: vi.fn(),
+  revokeCameraMediaSession: vi.fn(
+    () => Promise.resolve()
+  )
+}))
+
+vi.mock("vue-i18n", () => ({
+  useI18n: () => ({
+    t: (key: string) => key
+  })
+}))
+
+vi.mock("../../stores/auth", () => ({
+  useAuthStore: () => ({
+    hasPermission: () => false
+  })
+}))
+
+vi.mock("../../api/live", () => ({
+  cameraSnapshotUrl: () => "/snapshot",
+  createCameraWhepSession: vi.fn(),
+  deleteCameraWhepSession: vi.fn(
+    () => Promise.resolve()
+  ),
+  getCameraCompatibleLiveStream:
+    liveMocks.getCameraCompatibleLiveStream,
+  getCameraLiveDiagnostics: vi.fn(),
+  getCameraLiveStream:
+    liveMocks.getCameraLiveStream,
+  keepCameraCompatibilityLease: vi.fn(
+    () => Promise.resolve()
+  ),
+  keepCameraMediaSessionAlive: vi.fn(
+    () => Promise.resolve({
+      expires_at: "2026-09-26T00:30:00Z"
+    })
+  ),
+  releaseCameraCompatibilityLease: vi.fn(
+    () => Promise.resolve()
+  ),
+  revokeCameraMediaSession:
+    liveMocks.revokeCameraMediaSession
+}))
+
+const camera: CameraSummary = {
+  id: "11111111-1111-1111-1111-111111111111",
+  name: "Front Door",
+  enabled: true,
+  maintenance: false,
+  retired_at: null,
+  location: "Entrance",
+  storage_label: null,
+  adapter_type: "manual_rtsp",
+  time_sync_mode: "monitor",
+  ptz_capable: false
+}
+
+const descriptor: CameraLiveStream = {
+  camera_id: camera.id,
+  profile_id: "22222222-2222-2222-2222-222222222222",
+  purpose: "LIVE_LOW",
+  transport: "hls",
+  transports: ["hls"],
+  hls_url: "/zlm/zero-nvr/profile-test/hls.m3u8",
+  media_session_id:
+    "33333333-3333-3333-3333-333333333333",
+  expires_at: "2026-09-26T00:30:00Z",
+  codec: "h264",
+  width: 640,
+  height: 360,
+  fps: 15,
+  has_audio: false,
+  ice_servers: [],
+  ice_error: null
+}
+
+describe("LiveCameraTile", () => {
+  beforeEach(() => {
+    Object.defineProperty(
+      HTMLMediaElement.prototype,
+      "pause",
+      {
+        configurable: true,
+        value: vi.fn()
+      }
+    )
+    Object.defineProperty(
+      HTMLMediaElement.prototype,
+      "load",
+      {
+        configurable: true,
+        value: vi.fn()
+      }
+    )
+  })
+
+  it("revokes a stale descriptor returned after playback stops", async () => {
+    let resolveDescriptor:
+      ((value: CameraLiveStream) => void) | null = null
+    const pendingDescriptor = new Promise<CameraLiveStream>(
+      (resolve) => {
+        resolveDescriptor = resolve
+      }
+    )
+    liveMocks.getCameraLiveStream.mockReturnValueOnce(
+      pendingDescriptor
+    )
+
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true
+      },
+      global: {
+        stubs: {
+          UiIcon: true
+        }
+      }
+    })
+
+    await nextTick()
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenCalledTimes(1)
+
+    await wrapper.setProps({
+      playbackEnabled: false
+    })
+    await nextTick()
+
+    expect(resolveDescriptor).not.toBeNull()
+    resolveDescriptor?.(descriptor)
+    await flushPromises()
+
+    expect(
+      liveMocks.revokeCameraMediaSession
+    ).toHaveBeenCalledWith(
+      camera.id,
+      descriptor.media_session_id
+    )
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).not.toHaveBeenCalled()
+    expect(
+      wrapper.find(".live-status-dot").classes()
+    ).not.toContain("live-status-dot--active")
+
+    wrapper.unmount()
+  })
+})
