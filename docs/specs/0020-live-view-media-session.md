@@ -276,6 +276,12 @@ Live page baseline:
   gathering, WHEP negotiation, and answer-to-rendered-frame phases without
   adding requests; these measurements are observational only and do not create
   another media-runtime state machine;
+- if the initial bounded live-start wait expires before the descriptor is
+  issued, one final allow-listed ZLM media probe classifies the failure as source
+  offline, video track missing, or video track not ready; if that boundary probe
+  already shows a ready video track the descriptor proceeds instead of returning
+  a false timeout; these startup diagnostics add no retry/backoff loop and expose
+  no source URL or credentials;
 - first-frame timeout performs an on-demand, permission-gated ZLM media
   diagnostic that distinguishes source offline, missing video track, video
   track not ready, and browser-side delivery/decoding failure; diagnostics

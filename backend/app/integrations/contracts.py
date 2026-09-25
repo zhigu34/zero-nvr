@@ -95,6 +95,14 @@ class MediaPlane(Protocol):
         schema: str = "rtsp",
     ) -> bool: ...
 
+    def media_probe(
+        self,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+    ) -> Any: ...
+
     def add_stream_proxy(
         self,
         *,

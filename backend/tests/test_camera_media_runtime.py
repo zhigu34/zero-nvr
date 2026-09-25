@@ -2,8 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from app.core.config import Settings
 from app.core.db import Base, Database
+from app.integrations.zlm import (
+    ZlmIntegrationError,
+    ZlmMediaProbe,
+    ZlmTrackProbe,
+)
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.service import CameraService
 
@@ -77,6 +84,15 @@ class FakeZlm:
             }
         )
         return True
+
+    def media_probe(
+        self,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+    ):
+        return None
 
     def close_stream(self, **kwargs):
         self.close_calls.append(kwargs)
@@ -313,6 +329,173 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
             item["force"] is True
             for item in stop_zlm.close_calls
         )
+    finally:
+        database.close()
+
+
+@pytest.mark.parametrize(
+    ("probe", "expected_code"),
+    [
+        (
+            None,
+            "camera_stream_source_offline",
+        ),
+        (
+            ZlmMediaProbe(
+                stream="profile-test",
+                video=None,
+                audio=None,
+            ),
+            "camera_stream_video_missing",
+        ),
+        (
+            ZlmMediaProbe(
+                stream="profile-test",
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h264",
+                    ready=False,
+                ),
+                audio=None,
+            ),
+            "camera_stream_video_not_ready",
+        ),
+    ],
+)
+def test_live_start_timeout_reports_sanitized_probe_state(
+    tmp_path: Path,
+    probe: ZlmMediaProbe | None,
+    expected_code: str,
+) -> None:
+    settings, database = make_database(tmp_path)
+
+    class NotReadyZlm(FakeZlm):
+        def wait_video_ready(self, **_kwargs):
+            return False
+
+        def media_probe(self, **_kwargs):
+            if probe is None:
+                return None
+            stream = _kwargs["stream"]
+            return ZlmMediaProbe(
+                stream=stream,
+                video=probe.video,
+                audio=probe.audio,
+            )
+
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=PRIMARY_URL,
+                secondary_name=None,
+                secondary_url=None,
+            )
+            session.commit()
+            camera_id = camera.id
+
+        runtime = CameraMediaRuntimeService(
+            settings,
+            zlm_factory=NotReadyZlm,
+        )
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            desired = runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+
+        with pytest.raises(
+            ZlmIntegrationError
+        ) as captured:
+            runtime.ensure_streams(
+                [desired[0]],
+                wait_online_seconds=3.0,
+            )
+
+        assert captured.value.code == expected_code
+        assert captured.value.status_code == 504
+        rendered = str(captured.value)
+        assert "primary-password" not in rendered
+        assert "primary-token" not in rendered
+        assert "rtsp://" not in rendered
+    finally:
+        database.close()
+
+
+def test_live_start_timeout_accepts_ready_boundary_probe(
+    tmp_path: Path,
+) -> None:
+    settings, database = make_database(tmp_path)
+
+    class BoundaryReadyZlm(FakeZlm):
+        def wait_video_ready(self, **_kwargs):
+            return False
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str = "rtsp",
+        ):
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h264",
+                    ready=True,
+                ),
+                audio=None,
+            )
+
+    try:
+        with database.session() as session:
+            camera = CameraService(
+                settings
+            ).create_manual_rtsp_camera(
+                session,
+                name="Front Door",
+                location=None,
+                storage_label=None,
+                primary_name="Main",
+                primary_url=PRIMARY_URL,
+                secondary_name=None,
+                secondary_url=None,
+            )
+            session.commit()
+            camera_id = camera.id
+
+        runtime = CameraMediaRuntimeService(
+            settings,
+            zlm_factory=BoundaryReadyZlm,
+        )
+        with database.session() as session:
+            camera = CameraService.get_camera(
+                session,
+                camera_id,
+            )
+            desired = runtime.desired_streams(
+                session,
+                camera=camera,
+            )
+
+        references = runtime.ensure_streams(
+            [desired[0]],
+            wait_online_seconds=3.0,
+        )
+        assert references == [
+            desired[0].reference
+        ]
     finally:
         database.close()
 

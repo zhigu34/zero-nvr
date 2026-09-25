@@ -223,6 +223,59 @@ class CameraMediaRuntimeService:
                         timeout_seconds=wait_online_seconds,
                     )
                 ):
+                    probe = None
+                    try:
+                        probe = zlm.media_probe(
+                            app=item.app,
+                            stream=item.stream,
+                        )
+                    except ZlmIntegrationError:
+                        pass
+
+                    if (
+                        probe is not None
+                        and probe.video is not None
+                        and probe.video.ready
+                    ):
+                        references.append(
+                            item.reference
+                        )
+                        continue
+
+                    if probe is None:
+                        raise ZlmIntegrationError(
+                            "camera_stream_source_offline",
+                            (
+                                "ZLMediaKit reports that the selected "
+                                "camera source is not online."
+                            ),
+                            status_code=504,
+                        )
+                    if probe.video is None:
+                        raise ZlmIntegrationError(
+                            "camera_stream_video_missing",
+                            (
+                                "The camera source is online, but "
+                                "ZLMediaKit reports no video track."
+                            ),
+                            status_code=504,
+                        )
+                    if not probe.video.ready:
+                        codec = (
+                            probe.video.codec
+                            or "unknown"
+                        )
+                        raise ZlmIntegrationError(
+                            "camera_stream_video_not_ready",
+                            (
+                                "ZLMediaKit detected a "
+                                f"{codec} video track, but it did "
+                                "not become ready for live playback "
+                                "in time."
+                            ),
+                            status_code=504,
+                        )
+
                     raise ZlmIntegrationError(
                         "camera_stream_start_timeout",
                         (
