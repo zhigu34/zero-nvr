@@ -645,12 +645,30 @@ Batch flow supports:
 
 The first production release also supports operator-supplied CSV batch import
 for mixed ONVIF and manual RTSP rows. The CSV is parsed and previewed in the
-browser rather than uploaded as an opaque server-side file. Every valid row is
-then executed through the existing canonical single-device onboarding path:
-ONVIF rows retain identity inspection/deduplication and automatic usable-profile
-selection; RTSP rows retain the temporary ZLM media probe before creation.
-Credentials are never echoed in the preview/result UI, and the batch runner is
-sequential/bounded so a large file does not become an unbounded LAN probe.
+browser rather than uploaded as an opaque server-side file.
+
+The canonical CSV device fields are:
+
+```text
+type,name,host,onvif_port,rtsp_port,username,password,
+main_path,sub_path,main_url,sub_url,location,storage_label
+```
+
+ONVIF rows reuse `host`, `username`, and `password`, with
+`onvif_port` defaulting to 80. RTSP rows reuse those same device fields,
+with `rtsp_port` defaulting to 554. Normal RTSP rows provide
+`main_path` / `sub_path`; zero-nvr URL-encodes credentials and builds the
+RTSP URLs from the shared host/port. `main_url` / `sub_url` are advanced
+full-URL overrides for devices whose stream syntax cannot be represented by
+the normal path fields. The downloaded template contains the header only, so
+sample rows cannot be accidentally imported.
+
+Every valid row is then executed through the existing canonical single-device
+onboarding path: ONVIF rows retain identity inspection/deduplication and
+automatic usable-profile selection; RTSP rows retain the temporary ZLM media
+probe before creation. Credentials are never echoed in the preview/result UI,
+and the batch runner is sequential/bounded so a large file does not become an
+unbounded LAN probe.
 
 One failed device does not roll back unrelated successful devices.
 

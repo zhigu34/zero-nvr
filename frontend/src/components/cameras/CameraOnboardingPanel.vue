@@ -129,11 +129,14 @@ interface FileImportRow {
   kind: FileImportKind | null
   name: string
   host: string
-  port: number
+  onvif_port: number
+  rtsp_port: number
   username: string
   password: string
-  rtsp_url: string
-  secondary_rtsp_url: string
+  main_path: string
+  sub_path: string
+  main_url: string
+  sub_url: string
   location: string
   storage_label: string
   errors: string[]
@@ -234,6 +237,55 @@ function validRtspUrl(value: string): boolean {
   }
 }
 
+function csvPort(
+  rawValue: string,
+  fallback: number,
+  errors: string[],
+  field: "onvif_port" | "rtsp_port"
+): number {
+  if (!rawValue) return fallback
+
+  const parsed = Number(rawValue)
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    errors.push(
+      t("cameras.onboarding.csvInvalidNamedPort", { field })
+    )
+    return fallback
+  }
+  return parsed
+}
+
+function rtspHost(host: string): string {
+  if (host.includes(":") && !host.startsWith("[")) {
+    return `[${host}]`
+  }
+  return host
+}
+
+function buildRtspUrl(
+  row: Pick<
+    FileImportRow,
+    | "host"
+    | "rtsp_port"
+    | "username"
+    | "password"
+  >,
+  path: string,
+  overrideUrl: string
+): string {
+  if (overrideUrl) return overrideUrl
+  if (!row.host || !path) return ""
+
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`
+  const username = encodeURIComponent(row.username)
+  const password = encodeURIComponent(row.password)
+  const auth =
+    row.username || row.password
+      ? `${username}${row.password ? `:${password}` : ""}@`
+      : ""
+  return `rtsp://${auth}${rtspHost(row.host)}:${row.rtsp_port}${normalizedPath}`
+}
+
 function csvParseErrorMessage(error: CsvParseError): string {
   const key = `cameras.onboarding.${error.code}`
   if (te(key)) {
@@ -258,53 +310,85 @@ function fileImportRow(record: CsvRecord): FileImportRow {
     )
   }
 
-  const portRaw = value("port")
-  let port = 80
-  if (portRaw) {
-    const parsed = Number(portRaw)
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
-      errors.push(t("cameras.onboarding.csvInvalidPort"))
-    } else {
-      port = parsed
-    }
-  }
-
   const host = value("host")
   const name = value("name")
-  const rtspUrl = value("rtsp_url")
-  const secondaryRtspUrl = value("secondary_rtsp_url")
+  const username = value("username")
+  const password = record.values.password ?? ""
+  const onvifPort = csvPort(
+    value("onvif_port") || (kind === "onvif" ? value("port") : ""),
+    80,
+    errors,
+    "onvif_port"
+  )
+  const rtspPort = csvPort(
+    value("rtsp_port"),
+    554,
+    errors,
+    "rtsp_port"
+  )
+  const mainPath = value("main_path")
+  const subPath = value("sub_path")
+  const mainUrl = value("main_url") || value("rtsp_url")
+  const subUrl = value("sub_url") || value("secondary_rtsp_url")
 
   if (kind === "onvif" && !host) {
     errors.push(t("cameras.onboarding.csvMissingHost"))
   }
+
   if (kind === "rtsp") {
     if (!name) {
       errors.push(t("cameras.onboarding.csvMissingName"))
     }
-    if (!rtspUrl) {
-      errors.push(t("cameras.onboarding.csvMissingRtspUrl"))
-    } else if (!validRtspUrl(rtspUrl)) {
-      errors.push(t("cameras.onboarding.csvInvalidRtspUrl"))
+    if (!mainUrl && !host) {
+      errors.push(t("cameras.onboarding.csvMissingRtspHost"))
     }
-    if (secondaryRtspUrl && !validRtspUrl(secondaryRtspUrl)) {
-      errors.push(t("cameras.onboarding.csvInvalidSecondaryRtspUrl"))
+    if (!mainUrl && !mainPath) {
+      errors.push(t("cameras.onboarding.csvMissingMainPath"))
+    }
+    if (mainPath.includes("://") || subPath.includes("://")) {
+      errors.push(t("cameras.onboarding.csvPathNotUrl"))
+    }
+    if (mainUrl && !validRtspUrl(mainUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidMainUrl"))
+    }
+    if (subUrl && !validRtspUrl(subUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidSubUrl"))
+    }
+    if (!subUrl && subPath && !host) {
+      errors.push(t("cameras.onboarding.csvSubPathNeedsHost"))
     }
   }
 
-  return {
+  const row: FileImportRow = {
     line: record.line,
     kind,
     name,
     host,
-    port,
-    username: value("username"),
-    password: record.values.password ?? "",
-    rtsp_url: rtspUrl,
-    secondary_rtsp_url: secondaryRtspUrl,
+    onvif_port: onvifPort,
+    rtsp_port: rtspPort,
+    username,
+    password,
+    main_path: mainPath,
+    sub_path: subPath,
+    main_url: mainUrl,
+    sub_url: subUrl,
     location: value("location"),
     storage_label: value("storage_label"),
     errors
   }
+
+  if (kind === "rtsp" && !errors.length) {
+    const primaryUrl = buildRtspUrl(row, row.main_path, row.main_url)
+    const secondaryUrl = buildRtspUrl(row, row.sub_path, row.sub_url)
+    if (!primaryUrl || !validRtspUrl(primaryUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidResolvedMainUrl"))
+    }
+    if (secondaryUrl && !validRtspUrl(secondaryUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidResolvedSubUrl"))
+    }
+  }
+
+  return row
 }
 
 function manualBody(): ManualCameraInput {
@@ -364,9 +448,7 @@ async function handleBatchFile(event: Event): Promise<void> {
 
 function downloadBatchTemplate(): void {
   const csv = [
-    "type,name,host,port,username,password,rtsp_url,secondary_rtsp_url,location,storage_label",
-    "onvif,Front Door,192.168.1.50,80,admin,password,,,Entrance,front",
-    "rtsp,Garage,,,,,rtsp://user:password@192.168.1.60/stream/main,rtsp://user:password@192.168.1.60/stream/sub,Garage,garage"
+    "type,name,host,onvif_port,rtsp_port,username,password,main_path,sub_path,main_url,sub_url,location,storage_label"
   ].join("\r\n")
   const url = URL.createObjectURL(
     new Blob([csv], { type: "text/csv;charset=utf-8" })
@@ -738,7 +820,7 @@ async function runFileBatchImport(): Promise<void> {
         if (row.kind === "onvif") {
           const credentials = {
             host: row.host,
-            port: row.port,
+            port: row.onvif_port,
             username: row.username,
             password: row.password
           }
@@ -778,6 +860,16 @@ async function runFileBatchImport(): Promise<void> {
           changed = true
           await applyBatchDefaults(cameraIds, { timeSync: true })
         } else {
+          const mainUrl = buildRtspUrl(
+            row,
+            row.main_path,
+            row.main_url
+          )
+          const subUrl = buildRtspUrl(
+            row,
+            row.sub_path,
+            row.sub_url
+          )
           const body: ManualCameraInput = {
             mode: "manual_rtsp",
             name: row.name,
@@ -785,12 +877,12 @@ async function runFileBatchImport(): Promise<void> {
             storage_label: normalizeOptional(row.storage_label),
             primary_stream: {
               name: t("cameras.onboarding.mainStream"),
-              rtsp_url: row.rtsp_url
+              rtsp_url: mainUrl
             },
-            secondary_stream: row.secondary_rtsp_url
+            secondary_stream: subUrl
               ? {
                   name: t("cameras.onboarding.subStream"),
-                  rtsp_url: row.secondary_rtsp_url
+                  rtsp_url: subUrl
                 }
               : null
           }
