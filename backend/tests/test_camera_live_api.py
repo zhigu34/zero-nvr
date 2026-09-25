@@ -117,7 +117,7 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         low_body = low.json()
         assert low_body["purpose"] == "LIVE_LOW"
         assert low_body["transport"] == "hls"
-        assert low_body["transports"] == ["webrtc", "hls"]
+        assert low_body["transports"] == ["hls"]
         assert low_body["hls_url"].startswith(
             "/zlm/zero-nvr/profile-"
         )
@@ -550,6 +550,10 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
             CameraMediaRuntimeService.live_start_timeout_seconds
         ]
         descriptor_body = descriptor.json()
+        assert descriptor_body["transports"] == [
+            "webrtc",
+            "hls",
+        ]
         media_session_id = descriptor_body[
             "media_session_id"
         ]
@@ -937,6 +941,10 @@ def test_live_ice_servers_require_authorized_media_session(
         )
         assert descriptor_with_turn.status_code == 200
         turn_descriptor = descriptor_with_turn.json()
+        assert turn_descriptor["transports"] == [
+            "webrtc",
+            "hls",
+        ]
         assert turn_descriptor["ice_error"] is None
         assert len(turn_descriptor["ice_servers"]) == 1
         descriptor_server = turn_descriptor["ice_servers"][0]

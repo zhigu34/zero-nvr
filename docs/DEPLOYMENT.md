@@ -285,6 +285,12 @@ Implemented deployment-test hardening:
 - Core publishes only the browser-facing ports by default: zero-nvr Web/API
   uses `8000/tcp`, including same-origin HLS/fMP4 under `/zlm`, and
   ZLMediaKit WebRTC uses `8001/tcp+udp`;
+- when the Web UI is reached through a hostname/reverse proxy or the host is
+  behind NAT, set `ZERO_NVR_ZLM_WEBRTC_EXTERN_IP` to the browser-visible IP
+  unless managed TURN supplies the relay path; without an explicit external IP,
+  a direct IPv4 request candidate, or an issued TURN relay, the live descriptor
+  intentionally advertises HLS only so clients do not stall on an unreachable
+  Docker-side WebRTC candidate before falling back;
 - ZLMediaKit HTTP/RTSP/RTMP stay on the Docker network and are not published
   as host ports;
 - install validates configured host-published Core ports before image

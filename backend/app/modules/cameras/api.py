@@ -2291,6 +2291,21 @@ def _whep_candidate_udp(
     )
 
 
+def _live_transports(
+    request: Request,
+    *,
+    ice_servers: list[CameraIceServerView],
+) -> list[Literal["webrtc", "hls"]]:
+    settings = request.app.state.settings
+    direct_candidate = (
+        settings.zlm_webrtc_extern_ip is not None
+        or _whep_candidate_udp(request) is not None
+    )
+    if direct_candidate or ice_servers:
+        return ["webrtc", "hls"]
+    return ["hls"]
+
+
 def _require_live_media_session(
     request: Request,
     *,
@@ -2495,6 +2510,10 @@ def get_camera_live_stream(
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
+        transports=_live_transports(
+            request,
+            ice_servers=ice_servers,
+        ),
         purpose=selection.purpose,
         hls_url=hls_url,
         media_session_id=media_session_id,

@@ -243,7 +243,14 @@ Live page baseline:
   ICE/TURN server bundle so first playback does not require a separate
   `/live/ice` round trip; the legacy ICE endpoint remains available for
   compatibility/explicit refresh, and TURN configuration failure is reported
-  non-blockingly so direct LAN WebRTC can still proceed;
+  non-blockingly so direct LAN WebRTC can still proceed when a browser-visible
+  direct candidate is known;
+- when a hostname/reverse-proxy request has no explicit ZLM WebRTC external IP,
+  no direct IPv4 request candidate, and no successfully issued TURN relay, the
+  descriptor advertises HLS only instead of first attempting an unreachable
+  Docker-side WebRTC candidate; direct IPv4 requests, explicit external IP
+  configuration, and issued TURN credentials continue to advertise WebRTC plus
+  HLS;
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
   the browser keeps non-trickle SDP completeness but uses a one-entry ICE
