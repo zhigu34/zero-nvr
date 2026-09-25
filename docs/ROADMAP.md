@@ -124,9 +124,10 @@ real camera while the remaining V1 work continues.
 
 - [x] `deploy.sh install` creates `.env` from `.env.example` when absent.
 - [x] first install generates the Core application/ZLM bootstrap secrets.
-- [x] remove the Core default host-port collision between zero-nvr API
-  `8000/tcp` and ZLMediaKit WebRTC; WebRTC now defaults to
-  `8001/tcp+udp`.
+- [x] publish only the browser-facing Core ports by default:
+  `8000/tcp` for Web/API plus same-origin HLS/fMP4 under `/zlm`, and
+  `8001/tcp+udp` for ZLMediaKit WebRTC; ZLM HTTP/RTSP/RTMP remain internal
+  to the Docker network.
 - [x] add install/feature host-port preflight before Compose mutation.
 - [x] interactive TTY install: explain conflicts, suggest an available port,
   accept operator input, validate it, and persist the selected value to
@@ -134,12 +135,15 @@ real camera while the remaining V1 work continues.
 - [x] non-interactive/CI install: fail fast on conflicts with the exact env key
   and port; never block waiting for input.
 - [x] validate the rendered Compose model before pull/build/start.
-- [x] successful install prints the effective Web UI address and published
-  media ports.
+- [x] successful install prints the effective Web UI address, same-origin
+  `/zlm` media entry, and WebRTC port.
+- [x] first interactive install can select auto / China-accelerated / official /
+  custom build dependency sources and persists the choice to `.env`; CI and
+  non-interactive installs default to auto without blocking.
 - [x] automated clean-install orchestration smoke: start from no `.env`,
   generate bootstrap secrets, create host paths, validate ports/Compose,
-  render ZLM config, migrate/start/check, and print effective access ports
-  using an isolated fake-Docker harness in Deployment CI.
+  render ZLM config, migrate/start/check, and print effective browser access
+  endpoints using an isolated fake-Docker harness in Deployment CI.
 - [x] complete the Camera Recording Settings UI so recording mode, schedule,
   segment duration, event pre/post-roll, storage target, and retention policy
   can be configured without direct API calls.
