@@ -1486,6 +1486,11 @@ def _set_camera_enabled(
         session.rollback()
         raise
 
+    if not enabled:
+        request.app.state.media_sessions.revoke_camera(
+            camera_id
+        )
+
     if not changed:
         return _camera_detail(
             session,
@@ -1603,6 +1608,9 @@ def _set_camera_retired(
         raise
 
     if retired:
+        request.app.state.media_sessions.revoke_camera(
+            camera_id
+        )
         try:
             request.app.state.recording_tasks.reconcile_runtime(
                 camera_id
@@ -3071,7 +3079,18 @@ def keep_camera_live_session(
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
+    session: Session = Depends(
+        get_db_session
+    ),
 ) -> CameraLiveSessionKeepaliveView:
+    _live_selection_for_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+        session=session,
+    )
+
     ttl_seconds = (
         ZlmMediaAccess.live_ttl_seconds
     )

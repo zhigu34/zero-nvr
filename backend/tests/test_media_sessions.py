@@ -135,6 +135,49 @@ def test_media_session_renewal_replaces_expiry_without_cleanup() -> None:
     assert cleaned == ["expired"]
 
 
+def test_revoke_camera_cleans_only_matching_live_sessions() -> None:
+    FakeTimer.created = []
+    registry = MediaSessionRegistry(
+        timer_factory=FakeTimer
+    )
+    user_id = uuid.uuid4()
+    camera_id = uuid.uuid4()
+    other_camera_id = uuid.uuid4()
+    cleaned: list[str] = []
+
+    first = registry.issue(
+        owner_user_id=user_id,
+        camera_id=camera_id,
+        ttl_seconds=30,
+    )
+    second = registry.issue(
+        owner_user_id=user_id,
+        camera_id=camera_id,
+        ttl_seconds=30,
+    )
+    other = registry.issue(
+        owner_user_id=user_id,
+        camera_id=other_camera_id,
+        ttl_seconds=30,
+    )
+    assert registry.register_cleanup(
+        first,
+        key="first",
+        cleanup=lambda: cleaned.append("first"),
+    )
+    assert registry.register_cleanup(
+        second,
+        key="second",
+        cleanup=lambda: cleaned.append("second"),
+    )
+
+    assert registry.revoke_camera(camera_id) == 2
+    assert not registry.active(first)
+    assert not registry.active(second)
+    assert registry.active(other)
+    assert sorted(cleaned) == ["first", "second"]
+
+
 def test_media_session_expiry_runs_registered_cleanup() -> None:
     FakeTimer.created = []
     registry = MediaSessionRegistry(

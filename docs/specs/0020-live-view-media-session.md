@@ -222,6 +222,10 @@ Live page baseline:
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;
+- disabling or retiring a camera immediately revokes every active Live
+  MediaSession for that camera, including WHEP and compatibility cleanup; a
+  keepalive also revalidates the camera's current enabled state and bound stream
+  before extending authority, so stale configuration cannot be renewed forever;
 - long-running live playback renews the same authorized MediaSession before
   expiry instead of tearing down and rebuilding WHEP/HLS every 30 minutes;
   session-bound ZLM playback URLs continue to require a valid signature, but

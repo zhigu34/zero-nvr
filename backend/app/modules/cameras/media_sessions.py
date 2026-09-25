@@ -266,6 +266,27 @@ class MediaSessionRegistry:
         self._run_cleanups(cleanups)
         return True
 
+    def revoke_camera(
+        self,
+        camera_id: uuid.UUID,
+    ) -> int:
+        with self._lock:
+            session_ids = [
+                session_id
+                for session_id, state
+                in self._sessions.items()
+                if state.camera_id == camera_id
+            ]
+
+        revoked = 0
+        for session_id in session_ids:
+            if self.revoke(
+                session_id,
+                camera_id=camera_id,
+            ):
+                revoked += 1
+        return revoked
+
     def _expire(
         self,
         session_id: uuid.UUID,

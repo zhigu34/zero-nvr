@@ -153,6 +153,25 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
             f"/api/v1/cameras/{camera_id}/disable"
         )
         assert disabled.status_code == 200
+        assert not app.state.media_sessions.active(
+            uuid.UUID(low_body["media_session_id"])
+        )
+        assert not app.state.media_sessions.active(
+            uuid.UUID(high_body["media_session_id"])
+        )
+
+        expired_keepalive = client.post(
+            (
+                f"/api/v1/cameras/{camera_id}"
+                f"/live/session/"
+                f"{low_body['media_session_id']}/keepalive"
+            )
+        )
+        assert expired_keepalive.status_code == 404
+        assert (
+            expired_keepalive.json()["error"]["code"]
+            == "media_session_not_found"
+        )
 
         unavailable = client.get(
             f"/api/v1/cameras/{camera_id}/live"
