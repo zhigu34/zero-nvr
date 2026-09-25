@@ -2297,7 +2297,7 @@ onBeforeUnmount(() => {
                 spellcheck="false"
                 :placeholder="
                   editingNotification
-                    ? t("system.main.leaveDestination")
+                    ? t('system.main.leaveDestination')
                     : 'mailto://user:pass@smtp.example.com?to=alerts@example.com'
                 "
               />
@@ -3058,7 +3058,7 @@ onBeforeUnmount(() => {
                 :required="!editingBackupPolicy"
                 :placeholder="
                   editingBackupPolicy
-                    ? t("system.main.leaveRepo")
+                    ? t('system.main.leaveRepo')
                     : '/backups/zero-nvr or s3:...'
                 "
               />
