@@ -65,6 +65,37 @@ Disabled features must not cause their images to be pulled or containers to be s
 
 Compose profiles should map deployment features to their independent services. The core services remain profile-independent.
 
+### Build-source and restricted-network behavior
+
+The Core build follows the same local-first pattern used by camera-recorder:
+
+- `node:22-alpine` and `python:3.12-slim` are the default build bases;
+- a matching local base image is reused without contacting Docker Hub;
+- when a base image is missing, `DEPLOY_AUTO_PULL=1` allows an explicit pull;
+- `DEPLOY_AUTO_PULL=0` supports offline/preloaded hosts using `docker save` / `docker load`;
+- `ZERO_NVR_NODE_BASE_IMAGE` and `ZERO_NVR_PYTHON_BASE_IMAGE` may point at operator-controlled registries;
+- Debian, PyPI and npm package sources are configurable with
+  `DEBIAN_MIRROR`, `DEBIAN_SECURITY_MIRROR`, `PYPI_INDEX_URL` and
+  `NPM_REGISTRY`;
+- the Debian override automatically falls back to the image's original
+  official sources if the preferred mirror cannot be reached.
+
+The Dockerfile itself keeps official upstream defaults so CI and generic
+deployments remain portable. A deployment in mainland China may use the same
+mirror values proven by camera-recorder:
+
+~~~env
+DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
+DEBIAN_SECURITY_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian-security
+PYPI_INDEX_URL=https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+NPM_REGISTRY=https://registry.npmmirror.com
+~~~
+
+The repository does not hard-code an untrusted public Docker Hub proxy. If
+Docker Hub authentication is unreachable, either point the configurable base
+image variables at a trusted registry or preload the exact images and set
+`DEPLOY_AUTO_PULL=0`.
+
 ## Configuration responsibility
 
 ```text

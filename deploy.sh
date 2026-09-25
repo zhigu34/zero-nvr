@@ -52,6 +52,66 @@ random_hex_32() {
   od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
 }
 
+normalize_arch() {
+  case "${1:-}" in
+    x86_64|amd64) printf 'amd64' ;;
+    aarch64|arm64) printf 'arm64' ;;
+    *) printf '%s' "${1:-}" ;;
+  esac
+}
+
+image_arch_ok() {
+  local image="$1"
+  local expected actual
+  expected="$(normalize_arch "$(docker info --format '{{.Architecture}}' 2>/dev/null || true)")"
+  actual="$(docker image inspect "$image" --format '{{.Architecture}}' 2>/dev/null || true)"
+  [[ -n "$actual" ]] || return 1
+  actual="$(normalize_arch "$actual")"
+  [[ "$actual" == "$expected" ]]
+}
+
+ensure_build_image() {
+  local image="$1"
+  if image_arch_ok "$image"; then
+    echo "using local base image: $image"
+    return 0
+  fi
+
+  if [[ "${DEPLOY_AUTO_PULL:-1}" == "0" ]]; then
+    echo "error: required base image is unavailable locally: $image" >&2
+    echo "load it with docker load, or enable DEPLOY_AUTO_PULL and retry" >&2
+    return 1
+  fi
+
+  echo "pulling base image: $image"
+  if ! docker pull "$image"; then
+    echo "error: failed to pull base image: $image" >&2
+    echo "network-restricted hosts may docker save this image elsewhere, docker load it here, set DEPLOY_AUTO_PULL=0, and retry" >&2
+    return 1
+  fi
+
+  if ! image_arch_ok "$image"; then
+    echo "error: base image architecture does not match the Docker host: $image" >&2
+    return 1
+  fi
+}
+
+prepare_core_build_inputs() {
+  ensure_build_image "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
+  ensure_build_image "$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
+}
+
+core_docker_build_args() {
+  CORE_DOCKER_BUILD_ARGS=(
+    --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
+    --build-arg "PYTHON_BASE_IMAGE=$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
+    --build-arg "DEBIAN_MIRROR=$(env_get DEBIAN_MIRROR "http://deb.debian.org/debian")"
+    --build-arg "DEBIAN_SECURITY_MIRROR=$(env_get DEBIAN_SECURITY_MIRROR "http://deb.debian.org/debian-security")"
+    --build-arg "PYPI_INDEX_URL=$(env_get PYPI_INDEX_URL "https://pypi.org/simple")"
+    --build-arg "NPM_REGISTRY=$(env_get NPM_REGISTRY "https://registry.npmjs.org")"
+  )
+}
+
 set_env_value() {
   local key="$1"
   local value="$2"
@@ -217,6 +277,7 @@ prepare_zlm() {
 }
 
 build_backend() {
+  prepare_core_build_inputs
   compose build zero-nvr
 }
 
@@ -315,7 +376,10 @@ update_stack() {
       "$target_revision" \
       "$backup_policy"
 
-    docker build --pull \
+    prepare_core_build_inputs
+    core_docker_build_args
+    docker build \
+      "${CORE_DOCKER_BUILD_ARGS[@]}" \
       --file "$stage_dir/backend/Dockerfile" \
       --tag "$stage_image" \
       "$stage_dir"
@@ -381,7 +445,7 @@ update_stack() {
 
   prepare_zlm
   if [[ -z "$requested_ref" ]]; then
-    compose build --pull zero-nvr
+    build_backend
   fi
 
   echo "Stopping zero-nvr control plane for explicit schema migration; ZLMediaKit remains running..."
