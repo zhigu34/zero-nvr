@@ -307,7 +307,9 @@ const messages = {
           playbackFailed:
             "Live stream playback failed. Reconnecting automatically.",
           transportFallbackFailed:
-            "WebRTC: {webrtc} · HLS: {fallback}",
+            "WebRTC: {webrtc} · fallback: {fallback}",
+          compatibilityFallbackFailed:
+            "HLS: {hls} · H.264 compatibility: {compatibility}",
           hlsFatal:
             "HLS fatal error: {details}",
           firstFrameTimeout:
@@ -1887,7 +1889,8 @@ const messages = {
           hlsUnsupported: "当前浏览器无法播放实时 HLS 视频流。",
           streamInterrupted: "实时视频流已中断，正在自动重连。",
           playbackFailed: "实时视频播放失败，正在自动重连。",
-          transportFallbackFailed: "WebRTC：{webrtc} · HLS：{fallback}",
+          transportFallbackFailed: "WebRTC：{webrtc} · 后续回退：{fallback}",
+          compatibilityFallbackFailed: "HLS：{hls} · H.264 兼容流：{compatibility}",
           hlsFatal: "HLS 致命错误：{details}",
           firstFrameTimeout: "{transport} 会话已建立，但 {seconds} 秒内没有收到可播放的视频首帧。",
           sourceOffline: "{base} ZLMediaKit 显示当前选择的源流尚未上线。",

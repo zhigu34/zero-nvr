@@ -1215,39 +1215,73 @@ async function attachHls(
     throw new Error(t("live.tile.errors.hlsUnsupported"))
   }
 
-  hls = new Hls({
+  const player = new Hls({
     lowLatencyMode: true,
     backBufferLength: 12,
     maxBufferLength: 18,
     liveSyncDurationCount: 2
   })
-  hls.on(Hls.Events.ERROR, (_event, data) => {
+  hls = player
+
+  let firstFrameReady = false
+  let rejectStartupFailure:
+    ((reason: Error) => void) | null = null
+  const startupFailure = new Promise<never>(
+    (_resolve, reject) => {
+      rejectStartupFailure = reject
+    }
+  )
+  const handleHlsError = (
+    _event: string,
+    data: {
+      fatal: boolean
+      type?: string
+      details?: string
+      response?: { code?: number }
+    }
+  ) => {
     if (
       !data.fatal ||
       generation !== attemptGeneration ||
-      playbackSuspended.value
+      playbackSuspended.value ||
+      hls !== player
     ) {
       return
     }
-    error.value = combinedTransportFailure(
-      hlsFatalReason(data)
-    )
+    const reason = hlsFatalReason(data)
+    if (!firstFrameReady) {
+      rejectStartupFailure?.(new Error(reason))
+      return
+    }
+    error.value = combinedTransportFailure(reason)
     descriptor.value = null
     loading.value = false
     destroyPlayer()
     scheduleReconnect()
-  })
+  }
+
+  player.on(Hls.Events.ERROR, handleHlsError)
   activeTransport.value = "hls"
-  hls.loadSource(source)
-  hls.attachMedia(element)
+  player.loadSource(source)
+  player.attachMedia(element)
   try {
-    await waitForFirstVideoFrame(
-      element,
-      "hls",
-      HLS_FIRST_FRAME_TIMEOUT_MS,
-      attemptGeneration
-    )
+    await Promise.race([
+      waitForFirstVideoFrame(
+        element,
+        "hls",
+        HLS_FIRST_FRAME_TIMEOUT_MS,
+        attemptGeneration
+      ),
+      startupFailure
+    ])
+    firstFrameReady = true
+    rejectStartupFailure = null
   } catch (caught) {
+    rejectStartupFailure = null
+    if (hls === player) {
+      player.destroy()
+      hls = null
+    }
     if (caught instanceof FirstFrameTimeoutError) {
       throw new Error(
         await firstFrameTimeoutReason(caught)
@@ -1295,6 +1329,7 @@ async function attachPreferredStream(
     }
   }
 
+  let originalHlsFailure: string | null = null
   requireActivePlayback(attemptGeneration)
   if (transports.includes("hls")) {
     try {
@@ -1307,9 +1342,7 @@ async function attachPreferredStream(
       if (caught instanceof PlaybackCancelledError) {
         throw caught
       }
-      throw new Error(
-        combinedTransportFailure(liveDiagnosticMessage(caught))
-      )
+      originalHlsFailure = liveDiagnosticMessage(caught)
     }
   }
 
@@ -1318,18 +1351,36 @@ async function attachPreferredStream(
   if (!mediaSessionId) {
     throw new Error(t("live.tile.errors.mediaSessionUnavailable"))
   }
-  const compatible = await getCameraCompatibleLiveStream(
-    props.camera.id,
-    requestedQuality.value,
-    mediaSessionId
-  )
-  requireActivePlayback(attemptGeneration)
-  activateCompatibilityLease(compatible)
-  await attachHls(
-    compatible,
-    attemptGeneration
-  )
-  return compatible
+
+  let compatible: CameraLiveStream
+  try {
+    compatible = await getCameraCompatibleLiveStream(
+      props.camera.id,
+      requestedQuality.value,
+      mediaSessionId
+    )
+    requireActivePlayback(attemptGeneration)
+    activateCompatibilityLease(compatible)
+    await attachHls(
+      compatible,
+      attemptGeneration
+    )
+    return compatible
+  } catch (caught) {
+    if (caught instanceof PlaybackCancelledError) {
+      throw caught
+    }
+    const compatibilityFailure = liveDiagnosticMessage(caught)
+    const fallbackFailure = originalHlsFailure
+      ? t("live.tile.errors.compatibilityFallbackFailed", {
+          hls: originalHlsFailure,
+          compatibility: compatibilityFailure
+        })
+      : compatibilityFailure
+    throw new Error(
+      combinedTransportFailure(fallbackFailure)
+    )
+  }
 }
 
 async function loadRecordingState(): Promise<void> {
