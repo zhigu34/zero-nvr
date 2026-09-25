@@ -224,7 +224,10 @@ Live page baseline:
   capable profile release when neither recording nor live playback is active;
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
-  without exposing media URLs, tokens, or credentials;
+  without exposing media URLs, tokens, or credentials; automatic reconnect keeps
+  the previous actionable reason visible while the next attempt is in progress
+  and clears it only after a rendered-frame success or a newer failure, while
+  explicit manual retry/configuration changes may clear stale context;
 - disabling or retiring a camera immediately revokes every active Live
   MediaSession for that camera, including WHEP and compatibility cleanup; a
   keepalive also revalidates the camera's current enabled state and bound stream

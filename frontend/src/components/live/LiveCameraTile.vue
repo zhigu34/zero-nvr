@@ -317,9 +317,10 @@ function scheduleReconnect(): void {
   reconnecting.value = true
   reconnectTimer = window.setTimeout(() => {
     reconnectTimer = null
-    reconnecting.value = false
     if (!playbackSuspended.value) {
-      void loadStream()
+      void loadStream({ preserveError: true })
+    } else {
+      reconnecting.value = false
     }
   }, delay)
 }
@@ -1464,13 +1465,19 @@ async function toggleManualRecording(): Promise<void> {
   }
 }
 
-async function loadStream(): Promise<void> {
+async function loadStream(
+  options: { preserveError?: boolean } = {}
+): Promise<void> {
   if (playbackSuspended.value) {
     loading.value = false
     return
   }
 
+  const preserveError = options.preserveError === true
   clearReconnect()
+  if (preserveError) {
+    reconnecting.value = true
+  }
   releaseWebRtcSession()
   releaseCompatibilityLease()
   releaseMediaSession()
@@ -1498,7 +1505,9 @@ async function loadStream(): Promise<void> {
   hls?.destroy()
   hls = null
   descriptor.value = null
-  error.value = null
+  if (!preserveError) {
+    error.value = null
+  }
   lastWebRtcFailure.value = null
   loading.value = true
   playing.value = false
@@ -1530,6 +1539,9 @@ async function loadStream(): Promise<void> {
     )
     requireActivePlayback(currentGeneration)
     descriptor.value = playableStream
+    error.value = null
+    reconnecting.value = false
+    reconnectAttempt = 0
     if (
       generation === currentGeneration &&
       !playbackSuspended.value
