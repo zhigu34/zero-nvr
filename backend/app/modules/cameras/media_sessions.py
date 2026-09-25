@@ -13,6 +13,8 @@ Cleanup = Callable[[], None]
 class _MediaSession:
     owner_user_id: uuid.UUID
     camera_id: uuid.UUID
+    profile_id: uuid.UUID | None = None
+    purpose: str | None = None
     cleanups: dict[str, Cleanup] = field(
         default_factory=dict
     )
@@ -45,6 +47,8 @@ class MediaSessionRegistry:
         owner_user_id: uuid.UUID,
         camera_id: uuid.UUID,
         ttl_seconds: int,
+        profile_id: uuid.UUID | None = None,
+        purpose: str | None = None,
     ) -> uuid.UUID:
         if ttl_seconds <= 0:
             raise ValueError(
@@ -55,6 +59,8 @@ class MediaSessionRegistry:
         state = _MediaSession(
             owner_user_id=owner_user_id,
             camera_id=camera_id,
+            profile_id=profile_id,
+            purpose=purpose,
         )
         timer = self._timer_factory(
             ttl_seconds,
@@ -88,6 +94,25 @@ class MediaSessionRegistry:
                 and state.camera_id
                 == camera_id
             )
+
+    def stream_context(
+        self,
+        session_id: uuid.UUID,
+        *,
+        owner_user_id: uuid.UUID,
+        camera_id: uuid.UUID,
+    ) -> tuple[uuid.UUID, str] | None:
+        with self._lock:
+            state = self._sessions.get(session_id)
+            if (
+                state is None
+                or state.owner_user_id != owner_user_id
+                or state.camera_id != camera_id
+                or state.profile_id is None
+                or state.purpose is None
+            ):
+                return None
+            return state.profile_id, state.purpose
 
     def active(
         self,

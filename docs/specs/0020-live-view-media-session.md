@@ -217,9 +217,11 @@ Live page baseline:
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
 - only the initial `/live` descriptor request ensures the selected ZLM source
-  runtime; authorized follow-up WHEP/diagnostic/compatibility requests reuse the
-  deterministic stream reference instead of repeating ZLM online checks, and
-  browser ICE configuration fetch overlaps local SDP offer creation;
+  runtime and binds the issued media session to that exact profile/purpose;
+  authorized follow-up WHEP/diagnostic/compatibility requests reuse the
+  session-bound deterministic stream reference instead of repeating ZLM online
+  checks or accepting a later quality parameter as a profile switch; browser
+  ICE configuration fetch overlaps local SDP offer creation;
 - a transport is not considered successfully attached until the browser
   renders a first video frame; WebRTC first-frame timeout falls back to HLS,
   while HLS first-frame timeout becomes an actionable playback failure;

@@ -42,13 +42,21 @@ def test_media_session_is_owner_camera_scoped_and_revocable() -> None:
     )
     user_id = uuid.uuid4()
     camera_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
     session_id = registry.issue(
         owner_user_id=user_id,
         camera_id=camera_id,
         ttl_seconds=30,
+        profile_id=profile_id,
+        purpose="LIVE_HIGH",
     )
 
     assert registry.active(session_id)
+    assert registry.stream_context(
+        session_id,
+        owner_user_id=user_id,
+        camera_id=camera_id,
+    ) == (profile_id, "LIVE_HIGH")
     assert registry.authorize(
         session_id,
         owner_user_id=user_id,

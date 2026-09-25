@@ -500,15 +500,19 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         )
         assert descriptor.status_code == 200
         assert captured["ensure_calls"] == 1
-        media_session_id = descriptor.json()[
+        descriptor_body = descriptor.json()
+        media_session_id = descriptor_body[
             "media_session_id"
+        ]
+        selected_profile_id = descriptor_body[
+            "profile_id"
         ]
 
         offer = "v=0\r\no=- 1 1 IN IP4 127.0.0.1\r\n"
         whep = client.post(
             (
                 f"/api/v1/cameras/{camera_id}/live/whep"
-                f"?quality=high&media_session_id={media_session_id}"
+                f"?quality=low&media_session_id={media_session_id}"
             ),
             headers={
                 "content-type": "application/sdp",
@@ -528,8 +532,9 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         )
 
         assert captured["app"] == "zero-nvr"
-        assert str(captured["stream"]).startswith(
+        assert captured["stream"] == (
             "profile-"
+            + selected_profile_id.replace("-", "")
         )
         assert captured["offer_sdp"] == offer
         assert captured["candidate_udp"] == "192.0.2.10:9000"

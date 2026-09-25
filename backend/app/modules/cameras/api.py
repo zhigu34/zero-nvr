@@ -3,7 +3,7 @@ from __future__ import annotations
 import ipaddress
 from dataclasses import dataclass
 import uuid
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from itsdangerous import BadData, URLSafeTimedSerializer
@@ -2017,7 +2017,6 @@ def _select_live_stream(
     quality: Literal["auto", "high", "low"],
     request: Request,
     session: Session,
-    ensure_runtime: bool = True,
 ) -> _LiveSelection:
     camera = CameraService.get_camera(
         session,
@@ -2095,53 +2094,46 @@ def _select_live_stream(
     runtime = CameraMediaRuntimeService(
         request.app.state.settings
     )
-    reference = runtime.reference_for(
-        camera_id=camera.id,
-        profile_id=profile.id,
+    desired = runtime.desired_streams(
+        session,
+        camera=camera,
     )
-
-    if ensure_runtime:
-        desired = runtime.desired_streams(
-            session,
-            camera=camera,
-        )
-        selected = next(
-            (
-                item
-                for item in desired
-                if item.profile_id == profile.id
+    selected = next(
+        (
+            item
+            for item in desired
+            if item.profile_id == profile.id
+        ),
+        None,
+    )
+    if selected is None:
+        raise ApiError(
+            status_code=409,
+            code="camera_live_stream_unavailable",
+            message=(
+                "Camera live stream is not "
+                "available."
             ),
-            None,
         )
-        if selected is None:
-            raise ApiError(
-                status_code=409,
-                code="camera_live_stream_unavailable",
-                message=(
-                    "Camera live stream is not "
-                    "available."
-                ),
-            )
 
-        try:
-            references = runtime.ensure_streams(
-                [selected]
-            )
-        except ZlmIntegrationError as exc:
-            raise ApiError(
-                status_code=exc.status_code,
-                code=exc.code,
-                message=str(exc),
-                details={},
-            ) from exc
-        reference = references[0]
+    try:
+        references = runtime.ensure_streams(
+            [selected]
+        )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
 
     return _LiveSelection(
         camera=camera,
         profile=profile,
         purpose=purpose,
         runtime=runtime,
-        reference=reference,
+        reference=references[0],
     )
 
 
@@ -2325,6 +2317,91 @@ def _require_live_media_session(
     )
 
 
+def _live_selection_for_media_session(
+    request: Request,
+    *,
+    media_session_id: uuid.UUID,
+    camera_id: uuid.UUID,
+    user_id: uuid.UUID,
+    session: Session,
+) -> _LiveSelection:
+    context = request.app.state.media_sessions.stream_context(
+        media_session_id,
+        owner_user_id=user_id,
+        camera_id=camera_id,
+    )
+    if context is None:
+        raise ApiError(
+            status_code=404,
+            code="media_session_not_found",
+            message=(
+                "Live media session was not found "
+                "or has expired."
+            ),
+        )
+
+    profile_id, raw_purpose = context
+    if raw_purpose not in {
+        "LIVE_HIGH",
+        "LIVE_LOW",
+        "RECORD",
+    }:
+        raise ApiError(
+            status_code=409,
+            code="media_session_stream_invalid",
+            message="Live media session stream binding is invalid.",
+        )
+    purpose = cast(LivePurpose, raw_purpose)
+
+    camera = CameraService.get_camera(
+        session,
+        camera_id,
+    )
+    if not camera.enabled:
+        raise ApiError(
+            status_code=409,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+
+    binding_valid = any(
+        binding.purpose == purpose
+        and binding.stream_profile_id == profile_id
+        for binding in camera.stream_bindings
+    )
+    profile = next(
+        (
+            item
+            for item in camera.stream_profiles
+            if item.id == profile_id
+        ),
+        None,
+    )
+    if not binding_valid or profile is None:
+        raise ApiError(
+            status_code=409,
+            code="media_session_stream_changed",
+            message=(
+                "Camera live stream binding changed; "
+                "start a new live session."
+            ),
+        )
+
+    runtime = CameraMediaRuntimeService(
+        request.app.state.settings
+    )
+    return _LiveSelection(
+        camera=camera,
+        profile=profile,
+        purpose=purpose,
+        runtime=runtime,
+        reference=runtime.reference_for(
+            camera_id=camera.id,
+            profile_id=profile.id,
+        ),
+    )
+
+
 @router.get(
     "/cameras/{camera_id}/live",
     response_model=CameraLiveStreamView,
@@ -2357,6 +2434,8 @@ def get_camera_live_stream(
             ttl_seconds=(
                 ZlmMediaAccess.live_ttl_seconds
             ),
+            profile_id=selection.profile.id,
+            purpose=selection.purpose,
         )
     )
     try:
@@ -2420,12 +2499,12 @@ def get_camera_live_diagnostics(
         camera_id=camera_id,
         user_id=context.user.id,
     )
-    selection = _select_live_stream(
+    selection = _live_selection_for_media_session(
+        request,
+        media_session_id=media_session_id,
         camera_id=camera_id,
-        quality=quality,
-        request=request,
+        user_id=context.user.id,
         session=session,
-        ensure_runtime=False,
     )
 
     try:
@@ -2598,12 +2677,12 @@ async def create_camera_whep_session(
             message="WebRTC offer SDP is invalid.",
         ) from exc
 
-    selection = _select_live_stream(
+    selection = _live_selection_for_media_session(
+        request,
+        media_session_id=media_session_id,
         camera_id=camera_id,
-        quality=quality,
-        request=request,
+        user_id=context.user.id,
         session=session,
-        ensure_runtime=False,
     )
     access = ZlmMediaAccess(
         request.app.state.settings
@@ -2777,12 +2856,12 @@ def create_camera_live_compatibility(
         camera_id=camera_id,
         user_id=context.user.id,
     )
-    selection = _select_live_stream(
+    selection = _live_selection_for_media_session(
+        request,
+        media_session_id=media_session_id,
         camera_id=camera_id,
-        quality=quality,
-        request=request,
+        user_id=context.user.id,
         session=session,
-        ensure_runtime=False,
     )
     access = ZlmMediaAccess(
         request.app.state.settings
