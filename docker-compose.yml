@@ -191,8 +191,8 @@ services:
         - CMD-SHELL
         - >-
           pg_isready
-          -U "$POSTGRES_USER"
-          -d "$POSTGRES_DB"
+          -U "${ZERO_NVR_POSTGRES_USER:-zero_nvr}"
+          -d "${ZERO_NVR_POSTGRES_DB:-zero_nvr}"
       interval: 10s
       timeout: 5s
       retries: 12
