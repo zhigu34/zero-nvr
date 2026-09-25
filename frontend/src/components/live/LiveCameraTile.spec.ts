@@ -120,8 +120,8 @@ describe("LiveCameraTile", () => {
   })
 
   it("revokes a stale descriptor returned after playback stops", async () => {
-    let resolveDescriptor:
-      ((value: CameraLiveStream) => void) | null = null
+    let resolveDescriptor!:
+      (value: CameraLiveStream) => void
     const pendingDescriptor = new Promise<CameraLiveStream>(
       (resolve) => {
         resolveDescriptor = resolve
@@ -154,8 +154,7 @@ describe("LiveCameraTile", () => {
     })
     await nextTick()
 
-    expect(resolveDescriptor).not.toBeNull()
-    resolveDescriptor?.(descriptor)
+    resolveDescriptor(descriptor)
     await flushPromises()
 
     expect(
