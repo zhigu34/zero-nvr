@@ -2291,6 +2291,55 @@ def _whep_candidate_udp(
     )
 
 
+def _live_track_metadata(
+    selection: _LiveSelection,
+    request: Request,
+) -> tuple[
+    str | None,
+    int | None,
+    int | None,
+    float | None,
+]:
+    codec = selection.profile.codec
+    width = selection.profile.width
+    height = selection.profile.height
+    fps = selection.profile.fps
+    if (
+        codec is not None
+        and width is not None
+        and height is not None
+        and fps is not None
+    ):
+        return codec, width, height, fps
+
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            probe = zlm.media_probe(
+                app=selection.reference.app,
+                stream=selection.reference.stream,
+                schema="rtsp",
+            )
+    except ZlmIntegrationError:
+        return codec, width, height, fps
+
+    video = (
+        probe.video
+        if probe is not None
+        else None
+    )
+    if video is None:
+        return codec, width, height, fps
+
+    return (
+        codec or video.codec,
+        width if width is not None else video.width,
+        height if height is not None else video.height,
+        fps if fps is not None else video.fps,
+    )
+
+
 def _live_transports(
     request: Request,
     *,
@@ -2507,6 +2556,11 @@ def get_camera_live_stream(
         "Cache-Control"
     ] = "private, no-store"
 
+    codec, width, height, fps = _live_track_metadata(
+        selection,
+        request,
+    )
+
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
@@ -2518,10 +2572,10 @@ def get_camera_live_stream(
         hls_url=hls_url,
         media_session_id=media_session_id,
         expires_at=expires_at,
-        codec=selection.profile.codec,
-        width=selection.profile.width,
-        height=selection.profile.height,
-        fps=selection.profile.fps,
+        codec=codec,
+        width=width,
+        height=height,
+        fps=fps,
         has_audio=selection.profile.has_audio,
         ice_servers=ice_servers,
         ice_error=ice_error,

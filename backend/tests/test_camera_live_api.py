@@ -67,6 +67,44 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         fake_ensure,
     )
 
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            assert app == "zero-nvr"
+            assert stream.startswith("profile-")
+            assert schema == "rtsp"
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h265",
+                    ready=True,
+                    width=2560,
+                    height=1440,
+                    fps=20.0,
+                ),
+                audio=None,
+            )
+
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
     with TestClient(app) as client:
         setup = client.post(
             "/api/v1/setup/administrator",
@@ -129,6 +167,10 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert low_body["expires_at"]
         assert low_body["ice_servers"] == []
         assert low_body["ice_error"] is None
+        assert low_body["codec"] == "h265"
+        assert low_body["width"] == 2560
+        assert low_body["height"] == 1440
+        assert low_body["fps"] == 20.0
 
         high = client.get(
             f"/api/v1/cameras/{camera_id}/live?quality=high"

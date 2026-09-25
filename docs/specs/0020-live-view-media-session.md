@@ -261,6 +261,10 @@ Live page baseline:
   ensures the selected profile's ZLM source runtime; before returning the
   descriptor it briefly waits for ZLM's allow-listed media probe to report a
   ready video track, whether the pull was just created or was already online;
+  when persisted profile codec/dimensions/fps are missing, the descriptor fills
+  only those missing capability fields from that already-ready ZLM probe so the
+  browser can skip transports known to be incompatible with the actual source
+  codec instead of learning through timeout/failure;
   this prevents the browser's first WHEP/HLS attempt from racing the gap
   between stream registration and video-track readiness; the bounded wait
   reuses ZLM state and does not introduce a second reconnect engine;
