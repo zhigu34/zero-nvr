@@ -448,7 +448,39 @@ async function handleBatchFile(event: Event): Promise<void> {
 
 function downloadBatchTemplate(): void {
   const csv = [
-    "type,name,host,onvif_port,rtsp_port,username,password,main_path,sub_path,main_url,sub_url,location,storage_label"
+    "type,name,host,onvif_port,rtsp_port,username,password,main_path,sub_path,main_url,sub_url,location,storage_label,remark",
+    [
+      "onvif",
+      "Front Door",
+      "192.168.1.50",
+      "80",
+      "",
+      "admin",
+      "password",
+      "",
+      "",
+      "",
+      "",
+      "Entrance",
+      "front",
+      t("cameras.onboarding.csvExampleRemark")
+    ].join(","),
+    [
+      "rtsp",
+      "Garage",
+      "192.168.1.60",
+      "",
+      "554",
+      "admin",
+      "password",
+      "/Streaming/Channels/101",
+      "/Streaming/Channels/102",
+      "",
+      "",
+      "Garage",
+      "garage",
+      t("cameras.onboarding.csvExampleRemark")
+    ].join(",")
   ].join("\r\n")
   const url = URL.createObjectURL(
     new Blob([csv], { type: "text/csv;charset=utf-8" })

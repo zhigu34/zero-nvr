@@ -651,7 +651,7 @@ The canonical CSV device fields are:
 
 ```text
 type,name,host,onvif_port,rtsp_port,username,password,
-main_path,sub_path,main_url,sub_url,location,storage_label
+main_path,sub_path,main_url,sub_url,location,storage_label,remark
 ```
 
 ONVIF rows reuse `host`, `username`, and `password`, with
@@ -660,8 +660,10 @@ with `rtsp_port` defaulting to 554. Normal RTSP rows provide
 `main_path` / `sub_path`; zero-nvr URL-encodes credentials and builds the
 RTSP URLs from the shared host/port. `main_url` / `sub_url` are advanced
 full-URL overrides for devices whose stream syntax cannot be represented by
-the normal path fields. The downloaded template contains the header only, so
-sample rows cannot be accidentally imported.
+the normal path fields. The final `remark` column is ignored by import and is
+reserved for operator guidance/notes. The downloaded template includes one
+ONVIF and one RTSP example row; their `remark` cells explicitly tell the
+operator to replace the sample data or delete those rows before importing.
 
 Every valid row is then executed through the existing canonical single-device
 onboarding path: ONVIF rows retain identity inspection/deduplication and
