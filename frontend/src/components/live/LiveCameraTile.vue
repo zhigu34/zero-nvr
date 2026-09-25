@@ -1144,7 +1144,7 @@ async function attachWebRtc(
       answerAppliedAt
     )
 
-    peer.onconnectionstatechange = () => {
+    const handleEstablishedConnectionFailure = () => {
       if (
         rtcPeer !== peer ||
         peer.connectionState !== "failed" ||
@@ -1161,7 +1161,9 @@ async function attachWebRtc(
       destroyPlayer()
       scheduleReconnect()
     }
-    peer.onconnectionstatechange()
+    peer.onconnectionstatechange =
+      handleEstablishedConnectionFailure
+    handleEstablishedConnectionFailure()
   } catch (caught) {
     if (rtcPeer === peer) {
       releaseWebRtcSession()
