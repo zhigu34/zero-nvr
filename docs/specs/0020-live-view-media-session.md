@@ -267,9 +267,11 @@ Live page baseline:
   successful no-op, so descriptor state can never report success while no media
   target exists;
 - a transport is not considered successfully attached until the browser
-  renders a first video frame; WebRTC first-frame timeout or connection failure
-  before that first frame falls back to HLS, while a WebRTC connection failure
-  after successful attachment uses the normal reconnect path; when the original
+  renders a first video frame; an explicit WebRTC connection-state or ICE-state
+  `failed` before that first frame falls back to HLS immediately instead of
+  waiting for the first-frame timeout, while the same explicit failure after
+  successful attachment uses the normal reconnect path; transient ICE states
+  such as `checking` or `disconnected` are not terminal failures; when the original
   HLS path fails before its first frame, the browser makes one bounded attempt
   to use the existing H.264 compatibility derivative before surfacing failure
   and reconnecting; this runtime fallback does not recursively transcode;

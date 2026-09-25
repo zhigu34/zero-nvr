@@ -903,6 +903,7 @@ function releaseWebRtcSession(): void {
   if (peer) {
     peer.ontrack = null
     peer.onconnectionstatechange = null
+    peer.oniceconnectionstatechange = null
     peer.close()
   }
   if (location) {
@@ -982,6 +983,15 @@ function waitForIceGatheringComplete(
   })
 }
 
+function webRtcPeerFailed(
+  peer: RTCPeerConnection
+): boolean {
+  return (
+    peer.connectionState === "failed" ||
+    peer.iceConnectionState === "failed"
+  )
+}
+
 function webRtcConnectionFailure(
   peer: RTCPeerConnection,
   iceServerFailure: string | null
@@ -1010,7 +1020,7 @@ async function waitForWebRtcFirstFrame(
       rtcPeer !== peer ||
       generation !== attemptGeneration ||
       playbackSuspended.value ||
-      peer.connectionState !== "failed"
+      !webRtcPeerFailed(peer)
     ) {
       return
     }
@@ -1036,6 +1046,10 @@ async function waitForWebRtcFirstFrame(
     "connectionstatechange",
     handleConnectionFailure
   )
+  peer.addEventListener(
+    "iceconnectionstatechange",
+    handleConnectionFailure
+  )
   handleConnectionFailure()
 
   try {
@@ -1052,6 +1066,10 @@ async function waitForWebRtcFirstFrame(
   } finally {
     peer.removeEventListener(
       "connectionstatechange",
+      handleConnectionFailure
+    )
+    peer.removeEventListener(
+      "iceconnectionstatechange",
       handleConnectionFailure
     )
     rejectConnectionFailure = null
@@ -1180,7 +1198,7 @@ async function attachWebRtc(
     const handleEstablishedConnectionFailure = () => {
       if (
         rtcPeer !== peer ||
-        peer.connectionState !== "failed" ||
+        !webRtcPeerFailed(peer) ||
         playbackSuspended.value
       ) {
         return
@@ -1195,6 +1213,8 @@ async function attachWebRtc(
       scheduleReconnect()
     }
     peer.onconnectionstatechange =
+      handleEstablishedConnectionFailure
+    peer.oniceconnectionstatechange =
       handleEstablishedConnectionFailure
     handleEstablishedConnectionFailure()
   } catch (caught) {
