@@ -1336,6 +1336,8 @@ async function attachPreferredStream(
     detectLivePlaybackCapabilities(video.value)
   )
 
+  let webRtcDiagnostic: Promise<string> | null = null
+
   if (transports.includes("webrtc")) {
     try {
       await attachWebRtc(
@@ -1353,11 +1355,14 @@ async function attachPreferredStream(
       if (caught instanceof FirstFrameTimeoutError) {
         const initial = caught.message
         lastWebRtcFailure.value = initial
-        void firstFrameTimeoutReason(caught).then((reason) => {
-          if (lastWebRtcFailure.value === initial) {
-            lastWebRtcFailure.value = reason
+        webRtcDiagnostic = firstFrameTimeoutReason(caught).then(
+          (reason) => {
+            if (lastWebRtcFailure.value === initial) {
+              lastWebRtcFailure.value = reason
+            }
+            return reason
           }
-        })
+        )
       } else {
         lastWebRtcFailure.value = liveDiagnosticMessage(caught)
       }
@@ -1406,6 +1411,10 @@ async function attachPreferredStream(
       throw caught
     }
     const compatibilityFailure = liveDiagnosticMessage(caught)
+    if (webRtcDiagnostic) {
+      await webRtcDiagnostic
+      requireActivePlayback(attemptGeneration)
+    }
     const fallbackFailure = originalHlsFailure
       ? t("live.tile.errors.compatibilityFallbackFailed", {
           hls: originalHlsFailure,

@@ -293,7 +293,11 @@ Live page baseline:
   no source URL or credentials;
 - first-frame timeout performs an on-demand, permission-gated ZLM media
   diagnostic that distinguishes source offline, missing video track, video
-  track not ready, and browser-side delivery/decoding failure; diagnostics
+  track not ready, and browser-side delivery/decoding failure; WebRTC fallback
+  starts immediately without waiting for this diagnostic, but if HLS and the
+  compatibility derivative also fail, the final combined error waits for the
+  already-running WebRTC diagnostic so its actionable root-cause context is not
+  lost; diagnostics
   expose only allow-listed track metadata and never source URLs or credentials;
 - minimal overlay clutter by default.
 
