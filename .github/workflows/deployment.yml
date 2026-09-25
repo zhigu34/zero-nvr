@@ -189,6 +189,7 @@ jobs:
           ZERO_NVR_ENV_FILE="$PWD/.env" ./scripts/render-zlm-config.sh
           grep -Fxq "apiDebug=0" deploy/zlm/config.ini
           grep -Fxq "enableFmp4=1" deploy/zlm/config.ini
+          grep -Fxq "directProxy=0" deploy/zlm/config.ini
           grep -Fxq \
             "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" \
             deploy/zlm/config.ini

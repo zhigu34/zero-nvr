@@ -77,6 +77,9 @@ awk '
   section=="record" && /^enableFmp4=/ {
     print "enableFmp4=1"; next
   }
+  section=="rtsp" && /^directProxy=/ {
+    print "directProxy=0"; next
+  }
   section=="rtc" && /^externIP=/ {
     print "externIP=" ENVIRON["ZERO_NVR_ZLM_WEBRTC_EXTERN_IP"]; next
   }
@@ -93,6 +96,7 @@ grep -Fxq "apiDebug=0" "$rendered"
 grep -Fxq "secret=$api_secret" "$rendered"
 grep -Fxq "mediaServerId=$hook_secret" "$rendered"
 grep -Fxq "enableFmp4=1" "$rendered"
+grep -Fxq "directProxy=0" "$rendered"
 grep -Fxq "externIP=$webrtc_extern_ip" "$rendered"
 grep -Fxq "port=$webrtc_port" "$rendered"
 grep -Fxq "tcpPort=$webrtc_port" "$rendered"

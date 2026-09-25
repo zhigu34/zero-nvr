@@ -136,9 +136,20 @@ For managed ZLMediaKit, zero-nvr generates the small owned configuration overlay
 ~~~ini
 [record]
 enableFmp4=1
+
+[rtsp]
+directProxy=0
 ~~~
 
-together with the zero-nvr API/hook secret and required hook URLs. The image's remaining upstream defaults are preserved unless zero-nvr owns a documented setting.
+`rtsp.directProxy=0` is intentionally owned by zero-nvr because ZLMediaKit
+recommends disabling RTSP direct proxy when RTSP sources are played through
+WebRTC; direct proxy can omit codec parameter sets or retain RTP packetization
+that WebRTC cannot consume reliably. The rendered config therefore does not
+inherit this value from the upstream image.
+
+This is combined with the zero-nvr API/hook secret and required hook URLs. The
+image's remaining upstream defaults are preserved unless zero-nvr owns a
+documented setting.
 
 ## Docker security boundary
 
