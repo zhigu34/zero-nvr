@@ -289,13 +289,30 @@ const messages = {
           mediaSessionUnavailable: "Live media session is unavailable.",
           webRtcInterrupted:
             "WebRTC was interrupted. Reconnecting automatically.",
+          webRtcConnectionFailed:
+            "WebRTC connection failed (ICE state: {ice}).",
+          webRtcIceConfigFailed:
+            "{connection} ICE/TURN configuration also failed: {reason}",
           offerUnavailable: "WebRTC offer SDP is unavailable.",
           sessionSuperseded: "WebRTC session was superseded.",
           hlsUnsupported: "This browser cannot play the live HLS stream.",
           streamInterrupted:
             "Live stream was interrupted. Reconnecting automatically.",
           playbackFailed:
-            "Live stream playback failed. Reconnecting automatically."
+            "Live stream playback failed. Reconnecting automatically.",
+          transportFallbackFailed:
+            "WebRTC: {webrtc} · HLS: {fallback}",
+          hlsFatal:
+            "HLS fatal error: {details}",
+          unknownPlaybackFailure:
+            "unknown playback failure",
+          media: {
+            aborted: "Playback was aborted by the browser.",
+            network: "The browser reported a network error while loading live video.",
+            decode: "The browser could not decode the live video stream.",
+            unsupported: "The browser does not support this live video source or codec.",
+            unknown: "The browser reported an unknown live video playback error."
+          }
         }
       }
     },
@@ -1835,11 +1852,23 @@ const messages = {
           videoUnavailable: "实时视频组件不可用。",
           mediaSessionUnavailable: "实时媒体会话不可用。",
           webRtcInterrupted: "WebRTC 已中断，正在自动重连。",
+          webRtcConnectionFailed: "WebRTC 连接失败（ICE 状态：{ice}）。",
+          webRtcIceConfigFailed: "{connection} 同时无法获取 ICE/TURN 配置：{reason}",
           offerUnavailable: "WebRTC Offer SDP 不可用。",
           sessionSuperseded: "WebRTC 会话已被新的会话替代。",
           hlsUnsupported: "当前浏览器无法播放实时 HLS 视频流。",
           streamInterrupted: "实时视频流已中断，正在自动重连。",
-          playbackFailed: "实时视频播放失败，正在自动重连。"
+          playbackFailed: "实时视频播放失败，正在自动重连。",
+          transportFallbackFailed: "WebRTC：{webrtc} · HLS：{fallback}",
+          hlsFatal: "HLS 致命错误：{details}",
+          unknownPlaybackFailure: "未知播放错误",
+          media: {
+            aborted: "浏览器中止了实时视频播放。",
+            network: "浏览器加载实时视频时发生网络错误。",
+            decode: "浏览器无法解码实时视频流。",
+            unsupported: "浏览器不支持当前实时视频源或编码格式。",
+            unknown: "浏览器报告了未知的实时视频播放错误。"
+          }
         }
       }
     },

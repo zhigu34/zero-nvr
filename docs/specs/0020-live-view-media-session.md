@@ -208,6 +208,9 @@ Live page baseline:
 - snapshot;
 - PTZ drawer/overlay when authorized;
 - quality/manual protocol diagnostics in advanced view;
+- live setup/playback failures show a sanitized actionable reason in the tile,
+  preserving backend error code/request ID and WebRTC/HLS fallback context
+  without exposing media URLs, tokens, or credentials;
 - minimal overlay clutter by default.
 
 ## Acceptance tests

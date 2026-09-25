@@ -15,7 +15,10 @@ import {
   stopCameraPtz,
   type CameraSummary
 } from "../../api/cameras"
-import { errorMessage } from "../../api/client"
+import {
+  ApiClientError,
+  errorMessage
+} from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
 import {
   cameraSnapshotUrl,
@@ -91,6 +94,7 @@ interface LiveTelemetry {
 
 const reconnecting = ref(false)
 const activeTransport = ref<"webrtc" | "hls" | null>(null)
+const lastWebRtcFailure = ref<string | null>(null)
 const telemetry = ref<LiveTelemetry>({
   bitrateKbps: null,
   packetLossPct: null,
@@ -533,6 +537,64 @@ function activateCompatibilityLease(
   )
 }
 
+function liveDiagnosticMessage(caught: unknown): string {
+  if (caught instanceof ApiClientError) {
+    const code = caught.code ? ` [${caught.code}]` : ""
+    const requestId = caught.requestId
+      ? ` · request ${caught.requestId}`
+      : ""
+    return `${caught.message}${code}${requestId}`
+  }
+  return errorMessage(caught)
+}
+
+function combinedTransportFailure(
+  fallback: string
+): string {
+  return lastWebRtcFailure.value
+    ? t("live.tile.errors.transportFallbackFailed", {
+        webrtc: lastWebRtcFailure.value,
+        fallback
+      })
+    : fallback
+}
+
+function hlsFatalReason(data: {
+  type?: string
+  details?: string
+  response?: { code?: number }
+}): string {
+  const details = [
+    data.type,
+    data.details,
+    typeof data.response?.code === "number"
+      ? `HTTP ${data.response.code}`
+      : null
+  ].filter(Boolean).join(" · ")
+
+  return t("live.tile.errors.hlsFatal", {
+    details: details || t("live.tile.errors.unknownPlaybackFailure")
+  })
+}
+
+function nativeVideoFailure(): string {
+  const mediaError = video.value?.error
+  if (!mediaError) {
+    return t("live.tile.errors.playbackFailed")
+  }
+
+  const key = mediaError.code === 1
+    ? "aborted"
+    : mediaError.code === 2
+      ? "network"
+      : mediaError.code === 3
+        ? "decode"
+        : mediaError.code === 4
+          ? "unsupported"
+          : "unknown"
+  return t(`live.tile.errors.media.${key}`)
+}
+
 function releaseWebRtcSession(): void {
   clearStatsTimer()
   const peer = rtcPeer
@@ -644,6 +706,7 @@ async function attachWebRtc(
   }
 
   let iceServers: RTCIceServer[] = []
+  let iceServerFailure: string | null = null
   try {
     const ice = await getCameraIceServers(
       props.camera.id,
@@ -656,8 +719,9 @@ async function attachWebRtc(
         credential: server.credential
       })
     )
-  } catch {
+  } catch (caught) {
     // TURN is optional. Direct LAN WebRTC must remain available.
+    iceServerFailure = liveDiagnosticMessage(caught)
   }
 
   const peer = new RTCPeerConnection({
@@ -688,8 +752,16 @@ async function attachWebRtc(
     ) {
       return
     }
-    error.value =
-      t("live.tile.errors.webRtcInterrupted")
+    const connectionFailure = t(
+      "live.tile.errors.webRtcConnectionFailed",
+      { ice: peer.iceConnectionState }
+    )
+    error.value = iceServerFailure
+      ? t("live.tile.errors.webRtcIceConfigFailed", {
+          connection: connectionFailure,
+          reason: iceServerFailure
+        })
+      : connectionFailure
     descriptor.value = null
     loading.value = false
     destroyPlayer()
@@ -769,8 +841,9 @@ async function attachHls(
     ) {
       return
     }
-    error.value =
-      t("live.tile.errors.streamInterrupted")
+    error.value = combinedTransportFailure(
+      hlsFatalReason(data)
+    )
     descriptor.value = null
     loading.value = false
     destroyPlayer()
@@ -793,15 +866,23 @@ async function attachPreferredStream(
   if (transports.includes("webrtc")) {
     try {
       await attachWebRtc(stream)
+      lastWebRtcFailure.value = null
       return stream
-    } catch {
+    } catch (caught) {
       // WHEP is preferred but never blocks a compatible HLS fallback.
+      lastWebRtcFailure.value = liveDiagnosticMessage(caught)
     }
   }
 
   if (transports.includes("hls")) {
-    await attachHls(stream)
-    return stream
+    try {
+      await attachHls(stream)
+      return stream
+    } catch (caught) {
+      throw new Error(
+        combinedTransportFailure(liveDiagnosticMessage(caught))
+      )
+    }
   }
 
   const mediaSessionId = activeMediaSessionId
@@ -896,6 +977,7 @@ async function loadStream(): Promise<void> {
   hls = null
   descriptor.value = null
   error.value = null
+  lastWebRtcFailure.value = null
   loading.value = true
   playing.value = false
 
@@ -930,7 +1012,7 @@ async function loadStream(): Promise<void> {
     ) {
       return
     }
-    error.value = errorMessage(caught)
+    error.value = liveDiagnosticMessage(caught)
     releaseWebRtcSession()
     releaseCompatibilityLease()
     releaseMediaSession()
@@ -994,8 +1076,9 @@ function handleVideoError(): void {
   ) {
     return
   }
-  error.value =
-    t("live.tile.errors.playbackFailed")
+  error.value = combinedTransportFailure(
+    nativeVideoFailure()
+  )
   descriptor.value = null
   destroyPlayer()
   scheduleReconnect()

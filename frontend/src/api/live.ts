@@ -1,4 +1,8 @@
-import { apiRequest } from "./client"
+import {
+  ApiClientError,
+  apiRequest,
+  type ApiErrorBody
+} from "./client"
 
 export type LiveQuality = "auto" | "high" | "low"
 
@@ -106,6 +110,30 @@ export interface CameraWhepSession {
   location: string
 }
 
+async function throwLiveHttpError(
+  response: Response,
+  fallback: string
+): Promise<never> {
+  const contentType = response.headers.get("content-type") ?? ""
+  let payload: ApiErrorBody | undefined
+  if (contentType.includes("application/json")) {
+    try {
+      payload = (await response.json()) as ApiErrorBody
+    } catch {
+      payload = undefined
+    }
+  }
+  const error = payload?.error
+  throw new ApiClientError(
+    response.status,
+    error?.code ?? "http_error",
+    error?.message ?? `${fallback} (${response.status})`,
+    error?.details ?? {},
+    error?.request_id ??
+      response.headers.get("x-request-id")
+  )
+}
+
 export async function createCameraWhepSession(
   cameraId: string,
   quality: LiveQuality,
@@ -130,8 +158,9 @@ export async function createCameraWhepSession(
   )
 
   if (!response.ok) {
-    throw new Error(
-      `WebRTC negotiation failed with status ${response.status}.`
+    await throwLiveHttpError(
+      response,
+      "WebRTC negotiation failed"
     )
   }
 
