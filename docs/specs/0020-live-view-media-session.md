@@ -214,6 +214,11 @@ Live page baseline:
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;
+- the initial `/live` descriptor carries the authorized short-lived
+  ICE/TURN server bundle so first playback does not require a separate
+  `/live/ice` round trip; the legacy ICE endpoint remains available for
+  compatibility/explicit refresh, and TURN configuration failure is reported
+  non-blockingly so direct LAN WebRTC can still proceed;
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
 - only the initial `/live` descriptor request resolves credentials for and

@@ -20,6 +20,8 @@ export interface CameraLiveStream {
   height: number | null
   fps: number | null
   has_audio: boolean
+  ice_servers: CameraIceServer[]
+  ice_error: string | null
   compatibility?: "h264_transcode" | null
   compatibility_lease_id?: string | null
   compatibility_acceleration?: "cpu" | "nvenc" | "vaapi" | null

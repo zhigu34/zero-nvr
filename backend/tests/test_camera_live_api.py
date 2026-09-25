@@ -108,6 +108,7 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
             f"/api/v1/cameras/{camera_id}/live?quality=low"
         )
         assert low.status_code == 200
+        assert low.headers["cache-control"] == "private, no-store"
         low_body = low.json()
         assert low_body["purpose"] == "LIVE_LOW"
         assert low_body["transport"] == "hls"
@@ -121,6 +122,8 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert "zn_sid=" in low_body["hls_url"]
         assert low_body["media_session_id"]
         assert low_body["expires_at"]
+        assert low_body["ice_servers"] == []
+        assert low_body["ice_error"] is None
 
         high = client.get(
             f"/api/v1/cameras/{camera_id}/live?quality=high"
@@ -857,6 +860,28 @@ def test_live_ice_servers_require_authorized_media_session(
             },
         )
         assert tuning.status_code == 200
+
+        descriptor_with_turn = client.get(
+            f"/api/v1/cameras/{camera_id}/live"
+        )
+        assert descriptor_with_turn.status_code == 200
+        turn_descriptor = descriptor_with_turn.json()
+        assert turn_descriptor["ice_error"] is None
+        assert len(turn_descriptor["ice_servers"]) == 1
+        descriptor_server = turn_descriptor["ice_servers"][0]
+        assert descriptor_server["urls"] == [
+            (
+                "turn:relay.example.test:3478"
+                "?transport=udp"
+            ),
+            (
+                "turn:relay.example.test:3478"
+                "?transport=tcp"
+            ),
+        ]
+        assert descriptor_server["username"].startswith("1120:")
+        assert descriptor_server["credential"]
+        assert "t" * 40 not in descriptor_with_turn.text
 
         enabled = client.get(
             (

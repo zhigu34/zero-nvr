@@ -318,6 +318,13 @@ class OnvifImportResult(BaseModel):
     cameras: list[CameraDetail]
 
 
+class CameraIceServerView(BaseModel):
+    urls: list[str]
+    username: str
+    credential: str
+    expires_at: datetime
+
+
 class CameraLiveStreamView(BaseModel):
     camera_id: uuid.UUID
     profile_id: uuid.UUID
@@ -339,6 +346,10 @@ class CameraLiveStreamView(BaseModel):
     height: int | None
     fps: float | None
     has_audio: bool
+    ice_servers: list[CameraIceServerView] = Field(
+        default_factory=list
+    )
+    ice_error: str | None = None
     compatibility: Literal[
         "h264_transcode"
     ] | None = None
@@ -368,13 +379,6 @@ class CameraLiveDiagnosticView(BaseModel):
     width: int | None = None
     height: int | None = None
     fps: float | None = None
-
-
-class CameraIceServerView(BaseModel):
-    urls: list[str]
-    username: str
-    credential: str
-    expires_at: datetime
 
 
 class CameraIceServersView(BaseModel):

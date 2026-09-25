@@ -2393,6 +2393,7 @@ def _live_selection_for_media_session(
 def get_camera_live_stream(
     camera_id: uuid.UUID,
     request: Request,
+    response: Response,
     quality: Literal[
         "auto",
         "high",
@@ -2422,6 +2423,38 @@ def get_camera_live_stream(
             purpose=selection.purpose,
         )
     )
+    ice_servers: list[CameraIceServerView] = []
+    ice_error: str | None = None
+    if request.app.state.settings.turn_enabled:
+        try:
+            runtime_tuning = (
+                RuntimeTuningSettingsService.get(
+                    session,
+                    settings=request.app.state.settings,
+                )
+            )
+            bundle = TurnCredentialService(
+                request.app.state.settings
+            ).issue(
+                user_id=context.user.id,
+                request_host=request.url.hostname,
+                credential_ttl_seconds=(
+                    runtime_tuning
+                    .turn_credential_ttl_seconds
+                ),
+            )
+            if bundle is not None:
+                ice_servers = [
+                    CameraIceServerView(
+                        urls=bundle.urls,
+                        username=bundle.username,
+                        credential=bundle.credential,
+                        expires_at=bundle.expires_at,
+                    )
+                ]
+        except TurnConfigurationError as exc:
+            ice_error = str(exc)
+
     try:
         hls_url, expires_at = ZlmMediaAccess(
             request.app.state.settings
@@ -2442,6 +2475,10 @@ def get_camera_live_stream(
         )
         raise
 
+    response.headers[
+        "Cache-Control"
+    ] = "private, no-store"
+
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
@@ -2454,6 +2491,8 @@ def get_camera_live_stream(
         height=selection.profile.height,
         fps=selection.profile.fps,
         has_audio=selection.profile.has_audio,
+        ice_servers=ice_servers,
+        ice_error=ice_error,
     )
 
 
