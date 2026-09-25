@@ -6,7 +6,7 @@ x-zero-nvr-common: &zero-nvr-common
     context: .
     dockerfile: backend/Dockerfile
     args:
-      NODE_BASE_IMAGE: ${ZERO_NVR_NODE_BASE_IMAGE:-node:22-bookworm-slim}
+      NODE_BASE_IMAGE: ${ZERO_NVR_NODE_BASE_IMAGE:-node:22-alpine}
       PYTHON_BASE_IMAGE: ${ZERO_NVR_PYTHON_BASE_IMAGE:-python:3.12-slim}
       DEBIAN_MIRROR: ${DEBIAN_MIRROR:-http://deb.debian.org/debian}
       DEBIAN_SECURITY_MIRROR: ${DEBIAN_SECURITY_MIRROR:-http://deb.debian.org/debian-security}

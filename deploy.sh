@@ -97,7 +97,7 @@ ensure_image_available() {
 }
 
 prepare_core_build_inputs() {
-  ensure_image_available "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-bookworm-slim")"
+  ensure_image_available "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
   ensure_image_available "$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
 }
 
@@ -118,7 +118,7 @@ prepare_buildx() {
 
 core_docker_build_args() {
   CORE_DOCKER_BUILD_ARGS=(
-    --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-bookworm-slim")"
+    --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
     --build-arg "PYTHON_BASE_IMAGE=$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
     --build-arg "DEBIAN_MIRROR=$(env_get DEBIAN_MIRROR "http://deb.debian.org/debian")"
     --build-arg "DEBIAN_SECURITY_MIRROR=$(env_get DEBIAN_SECURITY_MIRROR "http://deb.debian.org/debian-security")"

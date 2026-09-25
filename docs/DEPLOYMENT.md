@@ -69,7 +69,7 @@ Compose profiles should map deployment features to their independent services. T
 
 The Core build follows the same local-first pattern used by camera-recorder:
 
-- `node:22-bookworm-slim` and `python:3.12-slim` are the default build bases;
+- `node:22-alpine` and `python:3.12-slim` are the default build bases;
 - a matching local base image is reused without an explicit deploy-time pull;
 - image builds pin Docker Buildx to the local `default` builder (matching
   camera-recorder), and Compose uses `--builder default` when supported;

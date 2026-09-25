@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-ARG NODE_BASE_IMAGE=node:22-bookworm-slim
+ARG NODE_BASE_IMAGE=node:22-alpine
 ARG PYTHON_BASE_IMAGE=python:3.12-slim
 
 FROM ${NODE_BASE_IMAGE} AS frontend-builder
