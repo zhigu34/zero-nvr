@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   getReleaseReadiness,
@@ -11,6 +12,8 @@ import {
 } from "../../api/system"
 import { errorMessage } from "../../api/client"
 import UiIcon from "../ui/UiIcon.vue"
+
+const { locale, t } = useI18n({ useScope: "global" })
 
 const validation = ref<ReleaseValidation | null>(null)
 const readiness = ref<ReleaseReadiness | null>(null)
@@ -83,8 +86,8 @@ function statusClass(
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return "Never"
-  return new Intl.DateTimeFormat(undefined, {
+  if (!value) return t("system.releaseValidation.never")
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -154,9 +157,17 @@ const readinessCommand = computed(
 )
 
 function readinessName(name: ReleaseReadinessCheck["name"]): string {
-  if (name === "benchmark") return "Camera benchmark"
-  if (name === "soak") return "Recording soak"
-  return "Verified backup"
+  if (name === "benchmark") return t("system.releaseValidation.cameraBenchmark")
+  if (name === "soak") return t("system.releaseValidation.recordingSoak")
+  return t("system.releaseValidation.verifiedBackup")
+}
+
+function artifactStatusLabel(artifact: ReleaseValidationArtifact): string {
+  const value = artifactStatus(artifact)
+  if (value === "PASS") return t("system.releaseValidation.pass")
+  if (value === "FAIL") return t("system.releaseValidation.fail")
+  if (value === "MISSING") return t("system.releaseValidation.missing")
+  return t("system.releaseValidation.invalid")
 }
 
 function readinessDetail(check: ReleaseReadinessCheck): string {
@@ -169,7 +180,7 @@ function readinessDetail(check: ReleaseReadinessCheck): string {
   }
   if (timestamp) return formatTime(timestamp)
   if (profile) return profile
-  return check.passed ? "Current" : check.code
+  return check.passed ? t("system.releaseValidation.current") : check.code
 }
 
 async function selectReadinessTarget(target: 8 | 16): Promise<void> {
@@ -232,9 +243,9 @@ onMounted(() => {
   <section class="release-validation-panel">
     <header class="system-page-header">
       <div>
-        <strong>Release validation</strong>
+        <strong>{{ t("system.releaseValidation.title") }}</strong>
         <span>
-          Latest host-run 8/16-camera benchmark and recording soak reports.
+          {{ t("system.releaseValidation.description") }}
         </span>
       </div>
       <button
@@ -244,7 +255,7 @@ onMounted(() => {
         @click="refresh"
       >
         <UiIcon name="refresh" :size="14" />
-        {{ loading ? "Refreshing…" : "Refresh" }}
+        {{ loading ? t("system.releaseValidation.refreshing") : t("system.releaseValidation.refresh") }}
       </button>
     </header>
 
@@ -260,11 +271,11 @@ onMounted(() => {
       <article class="release-validation-card">
         <header>
           <div>
-            <strong>Camera benchmark</strong>
+            <strong>{{ t("system.releaseValidation.cameraBenchmark") }}</strong>
             <span>
               {{
                 stringValue(benchmarkReport, "profile") ||
-                "No benchmark report"
+                t("system.releaseValidation.noBenchmark")
               }}
             </span>
           </div>
@@ -272,14 +283,14 @@ onMounted(() => {
             class="status-pill"
             :class="statusClass(validation.benchmark)"
           >
-            {{ artifactStatus(validation.benchmark) }}
+            {{ artifactStatusLabel(validation.benchmark) }}
           </span>
         </header>
 
         <template v-if="validation.benchmark.state === 'AVAILABLE'">
           <div class="release-validation-metrics">
             <div>
-              <span>Enabled cameras</span>
+              <span>{{ t("system.releaseValidation.enabledCameras") }}</span>
               <strong>
                 {{
                   numberValue(benchmarkRuntime, "enabled_cameras") ?? "—"
@@ -287,7 +298,7 @@ onMounted(() => {
               </strong>
             </div>
             <div>
-              <span>Active recorders</span>
+              <span>{{ t("system.releaseValidation.activeRecorders") }}</span>
               <strong>
                 {{
                   numberValue(benchmarkRuntime, "recorders_active") ?? "—"
@@ -295,7 +306,7 @@ onMounted(() => {
               </strong>
             </div>
             <div>
-              <span>Control peak</span>
+              <span>{{ t("system.releaseValidation.controlPeak") }}</span>
               <strong>
                 {{
                   formatBytes(
@@ -308,7 +319,7 @@ onMounted(() => {
               </strong>
             </div>
             <div>
-              <span>Core image size</span>
+              <span>{{ t("system.releaseValidation.coreImageSize") }}</span>
               <strong>
                 {{
                   formatBytes(
@@ -326,7 +337,7 @@ onMounted(() => {
             v-if="benchmarkFailures.length"
             class="release-validation-failures"
           >
-            <strong>Failures</strong>
+            <strong>{{ t("system.releaseValidation.failures") }}</strong>
             <span
               v-for="failure in benchmarkFailures"
               :key="failure"
@@ -339,14 +350,14 @@ onMounted(() => {
         <p v-else class="release-validation-card__empty">
           {{
             validation.benchmark.state === "MISSING"
-              ? "Run a host benchmark to create the first report."
-              : "The latest benchmark report is invalid; run the benchmark again."
+              ? t("system.releaseValidation.runBenchmark")
+              : t("system.releaseValidation.invalidBenchmark")
           }}
         </p>
 
         <footer>
           <span>
-            Updated {{ formatTime(validation.benchmark.updated_at) }}
+            {{ t("system.releaseValidation.updatedAt", { time: formatTime(validation.benchmark.updated_at) }) }}
           </span>
           <code>{{ validation.benchmark.command }}</code>
         </footer>
@@ -355,11 +366,11 @@ onMounted(() => {
       <article class="release-validation-card">
         <header>
           <div>
-            <strong>Recording soak</strong>
+            <strong>{{ t("system.releaseValidation.recordingSoak") }}</strong>
             <span>
               {{
                 stringValue(soakReport, "profile") ||
-                "No soak report"
+                t("system.releaseValidation.noSoak")
               }}
             </span>
           </div>
@@ -367,14 +378,14 @@ onMounted(() => {
             class="status-pill"
             :class="statusClass(validation.soak)"
           >
-            {{ artifactStatus(validation.soak) }}
+            {{ artifactStatusLabel(validation.soak) }}
           </span>
         </header>
 
         <template v-if="validation.soak.state === 'AVAILABLE'">
           <div class="release-validation-metrics">
             <div>
-              <span>Duration</span>
+              <span>{{ t("system.releaseValidation.duration") }}</span>
               <strong>
                 {{
                   formatDuration(
@@ -384,13 +395,13 @@ onMounted(() => {
               </strong>
             </div>
             <div>
-              <span>Samples</span>
+              <span>{{ t("system.releaseValidation.samples") }}</span>
               <strong>
                 {{ numberValue(soakReport, "sample_count") ?? "—" }}
               </strong>
             </div>
             <div>
-              <span>Failed samples</span>
+              <span>{{ t("system.releaseValidation.failedSamples") }}</span>
               <strong>
                 {{
                   numberValue(
@@ -401,7 +412,7 @@ onMounted(() => {
               </strong>
             </div>
             <div>
-              <span>Active recorders</span>
+              <span>{{ t("system.releaseValidation.activeRecorders") }}</span>
               <strong>
                 {{
                   numberValue(soakRuntime, "recorders_active") ?? "—"
@@ -414,7 +425,7 @@ onMounted(() => {
             v-if="soakFailures.length"
             class="release-validation-failures"
           >
-            <strong>Failures</strong>
+            <strong>{{ t("system.releaseValidation.failures") }}</strong>
             <span
               v-for="failure in soakFailures"
               :key="failure"
@@ -427,14 +438,14 @@ onMounted(() => {
         <p v-else class="release-validation-card__empty">
           {{
             validation.soak.state === "MISSING"
-              ? "Run a host soak to create the first report."
-              : "The latest soak report is invalid; run the soak again."
+              ? t("system.releaseValidation.runSoak")
+              : t("system.releaseValidation.invalidSoak")
           }}
         </p>
 
         <footer>
           <span>
-            Updated {{ formatTime(validation.soak.updated_at) }}
+            {{ t("system.releaseValidation.updatedAt", { time: formatTime(validation.soak.updated_at) }) }}
           </span>
           <code>{{ validation.soak.command }}</code>
         </footer>
@@ -444,11 +455,9 @@ onMounted(() => {
     <section class="release-validation-gate">
       <div class="release-validation-gate__heading">
         <div>
-          <strong>Production gate</strong>
+          <strong>{{ t("system.releaseValidation.productionGate") }}</strong>
           <span>
-            Read-only release readiness combines the current benchmark,
-            recording soak and latest verified backup for the deployment
-            class you intend to support.
+            {{ t("system.releaseValidation.productionGateHint") }}
           </span>
         </div>
 
@@ -461,7 +470,7 @@ onMounted(() => {
               :disabled="loading"
               @click="selectReadinessTarget(8)"
             >
-              8 cameras
+              {{ t("system.releaseValidation.cameras8") }}
             </button>
             <button
               class="button button--ghost button--compact"
@@ -470,7 +479,7 @@ onMounted(() => {
               :disabled="loading"
               @click="selectReadinessTarget(16)"
             >
-              16 cameras
+              {{ t("system.releaseValidation.cameras16") }}
             </button>
           </div>
 
@@ -486,10 +495,10 @@ onMounted(() => {
           >
             {{
               !readiness
-                ? "UNKNOWN"
+                ? t("system.releaseValidation.unknown")
                 : readiness.passed
-                  ? "READY"
-                  : "NOT READY"
+                  ? t("system.releaseValidation.ready")
+                  : t("system.releaseValidation.notReady")
             }}
           </span>
         </div>
@@ -516,7 +525,7 @@ onMounted(() => {
                 : 'status-pill--error'
             "
           >
-            {{ check.passed ? "PASS" : "BLOCKED" }}
+            {{ check.passed ? t("system.releaseValidation.pass") : t("system.releaseValidation.blocked") }}
           </span>
           <code v-if="!check.passed">{{ check.code }}</code>
         </article>
@@ -524,7 +533,7 @@ onMounted(() => {
 
       <div class="release-validation-gate__command">
         <div>
-          <span>Final host verification</span>
+          <span>{{ t("system.releaseValidation.finalHostVerification") }}</span>
           <code>{{ readinessCommand }}</code>
         </div>
         <button
@@ -534,8 +543,8 @@ onMounted(() => {
         >
           {{
             copiedCommand === readinessCommand
-              ? "Copied"
-              : "Copy"
+              ? t("system.releaseValidation.copied")
+              : t("system.releaseValidation.copy")
           }}
         </button>
       </div>
@@ -544,9 +553,7 @@ onMounted(() => {
     <div class="release-validation-panel__note">
       <UiIcon name="activity" :size="15" />
       <span>
-        The browser never starts Docker or host benchmarks. Run the shown
-        deploy.sh commands on the zero-nvr host; this page only reads the
-        latest persisted result.
+        {{ t("system.releaseValidation.hostOnlyHint") }}
       </span>
     </div>
   </section>

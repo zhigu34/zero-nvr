@@ -5,6 +5,7 @@ import {
   reactive,
   ref
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   createAlertPolicy,
@@ -26,6 +27,7 @@ import UiIcon from "../ui/UiIcon.vue"
 import { useAuthStore } from "../../stores/auth"
 
 const auth = useAuthStore()
+const { t } = useI18n({ useScope: "global" })
 
 const props = defineProps<{
   displayTimezone: string
@@ -115,22 +117,42 @@ function policyMatchSummary(item: AlertPolicy): string {
   const labels = stringArray(item.match.labels)
   const categories = stringArray(item.match.categories)
   const zones = stringArray(item.match.zones)
-  if (cameraIds.length) pieces.push(`${cameraIds.length} camera(s)`)
+  if (cameraIds.length) {
+    pieces.push(t("system.alertRules.cameraCount", { count: cameraIds.length }))
+  }
   if (labels.length) pieces.push(labels.join(", "))
   else if (categories.length) pieces.push(categories.join(", "))
-  if (zones.length) pieces.push(`zones: ${zones.join(", ")}`)
-  return pieces.join(" · ") || "All matching events"
+  if (zones.length) {
+    pieces.push(t("system.alertRules.zonesSummary", { zones: zones.join(", ") }))
+  }
+  return pieces.join(" · ") || t("system.alertRules.allMatchingEvents")
 }
 
 function policyActionSummary(item: AlertPolicy): string {
   const pieces: string[] = []
   const targets = stringArray(item.actions.notification_target_ids)
-  if (targets.length) pieces.push(`${targets.length} notification target(s)`)
-  if (item.actions.protect_recording === true) {
-    pieces.push("protect recording")
+  if (targets.length) {
+    pieces.push(t("system.alertRules.targetCount", { count: targets.length }))
   }
-  return pieces.join(" · ") || "Create alert only"
+  if (item.actions.protect_recording === true) {
+    pieces.push(t("system.alertRules.protectRecordingShort"))
+  }
+  return pieces.join(" · ") || t("system.alertRules.createAlertOnly")
 }
+
+function severityLabel(value: AlertPolicy["severity"]): string {
+  return t(`system.alertRules.severity.${value}`)
+}
+
+const weekdays = computed(() => [
+  t("system.alertRules.weekdays.mon"),
+  t("system.alertRules.weekdays.tue"),
+  t("system.alertRules.weekdays.wed"),
+  t("system.alertRules.weekdays.thu"),
+  t("system.alertRules.weekdays.fri"),
+  t("system.alertRules.weekdays.sat"),
+  t("system.alertRules.weekdays.sun")
+])
 
 async function refresh(): Promise<void> {
   loading.value = true
@@ -313,10 +335,10 @@ async function save(): Promise<void> {
   try {
     if (editingId.value) {
       await updateAlertPolicy(editingId.value, body)
-      notice.value = "Alert rule updated."
+      notice.value = t("system.alertRules.updated")
     } else {
       await createAlertPolicy(body)
-      notice.value = "Alert rule created."
+      notice.value = t("system.alertRules.created")
     }
     editorOpen.value = false
     await refresh()
@@ -339,10 +361,10 @@ async function toggle(item: AlertPolicy): Promise<void> {
 }
 
 async function remove(item: AlertPolicy): Promise<void> {
-  if (!window.confirm(`Delete alert rule "${item.name}"?`)) return
+  if (!window.confirm(t("system.alertRules.deleteConfirm", { name: item.name }))) return
   try {
     await deleteAlertPolicy(item.id)
-    notice.value = "Alert rule deleted."
+    notice.value = t("system.alertRules.deleted")
     await refresh()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -359,9 +381,9 @@ onMounted(() => {
   <section class="alert-rules-panel">
     <header class="system-page-header">
       <div>
-        <strong>Alert rules</strong>
+        <strong>{{ t("system.alertRules.title") }}</strong>
         <span>
-          Turn matching events into alerts, notifications and protected footage.
+          {{ t("system.alertRules.description") }}
         </span>
       </div>
       <button
@@ -370,22 +392,22 @@ onMounted(() => {
         @click="openCreate"
       >
         <UiIcon name="plus" :size="14" />
-        Add rule
+        {{ t("system.alertRules.addRule") }}
       </button>
     </header>
 
     <div class="alert-rule-summary">
       <span>
         <strong>{{ policies.length }}</strong>
-        total rules
+        {{ t("system.alertRules.totalRules") }}
       </span>
       <span>
         <strong>{{ enabledCount }}</strong>
-        enabled
+        {{ t("system.alertRules.enabled") }}
       </span>
       <span>
         <strong>{{ targets.filter((item) => item.enabled).length }}</strong>
-        active notification targets
+        {{ t("system.alertRules.activeTargets") }}
       </span>
     </div>
 
@@ -401,8 +423,8 @@ onMounted(() => {
 
     <div v-if="!policies.length && !loading" class="storage-empty">
       <UiIcon name="bell" :size="26" />
-      <strong>No alert rules</strong>
-      <span>Create a rule to turn selected events into actionable alerts.</span>
+      <strong>{{ t("system.alertRules.empty") }}</strong>
+      <span>{{ t("system.alertRules.emptyHint") }}</span>
     </div>
 
     <div v-else class="alert-rule-list">
@@ -422,16 +444,16 @@ onMounted(() => {
               class="status-pill"
               :class="item.enabled ? 'status-pill--ok' : 'status-pill--muted'"
             >
-              {{ item.enabled ? "Enabled" : "Disabled" }}
+              {{ item.enabled ? t("system.alertRules.enabledState") : t("system.alertRules.disabledState") }}
             </span>
             <span class="status-pill">
-              {{ pretty(item.severity) }}
+              {{ severityLabel(item.severity) }}
             </span>
           </div>
           <span>{{ policyMatchSummary(item) }}</span>
           <small>
             {{ policyActionSummary(item) }}
-            · cooldown {{ item.cooldown_seconds }}s
+            · {{ t("system.alertRules.cooldownSummary", { seconds: item.cooldown_seconds }) }}
           </small>
         </div>
         <div class="alert-rule-card__actions">
@@ -440,12 +462,12 @@ onMounted(() => {
             type="button"
             @click="openEdit(item)"
           >
-            Edit
+            {{ t("system.alertRules.edit") }}
           </button>
           <button
             class="icon-button"
             type="button"
-            :title="item.enabled ? 'Disable' : 'Enable'"
+            :title="item.enabled ? t('system.alertRules.disable') : t('system.alertRules.enable')"
             @click="toggle(item)"
           >
             <UiIcon
@@ -456,7 +478,7 @@ onMounted(() => {
           <button
             class="icon-button icon-button--danger"
             type="button"
-            title="Delete rule"
+            :title="t('system.alertRules.deleteRule')"
             @click="remove(item)"
           >
             <UiIcon name="trash" :size="14" />
@@ -468,8 +490,8 @@ onMounted(() => {
     <aside v-if="editorOpen" class="system-drawer alert-rule-editor">
       <header class="storage-editor__header">
         <div>
-          <strong>{{ editingId ? "Edit alert rule" : "Add alert rule" }}</strong>
-          <span>Event match + actions</span>
+          <strong>{{ editingId ? t("system.alertRules.editTitle") : t("system.alertRules.addTitle") }}</strong>
+          <span>{{ t("system.alertRules.matchActions") }}</span>
         </div>
         <button
           class="icon-button"
@@ -482,21 +504,21 @@ onMounted(() => {
 
       <form class="alert-rule-form" @submit.prevent="save">
         <label>
-          <span>Name</span>
+          <span>{{ t("system.alertRules.name") }}</span>
           <input v-model="form.name" required maxlength="128" />
         </label>
 
         <div class="alert-rule-form__row">
           <label>
-            <span>Alert severity</span>
+            <span>{{ t("system.alertRules.alertSeverity") }}</span>
             <select v-model="form.severity">
-              <option value="info">Info</option>
-              <option value="warning">Warning</option>
-              <option value="critical">Critical</option>
+              <option value="info">{{ t("system.alertRules.info") }}</option>
+              <option value="warning">{{ t("system.alertRules.warning") }}</option>
+              <option value="critical">{{ t("system.alertRules.critical") }}</option>
             </select>
           </label>
           <label>
-            <span>Cooldown seconds</span>
+            <span>{{ t("system.alertRules.cooldownSeconds") }}</span>
             <input
               v-model.number="form.cooldownSeconds"
               type="number"
@@ -507,7 +529,7 @@ onMounted(() => {
         </div>
 
         <fieldset>
-          <legend>Match cameras</legend>
+          <legend>{{ t("system.alertRules.matchCameras") }}</legend>
           <div class="alert-rule-check-grid">
             <label v-for="camera in cameras" :key="camera.id">
               <input
@@ -518,19 +540,19 @@ onMounted(() => {
               <span>{{ camera.name }}</span>
             </label>
           </div>
-          <small>No selection means all visible cameras.</small>
+          <small>{{ t("system.alertRules.allCamerasHint") }}</small>
         </fieldset>
 
         <div class="alert-rule-form__row">
           <label>
-            <span>Categories</span>
+            <span>{{ t("system.alertRules.categories") }}</span>
             <input
               v-model="form.categories"
               placeholder="object, motion"
             />
           </label>
           <label>
-            <span>Labels</span>
+            <span>{{ t("system.alertRules.labels") }}</span>
             <input
               v-model="form.labels"
               placeholder="person, car"
@@ -539,7 +561,7 @@ onMounted(() => {
         </div>
 
         <label>
-          <span>Zones</span>
+          <span>{{ t("system.alertRules.zones") }}</span>
           <input
             v-model="form.zones"
             placeholder="driveway, front_yard"
@@ -552,7 +574,7 @@ onMounted(() => {
               v-model="form.useMinConfidence"
               type="checkbox"
             />
-            <span>Minimum confidence</span>
+            <span>{{ t("system.alertRules.minConfidence") }}</span>
           </label>
           <label v-if="form.useMinConfidence">
             <span>{{ Math.round(form.minConfidence * 100) }}%</span>
@@ -565,7 +587,7 @@ onMounted(() => {
             />
           </label>
           <label>
-            <span>Minimum duration seconds</span>
+            <span>{{ t("system.alertRules.minDuration") }}</span>
             <input
               v-model.number="form.minDuration"
               type="number"
@@ -576,19 +598,19 @@ onMounted(() => {
         </div>
 
         <fieldset>
-          <legend>Time window</legend>
+          <legend>{{ t("system.alertRules.timeWindow") }}</legend>
           <label class="alert-rule-inline-check">
             <input
               v-model="form.useTimeWindow"
               type="checkbox"
             />
-            <span>Restrict by local weekday/time</span>
+            <span>{{ t("system.alertRules.restrictTime") }}</span>
           </label>
 
           <template v-if="form.useTimeWindow">
             <div class="alert-rule-weekdays">
               <button
-                v-for="(day, index) in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']"
+                v-for="(day, index) in weekdays"
                 :key="day"
                 type="button"
                 :class="{ 'alert-rule-day--active': form.weekdays.includes(index) }"
@@ -599,23 +621,23 @@ onMounted(() => {
             </div>
             <div class="alert-rule-form__row">
               <label>
-                <span>From</span>
+                <span>{{ t("system.alertRules.from") }}</span>
                 <input v-model="form.timeStart" type="time" />
               </label>
               <label>
-                <span>To</span>
+                <span>{{ t("system.alertRules.to") }}</span>
                 <input v-model="form.timeEnd" type="time" />
               </label>
             </div>
             <label>
-              <span>Timezone</span>
+              <span>{{ t("system.alertRules.timezone") }}</span>
               <input v-model="form.timezone" />
             </label>
           </template>
         </fieldset>
 
         <fieldset>
-          <legend>Notifications</legend>
+          <legend>{{ t("system.alertRules.notifications") }}</legend>
           <div class="alert-rule-check-grid">
             <label v-for="target in targets" :key="target.id">
               <input
@@ -626,30 +648,30 @@ onMounted(() => {
               />
               <span>
                 {{ target.name }}
-                <small v-if="!target.enabled">disabled</small>
+                <small v-if="!target.enabled">{{ t("system.alertRules.disabled") }}</small>
               </span>
             </label>
           </div>
           <small>
-            Leave empty to create an in-app alert without outbound delivery.
+            {{ t("system.alertRules.notificationHint") }}
           </small>
         </fieldset>
 
         <fieldset>
-          <legend>Recording protection</legend>
+          <legend>{{ t("system.alertRules.recordingProtection") }}</legend>
           <label class="alert-rule-inline-check">
             <input
               v-model="form.protectRecording"
               type="checkbox"
             />
-            <span>Automatically protect matching event footage</span>
+            <span>{{ t("system.alertRules.autoProtect") }}</span>
           </label>
           <div
             v-if="form.protectRecording"
             class="alert-rule-form__row alert-rule-form__row--three"
           >
             <label>
-              <span>Before seconds</span>
+              <span>{{ t("system.alertRules.beforeSeconds") }}</span>
               <input
                 v-model.number="form.protectBefore"
                 type="number"
@@ -658,7 +680,7 @@ onMounted(() => {
               />
             </label>
             <label>
-              <span>After seconds</span>
+              <span>{{ t("system.alertRules.afterSeconds") }}</span>
               <input
                 v-model.number="form.protectAfter"
                 type="number"
@@ -667,7 +689,7 @@ onMounted(() => {
               />
             </label>
             <label>
-              <span>Expire days</span>
+              <span>{{ t("system.alertRules.expireDays") }}</span>
               <input
                 v-model.number="form.protectExpiresDays"
                 type="number"
@@ -680,7 +702,7 @@ onMounted(() => {
 
         <label class="storage-check">
           <input v-model="form.enabled" type="checkbox" />
-          <span>Enable this alert rule</span>
+          <span>{{ t("system.alertRules.enableRule") }}</span>
         </label>
 
         <div class="alert-rule-form__actions">
@@ -689,14 +711,14 @@ onMounted(() => {
             type="button"
             @click="editorOpen = false"
           >
-            Cancel
+            {{ t("system.alertRules.cancel") }}
           </button>
           <button
             class="button button--primary"
             type="submit"
             :disabled="saving"
           >
-            {{ saving ? "Saving…" : editingId ? "Save rule" : "Create rule" }}
+            {{ saving ? t("system.alertRules.saving") : editingId ? t("system.alertRules.saveRule") : t("system.alertRules.createRule") }}
           </button>
         </div>
       </form>

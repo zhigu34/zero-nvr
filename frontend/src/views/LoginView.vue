@@ -322,7 +322,7 @@ async function submitResetComplete(): Promise<void> {
           type="button"
           @click="setMode('login')"
         >
-          Back to sign in
+          {{ t("auth.backToSignIn") }}
         </button>
       </form>
     </section>

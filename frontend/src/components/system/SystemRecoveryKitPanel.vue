@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
+import { useI18n } from "vue-i18n"
 
 import { errorMessage } from "../../api/client"
 import {
@@ -16,6 +17,7 @@ const props = defineProps<{
 }>()
 
 const auth = useAuthStore()
+const { locale, t } = useI18n({ useScope: "global" })
 const policyId = ref("")
 const status = ref<RecoveryKitStatus | null>(null)
 const passphrase = ref("")
@@ -44,17 +46,17 @@ function statusClass(): string {
 
 function statusLabel(): string {
   const value = status.value?.status
-  if (value === "current") return "Current"
-  if (value === "stale") return "Stale"
+  if (value === "current") return t("system.recoveryKit.current")
+  if (value === "stale") return t("system.recoveryKit.stale")
   if (value === "never_generated") {
-    return "Not generated"
+    return t("system.recoveryKit.notGenerated")
   }
-  return "Unknown"
+  return t("system.recoveryKit.unknown")
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return "Never"
-  return new Intl.DateTimeFormat(undefined, {
+  if (!value) return t("system.recoveryKit.never")
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -95,12 +97,11 @@ async function generate(): Promise<void> {
     passphrase.value
   ).length
   if (bytes < 16) {
-    error.value =
-      "RecoveryKit passphrase must be at least 16 bytes."
+    error.value = t("system.recoveryKit.passphraseMinimum")
     return
   }
   if (passphrase.value !== confirmation.value) {
-    error.value = "RecoveryKit passphrases do not match."
+    error.value = t("system.recoveryKit.passphraseMismatch")
     return
   }
 
@@ -128,8 +129,7 @@ async function generate(): Promise<void> {
     passphrase.value = ""
     confirmation.value = ""
     await loadStatus()
-    notice.value =
-      "Encrypted RecoveryKit downloaded. Store the file and passphrase separately off-host."
+    notice.value = t("system.recoveryKit.downloaded")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -157,17 +157,16 @@ watch(
   <div class="recovery-kit-panel">
     <div class="recovery-kit-panel__heading">
       <div>
-        <strong>Encrypted RecoveryKit</strong>
+        <strong>{{ t("system.recoveryKit.title") }}</strong>
         <span>
-          Password-protected clean-host bootstrap for the selected backup
-          repository. The passphrase is never stored by zero-nvr.
+          {{ t("system.recoveryKit.description") }}
         </span>
       </div>
       <span
         class="status-pill"
         :class="statusClass()"
       >
-        {{ loading ? "Checking…" : statusLabel() }}
+        {{ loading ? t("system.recoveryKit.checking") : statusLabel() }}
       </span>
     </div>
 
@@ -191,7 +190,7 @@ watch(
       class="recovery-kit-panel__form"
     >
       <label>
-        <span>Backup policy</span>
+        <span>{{ t("system.recoveryKit.backupPolicy") }}</span>
         <select
           v-model="policyId"
           :disabled="generating"
@@ -209,13 +208,13 @@ watch(
 
       <div class="recovery-kit-panel__meta">
         <div>
-          <span>Last generated</span>
+          <span>{{ t("system.recoveryKit.lastGenerated") }}</span>
           <strong>
             {{ formatTime(status?.generated_at ?? null) }}
           </strong>
         </div>
         <div>
-          <span>Kit version</span>
+          <span>{{ t("system.recoveryKit.kitVersion") }}</span>
           <strong>
             {{ status?.app_version || "—" }}
           </strong>
@@ -225,16 +224,16 @@ watch(
       <template v-if="auth.hasPermission('system.manage')">
         <div class="recovery-kit-panel__passwords">
           <label>
-            <span>Encryption passphrase</span>
+            <span>{{ t("system.recoveryKit.passphrase") }}</span>
             <input
               v-model="passphrase"
               type="password"
               autocomplete="new-password"
-              placeholder="At least 16 bytes"
+              :placeholder="t('system.recoveryKit.atLeast16')"
             />
           </label>
           <label>
-            <span>Confirm passphrase</span>
+            <span>{{ t("system.recoveryKit.confirmPassphrase") }}</span>
             <input
               v-model="confirmation"
               type="password"
@@ -247,8 +246,8 @@ watch(
           <span>
             {{
               status?.status === "stale"
-                ? "Recovery inputs changed. Generate a fresh kit before relying on disaster recovery."
-                : "Keep the .znrk file and its passphrase in separate protected off-host locations."
+                ? t("system.recoveryKit.staleHint")
+                : t("system.recoveryKit.storageHint")
             }}
           </span>
           <button
@@ -265,10 +264,10 @@ watch(
             <UiIcon name="download" :size="14" />
             {{
               generating
-                ? "Encrypting…"
+                ? t("system.recoveryKit.encrypting")
                 : status?.status === "stale"
-                  ? "Regenerate RecoveryKit"
-                  : "Generate RecoveryKit"
+                  ? t("system.recoveryKit.regenerate")
+                  : t("system.recoveryKit.generate")
             }}
           </button>
         </div>
@@ -279,7 +278,7 @@ watch(
       v-else
       class="recovery-kit-panel__empty"
     >
-      Create a backup policy before generating a RecoveryKit.
+      {{ t("system.recoveryKit.noPolicy") }}
     </div>
   </div>
 </template>

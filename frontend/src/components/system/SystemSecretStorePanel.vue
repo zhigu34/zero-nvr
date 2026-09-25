@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue"
+import { useI18n } from "vue-i18n"
 
 import { errorMessage } from "../../api/client"
 import {
@@ -11,6 +12,7 @@ import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
 
 const auth = useAuthStore()
+const { t } = useI18n({ useScope: "global" })
 const health = ref<SecretStoreHealth | null>(null)
 const loading = ref(false)
 const rotating = ref(false)
@@ -29,19 +31,22 @@ function statusMessage(
   value: SecretStoreHealth
 ): string {
   if (value.status === "ERROR") {
-    return (
-      `${value.unreadable_records} encrypted record(s) cannot be ` +
-      "decrypted with the configured keyring. Restore the required " +
-      "historical key before attempting rotation."
-    )
+    return t("system.secretStore.unreadableMessage", {
+      count: value.unreadable_records
+    })
   }
   if (value.status === "ROTATION_REQUIRED") {
-    return (
-      `${value.stale_records} encrypted record(s) still use a ` +
-      "previous key. Rotation can re-encrypt them with the active key."
-    )
+    return t("system.secretStore.rotationRequiredMessage", {
+      count: value.stale_records
+    })
   }
-  return "All encrypted records use the active SecretStore key."
+  return t("system.secretStore.allCurrent")
+}
+
+function statusLabel(value: SecretStoreHealth["status"]): string {
+  if (value === "OK") return t("system.secretStore.ok")
+  if (value === "ROTATION_REQUIRED") return t("system.secretStore.rotationRequired")
+  return t("system.secretStore.error")
 }
 
 async function load(): Promise<void> {
@@ -70,9 +75,7 @@ async function rotate(): Promise<void> {
   const staleRecords = health.value.stale_records
   if (
     !window.confirm(
-      `Rotate ${staleRecords} SecretStore record(s) to the active key? ` +
-        "The previous key must remain configured until rotation succeeds " +
-        "and you have a verified backup."
+      t("system.secretStore.rotateConfirm", { count: staleRecords })
     )
   ) {
     return
@@ -84,10 +87,9 @@ async function rotate(): Promise<void> {
   try {
     const result = await rotateSecretStore()
     health.value = result.health
-    notice.value =
-      `Rotated ${result.rotated_records} encrypted record(s). ` +
-      "Keep the previous key in host bootstrap configuration until " +
-      "a verified backup is complete."
+    notice.value = t("system.secretStore.rotatedNotice", {
+      count: result.rotated_records
+    })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -104,9 +106,9 @@ onMounted(() => {
   <section class="secret-store-panel">
     <header class="secret-store-panel__header">
       <div>
-        <strong>SecretStore keyring</strong>
+        <strong>{{ t("system.secretStore.title") }}</strong>
         <span>
-          Encrypted credential health and master-key rotation workflow.
+          {{ t("system.secretStore.description") }}
         </span>
       </div>
       <button
@@ -116,7 +118,7 @@ onMounted(() => {
         @click="load"
       >
         <UiIcon name="refresh" :size="13" />
-        {{ loading ? "Refreshing…" : "Refresh" }}
+        {{ loading ? t("system.secretStore.refreshing") : t("system.secretStore.refresh") }}
       </button>
     </header>
 
@@ -133,62 +135,63 @@ onMounted(() => {
     <div v-if="health" class="secret-store-panel__body">
       <div class="secret-store-panel__status">
         <div>
-          <span>Keyring health</span>
+          <span>{{ t("system.secretStore.keyringHealth") }}</span>
           <strong>{{ statusMessage(health) }}</strong>
         </div>
         <span
           class="status-pill"
           :class="statusClass(health.status)"
         >
-          {{ health.status.replaceAll("_", " ") }}
+          {{ statusLabel(health.status) }}
         </span>
       </div>
 
       <dl class="secret-store-panel__metrics">
         <div>
-          <dt>Encrypted records</dt>
+          <dt>{{ t("system.secretStore.encryptedRecords") }}</dt>
           <dd>{{ health.total_records }}</dd>
         </div>
         <div>
-          <dt>Active key</dt>
+          <dt>{{ t("system.secretStore.activeKey") }}</dt>
           <dd>{{ health.current_records }}</dd>
         </div>
         <div>
-          <dt>Previous key</dt>
+          <dt>{{ t("system.secretStore.previousKey") }}</dt>
           <dd>{{ health.stale_records }}</dd>
         </div>
         <div>
-          <dt>Unreadable</dt>
+          <dt>{{ t("system.secretStore.unreadable") }}</dt>
           <dd>{{ health.unreadable_records }}</dd>
         </div>
       </dl>
 
       <div class="secret-store-panel__details">
         <div>
-          <span>Primary key ID</span>
+          <span>{{ t("system.secretStore.primaryKeyId") }}</span>
           <code>{{ health.primary_key_id }}</code>
         </div>
         <div>
-          <span>Previous keys configured</span>
+          <span>{{ t("system.secretStore.previousKeysConfigured") }}</span>
           <strong>{{ health.previous_key_count }}</strong>
         </div>
       </div>
 
       <div class="secret-store-panel__workflow">
-        <strong>Rotation sequence</strong>
+        <strong>{{ t("system.secretStore.rotationSequence") }}</strong>
         <ol>
           <li>
-            On the host, configure the new
-            <code>ZERO_NVR_SECRET_KEY</code> as active and retain the old
-            key in <code>ZERO_NVR_SECRET_KEY_PREVIOUS</code>, then restart.
+            {{ t("system.secretStore.step1Prefix") }}
+            <code>ZERO_NVR_SECRET_KEY</code>
+            {{ t("system.secretStore.step1Middle") }}
+            <code>ZERO_NVR_SECRET_KEY_PREVIOUS</code>{{ t("system.secretStore.step1Suffix") }}
           </li>
           <li>
-            Confirm this panel reports <strong>Rotation required</strong>
-            with zero unreadable records, then rotate stored credentials.
+            {{ t("system.secretStore.step2Prefix") }}
+            <strong>{{ t("system.secretStore.rotationRequired") }}</strong>
+            {{ t("system.secretStore.step2Suffix") }}
           </li>
           <li>
-            After rotation and a verified backup, remove the old key from
-            host bootstrap configuration and restart again.
+            {{ t("system.secretStore.step3") }}
           </li>
         </ol>
       </div>
@@ -199,14 +202,13 @@ onMounted(() => {
       >
         <UiIcon name="warning" :size="14" />
         <span>
-          Rotation is blocked. Do not remove or replace historical keys
-          until every encrypted record is readable again.
+          {{ t("system.secretStore.rotationBlocked") }}
         </span>
       </div>
 
       <div class="secret-store-panel__actions">
         <span v-if="!auth.hasPermission('system.manage')">
-          System manage permission is required to rotate credentials.
+          {{ t("system.secretStore.permissionRequired") }}
         </span>
         <span
           v-else-if="
@@ -214,8 +216,7 @@ onMounted(() => {
             health.previous_key_count > 0
           "
         >
-          Stored records are current. Keep previous keys only until the
-          required verified backup has been completed.
+          {{ t("system.secretStore.currentHint") }}
         </span>
         <span
           v-else-if="
@@ -223,7 +224,7 @@ onMounted(() => {
             !health.rotation_ready
           "
         >
-          Rotation is not safe with the current keyring.
+          {{ t("system.secretStore.unsafe") }}
         </span>
 
         <button
@@ -234,7 +235,7 @@ onMounted(() => {
           @click="rotate"
         >
           <UiIcon name="shield" :size="14" />
-          {{ rotating ? "Rotating…" : "Rotate encrypted records" }}
+          {{ rotating ? t("system.secretStore.rotating") : t("system.secretStore.rotate") }}
         </button>
       </div>
     </div>
@@ -243,7 +244,7 @@ onMounted(() => {
       v-else-if="loading"
       class="secret-store-panel__empty"
     >
-      Checking SecretStore keyring…
+      {{ t("system.secretStore.checking") }}
     </div>
   </section>
 </template>
