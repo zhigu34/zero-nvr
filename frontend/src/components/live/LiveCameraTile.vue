@@ -1568,6 +1568,7 @@ async function loadStream(
     )
     requireActivePlayback(currentGeneration)
     descriptor.value = playableStream
+    playing.value = true
     error.value = null
     reconnecting.value = false
     reconnectAttempt = 0
@@ -1616,7 +1617,9 @@ async function enterFullscreen(): Promise<void> {
 }
 
 function handlePlaying(): void {
-  playing.value = true
+  if (descriptor.value) {
+    playing.value = true
+  }
 }
 
 function retryStream(): void {

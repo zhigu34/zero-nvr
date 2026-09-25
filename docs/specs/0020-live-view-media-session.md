@@ -288,8 +288,10 @@ Live page baseline:
   waits until its URL/MediaSource is attached before requesting playback;
   first-frame latency telemetry is recorded at this same decoded/rendered-frame
   boundary rather than at the earlier HTMLMediaElement `playing` event; that
-  earlier event may update the lightweight playing indicator but must not clear
-  reconnect/error state before a rendered frame has confirmed success;
+  earlier event may restore the lightweight playing indicator only after an
+  already-confirmed descriptor resumes from buffering; initial startup does not
+  mark the tile active until a rendered frame has confirmed success, and the
+  event must not clear reconnect/error state before that boundary;
 - focused live diagnostics break startup latency into descriptor API, ICE
   gathering, WHEP negotiation, and answer-to-rendered-frame phases without
   adding requests; these measurements are observational only and do not create
