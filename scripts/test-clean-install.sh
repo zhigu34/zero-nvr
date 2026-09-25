@@ -76,6 +76,9 @@ stream_changed_schemas=
 [record]
 enableFmp4=0
 
+[rtsp]
+directProxy=1
+
 [rtc]
 externIP=
 port=8000
@@ -197,6 +200,7 @@ zlm_config="$STAGE/deploy/zlm/config.ini"
 [[ -f "$zlm_config" ]] || fail "ZLM config was not rendered"
 grep -Fxq "apiDebug=0" "$zlm_config" || fail "ZLM apiDebug was not hardened"
 grep -Fxq "enableFmp4=1" "$zlm_config" || fail "ZLM fMP4 recording was not enabled"
+grep -Fxq "directProxy=0" "$zlm_config" || fail "ZLM RTSP direct proxy was not disabled"
 grep -Fxq "port=8001" "$zlm_config" || fail "ZLM WebRTC UDP port was not rendered"
 grep -Fxq "tcpPort=8001" "$zlm_config" || fail "ZLM WebRTC TCP port was not rendered"
 
