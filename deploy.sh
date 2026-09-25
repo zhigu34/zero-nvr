@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 SCRIPT_DIR="$ROOT_DIR/scripts"
 . "$SCRIPT_DIR/lib.sh"
+. "$SCRIPT_DIR/build-sources.sh"
 . "$SCRIPT_DIR/deployment-state.sh"
 . "$SCRIPT_DIR/artifact-pins.sh"
 . "$SCRIPT_DIR/feature-profiles.sh"
@@ -120,10 +121,10 @@ core_docker_build_args() {
   CORE_DOCKER_BUILD_ARGS=(
     --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
     --build-arg "PYTHON_BASE_IMAGE=$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
-    --build-arg "DEBIAN_MIRROR=$(env_get DEBIAN_MIRROR "http://deb.debian.org/debian")"
-    --build-arg "DEBIAN_SECURITY_MIRROR=$(env_get DEBIAN_SECURITY_MIRROR "http://deb.debian.org/debian-security")"
-    --build-arg "PYPI_INDEX_URL=$(env_get PYPI_INDEX_URL "https://pypi.org/simple")"
-    --build-arg "NPM_REGISTRY=$(env_get NPM_REGISTRY "https://registry.npmjs.org")"
+    --build-arg "DEBIAN_MIRROR=$DEBIAN_MIRROR"
+    --build-arg "DEBIAN_SECURITY_MIRROR=$DEBIAN_SECURITY_MIRROR"
+    --build-arg "PYPI_INDEX_URL=$PYPI_INDEX_URL"
+    --build-arg "NPM_REGISTRY=$NPM_REGISTRY"
   )
 }
 
@@ -293,6 +294,7 @@ prepare_zlm() {
 
 build_backend() {
   prepare_core_build_inputs
+  select_build_sources
   prepare_buildx
   if compose build --help 2>/dev/null | grep -q -- '--builder'; then
     compose build --builder default zero-nvr
@@ -397,6 +399,7 @@ update_stack() {
       "$backup_policy"
 
     prepare_core_build_inputs
+    select_build_sources
     prepare_buildx
     core_docker_build_args
     docker buildx build \

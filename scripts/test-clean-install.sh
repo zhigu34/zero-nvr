@@ -15,6 +15,7 @@ cp "$ROOT_DIR/deploy.sh" "$STAGE/deploy.sh"
 cp "$ROOT_DIR/.env.example" "$STAGE/.env.example"
 cp "$ROOT_DIR/docker-compose.yml" "$STAGE/docker-compose.yml"
 cp "$ROOT_DIR/scripts/lib.sh" "$STAGE/scripts/lib.sh"
+cp "$ROOT_DIR/scripts/build-sources.sh" "$STAGE/scripts/build-sources.sh"
 cp "$ROOT_DIR/scripts/deployment-state.sh" "$STAGE/scripts/deployment-state.sh"
 cp "$ROOT_DIR/scripts/artifact-pins.sh" "$STAGE/scripts/artifact-pins.sh"
 cp "$ROOT_DIR/scripts/release-manifest.sh" "$STAGE/scripts/release-manifest.sh"
@@ -157,6 +158,7 @@ chmod +x "$FAKE_BIN/python3"
   cd "$STAGE"
   PATH="$FAKE_BIN:$PATH" \
   FAKE_DOCKER_LOG="$DOCKER_LOG" \
+  ZERO_NVR_BUILD_SOURCE_MODE=official \
   ./deploy.sh install
 ) >"$OUTPUT" 2>&1
 
@@ -200,6 +202,7 @@ grep -Fxq "tcpPort=8001" "$zlm_config" || fail "ZLM WebRTC TCP port was not rend
 
 grep -Fq "created: $STAGE/.env" "$OUTPUT" || fail "install did not report .env creation"
 grep -Fq "generated: ZERO_NVR_SECRET_KEY" "$OUTPUT" || fail "install did not report secret generation"
+grep -Fq "构建依赖源: official" "$OUTPUT" || fail "build source mode was not applied"
 grep -Fq "zero-nvr installed successfully" "$OUTPUT" || fail "install summary was not printed"
 grep -Fq "http://localhost:8000" "$OUTPUT" || fail "Web UI address was not printed"
 grep -Fq "ZLM WebRTC: 0.0.0.0:8001/tcp+udp" "$OUTPUT" || fail "effective WebRTC port was not printed"

@@ -76,15 +76,22 @@ The Core build follows the same local-first pattern used by camera-recorder:
 - when a base image is missing, `DEPLOY_AUTO_PULL=1` allows an explicit pull;
 - `DEPLOY_AUTO_PULL=0` supports offline/preloaded hosts using `docker save` / `docker load`;
 - `ZERO_NVR_NODE_BASE_IMAGE` and `ZERO_NVR_PYTHON_BASE_IMAGE` may point at operator-controlled registries;
-- Debian, PyPI and npm package sources are configurable with
-  `DEBIAN_MIRROR`, `DEBIAN_SECURITY_MIRROR`, `PYPI_INDEX_URL` and
-  `NPM_REGISTRY`;
+- Debian, PyPI and npm package sources support
+  `ZERO_NVR_BUILD_SOURCE_MODE=auto|official|cn|custom`;
+- `auto` is the deployment default: it probes the official Debian/PyPI/npm
+  endpoints first, keeps them when they are healthy, and compares the
+  mainland-China mirrors when the official group is unavailable or slow;
+- `cn` selects Tsinghua Debian/PyPI plus npmmirror; `official` disables
+  automatic switching; `custom` uses `DEBIAN_MIRROR`,
+  `DEBIAN_SECURITY_MIRROR`, `PYPI_INDEX_URL` and `NPM_REGISTRY`;
 - the Debian override automatically falls back to the image's original
-  official sources if the preferred mirror cannot be reached.
+  official sources if the selected mirror cannot be reached.
 
-The Dockerfile itself keeps official upstream defaults so CI and generic
-deployments remain portable. A deployment in mainland China may use the same
-mirror values proven by camera-recorder:
+This is connectivity-based rather than geolocation-based, so VPNs, proxies,
+private lines and overseas hosts are not classified from an IP-country guess.
+The Dockerfile itself keeps official upstream defaults so CI and direct
+`docker build` remain portable. A forced/custom mainland-China profile may
+use the same mirror values proven by camera-recorder:
 
 ~~~env
 DEBIAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/debian
