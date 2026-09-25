@@ -211,6 +211,9 @@ Live page baseline:
 - camera assignment/layout state is separate from playback state: opening the
   Live page or restoring a saved layout does not automatically establish media
   sessions; operators explicitly start/pause one tile or all visible tiles;
+- stopping, hiding, switching, or superseding a tile invalidates that playback
+  attempt; stale asynchronous WebRTC work must not continue into WHEP, HLS
+  fallback, compatibility transcode, or later descriptor attachment;
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;

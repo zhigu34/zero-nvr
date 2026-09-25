@@ -617,6 +617,24 @@ function nativeVideoFailure(): string {
   return t(`live.tile.errors.media.${key}`)
 }
 
+class PlaybackCancelledError extends Error {
+  constructor() {
+    super("Live playback attempt was cancelled.")
+    this.name = "PlaybackCancelledError"
+  }
+}
+
+function requireActivePlayback(
+  attemptGeneration: number
+): void {
+  if (
+    generation !== attemptGeneration ||
+    playbackSuspended.value
+  ) {
+    throw new PlaybackCancelledError()
+  }
+}
+
 class FirstFrameTimeoutError extends Error {
   constructor(
     readonly transport: "webrtc" | "hls",
@@ -684,6 +702,7 @@ function waitForFirstVideoFrame(
   element: HTMLVideoElement,
   transport: "webrtc" | "hls",
   timeoutMs: number,
+  attemptGeneration: number,
   phaseStartedAt: number | null = null
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -705,6 +724,13 @@ function waitForFirstVideoFrame(
 
     const finish = () => {
       if (settled) return
+      if (
+        generation !== attemptGeneration ||
+        playbackSuspended.value
+      ) {
+        fail(new PlaybackCancelledError())
+        return
+      }
       settled = true
       cleanup()
       const now = performance.now()
@@ -754,6 +780,13 @@ function waitForFirstVideoFrame(
     }
 
     const timeout = window.setTimeout(() => {
+      if (
+        generation !== attemptGeneration ||
+        playbackSuspended.value
+      ) {
+        fail(new PlaybackCancelledError())
+        return
+      }
       fail(
         new FirstFrameTimeoutError(
           transport,
@@ -876,13 +909,15 @@ function waitForIceGatheringComplete(
 }
 
 async function attachWebRtc(
-  stream: CameraLiveStream
+  stream: CameraLiveStream,
+  attemptGeneration: number
 ): Promise<void> {
   if (typeof RTCPeerConnection === "undefined") {
     throw new Error(t("live.tile.errors.webRtcUnavailable"))
   }
 
   await nextTick()
+  requireActivePlayback(attemptGeneration)
   const element = video.value
   if (!element) {
     throw new Error(t("live.tile.errors.videoUnavailable"))
@@ -960,6 +995,10 @@ async function attachWebRtc(
       peer,
       iceServers.length ? 2500 : 800
     )
+    requireActivePlayback(attemptGeneration)
+    if (rtcPeer !== peer) {
+      throw new PlaybackCancelledError()
+    }
     telemetry.value.iceGatherMs = Math.max(
       0,
       performance.now() - iceStartedAt
@@ -981,11 +1020,15 @@ async function attachWebRtc(
       0,
       performance.now() - whepStartedAt
     )
-    if (rtcPeer !== peer) {
+    if (
+      generation !== attemptGeneration ||
+      playbackSuspended.value ||
+      rtcPeer !== peer
+    ) {
       void deleteCameraWhepSession(whep.location).catch(
         () => undefined
       )
-      throw new Error(t("live.tile.errors.sessionSuperseded"))
+      throw new PlaybackCancelledError()
     }
 
     whepLocation = whep.location
@@ -993,6 +1036,10 @@ async function attachWebRtc(
       type: "answer",
       sdp: whep.answerSdp
     })
+    requireActivePlayback(attemptGeneration)
+    if (rtcPeer !== peer) {
+      throw new PlaybackCancelledError()
+    }
     const answerAppliedAt = performance.now()
     activeTransport.value = "webrtc"
     startStatsTimer(peer)
@@ -1000,6 +1047,7 @@ async function attachWebRtc(
       element,
       "webrtc",
       WEBRTC_FIRST_FRAME_TIMEOUT_MS,
+      attemptGeneration,
       answerAppliedAt
     )
   } catch (caught) {
@@ -1011,9 +1059,11 @@ async function attachWebRtc(
 }
 
 async function attachHls(
-  stream: CameraLiveStream
+  stream: CameraLiveStream,
+  attemptGeneration: number
 ): Promise<void> {
   await nextTick()
+  requireActivePlayback(attemptGeneration)
   const element = video.value
   if (!element) return
 
@@ -1033,7 +1083,8 @@ async function attachHls(
       await waitForFirstVideoFrame(
         element,
         "hls",
-        HLS_FIRST_FRAME_TIMEOUT_MS
+        HLS_FIRST_FRAME_TIMEOUT_MS,
+        attemptGeneration
       )
     } catch (caught) {
       if (caught instanceof FirstFrameTimeoutError) {
@@ -1059,6 +1110,7 @@ async function attachHls(
   hls.on(Hls.Events.ERROR, (_event, data) => {
     if (
       !data.fatal ||
+      generation !== attemptGeneration ||
       playbackSuspended.value
     ) {
       return
@@ -1078,7 +1130,8 @@ async function attachHls(
     await waitForFirstVideoFrame(
       element,
       "hls",
-      HLS_FIRST_FRAME_TIMEOUT_MS
+      HLS_FIRST_FRAME_TIMEOUT_MS,
+      attemptGeneration
     )
   } catch (caught) {
     if (caught instanceof FirstFrameTimeoutError) {
@@ -1091,8 +1144,10 @@ async function attachHls(
 }
 
 async function attachPreferredStream(
-  stream: CameraLiveStream
+  stream: CameraLiveStream,
+  attemptGeneration: number
 ): Promise<CameraLiveStream> {
+  requireActivePlayback(attemptGeneration)
   const transports = resolveLivePlaybackTransports(
     stream,
     detectLivePlaybackCapabilities(video.value)
@@ -1100,10 +1155,17 @@ async function attachPreferredStream(
 
   if (transports.includes("webrtc")) {
     try {
-      await attachWebRtc(stream)
+      await attachWebRtc(
+        stream,
+        attemptGeneration
+      )
       lastWebRtcFailure.value = null
       return stream
     } catch (caught) {
+      if (caught instanceof PlaybackCancelledError) {
+        throw caught
+      }
+      requireActivePlayback(attemptGeneration)
       // WHEP is preferred but never blocks a compatible HLS fallback.
       if (caught instanceof FirstFrameTimeoutError) {
         const initial = caught.message
@@ -1119,17 +1181,25 @@ async function attachPreferredStream(
     }
   }
 
+  requireActivePlayback(attemptGeneration)
   if (transports.includes("hls")) {
     try {
-      await attachHls(stream)
+      await attachHls(
+        stream,
+        attemptGeneration
+      )
       return stream
     } catch (caught) {
+      if (caught instanceof PlaybackCancelledError) {
+        throw caught
+      }
       throw new Error(
         combinedTransportFailure(liveDiagnosticMessage(caught))
       )
     }
   }
 
+  requireActivePlayback(attemptGeneration)
   const mediaSessionId = activeMediaSessionId
   if (!mediaSessionId) {
     throw new Error(t("live.tile.errors.mediaSessionUnavailable"))
@@ -1139,8 +1209,12 @@ async function attachPreferredStream(
     requestedQuality.value,
     mediaSessionId
   )
+  requireActivePlayback(attemptGeneration)
   activateCompatibilityLease(compatible)
-  await attachHls(compatible)
+  await attachHls(
+    compatible,
+    attemptGeneration
+  )
   return compatible
 }
 
@@ -1251,7 +1325,11 @@ async function loadStream(): Promise<void> {
       return
     }
     activeMediaSessionId = stream.media_session_id
-    const playableStream = await attachPreferredStream(stream)
+    const playableStream = await attachPreferredStream(
+      stream,
+      currentGeneration
+    )
+    requireActivePlayback(currentGeneration)
     descriptor.value = playableStream
     if (
       generation === currentGeneration &&
