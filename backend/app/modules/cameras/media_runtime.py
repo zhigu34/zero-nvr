@@ -215,22 +215,22 @@ class CameraMediaRuntimeService:
                         auto_close=item.auto_close,
                         mp4_as_player=True,
                     )
-                    if (
-                        wait_online_seconds is not None
-                        and not zlm.wait_media_online(
-                            app=item.app,
-                            stream=item.stream,
-                            timeout_seconds=wait_online_seconds,
-                        )
-                    ):
-                        raise ZlmIntegrationError(
-                            "camera_stream_start_timeout",
-                            (
-                                "The camera stream did not become ready "
-                                "for live playback in time."
-                            ),
-                            status_code=504,
-                        )
+                if (
+                    wait_online_seconds is not None
+                    and not zlm.wait_video_ready(
+                        app=item.app,
+                        stream=item.stream,
+                        timeout_seconds=wait_online_seconds,
+                    )
+                ):
+                    raise ZlmIntegrationError(
+                        "camera_stream_start_timeout",
+                        (
+                            "The camera stream did not become ready "
+                            "for live playback in time."
+                        ),
+                        status_code=504,
+                    )
                 references.append(item.reference)
         return references
 

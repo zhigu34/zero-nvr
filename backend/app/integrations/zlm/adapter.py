@@ -521,6 +521,41 @@ class ZlmAdapter:
                 )
             )
 
+    def wait_video_ready(
+        self,
+        *,
+        app: str,
+        stream: str,
+        timeout_seconds: float,
+        schema: str = "rtsp",
+    ) -> bool:
+        deadline = self._monotonic() + max(
+            0.0,
+            timeout_seconds,
+        )
+        while True:
+            probe = self.media_probe(
+                app=app,
+                stream=stream,
+                schema=schema,
+            )
+            if (
+                probe is not None
+                and probe.video is not None
+                and probe.video.ready
+            ):
+                return True
+
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return False
+            self._sleep(
+                min(
+                    self._poll_interval_seconds,
+                    remaining,
+                )
+            )
+
     def close_stream(
         self,
         *,

@@ -60,7 +60,7 @@ class FakeZlm:
         self.add_calls.append(kwargs)
         return f"__defaultVhost__/{kwargs['app']}/{kwargs['stream']}"
 
-    def wait_media_online(
+    def wait_video_ready(
         self,
         *,
         app: str,
@@ -283,10 +283,16 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         assert ensure_zlm.wait_calls == [
             {
                 "app": "zero-nvr",
+                "stream": already_online.stream,
+                "timeout_seconds": 3.0,
+                "schema": "rtsp",
+            },
+            {
+                "app": "zero-nvr",
                 "stream": to_add.stream,
                 "timeout_seconds": 3.0,
                 "schema": "rtsp",
-            }
+            },
         ]
 
         # Once both are online, stop should close both by deterministic ZLM

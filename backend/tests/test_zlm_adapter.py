@@ -206,6 +206,73 @@ def test_wait_media_online_polls_until_registered() -> None:
     assert clock[0] == pytest.approx(0.5)
 
 
+def test_wait_video_ready_polls_until_video_track_is_ready() -> None:
+    probes = [
+        [],
+        [
+            {
+                "stream": "profile-live",
+                "tracks": [
+                    {
+                        "codec_id_name": "H264",
+                        "ready": False,
+                        "width": 1280,
+                        "height": 720,
+                    }
+                ],
+            }
+        ],
+        [
+            {
+                "stream": "profile-live",
+                "tracks": [
+                    {
+                        "codec_id_name": "H264",
+                        "ready": True,
+                        "width": 1280,
+                        "height": 720,
+                    }
+                ],
+            }
+        ],
+    ]
+    clock = [0.0]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/getMediaList")
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": probes.pop(0),
+            },
+        )
+
+    def monotonic() -> float:
+        return clock[0]
+
+    def sleep(seconds: float) -> None:
+        clock[0] += seconds
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+        monotonic=monotonic,
+        sleep=sleep,
+        poll_interval_seconds=0.25,
+    ) as adapter:
+        assert adapter.wait_video_ready(
+            app="zero-nvr",
+            stream="profile-live",
+            timeout_seconds=1.0,
+        ) is True
+
+    assert len(requests) == 3
+    assert clock[0] == pytest.approx(0.5)
+
+
 def test_add_stream_proxy_forwards_auto_close_policy() -> None:
     requests: list[httpx.Request] = []
 
