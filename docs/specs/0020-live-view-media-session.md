@@ -246,8 +246,10 @@ Live page baseline:
   checks or accepting a later quality parameter as a profile switch; browser
   ICE configuration fetch overlaps local SDP offer creation;
 - a transport is not considered successfully attached until the browser
-  renders a first video frame; WebRTC first-frame timeout falls back to HLS,
-  while HLS first-frame timeout becomes an actionable playback failure;
+  renders a first video frame; WebRTC first-frame timeout or connection failure
+  before that first frame falls back to HLS, while a WebRTC connection failure
+  after successful attachment uses the normal reconnect path; HLS first-frame
+  timeout becomes an actionable playback failure;
   WebRTC does not call `video.play()` until its remote track has attached a
   media source, so the short gap between `setRemoteDescription()` and
   `ontrack` cannot be misclassified as a playback-start failure; HLS likewise

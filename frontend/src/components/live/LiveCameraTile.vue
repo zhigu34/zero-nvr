@@ -949,6 +949,82 @@ function waitForIceGatheringComplete(
   })
 }
 
+function webRtcConnectionFailure(
+  peer: RTCPeerConnection,
+  iceServerFailure: string | null
+): string {
+  const connectionFailure = t(
+    "live.tile.errors.webRtcConnectionFailed",
+    { ice: peer.iceConnectionState }
+  )
+  return iceServerFailure
+    ? t("live.tile.errors.webRtcIceConfigFailed", {
+        connection: connectionFailure,
+        reason: iceServerFailure
+      })
+    : connectionFailure
+}
+
+async function waitForWebRtcFirstFrame(
+  peer: RTCPeerConnection,
+  element: HTMLVideoElement,
+  iceServerFailure: string | null,
+  attemptGeneration: number,
+  phaseStartedAt: number
+): Promise<void> {
+  const handleConnectionFailure = () => {
+    if (
+      rtcPeer !== peer ||
+      generation !== attemptGeneration ||
+      playbackSuspended.value ||
+      peer.connectionState !== "failed"
+    ) {
+      return
+    }
+    rejectConnectionFailure?.(
+      new Error(
+        webRtcConnectionFailure(
+          peer,
+          iceServerFailure
+        )
+      )
+    )
+  }
+
+  let rejectConnectionFailure:
+    ((reason: Error) => void) | null = null
+  const connectionFailure = new Promise<never>(
+    (_resolve, reject) => {
+      rejectConnectionFailure = reject
+    }
+  )
+
+  peer.addEventListener(
+    "connectionstatechange",
+    handleConnectionFailure
+  )
+  handleConnectionFailure()
+
+  try {
+    await Promise.race([
+      waitForFirstVideoFrame(
+        element,
+        "webrtc",
+        WEBRTC_FIRST_FRAME_TIMEOUT_MS,
+        attemptGeneration,
+        phaseStartedAt
+      ),
+      connectionFailure
+    ])
+  } finally {
+    peer.removeEventListener(
+      "connectionstatechange",
+      handleConnectionFailure
+    )
+    rejectConnectionFailure = null
+  }
+}
+
 async function attachWebRtc(
   stream: CameraLiveStream,
   attemptGeneration: number
@@ -1002,30 +1078,6 @@ async function attachWebRtc(
     if (element.srcObject !== remoteStream) {
       element.srcObject = remoteStream
     }
-  }
-
-  peer.onconnectionstatechange = () => {
-    if (
-      rtcPeer !== peer ||
-      peer.connectionState !== "failed" ||
-      playbackSuspended.value
-    ) {
-      return
-    }
-    const connectionFailure = t(
-      "live.tile.errors.webRtcConnectionFailed",
-      { ice: peer.iceConnectionState }
-    )
-    error.value = iceServerFailure
-      ? t("live.tile.errors.webRtcIceConfigFailed", {
-          connection: connectionFailure,
-          reason: iceServerFailure
-        })
-      : connectionFailure
-    descriptor.value = null
-    loading.value = false
-    destroyPlayer()
-    scheduleReconnect()
   }
 
   try {
@@ -1084,13 +1136,32 @@ async function attachWebRtc(
     const answerAppliedAt = performance.now()
     activeTransport.value = "webrtc"
     startStatsTimer(peer)
-    await waitForFirstVideoFrame(
+    await waitForWebRtcFirstFrame(
+      peer,
       element,
-      "webrtc",
-      WEBRTC_FIRST_FRAME_TIMEOUT_MS,
+      iceServerFailure,
       attemptGeneration,
       answerAppliedAt
     )
+
+    peer.onconnectionstatechange = () => {
+      if (
+        rtcPeer !== peer ||
+        peer.connectionState !== "failed" ||
+        playbackSuspended.value
+      ) {
+        return
+      }
+      error.value = webRtcConnectionFailure(
+        peer,
+        iceServerFailure
+      )
+      descriptor.value = null
+      loading.value = false
+      destroyPlayer()
+      scheduleReconnect()
+    }
+    peer.onconnectionstatechange()
   } catch (caught) {
     if (rtcPeer === peer) {
       releaseWebRtcSession()
