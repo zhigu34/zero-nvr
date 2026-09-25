@@ -97,13 +97,28 @@ ensure_image_available() {
 }
 
 prepare_core_build_inputs() {
-  ensure_image_available "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
+  ensure_image_available "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-bookworm-slim")"
   ensure_image_available "$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
+}
+
+prepare_buildx() {
+  require_command docker
+  if ! docker buildx version >/dev/null 2>&1; then
+    echo "error: Docker Buildx is required for zero-nvr image builds" >&2
+    return 1
+  fi
+  if ! docker buildx inspect default >/dev/null 2>&1; then
+    echo "error: Docker Buildx default builder is unavailable" >&2
+    return 1
+  fi
+  docker buildx inspect default --bootstrap >/dev/null 2>&1 || true
+  export BUILDX_BUILDER=default
+  echo "using buildx builder: default"
 }
 
 core_docker_build_args() {
   CORE_DOCKER_BUILD_ARGS=(
-    --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
+    --build-arg "NODE_BASE_IMAGE=$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-bookworm-slim")"
     --build-arg "PYTHON_BASE_IMAGE=$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
     --build-arg "DEBIAN_MIRROR=$(env_get DEBIAN_MIRROR "http://deb.debian.org/debian")"
     --build-arg "DEBIAN_SECURITY_MIRROR=$(env_get DEBIAN_SECURITY_MIRROR "http://deb.debian.org/debian-security")"
@@ -278,7 +293,12 @@ prepare_zlm() {
 
 build_backend() {
   prepare_core_build_inputs
-  compose build zero-nvr
+  prepare_buildx
+  if compose build --help 2>/dev/null | grep -q -- '--builder'; then
+    compose build --builder default zero-nvr
+  else
+    compose build zero-nvr
+  fi
 }
 
 install_stack() {
@@ -377,8 +397,11 @@ update_stack() {
       "$backup_policy"
 
     prepare_core_build_inputs
+    prepare_buildx
     core_docker_build_args
-    docker build \
+    docker buildx build \
+      --builder default \
+      --load \
       "${CORE_DOCKER_BUILD_ARGS[@]}" \
       --file "$stage_dir/backend/Dockerfile" \
       --tag "$stage_image" \

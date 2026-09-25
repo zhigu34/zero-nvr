@@ -38,6 +38,17 @@ case "$args" in
   "compose version"|"info")
     exit 0
     ;;
+  "info --format {{.Architecture}}")
+    printf '%s\n' "amd64"
+    exit 0
+    ;;
+  "image inspect "*" --format {{.Architecture}}")
+    printf '%s\n' "amd64"
+    exit 0
+    ;;
+  "buildx version"|"buildx inspect default"|"buildx inspect default --bootstrap")
+    exit 0
+    ;;
   "ps --filter label=com.docker.compose.project=zero-nvr"*)
     exit 0
     ;;
@@ -90,7 +101,11 @@ if [[ "$args" == *" compose "* ]] || [[ "$1" == "compose" ]]; then
       printf '%s\n' '{"services":{}}'
       exit 0
       ;;
-    *" build zero-nvr")
+    *" build --help")
+      printf '%s\n' "      --builder string   Set builder to use"
+      exit 0
+      ;;
+    *" build --builder default zero-nvr")
       exit 0
       ;;
     *" run --rm --no-deps zero-nvr python -m app.cli migration-preflight"*)
@@ -191,7 +206,8 @@ grep -Fq "ZLM WebRTC: 0.0.0.0:8001/tcp+udp" "$OUTPUT" || fail "effective WebRTC 
 grep -Fq "doctor: healthy" "$OUTPUT" || fail "post-install health check did not pass"
 
 grep -Fq "compose --env-file $STAGE/.env -f $STAGE/docker-compose.yml config --quiet" "$DOCKER_LOG" || fail "Compose model was not validated"
-grep -Fq "pull zlmediakit/zlmediakit:master" "$DOCKER_LOG" || fail "ZLMediaKit image was not pulled"
+grep -Fq "buildx inspect default --bootstrap" "$DOCKER_LOG" || fail "Buildx default builder was not bootstrapped"
+grep -Fq "build --builder default zero-nvr" "$DOCKER_LOG" || fail "Core build did not use the default Buildx builder"
 grep -Fq "run --rm --no-deps zero-nvr python -m app.cli migration-preflight" "$DOCKER_LOG" || fail "migration preflight was not executed"
 grep -Fq "run --rm --no-deps zero-nvr alembic upgrade head" "$DOCKER_LOG" || fail "database migration was not executed"
 grep -Fq "run --rm --no-deps zero-nvr python -m app.cli migration-verify" "$DOCKER_LOG" || fail "migration verification was not executed"
