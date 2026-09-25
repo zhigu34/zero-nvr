@@ -1588,9 +1588,6 @@ async function enterFullscreen(): Promise<void> {
 
 function handlePlaying(): void {
   playing.value = true
-  reconnectAttempt = 0
-  clearReconnect()
-  error.value = null
 }
 
 function retryStream(): void {
