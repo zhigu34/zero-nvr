@@ -93,6 +93,10 @@ interface LiveTelemetry {
   relayProtocol: string | null
   sessionSeconds: number | null
   firstFrameMs: number | null
+  descriptorMs: number | null
+  iceGatherMs: number | null
+  whepMs: number | null
+  answerToFrameMs: number | null
   reconnects: number
 }
 
@@ -111,6 +115,10 @@ const telemetry = ref<LiveTelemetry>({
   relayProtocol: null,
   sessionSeconds: null,
   firstFrameMs: null,
+  descriptorMs: null,
+  iceGatherMs: null,
+  whepMs: null,
+  answerToFrameMs: null,
   reconnects: 0
 })
 
@@ -675,7 +683,8 @@ async function firstFrameTimeoutReason(
 function waitForFirstVideoFrame(
   element: HTMLVideoElement,
   transport: "webrtc" | "hls",
-  timeoutMs: number
+  timeoutMs: number,
+  phaseStartedAt: number | null = null
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false
@@ -698,13 +707,23 @@ function waitForFirstVideoFrame(
       if (settled) return
       settled = true
       cleanup()
+      const now = performance.now()
       if (
         telemetry.value.firstFrameMs === null &&
         streamStartedAt > 0
       ) {
         telemetry.value.firstFrameMs = Math.max(
           0,
-          performance.now() - streamStartedAt
+          now - streamStartedAt
+        )
+      }
+      if (
+        phaseStartedAt !== null &&
+        transport === "webrtc"
+      ) {
+        telemetry.value.answerToFrameMs = Math.max(
+          0,
+          now - phaseStartedAt
         )
       }
       resolve()
@@ -934,10 +953,15 @@ async function attachWebRtc(
 
   try {
     const offer = await peer.createOffer()
+    const iceStartedAt = performance.now()
     await peer.setLocalDescription(offer)
     await waitForIceGatheringComplete(
       peer,
       iceServers.length ? 2500 : 800
+    )
+    telemetry.value.iceGatherMs = Math.max(
+      0,
+      performance.now() - iceStartedAt
     )
 
     const offerSdp = peer.localDescription?.sdp
@@ -945,11 +969,16 @@ async function attachWebRtc(
       throw new Error(t("live.tile.errors.offerUnavailable"))
     }
 
+    const whepStartedAt = performance.now()
     const whep = await createCameraWhepSession(
       props.camera.id,
       requestedQuality.value,
       mediaSessionId,
       offerSdp
+    )
+    telemetry.value.whepMs = Math.max(
+      0,
+      performance.now() - whepStartedAt
     )
     if (rtcPeer !== peer) {
       void deleteCameraWhepSession(whep.location).catch(
@@ -963,12 +992,14 @@ async function attachWebRtc(
       type: "answer",
       sdp: whep.answerSdp
     })
+    const answerAppliedAt = performance.now()
     activeTransport.value = "webrtc"
     startStatsTimer(peer)
     await waitForFirstVideoFrame(
       element,
       "webrtc",
-      WEBRTC_FIRST_FRAME_TIMEOUT_MS
+      WEBRTC_FIRST_FRAME_TIMEOUT_MS,
+      answerAppliedAt
     )
   } catch (caught) {
     if (rtcPeer === peer) {
@@ -1183,7 +1214,11 @@ async function loadStream(): Promise<void> {
     candidateProtocol: null,
     relayProtocol: null,
     sessionSeconds: null,
-    firstFrameMs: null
+    firstFrameMs: null,
+    descriptorMs: null,
+    iceGatherMs: null,
+    whepMs: null,
+    answerToFrameMs: null
   }
   clearTokenRefresh()
   hls?.destroy()
@@ -1195,9 +1230,14 @@ async function loadStream(): Promise<void> {
   playing.value = false
 
   try {
+    const descriptorStartedAt = performance.now()
     const stream = await getCameraLiveStream(
       props.camera.id,
       requestedQuality.value
+    )
+    telemetry.value.descriptorMs = Math.max(
+      0,
+      performance.now() - descriptorStartedAt
     )
     if (
       generation !== currentGeneration ||
@@ -1652,11 +1692,23 @@ onBeforeUnmount(() => {
             {{ t("live.tile.sessionSeconds", { seconds: Math.round(telemetry.sessionSeconds) }) }}
           </span>
         </template>
-        <span
-          v-if="focused && telemetry.firstFrameMs !== null"
-        >
-          {{ t("live.tile.firstFrame", { milliseconds: Math.round(telemetry.firstFrameMs) }) }}
-        </span>
+        <template v-if="focused">
+          <span v-if="telemetry.descriptorMs !== null">
+            API {{ Math.round(telemetry.descriptorMs) }} ms
+          </span>
+          <span v-if="telemetry.iceGatherMs !== null">
+            ICE {{ Math.round(telemetry.iceGatherMs) }} ms
+          </span>
+          <span v-if="telemetry.whepMs !== null">
+            WHEP {{ Math.round(telemetry.whepMs) }} ms
+          </span>
+          <span v-if="telemetry.answerToFrameMs !== null">
+            FRAME {{ Math.round(telemetry.answerToFrameMs) }} ms
+          </span>
+          <span v-if="telemetry.firstFrameMs !== null">
+            {{ t("live.tile.firstFrame", { milliseconds: Math.round(telemetry.firstFrameMs) }) }}
+          </span>
+        </template>
         <span
           v-if="focused && telemetry.reconnects"
         >

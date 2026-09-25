@@ -234,6 +234,10 @@ Live page baseline:
   while HLS first-frame timeout becomes an actionable playback failure;
   first-frame latency telemetry is recorded at this same decoded/rendered-frame
   boundary rather than at the earlier HTMLMediaElement `playing` event;
+- focused live diagnostics break startup latency into descriptor API, ICE
+  gathering, WHEP negotiation, and answer-to-rendered-frame phases without
+  adding requests; these measurements are observational only and do not create
+  another media-runtime state machine;
 - first-frame timeout performs an on-demand, permission-gated ZLM media
   diagnostic that distinguishes source offline, missing video track, video
   track not ready, and browser-side delivery/decoding failure; diagnostics
