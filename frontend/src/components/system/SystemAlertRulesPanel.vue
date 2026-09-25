@@ -105,12 +105,6 @@ function numberValue(
   return typeof value === "number" ? value : fallback
 }
 
-function pretty(value: string): string {
-  return value
-    .replaceAll("_", " ")
-    .replace(/\b\w/g, (match) => match.toUpperCase())
-}
-
 function policyMatchSummary(item: AlertPolicy): string {
   const pieces: string[] = []
   const cameraIds = stringArray(item.match.camera_ids)
