@@ -77,9 +77,9 @@ ensure_build_image() {
     return 0
   fi
 
-  if [[ "${DEPLOY_AUTO_PULL:-1}" == "0" ]]; then
+  if [[ "$(env_get DEPLOY_AUTO_PULL "${DEPLOY_AUTO_PULL:-1}")" == "0" ]]; then
     echo "error: required base image is unavailable locally: $image" >&2
-    echo "load it with docker load, or enable DEPLOY_AUTO_PULL and retry" >&2
+    echo "load it with docker load, or set DEPLOY_AUTO_PULL=1 and retry" >&2
     return 1
   fi
 
