@@ -908,7 +908,8 @@ async function attachWebRtc(
     )
 
   const peer = new RTCPeerConnection({
-    iceServers
+    iceServers,
+    iceCandidatePoolSize: 1
   })
   const remoteStream = new MediaStream()
   rtcPeer = peer

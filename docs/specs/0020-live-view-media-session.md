@@ -221,6 +221,8 @@ Live page baseline:
   non-blockingly so direct LAN WebRTC can still proceed;
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
+  the browser keeps non-trickle SDP completeness but uses a one-entry ICE
+  candidate pool to pre-gather candidates and reduce time spent in that phase;
 - only the initial `/live` descriptor request resolves credentials for and
   ensures the selected profile's ZLM source runtime, then binds the issued
   media session to that exact profile/purpose; unrelated bound profiles are
