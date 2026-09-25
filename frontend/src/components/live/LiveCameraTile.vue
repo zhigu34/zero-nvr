@@ -699,6 +699,15 @@ function waitForFirstVideoFrame(
       if (settled) return
       settled = true
       cleanup()
+      if (
+        telemetry.value.firstFrameMs === null &&
+        streamStartedAt > 0
+      ) {
+        telemetry.value.firstFrameMs = Math.max(
+          0,
+          performance.now() - streamStartedAt
+        )
+      }
       resolve()
     }
 
@@ -1265,15 +1274,6 @@ function handlePlaying(): void {
   reconnectAttempt = 0
   clearReconnect()
   error.value = null
-  if (
-    telemetry.value.firstFrameMs === null &&
-    streamStartedAt > 0
-  ) {
-    telemetry.value.firstFrameMs = Math.max(
-      0,
-      performance.now() - streamStartedAt
-    )
-  }
 }
 
 function retryStream(): void {

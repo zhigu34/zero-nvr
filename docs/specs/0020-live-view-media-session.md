@@ -227,6 +227,8 @@ Live page baseline:
 - a transport is not considered successfully attached until the browser
   renders a first video frame; WebRTC first-frame timeout falls back to HLS,
   while HLS first-frame timeout becomes an actionable playback failure;
+  first-frame latency telemetry is recorded at this same decoded/rendered-frame
+  boundary rather than at the earlier HTMLMediaElement `playing` event;
 - first-frame timeout performs an on-demand, permission-gated ZLM media
   diagnostic that distinguishes source offline, missing video track, video
   track not ready, and browser-side delivery/decoding failure; diagnostics
