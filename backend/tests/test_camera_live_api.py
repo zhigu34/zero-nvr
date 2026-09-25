@@ -379,9 +379,14 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
     app = make_app(tmp_path)
     app.state.settings.zlm_webrtc_extern_ip = "192.0.2.10"
     app.state.settings.zlm_webrtc_port = 9000
-    captured: dict[str, object] = {}
+    captured: dict[str, object] = {
+        "ensure_calls": 0,
+    }
 
     def fake_ensure(self, desired):
+        captured["ensure_calls"] = (
+            int(captured["ensure_calls"]) + 1
+        )
         return [item.reference for item in desired]
 
     class FakeZlmAdapter:
@@ -494,6 +499,7 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
             f"/api/v1/cameras/{camera_id}/live?quality=high"
         )
         assert descriptor.status_code == 200
+        assert captured["ensure_calls"] == 1
         media_session_id = descriptor.json()[
             "media_session_id"
         ]
@@ -511,6 +517,7 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
             content=offer,
         )
         assert whep.status_code == 201
+        assert captured["ensure_calls"] == 1
         assert whep.headers["content-type"].startswith(
             "application/sdp"
         )

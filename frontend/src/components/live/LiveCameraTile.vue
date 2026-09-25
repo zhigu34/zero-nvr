@@ -870,28 +870,27 @@ async function attachWebRtc(
     )
   }
 
-  let iceServers: RTCIceServer[] = []
   let iceServerFailure: string | null = null
-  try {
-    const ice = await getCameraIceServers(
-      props.camera.id,
-      mediaSessionId
+  const iceServersPromise = getCameraIceServers(
+    props.camera.id,
+    mediaSessionId
+  )
+    .then((ice) =>
+      ice.ice_servers.map(
+        (server) => ({
+          urls: server.urls,
+          username: server.username,
+          credential: server.credential
+        })
+      )
     )
-    iceServers = ice.ice_servers.map(
-      (server) => ({
-        urls: server.urls,
-        username: server.username,
-        credential: server.credential
-      })
-    )
-  } catch (caught) {
-    // TURN is optional. Direct LAN WebRTC must remain available.
-    iceServerFailure = liveDiagnosticMessage(caught)
-  }
+    .catch((caught) => {
+      // TURN is optional. Direct LAN WebRTC must remain available.
+      iceServerFailure = liveDiagnosticMessage(caught)
+      return [] as RTCIceServer[]
+    })
 
-  const peer = new RTCPeerConnection({
-    iceServers
-  })
+  const peer = new RTCPeerConnection()
   const remoteStream = new MediaStream()
   rtcPeer = peer
 
@@ -935,6 +934,10 @@ async function attachWebRtc(
 
   try {
     const offer = await peer.createOffer()
+    const iceServers = await iceServersPromise
+    if (iceServers.length) {
+      peer.setConfiguration({ iceServers })
+    }
     await peer.setLocalDescription(offer)
     await waitForIceGatheringComplete(
       peer,

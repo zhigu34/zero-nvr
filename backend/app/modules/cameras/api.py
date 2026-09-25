@@ -2017,6 +2017,7 @@ def _select_live_stream(
     quality: Literal["auto", "high", "low"],
     request: Request,
     session: Session,
+    ensure_runtime: bool = True,
 ) -> _LiveSelection:
     camera = CameraService.get_camera(
         session,
@@ -2094,46 +2095,53 @@ def _select_live_stream(
     runtime = CameraMediaRuntimeService(
         request.app.state.settings
     )
-    desired = runtime.desired_streams(
-        session,
-        camera=camera,
+    reference = runtime.reference_for(
+        camera_id=camera.id,
+        profile_id=profile.id,
     )
-    selected = next(
-        (
-            item
-            for item in desired
-            if item.profile_id == profile.id
-        ),
-        None,
-    )
-    if selected is None:
-        raise ApiError(
-            status_code=409,
-            code="camera_live_stream_unavailable",
-            message=(
-                "Camera live stream is not "
-                "available."
-            ),
-        )
 
-    try:
-        references = runtime.ensure_streams(
-            [selected]
+    if ensure_runtime:
+        desired = runtime.desired_streams(
+            session,
+            camera=camera,
         )
-    except ZlmIntegrationError as exc:
-        raise ApiError(
-            status_code=exc.status_code,
-            code=exc.code,
-            message=str(exc),
-            details={},
-        ) from exc
+        selected = next(
+            (
+                item
+                for item in desired
+                if item.profile_id == profile.id
+            ),
+            None,
+        )
+        if selected is None:
+            raise ApiError(
+                status_code=409,
+                code="camera_live_stream_unavailable",
+                message=(
+                    "Camera live stream is not "
+                    "available."
+                ),
+            )
+
+        try:
+            references = runtime.ensure_streams(
+                [selected]
+            )
+        except ZlmIntegrationError as exc:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+                details={},
+            ) from exc
+        reference = references[0]
 
     return _LiveSelection(
         camera=camera,
         profile=profile,
         purpose=purpose,
         runtime=runtime,
-        reference=references[0],
+        reference=reference,
     )
 
 
@@ -2417,6 +2425,7 @@ def get_camera_live_diagnostics(
         quality=quality,
         request=request,
         session=session,
+        ensure_runtime=False,
     )
 
     try:
@@ -2594,6 +2603,7 @@ async def create_camera_whep_session(
         quality=quality,
         request=request,
         session=session,
+        ensure_runtime=False,
     )
     access = ZlmMediaAccess(
         request.app.state.settings
@@ -2772,6 +2782,7 @@ def create_camera_live_compatibility(
         quality=quality,
         request=request,
         session=session,
+        ensure_runtime=False,
     )
     access = ZlmMediaAccess(
         request.app.state.settings
