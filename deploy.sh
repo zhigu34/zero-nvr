@@ -70,7 +70,7 @@ image_arch_ok() {
   [[ "$actual" == "$expected" ]]
 }
 
-ensure_build_image() {
+ensure_image_available() {
   local image="$1"
   if image_arch_ok "$image"; then
     echo "using local base image: $image"
@@ -97,8 +97,8 @@ ensure_build_image() {
 }
 
 prepare_core_build_inputs() {
-  ensure_build_image "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
-  ensure_build_image "$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
+  ensure_image_available "$(env_get ZERO_NVR_NODE_BASE_IMAGE "node:22-alpine")"
+  ensure_image_available "$(env_get ZERO_NVR_PYTHON_BASE_IMAGE "python:3.12-slim")"
 }
 
 core_docker_build_args() {
@@ -271,7 +271,7 @@ print_install_summary() {
 prepare_zlm() {
   local image
   image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
-  docker pull "$image"
+  ensure_image_available "$image"
   ZERO_NVR_ENV_FILE="$ENV_FILE" \
     "$SCRIPT_DIR/render-zlm-config.sh"
 }
