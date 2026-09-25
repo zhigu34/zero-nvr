@@ -146,7 +146,7 @@ const configImportValidating = ref(false)
 const configImportApplying = ref(false)
 const configImportFileName = ref<string | null>(null)
 const backupForm = reactive({
-  name: "System backup",
+  name: t("system.main.systemBackup"),
   repository: "",
   password: "",
   environmentCredentials: "",
@@ -1927,9 +1927,9 @@ onBeforeUnmount(() => {
           <div class="time-policy-note">
             <UiIcon name="activity" :size="15" />
             <span>
-              Saving changes does not rewrite camera clocks. Use
-              <strong>{{ t("system.main.saveApply") }}</strong> only when you want
-              zero-nvr to push the saved NTP policy to enabled ONVIF devices.
+              {{ t("system.main.timePolicyPrefix") }}
+              <strong>{{ t("system.main.saveApply") }}</strong>
+              {{ t("system.main.timePolicySuffix") }}
             </span>
           </div>
 
@@ -1964,7 +1964,7 @@ onBeforeUnmount(() => {
             <div>
               <strong>{{ t("system.main.hostClock") }}</strong>
               <span>
-                Canonical zero-nvr time source ·
+                {{ t("system.main.canonicalTimeSource") }}
                 {{ healthDetail(hostClockHealth, "canonical_timezone") }}
               </span>
             </div>
@@ -2547,7 +2547,7 @@ onBeforeUnmount(() => {
               @click="loadBackups"
             >
               <UiIcon name="refresh" :size="14" />
-              {{ backupRefreshing ? t("system.main.saving") : t("system.main.refresh") }}
+              {{ backupRefreshing ? t("system.main.refreshing") : t("system.main.refresh") }}
             </button>
             <button
               class="button button--primary"
@@ -2656,7 +2656,7 @@ onBeforeUnmount(() => {
                 {{
                   configImportFileName
                     ? `${configImportFileName} · ready to merge`
-                    : "Ready to merge"
+                    : t("system.main.readyMerge")
                 }}
               </span>
             </div>
@@ -3087,7 +3087,7 @@ onBeforeUnmount(() => {
                 placeholder="AWS_ACCESS_KEY_ID=…&#10;AWS_SECRET_ACCESS_KEY=…"
               />
               <small>
-                One KEY=value per line. Values are encrypted in SecretStore.
+                {{ t("system.main.repoEnvHint") }}
                 {{
                   editingBackupPolicy
                     ? t("system.main.leaveEnv")
@@ -3113,7 +3113,7 @@ onBeforeUnmount(() => {
             <label v-if="backupForm.scheduled">
               <span>{{ t("system.main.cron") }}</span>
               <input v-model="backupForm.cron" placeholder="0 3 * * *" />
-              <small>Five-field cron, timezone: {{ settings?.general.display_timezone || "UTC" }}</small>
+              <small>{{ t("system.main.cronTimezone") }} {{ settings?.general.display_timezone || "UTC" }}</small>
             </label>
             <div class="retention-days-grid">
               <label>
@@ -3172,7 +3172,7 @@ onBeforeUnmount(() => {
             @click="loadAudit"
           >
             <UiIcon name="refresh" :size="14" />
-            {{ auditLoading ? t("system.main.saving") : t("system.main.refresh") }}
+            {{ auditLoading ? t("system.main.refreshing") : t("system.main.refresh") }}
           </button>
         </header>
 
