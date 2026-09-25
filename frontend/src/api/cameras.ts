@@ -151,8 +151,8 @@ export function testManualCamera(
 
 export function createManualCamera(
   body: ManualCameraInput
-): Promise<unknown> {
-  return apiRequest("/cameras", {
+): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>("/cameras", {
     method: "POST",
     json: body
   })

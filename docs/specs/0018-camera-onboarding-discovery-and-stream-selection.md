@@ -643,6 +643,15 @@ Batch flow supports:
 - auto stream-profile selection;
 - per-device validation result.
 
+The first production release also supports operator-supplied CSV batch import
+for mixed ONVIF and manual RTSP rows. The CSV is parsed and previewed in the
+browser rather than uploaded as an opaque server-side file. Every valid row is
+then executed through the existing canonical single-device onboarding path:
+ONVIF rows retain identity inspection/deduplication and automatic usable-profile
+selection; RTSP rows retain the temporary ZLM media probe before creation.
+Credentials are never echoed in the preview/result UI, and the batch runner is
+sequential/bounded so a large file does not become an unbounded LAN probe.
+
 One failed device does not roll back unrelated successful devices.
 
 ## Onboarding transaction semantics

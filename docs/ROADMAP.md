@@ -354,6 +354,8 @@ Acceptance:
 - [x] DHCP endpoint-change rediscovery without recreating Camera IDs.
 - [x] identity-conflict UI instead of weak automatic merge.
 - [x] batch onboarding with shared/default credentials, groups, recording policy, StorageTarget and time-sync defaults.
+- [~] CSV camera import for mixed ONVIF/manual-RTSP rows with local parse/preview,
+  per-row validation/results, and reuse of the canonical onboarding APIs.
 
 Acceptance:
 

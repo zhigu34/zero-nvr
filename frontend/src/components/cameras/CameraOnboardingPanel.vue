@@ -3,6 +3,11 @@ import { computed, ref } from "vue"
 import { useI18n } from "vue-i18n"
 
 import {
+  CsvParseError,
+  parseCsvRecords,
+  type CsvRecord
+} from "../../cameraBatchCsv"
+import {
   createManualCamera,
   discoverOnvif,
   importOnvif,
@@ -31,18 +36,20 @@ import { useAuthStore } from "../../stores/auth"
 
 const emit = defineEmits<{
   created: []
+  changed: []
   close: []
 }>()
 
 const auth = useAuthStore()
 const { t, te } = useI18n({ useScope: "global" })
 
-type Mode = "onvif" | "rtsp"
+type Mode = "onvif" | "rtsp" | "batch_file"
 type WorkingAction =
   | "discover"
   | "inspect"
   | "import"
   | "batch"
+  | "file-batch"
   | "test"
   | "create"
   | null
@@ -115,6 +122,36 @@ const batchStorageTargets = ref<StorageTarget[]>([])
 const batchOverrides = ref<Record<string, BatchCredentialOverride>>({})
 const batchResults = ref<BatchResult[]>([])
 
+type FileImportKind = "onvif" | "rtsp"
+
+interface FileImportRow {
+  line: number
+  kind: FileImportKind | null
+  name: string
+  host: string
+  port: number
+  username: string
+  password: string
+  rtsp_url: string
+  secondary_rtsp_url: string
+  location: string
+  storage_label: string
+  errors: string[]
+}
+
+interface FileBatchResult {
+  line: number
+  label: string
+  state: BatchResultState
+  message: string
+  camera_ids: string[]
+}
+
+const fileBatchName = ref("")
+const fileBatchRows = ref<FileImportRow[]>([])
+const fileBatchResults = ref<FileBatchResult[]>([])
+const fileBatchCompleted = ref(false)
+
 const identity = computed(() => inspection.value?.identity ?? null)
 const identityRequiresConfirmation = computed(
   () => identity.value?.state === "probable_match_requires_confirmation"
@@ -153,6 +190,20 @@ const batchResultMap = computed(
     )
 )
 
+const fileBatchReadyCount = computed(
+  () => fileBatchRows.value.filter((row) => !row.errors.length).length
+)
+const fileBatchInvalidCount = computed(
+  () => fileBatchRows.value.length - fileBatchReadyCount.value
+)
+const canFileBatchImport = computed(
+  () =>
+    fileBatchRows.value.length > 0 &&
+    fileBatchInvalidCount.value === 0 &&
+    !fileBatchCompleted.value &&
+    working.value === null
+)
+
 const canCreateManual = computed(
   () =>
     manualProbe.value !== null &&
@@ -173,6 +224,88 @@ const canImport = computed(
 function normalizeOptional(value: string): string | null {
   const normalized = value.trim()
   return normalized || null
+}
+
+function validRtspUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value)
+    return parsed.protocol === "rtsp:" && Boolean(parsed.hostname)
+  } catch {
+    return false
+  }
+}
+
+function csvParseErrorMessage(error: CsvParseError): string {
+  const key = `cameras.onboarding.${error.code}`
+  if (te(key)) {
+    return t(key, { line: error.line ?? "?" })
+  }
+  return error.message
+}
+
+function fileImportRow(record: CsvRecord): FileImportRow {
+  const value = (key: string) => (record.values[key] ?? "").trim()
+  const rawKind = value("type").toLowerCase()
+  const errors: string[] = []
+  let kind: FileImportKind | null = null
+
+  if (!rawKind) {
+    errors.push(t("cameras.onboarding.csvMissingType"))
+  } else if (rawKind === "onvif" || rawKind === "rtsp") {
+    kind = rawKind
+  } else {
+    errors.push(
+      t("cameras.onboarding.csvUnsupportedType", { type: rawKind })
+    )
+  }
+
+  const portRaw = value("port")
+  let port = 80
+  if (portRaw) {
+    const parsed = Number(portRaw)
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+      errors.push(t("cameras.onboarding.csvInvalidPort"))
+    } else {
+      port = parsed
+    }
+  }
+
+  const host = value("host")
+  const name = value("name")
+  const rtspUrl = value("rtsp_url")
+  const secondaryRtspUrl = value("secondary_rtsp_url")
+
+  if (kind === "onvif" && !host) {
+    errors.push(t("cameras.onboarding.csvMissingHost"))
+  }
+  if (kind === "rtsp") {
+    if (!name) {
+      errors.push(t("cameras.onboarding.csvMissingName"))
+    }
+    if (!rtspUrl) {
+      errors.push(t("cameras.onboarding.csvMissingRtspUrl"))
+    } else if (!validRtspUrl(rtspUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidRtspUrl"))
+    }
+    if (secondaryRtspUrl && !validRtspUrl(secondaryRtspUrl)) {
+      errors.push(t("cameras.onboarding.csvInvalidSecondaryRtspUrl"))
+    }
+  }
+
+  return {
+    line: record.line,
+    kind,
+    name,
+    host,
+    port,
+    username: value("username"),
+    password: record.values.password ?? "",
+    rtsp_url: rtspUrl,
+    secondary_rtsp_url: secondaryRtspUrl,
+    location: value("location"),
+    storage_label: value("storage_label"),
+    errors
+  }
 }
 
 function manualBody(): ManualCameraInput {
@@ -197,6 +330,53 @@ function manualBody(): ManualCameraInput {
 function clearMessages(): void {
   requestError.value = null
   successMessage.value = null
+}
+
+async function handleBatchFile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ""
+  if (!file) return
+
+  clearMessages()
+  fileBatchResults.value = []
+  fileBatchCompleted.value = false
+  fileBatchName.value = file.name
+
+  try {
+    const parsed = parseCsvRecords(await file.text())
+    if (!parsed.headers.includes("type")) {
+      requestError.value = t("cameras.onboarding.csvMissingTypeHeader")
+      fileBatchRows.value = []
+      return
+    }
+    fileBatchRows.value = parsed.rows.map(fileImportRow)
+    if (!fileBatchRows.value.length) {
+      requestError.value = t("cameras.onboarding.csvNoDataRows")
+    }
+  } catch (caught) {
+    fileBatchRows.value = []
+    requestError.value =
+      caught instanceof CsvParseError
+        ? csvParseErrorMessage(caught)
+        : errorMessage(caught)
+  }
+}
+
+function downloadBatchTemplate(): void {
+  const csv = [
+    "type,name,host,port,username,password,rtsp_url,secondary_rtsp_url,location,storage_label",
+    "onvif,Front Door,192.168.1.50,80,admin,password,,,Entrance,front",
+    "rtsp,Garage,,,,,rtsp://user:password@192.168.1.60/stream/main,rtsp://user:password@192.168.1.60/stream/sub,Garage,garage"
+  ].join("\r\n")
+  const url = URL.createObjectURL(
+    new Blob([csv], { type: "text/csv;charset=utf-8" })
+  )
+  const link = document.createElement("a")
+  link.href = url
+  link.download = "zero-nvr-camera-import.csv"
+  link.click()
+  URL.revokeObjectURL(url)
 }
 
 async function testRtsp(): Promise<void> {
@@ -488,6 +668,182 @@ async function applyBatchGroup(cameraIds: string[]): Promise<void> {
   )
 }
 
+async function applyBatchDefaults(
+  cameraIds: string[],
+  options: { timeSync: boolean }
+): Promise<void> {
+  for (const cameraId of cameraIds) {
+    if (options.timeSync) {
+      await updateCamera(cameraId, {
+        time_sync_mode: batchTimeSyncMode.value
+      })
+    }
+    await putRecordingPolicy(cameraId, batchPolicy())
+  }
+  await applyBatchGroup(cameraIds)
+}
+
+function setFileBatchResult(
+  row: FileImportRow,
+  state: BatchResultState,
+  message: string,
+  cameraIds: string[] = []
+): void {
+  const label = row.name || row.host || `CSV line ${row.line}`
+  const next: FileBatchResult = {
+    line: row.line,
+    label,
+    state,
+    message,
+    camera_ids: cameraIds
+  }
+  const index = fileBatchResults.value.findIndex(
+    (item) => item.line === row.line
+  )
+  if (index >= 0) {
+    fileBatchResults.value.splice(index, 1, next)
+  } else {
+    fileBatchResults.value.push(next)
+  }
+}
+
+async function runFileBatchImport(): Promise<void> {
+  if (!canFileBatchImport.value) return
+
+  clearMessages()
+  working.value = "file-batch"
+  fileBatchResults.value = []
+  let changed = false
+
+  try {
+    await loadBatchDefaults()
+
+    for (const row of fileBatchRows.value) {
+      if (row.errors.length || !row.kind) continue
+      setFileBatchResult(
+        row,
+        "running",
+        t("cameras.onboarding.fileBatchValidating")
+      )
+
+      let cameraIds: string[] = []
+      try {
+        if (row.kind === "onvif") {
+          const credentials = {
+            host: row.host,
+            port: row.port,
+            username: row.username,
+            password: row.password
+          }
+          const inspected = await inspectOnvif(credentials)
+          if (inspected.identity.state !== "new_device") {
+            const message =
+              inspected.identity.state === "identity_conflict"
+                ? t("cameras.onboarding.identityConflictReview")
+                : inspected.identity.state ===
+                    "probable_match_requires_confirmation"
+                  ? t("cameras.onboarding.weakIdentityReview")
+                  : t("cameras.onboarding.existingReview")
+            setFileBatchResult(row, "review", message)
+            continue
+          }
+
+          const profileTokens = inspected.profiles
+            .filter((profile) => profile.stream_uri_available)
+            .map((profile) => profile.token)
+          if (!profileTokens.length) {
+            setFileBatchResult(
+              row,
+              "failed",
+              t("cameras.onboarding.noProfiles")
+            )
+            continue
+          }
+
+          const imported = await importOnvif({
+            ...credentials,
+            name: normalizeOptional(row.name),
+            location: normalizeOptional(row.location),
+            storage_label: normalizeOptional(row.storage_label),
+            profile_tokens: profileTokens
+          })
+          cameraIds = imported.cameras.map((camera) => camera.id)
+          changed = true
+          await applyBatchDefaults(cameraIds, { timeSync: true })
+        } else {
+          const body: ManualCameraInput = {
+            mode: "manual_rtsp",
+            name: row.name,
+            location: normalizeOptional(row.location),
+            storage_label: normalizeOptional(row.storage_label),
+            primary_stream: {
+              name: t("cameras.onboarding.mainStream"),
+              rtsp_url: row.rtsp_url
+            },
+            secondary_stream: row.secondary_rtsp_url
+              ? {
+                  name: t("cameras.onboarding.subStream"),
+                  rtsp_url: row.secondary_rtsp_url
+                }
+              : null
+          }
+          await testManualCamera(body)
+          const created = await createManualCamera(body)
+          cameraIds = [created.id]
+          changed = true
+          await applyBatchDefaults(cameraIds, { timeSync: false })
+        }
+
+        setFileBatchResult(
+          row,
+          "success",
+          t("cameras.onboarding.fileBatchImported", {
+            count: cameraIds.length
+          }),
+          cameraIds
+        )
+      } catch (caught) {
+        setFileBatchResult(
+          row,
+          cameraIds.length ? "partial" : "failed",
+          cameraIds.length
+            ? t("cameras.onboarding.batchPartial", {
+                error: errorMessage(caught)
+              })
+            : errorMessage(caught),
+          cameraIds
+        )
+      }
+    }
+
+    const successful = fileBatchResults.value.filter(
+      (item) => item.state === "success"
+    ).length
+    const partial = fileBatchResults.value.filter(
+      (item) => item.state === "partial"
+    ).length
+    const review = fileBatchResults.value.filter(
+      (item) => item.state === "review"
+    ).length
+    const failed = fileBatchResults.value.filter(
+      (item) => item.state === "failed"
+    ).length
+    successMessage.value = t("cameras.onboarding.fileBatchFinished", {
+      successful,
+      partial,
+      review,
+      failed
+    })
+    fileBatchCompleted.value = true
+    fileBatchRows.value = []
+    if (changed) {
+      emit("changed")
+    }
+  } finally {
+    working.value = null
+  }
+}
+
 async function runBatchImport(): Promise<void> {
   if (!canBatchImport.value) return
 
@@ -564,13 +920,9 @@ async function runBatchImport(): Promise<void> {
         )
         changed = true
 
-        for (const camera of imported.cameras) {
-          await updateCamera(camera.id, {
-            time_sync_mode: batchTimeSyncMode.value
-          })
-          await putRecordingPolicy(camera.id, batchPolicy())
-        }
-        await applyBatchGroup(importedCameraIds)
+        await applyBatchDefaults(importedCameraIds, {
+          timeSync: true
+        })
 
         setBatchResult(
           candidate,
@@ -609,7 +961,7 @@ async function runBatchImport(): Promise<void> {
       override.password = ""
     }
     if (changed) {
-      emit("created")
+      emit("changed")
     }
   } finally {
     working.value = null
@@ -659,6 +1011,16 @@ function discoveryStateLabel(value: string): string {
         @click="mode = 'rtsp'; clearMessages()"
       >
         {{ t("cameras.onboarding.manualRtsp") }}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        :aria-selected="mode === 'batch_file'"
+        :class="{ 'segmented-tabs__item--active': mode === 'batch_file' }"
+        class="segmented-tabs__item"
+        @click="mode = 'batch_file'; clearMessages(); loadBatchDefaults()"
+      >
+        {{ t("cameras.onboarding.batchFile") }}
       </button>
     </div>
 
@@ -1050,6 +1412,185 @@ function discoveryStateLabel(value: string): string {
           >
             {{ importActionLabel }}
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div v-else-if="mode === 'batch_file'" class="onboarding-grid">
+      <div class="onboarding-step onboarding-step--full">
+        <div class="step-heading">
+          <span>1</span>
+          <div>
+            <strong>{{ t("cameras.onboarding.batchFileTitle") }}</strong>
+            <p>{{ t("cameras.onboarding.batchFileHint") }}</p>
+          </div>
+        </div>
+
+        <div class="onboarding-actions">
+          <button
+            class="button button--secondary"
+            type="button"
+            :disabled="working !== null"
+            @click="downloadBatchTemplate"
+          >
+            {{ t("cameras.onboarding.downloadCsvTemplate") }}
+          </button>
+          <label class="field field--grow">
+            <span>{{ t("cameras.onboarding.chooseCsvFile") }}</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              :disabled="working !== null"
+              @change="handleBatchFile"
+            />
+          </label>
+        </div>
+
+        <p class="field-hint">
+          {{ t("cameras.onboarding.csvColumns") }}
+        </p>
+        <p v-if="fileBatchName" class="field-hint">
+          {{
+            t("cameras.onboarding.csvLoaded", {
+              file: fileBatchName,
+              total: fileBatchRows.length,
+              valid: fileBatchReadyCount,
+              invalid: fileBatchInvalidCount
+            })
+          }}
+        </p>
+
+        <div v-if="fileBatchRows.length" class="profile-list">
+          <article
+            v-for="row in fileBatchRows"
+            :key="row.line"
+            class="probe-card"
+          >
+            <div class="device-summary">
+              <strong>
+                {{ t("cameras.onboarding.csvLine", { line: row.line }) }}
+                · {{ row.kind?.toUpperCase() || "?" }}
+              </strong>
+              <span>{{ row.name || row.host || "—" }}</span>
+            </div>
+            <p
+              v-if="row.errors.length"
+              class="notice notice--error"
+            >
+              {{ row.errors.join(" · ") }}
+            </p>
+            <p v-else class="field-hint">
+              {{ t("cameras.onboarding.csvReady") }}
+            </p>
+          </article>
+        </div>
+      </div>
+
+      <div class="onboarding-step onboarding-step--full">
+        <div class="step-heading">
+          <span>2</span>
+          <div>
+            <strong>{{ t("cameras.onboarding.batchDefaults") }}</strong>
+            <p>{{ t("cameras.onboarding.batchDefaultsHint") }}</p>
+          </div>
+        </div>
+
+        <div class="form-grid form-grid--three">
+          <label class="field">
+            <span>{{ t("cameras.onboarding.cameraGroup") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
+            <select v-model="batchGroupId">
+              <option value="">{{ t("cameras.onboarding.noGroup") }}</option>
+              <option
+                v-for="group in batchGroups"
+                :key="group.id"
+                :value="group.id"
+              >
+                {{ group.name }}
+              </option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ t("cameras.onboarding.recordingDefault") }}</span>
+            <select v-model="batchRecordingMode">
+              <option value="continuous">{{ t("cameras.onboarding.continuous") }}</option>
+              <option value="events">{{ t("cameras.onboarding.eventsOnly") }}</option>
+              <option value="off">{{ t("cameras.onboarding.off") }}</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>{{ t("cameras.onboarding.storageTarget") }}</span>
+            <select
+              v-model="batchStorageTargetId"
+              :disabled="!auth.hasPermission('storage.manage')"
+            >
+              <option value="">{{ t("cameras.onboarding.systemDefault") }}</option>
+              <option
+                v-for="target in batchStorageTargets"
+                :key="target.id"
+                :value="target.id"
+              >
+                {{ target.name }}
+              </option>
+            </select>
+          </label>
+        </div>
+
+        <div class="form-grid form-grid--three">
+          <label class="field">
+            <span>{{ t("cameras.onboarding.timeSyncDefault") }}</span>
+            <select v-model="batchTimeSyncMode">
+              <option value="monitor">{{ t("cameras.onboarding.monitorOnly") }}</option>
+              <option value="manage_ntp">{{ t("cameras.onboarding.manageNtp") }}</option>
+              <option value="ignore">{{ t("cameras.onboarding.ignore") }}</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div class="onboarding-step onboarding-step--full">
+        <div class="step-heading">
+          <span>3</span>
+          <div>
+            <strong>{{ t("cameras.onboarding.batchFileImport") }}</strong>
+            <p>{{ t("cameras.onboarding.batchFileImportHint") }}</p>
+          </div>
+        </div>
+
+        <div class="onboarding-actions">
+          <span class="field-hint">
+            {{ t("cameras.onboarding.csvReadyCount", { count: fileBatchReadyCount }) }}
+          </span>
+          <button
+            class="button button--primary"
+            type="button"
+            :disabled="!canFileBatchImport"
+            @click="runFileBatchImport"
+          >
+            {{
+              working === "file-batch"
+                ? t("cameras.onboarding.fileBatchImporting")
+                : t("cameras.onboarding.importCsvRows", {
+                    count: fileBatchReadyCount
+                  })
+            }}
+          </button>
+        </div>
+
+        <div v-if="fileBatchResults.length" class="profile-list">
+          <article
+            v-for="result in fileBatchResults"
+            :key="result.line"
+            class="probe-card"
+          >
+            <div class="device-summary">
+              <strong>
+                {{ t("cameras.onboarding.csvLine", { line: result.line }) }}
+                · {{ result.label }}
+              </strong>
+              <span>{{ batchStateLabel(result.state) }}</span>
+            </div>
+            <p>{{ result.message }}</p>
+          </article>
         </div>
       </div>
     </div>

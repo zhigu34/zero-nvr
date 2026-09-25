@@ -69,6 +69,10 @@ function handleCreated(): void {
   void refresh()
 }
 
+function handleChanged(): void {
+  void refresh()
+}
+
 function openCamera(camera: CameraSummary): void {
   selectedCamera.value = camera
 }
@@ -174,6 +178,7 @@ onBeforeUnmount(() => {
     <CameraOnboardingPanel
       v-if="showOnboarding && workspace === 'cameras'"
       @created="handleCreated"
+      @changed="handleChanged"
       @close="showOnboarding = false"
     />
 
