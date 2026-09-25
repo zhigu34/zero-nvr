@@ -1654,8 +1654,20 @@ watch(
     props.camera.id,
     requestedQuality.value,
     Boolean(props.audioEnabled)
-  ],
-  () => {
+  ] as const,
+  (
+    [cameraId, quality, audioEnabled],
+    [previousCameraId, previousQuality, previousAudioEnabled]
+  ) => {
+    if (
+      cameraId === previousCameraId &&
+      quality === previousQuality &&
+      previousAudioEnabled &&
+      !audioEnabled
+    ) {
+      return
+    }
+
     reconnectAttempt = 0
     destroyPlayer()
     descriptor.value = null

@@ -140,6 +140,9 @@ When supported by the selected source/player:
 
 - grid is muted by default;
 - focused camera can enable audio;
+- enabling audio may renegotiate WebRTC when an audio transceiver was not
+  requested originally, but disabling audio with unchanged camera/quality only
+  mutes the existing player and must not force a live-session rebuild;
 - audio failure does not fail video or recording;
 - browser autoplay restrictions are handled explicitly.
 
