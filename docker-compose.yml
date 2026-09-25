@@ -214,9 +214,11 @@ services:
       - ./deploy/zlm/config.ini:/opt/media/conf/config.ini:ro
       - ${ZERO_NVR_RECORDINGS_PATH:-./data/recordings}:/recordings
       - zero-nvr-prebuffer:/prebuffer
+    expose:
+      - "80"
+      - "554"
+      - "1935"
     ports:
-      - "${ZERO_NVR_ZLM_HTTP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_HTTP_PORT:-8080}:80"
-      - "${ZERO_NVR_ZLM_RTSP_BIND:-127.0.0.1}:${ZERO_NVR_ZLM_RTSP_PORT:-8554}:554"
       - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8001}:${ZERO_NVR_ZLM_WEBRTC_PORT:-8001}/udp"
       - "${ZERO_NVR_ZLM_WEBRTC_PORT:-8001}:${ZERO_NVR_ZLM_WEBRTC_PORT:-8001}/tcp"
     healthcheck:

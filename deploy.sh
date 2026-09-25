@@ -157,6 +157,8 @@ ensure_env() {
     configure_build_source_first_install
   fi
 
+  migrate_legacy_media_public_base
+
   local key value secret_key
   secret_key="$(protected_env_get ZERO_NVR_SECRET_KEY "")"
   if [[ -z "$secret_key" ]]; then
@@ -182,6 +184,21 @@ ensure_env() {
       exit 1
     fi
   done
+}
+
+migrate_legacy_media_public_base() {
+  local value
+  value="$(env_get ZERO_NVR_ZLM_PUBLIC_BASE_URL "")"
+  case "$value" in
+    ""|http://localhost:*|https://localhost:*|http://127.0.0.1:*|https://127.0.0.1:*)
+      if [[ "$value" != "/zlm" ]]; then
+        set_env_value ZERO_NVR_ZLM_PUBLIC_BASE_URL "/zlm"
+        if [[ -n "$value" ]]; then
+          echo "migrated: ZERO_NVR_ZLM_PUBLIC_BASE_URL=$value -> /zlm"
+        fi
+      fi
+      ;;
+  esac
 }
 
 ensure_host_dirs() {
@@ -212,29 +229,10 @@ validate_compose_model() {
 }
 
 core_port_preflight() {
-  local old_http new_http public_base profile profiles
+  local profile profiles
 
   port_preflight_reset
   ensure_port_setting     ZERO_NVR_API_PORT 8000     0.0.0.0 tcp zero-nvr "zero-nvr Web/API"
-
-  old_http="$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")"
-  ensure_port_setting     ZERO_NVR_ZLM_HTTP_PORT 8080     "$(env_get ZERO_NVR_ZLM_HTTP_BIND "0.0.0.0")"     tcp zlmediakit "ZLMediaKit HTTP"
-  new_http="$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")"
-  if [[ "$new_http" != "$old_http" ]]; then
-    public_base="$(env_get ZERO_NVR_ZLM_PUBLIC_BASE_URL "")"
-    case "$public_base" in
-      "http://localhost:$old_http")
-        set_env_value           ZERO_NVR_ZLM_PUBLIC_BASE_URL           "http://localhost:$new_http"
-        echo "saved: ZERO_NVR_ZLM_PUBLIC_BASE_URL=http://localhost:$new_http"
-        ;;
-      "http://127.0.0.1:$old_http")
-        set_env_value           ZERO_NVR_ZLM_PUBLIC_BASE_URL           "http://127.0.0.1:$new_http"
-        echo "saved: ZERO_NVR_ZLM_PUBLIC_BASE_URL=http://127.0.0.1:$new_http"
-        ;;
-    esac
-  fi
-
-  ensure_port_setting     ZERO_NVR_ZLM_RTSP_PORT 8554     "$(env_get ZERO_NVR_ZLM_RTSP_BIND "127.0.0.1")"     tcp zlmediakit "ZLMediaKit RTSP"
   ensure_port_setting     ZERO_NVR_ZLM_WEBRTC_PORT 8001     0.0.0.0 tcp,udp zlmediakit "ZLMediaKit WebRTC"
 
   profiles="$(env_get COMPOSE_PROFILES "")"
@@ -277,10 +275,9 @@ print_install_summary() {
   echo "Web UI:"
   echo "  http://localhost:$(env_get ZERO_NVR_API_PORT "8000")"
   echo
-  echo "Published media ports:"
-  echo "  ZLM HTTP:   $(env_get ZERO_NVR_ZLM_HTTP_BIND "0.0.0.0"):$(env_get ZERO_NVR_ZLM_HTTP_PORT "8080")/tcp"
-  echo "  ZLM RTSP:   $(env_get ZERO_NVR_ZLM_RTSP_BIND "127.0.0.1"):$(env_get ZERO_NVR_ZLM_RTSP_PORT "8554")/tcp"
-  echo "  ZLM WebRTC: 0.0.0.0:$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")/tcp+udp"
+  echo "Browser media:"
+  echo "  HLS/fMP4:   same origin via /zlm"
+  echo "  WebRTC:     0.0.0.0:$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")/tcp+udp"
   echo
   echo "Open the Web UI to complete first-run administrator setup."
 }

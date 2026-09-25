@@ -46,6 +46,7 @@ from app.modules.recordings.runtime import RecorderModeTracker
 from app.modules.storage.dispatcher import StorageTaskDispatcher
 from app.modules.system.frigate_dispatcher import FrigateTaskDispatcher
 from app.internal import router as internal_router
+from app.media_proxy import router as media_proxy_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -270,6 +271,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(api_v1_router)
     app.include_router(internal_router)
+    app.include_router(media_proxy_router)
     install_error_handlers(app)
     mount_frontend(app)
     return app

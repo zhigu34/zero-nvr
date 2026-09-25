@@ -156,11 +156,20 @@ jobs:
           assert driver_opts["device"] == "tmpfs"
           assert "size=512m" in driver_opts["o"]
 
+          zlm = model["services"]["zlmediakit"]
           zlm_healthcheck = " ".join(
-              model["services"]["zlmediakit"]["healthcheck"]["test"]
+              zlm["healthcheck"]["test"]
           )
           assert "/opt/media/conf/config.ini" in zlm_healthcheck
           assert "ZERO_NVR_ZLM_API_SECRET" not in zlm_healthcheck
+          published_targets = {
+              int(item["target"])
+              for item in zlm.get("ports", [])
+          }
+          assert published_targets == {8001}
+          assert {80, 554, 1935}.issubset(
+              {int(item) for item in zlm.get("expose", [])}
+          )
 
           postgres_environment = model["services"]["postgres"]["environment"]
           assert "POSTGRES_PASSWORD_FILE" in postgres_environment
@@ -234,6 +243,7 @@ jobs:
               assert len(values.get(key, "")) >= 32, key
 
           assert values.get("ZERO_NVR_ZLM_WEBRTC_PORT") == "8001"
+          assert values.get("ZERO_NVR_ZLM_PUBLIC_BASE_URL") == "/zlm"
           PY
 
           curl -fsS http://127.0.0.1:8000/health
@@ -309,7 +319,10 @@ jobs:
             "http://localhost:8000" \
             /tmp/zero-nvr-clean-install.log
           grep -Fq \
-            "ZLM WebRTC: 0.0.0.0:8001/tcp+udp" \
+            "HLS/fMP4:   same origin via /zlm" \
+            /tmp/zero-nvr-clean-install.log
+          grep -Fq \
+            "WebRTC:     0.0.0.0:8001/tcp+udp" \
             /tmp/zero-nvr-clean-install.log
 
       - name: Show clean-install diagnostics

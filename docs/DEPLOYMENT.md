@@ -277,8 +277,11 @@ Current implemented behavior:
 
 Implemented deployment-test hardening:
 
-- Core defaults no longer collide: zero-nvr Web/API uses `8000/tcp` and
-  ZLMediaKit WebRTC defaults to `8001/tcp+udp`;
+- Core publishes only the browser-facing ports by default: zero-nvr Web/API
+  uses `8000/tcp`, including same-origin HLS/fMP4 under `/zlm`, and
+  ZLMediaKit WebRTC uses `8001/tcp+udp`;
+- ZLMediaKit HTTP/RTSP/RTMP stay on the Docker network and are not published
+  as host ports;
 - install validates configured host-published Core ports before image
   pull/build/start;
 - enabled optional profiles are included in install-time port preflight;
@@ -293,8 +296,8 @@ Implemented deployment-test hardening:
   with an `ss` fallback;
 - the rendered Compose model is validated before install pull/build/start and
   before enabling a managed feature;
-- a successful install prints the Web UI address plus the effective ZLM HTTP,
-  RTSP, and WebRTC published ports.
+- a successful install prints the Web UI address, the same-origin `/zlm`
+  media path, and the effective WebRTC port.
 
 Deployment CI also runs `scripts/test-clean-install.sh` in an isolated
 temporary deployment tree with no pre-existing `.env`. The harness uses a

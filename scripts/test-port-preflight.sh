@@ -51,8 +51,6 @@ port_socket_available() {
 }
 port_preflight_reset
 ensure_port_setting   ZERO_NVR_API_PORT 8000 0.0.0.0 tcp zero-nvr "Web/API"
-ensure_port_setting   ZERO_NVR_ZLM_HTTP_PORT 8080 0.0.0.0 tcp zlmediakit "ZLM HTTP"
-ensure_port_setting   ZERO_NVR_ZLM_RTSP_PORT 8554 127.0.0.1 tcp zlmediakit "ZLM RTSP"
 ensure_port_setting   ZERO_NVR_ZLM_WEBRTC_PORT 8001 0.0.0.0 tcp,udp zlmediakit "ZLM WebRTC"
 
 # Configured collisions are rejected even when the host itself is empty.
