@@ -39,7 +39,7 @@ class DesiredZlmStream:
     app: str
     stream: str
     source_uri: str = field(repr=False)
-    auto_close: bool = False
+    auto_close: bool = True
 
     @property
     def reference(self) -> ZlmStreamReference:
@@ -112,11 +112,6 @@ class CameraMediaRuntimeService:
             camera_id=camera.id,
             profile_id=profile.id,
         )
-        record_bound = any(
-            binding.purpose == "RECORD"
-            and binding.stream_profile_id == profile.id
-            for binding in camera.stream_bindings
-        )
         return DesiredZlmStream(
             camera_id=camera.id,
             profile_id=profile.id,
@@ -126,7 +121,6 @@ class CameraMediaRuntimeService:
                 session,
                 profile,
             ),
-            auto_close=not record_bound,
         )
 
     def desired_streams(
@@ -216,6 +210,7 @@ class CameraMediaRuntimeService:
                         enable_hls=True,
                         retry_count=-1,
                         auto_close=item.auto_close,
+                        mp4_as_player=True,
                     )
                 references.append(item.reference)
         return references
@@ -242,6 +237,7 @@ class CameraMediaRuntimeService:
                     enable_hls=True,
                     retry_count=-1,
                     auto_close=item.auto_close,
+                    mp4_as_player=True,
                 )
                 references.append(item.reference)
         return references
@@ -276,6 +272,7 @@ class CameraMediaRuntimeService:
                     enable_hls=True,
                     retry_count=-1,
                     auto_close=item.auto_close,
+                    mp4_as_player=True,
                 )
                 references.append(
                     item.reference

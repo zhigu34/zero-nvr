@@ -436,6 +436,7 @@ class ZlmAdapter:
         mp4_max_second: int | None = None,
         retry_count: int = -1,
         auto_close: bool = False,
+        mp4_as_player: bool = False,
     ) -> str:
         payload = self._call(
             "addStreamProxy",
@@ -447,6 +448,7 @@ class ZlmAdapter:
                 "rtp_type": 0,
                 "retry_count": retry_count,
                 "auto_close": auto_close,
+                "mp4_as_player": mp4_as_player,
                 "enable_hls": enable_hls,
                 "enable_mp4": enable_mp4,
                 "enable_rtsp": 1,

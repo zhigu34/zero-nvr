@@ -120,7 +120,7 @@ def test_desired_streams_deduplicate_bindings_and_hide_source_uri_in_repr(
             item.source_uri: item
             for item in desired
         }
-        assert by_source[PRIMARY_URL].auto_close is False
+        assert by_source[PRIMARY_URL].auto_close is True
         assert by_source[SECONDARY_URL].auto_close is True
 
         rendered = repr(desired)
@@ -256,7 +256,8 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         assert add_call["enable_mp4"] is False
         assert add_call["enable_hls"] is True
         assert add_call["retry_count"] == -1
-        assert add_call["auto_close"] is to_add.auto_close
+        assert add_call["auto_close"] is True
+        assert add_call["mp4_as_player"] is True
 
         # Once both are online, stop should close both by deterministic ZLM
         # app/stream identity. No proxy-key runtime table is required.

@@ -191,11 +191,13 @@ def test_add_stream_proxy_forwards_auto_close_policy() -> None:
             source_url=SOURCE_URL,
             enable_hls=True,
             auto_close=True,
+            mp4_as_player=True,
         )
 
     assert len(requests) == 1
     body = form(requests[0])
     assert body["auto_close"] == ["1"]
+    assert body["mp4_as_player"] == ["1"]
     assert body["enable_hls"] == ["1"]
 
 
