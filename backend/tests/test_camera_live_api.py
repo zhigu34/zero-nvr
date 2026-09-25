@@ -487,6 +487,29 @@ def test_whep_live_session_is_authorized_proxied_and_revocable(
         def __exit__(self, *_exc):
             return None
 
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            assert app == "zero-nvr"
+            assert stream.startswith("profile-")
+            assert schema == "rtsp"
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h264",
+                    ready=True,
+                    width=1920,
+                    height=1080,
+                    fps=25.0,
+                ),
+                audio=None,
+            )
+
         def whep_play(
             self,
             *,
