@@ -707,12 +707,21 @@ function waitForFirstVideoFrame(
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     let settled = false
+    let playbackStartRequested = false
     let frameCallbackId: number | null = null
 
     const cleanup = () => {
       window.clearTimeout(timeout)
       element.removeEventListener("playing", handleReady)
       element.removeEventListener("loadeddata", handleReady)
+      element.removeEventListener(
+        "loadedmetadata",
+        startPlaybackIfReady
+      )
+      element.removeEventListener(
+        "canplay",
+        startPlaybackIfReady
+      )
       element.removeEventListener("error", handleError)
       if (
         frameCallbackId !== null &&
@@ -766,7 +775,36 @@ function waitForFirstVideoFrame(
       )
     }
 
+    const startPlaybackIfReady = () => {
+      if (settled || playbackStartRequested) return
+      if (
+        generation !== attemptGeneration ||
+        playbackSuspended.value
+      ) {
+        fail(new PlaybackCancelledError())
+        return
+      }
+      if (
+        element.srcObject === null &&
+        !element.currentSrc &&
+        !element.getAttribute("src")
+      ) {
+        return
+      }
+
+      playbackStartRequested = true
+      void element.play().catch((caught) => {
+        fail(
+          t("live.tile.errors.playStartFailed", {
+            transport: transport.toUpperCase(),
+            reason: errorMessage(caught)
+          })
+        )
+      })
+    }
+
     const handleReady = () => {
+      startPlaybackIfReady()
       if (
         typeof element.requestVideoFrameCallback !== "function" &&
         element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
@@ -797,6 +835,14 @@ function waitForFirstVideoFrame(
 
     element.addEventListener("playing", handleReady)
     element.addEventListener("loadeddata", handleReady)
+    element.addEventListener(
+      "loadedmetadata",
+      startPlaybackIfReady
+    )
+    element.addEventListener(
+      "canplay",
+      startPlaybackIfReady
+    )
     element.addEventListener("error", handleError)
 
     if (
@@ -808,14 +854,9 @@ function waitForFirstVideoFrame(
       handleReady()
     }
 
-    void element.play().catch((caught) => {
-      fail(
-        t("live.tile.errors.playStartFailed", {
-          transport: transport.toUpperCase(),
-          reason: errorMessage(caught)
-        })
-      )
-    })
+    // setRemoteDescription() may resolve before WebRTC ontrack binds
+    // srcObject. A source-less play() rejection must not force HLS fallback.
+    startPlaybackIfReady()
   })
 }
 

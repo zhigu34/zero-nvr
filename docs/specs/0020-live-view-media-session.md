@@ -247,6 +247,10 @@ Live page baseline:
 - a transport is not considered successfully attached until the browser
   renders a first video frame; WebRTC first-frame timeout falls back to HLS,
   while HLS first-frame timeout becomes an actionable playback failure;
+  WebRTC does not call `video.play()` until its remote track has attached a
+  media source, so the short gap between `setRemoteDescription()` and
+  `ontrack` cannot be misclassified as a playback-start failure; HLS likewise
+  waits until its URL/MediaSource is attached before requesting playback;
   first-frame latency telemetry is recorded at this same decoded/rendered-frame
   boundary rather than at the earlier HTMLMediaElement `playing` event;
 - focused live diagnostics break startup latency into descriptor API, ICE
