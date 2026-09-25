@@ -310,6 +310,10 @@ const messages = {
             "WebRTC: {webrtc} · HLS: {fallback}",
           hlsFatal:
             "HLS fatal error: {details}",
+          firstFrameTimeout:
+            "{transport} session was established, but no playable video frame arrived within {seconds}s.",
+          playStartFailed:
+            "The browser could not start {transport} playback: {reason}",
           unknownPlaybackFailure:
             "unknown playback failure",
           media: {
@@ -1873,6 +1877,8 @@ const messages = {
           playbackFailed: "实时视频播放失败，正在自动重连。",
           transportFallbackFailed: "WebRTC：{webrtc} · HLS：{fallback}",
           hlsFatal: "HLS 致命错误：{details}",
+          firstFrameTimeout: "{transport} 会话已建立，但 {seconds} 秒内没有收到可播放的视频首帧。",
+          playStartFailed: "浏览器无法启动 {transport} 播放：{reason}",
           unknownPlaybackFailure: "未知播放错误",
           media: {
             aborted: "浏览器中止了实时视频播放。",

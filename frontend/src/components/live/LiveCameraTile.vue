@@ -133,6 +133,9 @@ let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
+const WEBRTC_FIRST_FRAME_TIMEOUT_MS = 6_000
+const HLS_FIRST_FRAME_TIMEOUT_MS = 8_000
+
 const manuallyStopped = computed(
   () => props.playbackEnabled === false
 )
@@ -606,6 +609,88 @@ function nativeVideoFailure(): string {
   return t(`live.tile.errors.media.${key}`)
 }
 
+function waitForFirstVideoFrame(
+  element: HTMLVideoElement,
+  transport: "webrtc" | "hls",
+  timeoutMs: number
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let settled = false
+    let frameCallbackId: number | null = null
+
+    const cleanup = () => {
+      window.clearTimeout(timeout)
+      element.removeEventListener("playing", handleReady)
+      element.removeEventListener("loadeddata", handleReady)
+      element.removeEventListener("error", handleError)
+      if (
+        frameCallbackId !== null &&
+        typeof element.cancelVideoFrameCallback === "function"
+      ) {
+        element.cancelVideoFrameCallback(frameCallbackId)
+      }
+    }
+
+    const finish = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve()
+    }
+
+    const fail = (reason: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(new Error(reason))
+    }
+
+    const handleReady = () => {
+      if (
+        typeof element.requestVideoFrameCallback !== "function" &&
+        element.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA
+      ) {
+        finish()
+      }
+    }
+
+    const handleError = () => {
+      fail(nativeVideoFailure())
+    }
+
+    const timeout = window.setTimeout(() => {
+      fail(
+        t("live.tile.errors.firstFrameTimeout", {
+          transport: transport.toUpperCase(),
+          seconds: Math.round(timeoutMs / 1000)
+        })
+      )
+    }, timeoutMs)
+
+    element.addEventListener("playing", handleReady)
+    element.addEventListener("loadeddata", handleReady)
+    element.addEventListener("error", handleError)
+
+    if (
+      typeof element.requestVideoFrameCallback === "function"
+    ) {
+      frameCallbackId =
+        element.requestVideoFrameCallback(() => finish())
+    } else {
+      handleReady()
+    }
+
+    void element.play().catch((caught) => {
+      fail(
+        t("live.tile.errors.playStartFailed", {
+          transport: transport.toUpperCase(),
+          reason: errorMessage(caught)
+        })
+      )
+    })
+  })
+}
+
 function releaseWebRtcSession(): void {
   clearStatsTimer()
   const peer = rtcPeer
@@ -813,7 +898,11 @@ async function attachWebRtc(
     })
     activeTransport.value = "webrtc"
     startStatsTimer(peer)
-    await element.play().catch(() => undefined)
+    await waitForFirstVideoFrame(
+      element,
+      "webrtc",
+      WEBRTC_FIRST_FRAME_TIMEOUT_MS
+    )
   } catch (caught) {
     if (rtcPeer === peer) {
       releaseWebRtcSession()
@@ -835,7 +924,11 @@ async function attachHls(
   if (element.canPlayType("application/vnd.apple.mpegurl")) {
     activeTransport.value = "hls"
     element.src = source
-    await element.play().catch(() => undefined)
+    await waitForFirstVideoFrame(
+      element,
+      "hls",
+      HLS_FIRST_FRAME_TIMEOUT_MS
+    )
     return
   }
 
@@ -867,7 +960,11 @@ async function attachHls(
   activeTransport.value = "hls"
   hls.loadSource(source)
   hls.attachMedia(element)
-  await element.play().catch(() => undefined)
+  await waitForFirstVideoFrame(
+    element,
+    "hls",
+    HLS_FIRST_FRAME_TIMEOUT_MS
+  )
 }
 
 async function attachPreferredStream(

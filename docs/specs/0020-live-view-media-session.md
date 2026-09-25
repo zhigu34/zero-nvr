@@ -216,6 +216,9 @@ Live page baseline:
   without exposing media URLs, tokens, or credentials;
 - LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
   sessions retain the longer gathering window needed for relay candidates;
+- a transport is not considered successfully attached until the browser
+  renders a first video frame; WebRTC first-frame timeout falls back to HLS,
+  while HLS first-frame timeout becomes an actionable playback failure;
 - minimal overlay clutter by default.
 
 ## Acceptance tests
@@ -233,7 +236,9 @@ Live page baseline:
    - camera credentials are never exposed.
 
 4. Browser-compatible H.264:
-   - plays without FFmpeg transcode.
+   - plays without FFmpeg transcode;
+   - a successful session must produce a decoded first video frame;
+   - WebRTC with no first frame falls back to HLS before surfacing failure.
 
 5. Incompatible codec:
    - uses alternate source/player or bounded on-demand derivative;
