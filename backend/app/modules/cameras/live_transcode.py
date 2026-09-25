@@ -333,10 +333,15 @@ class LiveTranscodeManager:
                     if process.poll() is not None:
                         return False
                     try:
-                        if zlm.is_media_online(
+                        probe = zlm.media_probe(
                             app=reference.app,
                             stream=reference.stream,
                             schema="rtmp",
+                        )
+                        if (
+                            probe is not None
+                            and probe.video is not None
+                            and probe.video.ready
                         ):
                             return True
                     except ZlmIntegrationError:

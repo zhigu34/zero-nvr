@@ -114,6 +114,11 @@ Requirements:
 - only on demand;
 - bounded global/per-host capacity;
 - may be shared by viewers requesting the same compatible derivative;
+- startup is considered successful only after ZLMediaKit reports the derived
+  H.264 video track ready, not merely when the RTMP source registration exists;
+  this readiness wait stays within the existing bounded compatibility startup
+  timeout so browsers do not receive an HLS descriptor before decodable video
+  is actually available;
 - idle derivatives are cleaned up;
 - failure/capacity exhaustion does not affect recording;
 - hardware acceleration may be used when actually available;
