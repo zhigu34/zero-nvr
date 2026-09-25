@@ -71,6 +71,7 @@ from .schemas import (
     CameraGroupView,
     CameraIceServerView,
     CameraIceServersView,
+    CameraLiveDiagnosticView,
     CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
@@ -2382,6 +2383,81 @@ def get_camera_live_stream(
         height=selection.profile.height,
         fps=selection.profile.fps,
         has_audio=selection.profile.has_audio,
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/live/diagnostics",
+    response_model=CameraLiveDiagnosticView,
+)
+def get_camera_live_diagnostics(
+    camera_id: uuid.UUID,
+    request: Request,
+    media_session_id: uuid.UUID = Query(),
+    quality: Literal[
+        "auto",
+        "high",
+        "low",
+    ] = Query(default="auto"),
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(
+        get_db_session
+    ),
+) -> CameraLiveDiagnosticView:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
+    selection = _select_live_stream(
+        camera_id=camera_id,
+        quality=quality,
+        request=request,
+        session=session,
+    )
+
+    try:
+        with ZlmAdapter(
+            request.app.state.settings
+        ) as zlm:
+            probe = zlm.media_probe(
+                app=selection.reference.app,
+                stream=selection.reference.stream,
+                schema="rtsp",
+            )
+    except ZlmIntegrationError as exc:
+        raise ApiError(
+            status_code=exc.status_code,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    video = probe.video if probe is not None else None
+    if probe is None:
+        state = "source_offline"
+    elif video is None:
+        state = "video_missing"
+    elif not video.ready:
+        state = "video_not_ready"
+    else:
+        state = "ready"
+
+    return CameraLiveDiagnosticView(
+        camera_id=selection.camera.id,
+        profile_id=selection.profile.id,
+        purpose=selection.purpose,
+        state=state,
+        source_online=probe is not None,
+        video_present=video is not None,
+        video_ready=bool(video and video.ready),
+        codec=video.codec if video else None,
+        width=video.width if video else None,
+        height=video.height if video else None,
+        fps=video.fps if video else None,
     )
 
 

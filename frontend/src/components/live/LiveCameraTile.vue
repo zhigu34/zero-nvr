@@ -26,6 +26,7 @@ import {
   deleteCameraWhepSession,
   getCameraCompatibleLiveStream,
   getCameraIceServers,
+  getCameraLiveDiagnostics,
   getCameraLiveStream,
   keepCameraCompatibilityLease,
   releaseCameraCompatibilityLease,
@@ -609,6 +610,58 @@ function nativeVideoFailure(): string {
   return t(`live.tile.errors.media.${key}`)
 }
 
+async function firstFrameTimeoutReason(
+  transport: "webrtc" | "hls",
+  timeoutMs: number
+): Promise<string> {
+  const base = t("live.tile.errors.firstFrameTimeout", {
+    transport: transport.toUpperCase(),
+    seconds: Math.round(timeoutMs / 1000)
+  })
+  const mediaSessionId = activeMediaSessionId
+  if (!mediaSessionId) return base
+
+  try {
+    const diagnostic = await getCameraLiveDiagnostics(
+      props.camera.id,
+      requestedQuality.value,
+      mediaSessionId
+    )
+    if (diagnostic.state === "source_offline") {
+      return t("live.tile.errors.sourceOffline", {
+        base
+      })
+    }
+    if (diagnostic.state === "video_missing") {
+      return t("live.tile.errors.videoMissing", {
+        base
+      })
+    }
+    if (diagnostic.state === "video_not_ready") {
+      return t("live.tile.errors.videoNotReady", {
+        base,
+        codec: diagnostic.codec || t("live.tile.errors.unknownCodec")
+      })
+    }
+    const shape = (
+      diagnostic.width &&
+      diagnostic.height
+    )
+      ? `${diagnostic.width}×${diagnostic.height}`
+      : t("live.tile.errors.unknownResolution")
+    return t("live.tile.errors.browserNoFrame", {
+      base,
+      codec: diagnostic.codec || t("live.tile.errors.unknownCodec"),
+      resolution: shape
+    })
+  } catch (caught) {
+    return t("live.tile.errors.diagnosticUnavailable", {
+      base,
+      reason: liveDiagnosticMessage(caught)
+    })
+  }
+}
+
 function waitForFirstVideoFrame(
   element: HTMLVideoElement,
   transport: "webrtc" | "hls",
@@ -659,12 +712,10 @@ function waitForFirstVideoFrame(
     }
 
     const timeout = window.setTimeout(() => {
-      fail(
-        t("live.tile.errors.firstFrameTimeout", {
-          transport: transport.toUpperCase(),
-          seconds: Math.round(timeoutMs / 1000)
-        })
-      )
+      void firstFrameTimeoutReason(
+        transport,
+        timeoutMs
+      ).then((reason) => fail(reason))
     }, timeoutMs)
 
     element.addEventListener("playing", handleReady)

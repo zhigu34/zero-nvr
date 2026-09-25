@@ -351,6 +351,25 @@ class CameraLiveStreamView(BaseModel):
 
 
 
+class CameraLiveDiagnosticView(BaseModel):
+    camera_id: uuid.UUID
+    profile_id: uuid.UUID
+    purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
+    state: Literal[
+        "source_offline",
+        "video_missing",
+        "video_not_ready",
+        "ready",
+    ]
+    source_online: bool
+    video_present: bool
+    video_ready: bool
+    codec: str | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+
+
 class CameraIceServerView(BaseModel):
     urls: list[str]
     username: str

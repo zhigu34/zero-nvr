@@ -80,6 +80,39 @@ export function releaseCameraCompatibilityLease(
 }
 
 
+export interface CameraLiveDiagnostic {
+  camera_id: string
+  profile_id: string
+  purpose: "LIVE_HIGH" | "LIVE_LOW" | "RECORD"
+  state:
+    | "source_offline"
+    | "video_missing"
+    | "video_not_ready"
+    | "ready"
+  source_online: boolean
+  video_present: boolean
+  video_ready: boolean
+  codec: string | null
+  width: number | null
+  height: number | null
+  fps: number | null
+}
+
+export function getCameraLiveDiagnostics(
+  cameraId: string,
+  quality: LiveQuality,
+  mediaSessionId: string
+): Promise<CameraLiveDiagnostic> {
+  const params = new URLSearchParams({
+    quality,
+    media_session_id: mediaSessionId
+  })
+  return apiRequest<CameraLiveDiagnostic>(
+    `/cameras/${encodeURIComponent(cameraId)}/live/diagnostics?${params}`
+  )
+}
+
+
 export interface CameraIceServer {
   urls: string[]
   username: string

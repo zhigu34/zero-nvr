@@ -10,7 +10,11 @@ from pydantic import SecretStr
 from app.core.config import Settings
 from app.core.db import Base
 from app.main import create_app
-from app.integrations.zlm import ZlmWhepSession
+from app.integrations.zlm import (
+    ZlmMediaProbe,
+    ZlmTrackProbe,
+    ZlmWhepSession,
+)
 from app.modules.cameras.live_transcode import LiveTranscodeLease
 from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
@@ -148,6 +152,124 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert unavailable.status_code == 409
         assert unavailable.json()["error"]["code"] == "camera_disabled"
 
+
+
+def test_live_diagnostics_report_sanitized_zlm_track_state(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    def fake_ensure(self, desired):
+        return [item.reference for item in desired]
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            assert app == "zero-nvr"
+            assert stream.startswith("profile-")
+            assert schema == "rtsp"
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h264",
+                    ready=False,
+                    width=1920,
+                    height=1080,
+                    fps=25.0,
+                ),
+                audio=None,
+            )
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Front Door",
+                "location": "Entrance",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": (
+                        "rtsp://alice:camera-secret@10.0.0.10/main"
+                        "?token=camera-token"
+                    ),
+                },
+                "secondary_stream": None,
+            },
+        )
+        assert created.status_code == 201
+        camera_id = created.json()["id"]
+
+        descriptor = client.get(
+            f"/api/v1/cameras/{camera_id}/live?quality=high"
+        )
+        assert descriptor.status_code == 200
+        media_session_id = descriptor.json()["media_session_id"]
+
+        response = client.get(
+            (
+                f"/api/v1/cameras/{camera_id}/live/diagnostics"
+                f"?quality=high&media_session_id={media_session_id}"
+            )
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["state"] == "video_not_ready"
+        assert body["source_online"] is True
+        assert body["video_present"] is True
+        assert body["video_ready"] is False
+        assert body["codec"] == "h264"
+        assert body["width"] == 1920
+        assert body["height"] == 1080
+        assert body["fps"] == 25.0
+
+        serialized = json.dumps(body)
+        assert "rtsp://" not in serialized
+        assert "camera-secret" not in serialized
+        assert "camera-token" not in serialized
+        assert "10.0.0.10" not in serialized
 
 
 def test_camera_snapshot_uses_internal_zlm_stream_only(

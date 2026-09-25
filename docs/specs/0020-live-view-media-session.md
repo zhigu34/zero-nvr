@@ -219,6 +219,10 @@ Live page baseline:
 - a transport is not considered successfully attached until the browser
   renders a first video frame; WebRTC first-frame timeout falls back to HLS,
   while HLS first-frame timeout becomes an actionable playback failure;
+- first-frame timeout performs an on-demand, permission-gated ZLM media
+  diagnostic that distinguishes source offline, missing video track, video
+  track not ready, and browser-side delivery/decoding failure; diagnostics
+  expose only allow-listed track metadata and never source URLs or credentials;
 - minimal overlay clutter by default.
 
 ## Acceptance tests

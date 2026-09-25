@@ -312,6 +312,18 @@ const messages = {
             "HLS fatal error: {details}",
           firstFrameTimeout:
             "{transport} session was established, but no playable video frame arrived within {seconds}s.",
+          sourceOffline:
+            "{base} ZLMediaKit reports that the selected source stream is not online.",
+          videoMissing:
+            "{base} The source is online, but ZLMediaKit reports no video track.",
+          videoNotReady:
+            "{base} ZLMediaKit sees a {codec} video track, but it is not ready.",
+          browserNoFrame:
+            "{base} ZLMediaKit reports a ready {codec} video track ({resolution}), so the failure is between media delivery and browser decoding/rendering.",
+          diagnosticUnavailable:
+            "{base} Live source diagnostics could not be read: {reason}",
+          unknownCodec: "unknown codec",
+          unknownResolution: "unknown resolution",
           playStartFailed:
             "The browser could not start {transport} playback: {reason}",
           unknownPlaybackFailure:
@@ -1878,6 +1890,13 @@ const messages = {
           transportFallbackFailed: "WebRTC：{webrtc} · HLS：{fallback}",
           hlsFatal: "HLS 致命错误：{details}",
           firstFrameTimeout: "{transport} 会话已建立，但 {seconds} 秒内没有收到可播放的视频首帧。",
+          sourceOffline: "{base} ZLMediaKit 显示当前选择的源流尚未上线。",
+          videoMissing: "{base} 源流已上线，但 ZLMediaKit 没有检测到视频轨。",
+          videoNotReady: "{base} ZLMediaKit 已检测到 {codec} 视频轨，但视频轨尚未 ready。",
+          browserNoFrame: "{base} ZLMediaKit 显示 {codec} 视频轨已 ready（{resolution}），问题位于媒体传输到浏览器解码/渲染这一段。",
+          diagnosticUnavailable: "{base} 无法读取实时源诊断信息：{reason}",
+          unknownCodec: "未知编码",
+          unknownResolution: "未知分辨率",
           playStartFailed: "浏览器无法启动 {transport} 播放：{reason}",
           unknownPlaybackFailure: "未知播放错误",
           media: {

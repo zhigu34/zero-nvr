@@ -622,6 +622,24 @@ class ZlmAdapter:
             return []
         return [item for item in data if isinstance(item, dict)]
 
+    def media_probe(
+        self,
+        *,
+        app: str,
+        stream: str,
+        schema: str = "rtsp",
+    ) -> ZlmMediaProbe | None:
+        items = self.get_media_list(
+            app=app,
+            stream=stream,
+            schema=schema,
+        )
+        for item in items:
+            probe = self._parse_tracks(item)
+            if not probe.stream or probe.stream == stream:
+                return probe
+        return None
+
     @staticmethod
     def _parse_tracks(item: dict[str, Any]) -> ZlmMediaProbe:
         video: ZlmTrackProbe | None = None
