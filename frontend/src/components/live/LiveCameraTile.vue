@@ -1211,7 +1211,9 @@ async function attachHls(
   await nextTick()
   requireActivePlayback(attemptGeneration)
   const element = video.value
-  if (!element) return
+  if (!element) {
+    throw new Error(t("live.tile.errors.videoUnavailable"))
+  }
 
   releaseWebRtcSession()
   if (element.srcObject) {

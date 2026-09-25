@@ -259,6 +259,10 @@ Live page baseline:
   session-bound deterministic stream reference instead of repeating ZLM online
   checks or accepting a later quality parameter as a profile switch; browser
   ICE configuration fetch overlaps local SDP offer creation;
+- both WebRTC and HLS require a mounted video element before attachment;
+  a missing player element is an explicit playback failure rather than a
+  successful no-op, so descriptor state can never report success while no media
+  target exists;
 - a transport is not considered successfully attached until the browser
   renders a first video frame; WebRTC first-frame timeout or connection failure
   before that first frame falls back to HLS, while a WebRTC connection failure
