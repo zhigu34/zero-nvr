@@ -781,7 +781,7 @@ onMounted(() => {
         <tbody>
           <tr v-if="!oidcProviders.length">
             <td colspan="5">
-              No OIDC providers configured.
+              {{ t("system.oidc.empty") }}
             </td>
           </tr>
           <tr
