@@ -198,8 +198,7 @@ const fileBatchInvalidCount = computed(
 )
 const canFileBatchImport = computed(
   () =>
-    fileBatchRows.value.length > 0 &&
-    fileBatchInvalidCount.value === 0 &&
+    fileBatchReadyCount.value > 0 &&
     !fileBatchCompleted.value &&
     working.value === null
 )
@@ -719,7 +718,15 @@ async function runFileBatchImport(): Promise<void> {
     await loadBatchDefaults()
 
     for (const row of fileBatchRows.value) {
-      if (row.errors.length || !row.kind) continue
+      if (row.errors.length || !row.kind) {
+        setFileBatchResult(
+          row,
+          "failed",
+          row.errors.join(" · ") ||
+            t("cameras.onboarding.csvUnsupportedType", { type: "?" })
+        )
+        continue
+      }
       setFileBatchResult(
         row,
         "running",
@@ -836,6 +843,7 @@ async function runFileBatchImport(): Promise<void> {
     })
     fileBatchCompleted.value = true
     fileBatchRows.value = []
+    fileBatchName.value = ""
     if (changed) {
       emit("changed")
     }
