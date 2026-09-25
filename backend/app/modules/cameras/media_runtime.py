@@ -224,13 +224,14 @@ class CameraMediaRuntimeService:
                     )
                 ):
                     probe = None
+                    probe_failed = False
                     try:
                         probe = zlm.media_probe(
                             app=item.app,
                             stream=item.stream,
                         )
                     except ZlmIntegrationError:
-                        pass
+                        probe_failed = True
 
                     if (
                         probe is not None
@@ -241,6 +242,16 @@ class CameraMediaRuntimeService:
                             item.reference
                         )
                         continue
+
+                    if probe_failed:
+                        raise ZlmIntegrationError(
+                            "camera_stream_start_timeout",
+                            (
+                                "The camera stream did not become ready "
+                                "for live playback in time."
+                            ),
+                            status_code=504,
+                        )
 
                     if probe is None:
                         raise ZlmIntegrationError(
