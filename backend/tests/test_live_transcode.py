@@ -7,10 +7,6 @@ import pytest
 
 from app.core.config import Settings
 from app.core.db import Base, Database
-from app.integrations.zlm import (
-    ZlmMediaProbe,
-    ZlmTrackProbe,
-)
 from app.modules.cameras.live_transcode import (
     LiveTranscodeError,
     LiveTranscodeManager,
@@ -83,28 +79,17 @@ class FakeZlm:
     def __exit__(self, *_exc) -> None:
         return None
 
-    def media_probe(
+    def is_media_online(
         self,
         *,
         app: str,
         stream: str,
         schema: str = "rtsp",
-    ):
+    ) -> bool:
         assert app == "zero-nvr-compat"
         assert stream.startswith("h264-")
         assert schema == "rtmp"
-        return ZlmMediaProbe(
-            stream=stream,
-            video=ZlmTrackProbe(
-                kind="video",
-                codec="h264",
-                ready=True,
-                width=1920,
-                height=1080,
-                fps=25.0,
-            ),
-            audio=None,
-        )
+        return True
 
 
 class FakeCompleted:
@@ -133,57 +118,6 @@ def settings(
     }
     values.update(overrides)
     return Settings(**values)
-
-
-def test_startup_waits_for_ready_video_track(
-    tmp_path: Path,
-) -> None:
-    probes = {"count": 0}
-
-    class DelayedReadyZlm(FakeZlm):
-        def media_probe(
-            self,
-            *,
-            app: str,
-            stream: str,
-            schema: str = "rtsp",
-        ):
-            probes["count"] += 1
-            ready = probes["count"] >= 2
-            return ZlmMediaProbe(
-                stream=stream,
-                video=ZlmTrackProbe(
-                    kind="video",
-                    codec="h264",
-                    ready=ready,
-                    width=1920,
-                    height=1080,
-                    fps=25.0,
-                ),
-                audio=None,
-            )
-
-    manager = LiveTranscodeManager(
-        settings(tmp_path),
-        popen_factory=lambda *_args, **_kwargs: FakeProcess(),
-        run_factory=lambda *_args, **_kwargs: FakeCompleted(),
-        zlm_factory=DelayedReadyZlm,
-        timer_factory=FakeTimer,
-        sleep=lambda _seconds: None,
-    )
-
-    lease = manager.acquire(
-        camera_id=uuid.uuid4(),
-        owner_user_id=uuid.uuid4(),
-        profile_id=uuid.uuid4(),
-        source_url=(
-            "rtsp://zlmediakit:554/zero-nvr/profile-test"
-        ),
-        has_audio=False,
-    )
-
-    assert lease.reference.app == "zero-nvr-compat"
-    assert probes["count"] == 2
 
 
 def test_shared_derivative_uses_separate_leases_and_idle_cleanup(
