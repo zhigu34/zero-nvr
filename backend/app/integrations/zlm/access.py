@@ -145,6 +145,7 @@ class ZlmMediaAccess:
         stream: str,
         params: str,
         now_epoch: int | None = None,
+        allow_expired: bool = False,
     ) -> bool:
         query = parse_qs(
             params.lstrip("?"),
@@ -173,7 +174,9 @@ class ZlmMediaAccess:
             return False
 
         now = int(time.time()) if now_epoch is None else now_epoch
-        if expires_at < now or expires_at > now + self.max_ttl_seconds:
+        if expires_at > now + self.max_ttl_seconds:
+            return False
+        if not allow_expired and expires_at < now:
             return False
 
         supplied = signature_values[0]

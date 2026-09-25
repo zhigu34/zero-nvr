@@ -325,6 +325,10 @@ class CameraIceServerView(BaseModel):
     expires_at: datetime
 
 
+class CameraLiveSessionKeepaliveView(BaseModel):
+    expires_at: datetime
+
+
 class CameraLiveStreamView(BaseModel):
     camera_id: uuid.UUID
     profile_id: uuid.UUID

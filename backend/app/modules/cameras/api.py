@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+from datetime import timedelta
 from dataclasses import dataclass
 import uuid
 from typing import Any, Literal, cast
@@ -72,6 +73,7 @@ from .schemas import (
     CameraIceServerView,
     CameraIceServersView,
     CameraLiveDiagnosticView,
+    CameraLiveSessionKeepaliveView,
     CameraLiveStreamView,
     CameraProbeResult,
     CameraProbeStreamView,
@@ -3055,6 +3057,48 @@ def release_camera_live_compatibility(
         owner_user_id=context.user.id,
     )
     return Response(status_code=204)
+
+
+@router.post(
+    "/cameras/{camera_id}/live/session/{media_session_id}/keepalive",
+    response_model=CameraLiveSessionKeepaliveView,
+)
+def keep_camera_live_session(
+    camera_id: uuid.UUID,
+    media_session_id: uuid.UUID,
+    request: Request,
+    response: Response,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+) -> CameraLiveSessionKeepaliveView:
+    ttl_seconds = (
+        ZlmMediaAccess.live_ttl_seconds
+    )
+    if not request.app.state.media_sessions.renew(
+        media_session_id,
+        owner_user_id=context.user.id,
+        camera_id=camera_id,
+        ttl_seconds=ttl_seconds,
+    ):
+        raise ApiError(
+            status_code=404,
+            code="media_session_not_found",
+            message=(
+                "Live media session was not found "
+                "or has expired."
+            ),
+        )
+
+    response.headers[
+        "Cache-Control"
+    ] = "private, no-store"
+    return CameraLiveSessionKeepaliveView(
+        expires_at=(
+            utc_now()
+            + timedelta(seconds=ttl_seconds)
+        )
+    )
 
 
 @router.delete(

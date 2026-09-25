@@ -19,6 +19,7 @@ class _MediaSession:
         default_factory=dict
     )
     timer: Any | None = None
+    generation: int = 0
 
 
 class MediaSessionRegistry:
@@ -65,7 +66,10 @@ class MediaSessionRegistry:
         timer = self._timer_factory(
             ttl_seconds,
             self._expire,
-            args=(session_id,),
+            args=(
+                session_id,
+                state.generation,
+            ),
         )
         if hasattr(timer, "daemon"):
             timer.daemon = True
@@ -120,6 +124,51 @@ class MediaSessionRegistry:
     ) -> bool:
         with self._lock:
             return session_id in self._sessions
+
+    def renew(
+        self,
+        session_id: uuid.UUID,
+        *,
+        owner_user_id: uuid.UUID,
+        camera_id: uuid.UUID,
+        ttl_seconds: int,
+    ) -> bool:
+        if ttl_seconds <= 0:
+            raise ValueError(
+                "media session TTL must be positive"
+            )
+
+        with self._lock:
+            state = self._sessions.get(
+                session_id
+            )
+            if (
+                state is None
+                or state.owner_user_id
+                != owner_user_id
+                or state.camera_id
+                != camera_id
+            ):
+                return False
+
+            previous_timer = state.timer
+            state.generation += 1
+            timer = self._timer_factory(
+                ttl_seconds,
+                self._expire,
+                args=(
+                    session_id,
+                    state.generation,
+                ),
+            )
+            if hasattr(timer, "daemon"):
+                timer.daemon = True
+            state.timer = timer
+            self._cancel_timer(
+                previous_timer
+            )
+            timer.start()
+            return True
 
     def register_cleanup(
         self,
@@ -220,8 +269,28 @@ class MediaSessionRegistry:
     def _expire(
         self,
         session_id: uuid.UUID,
+        generation: int,
     ) -> None:
-        self.revoke(session_id)
+        with self._lock:
+            state = self._sessions.get(
+                session_id
+            )
+            if (
+                state is None
+                or state.generation
+                != generation
+            ):
+                return
+            self._sessions.pop(
+                session_id,
+                None,
+            )
+            cleanups = list(
+                state.cleanups.values()
+            )
+            state.cleanups.clear()
+
+        self._run_cleanups(cleanups)
 
     def stop(self) -> None:
         with self._lock:
