@@ -1099,7 +1099,7 @@ onMounted(() => {
             autocomplete="new-password"
             :placeholder="
               editingOidc
-                ? t("system.access.keepSecretPlaceholder")
+                ? t('system.access.keepSecretPlaceholder')
                 : ''
             "
           />
