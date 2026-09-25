@@ -13,7 +13,18 @@ RUN npm config set registry "${NPM_REGISTRY}" \
     && npm config set fund false
 COPY frontend/package.json /frontend/package.json
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
-    npm install --prefer-offline --no-audit --no-fund
+    set -eux; \
+    if npm install --prefer-offline --no-audit --no-fund; then \
+      :; \
+    elif [ "${NPM_REGISTRY}" != "https://registry.npmjs.org" ]; then \
+      echo "Preferred npm registry failed; retrying with official registry" >&2; \
+      rm -rf node_modules; \
+      npm cache clean --force; \
+      npm config set registry "https://registry.npmjs.org"; \
+      npm install --prefer-offline --no-audit --no-fund; \
+    else \
+      exit 1; \
+    fi
 COPY frontend /frontend
 RUN npm run build
 

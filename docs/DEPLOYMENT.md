@@ -90,7 +90,12 @@ The Core build follows the same local-first pattern used by camera-recorder:
   automatic switching; `custom` uses `DEBIAN_MIRROR`,
   `DEBIAN_SECURITY_MIRROR`, `PYPI_INDEX_URL` and `NPM_REGISTRY`;
 - the Debian override automatically falls back to the image's original
-  official sources if the selected mirror cannot be reached.
+  official sources if the selected mirror cannot be reached;
+- the frontend npm install uses the selected registry first, but if a
+  non-official registry returns unusable/incomplete package metadata or the
+  install fails, the build clears that npm cache and retries once against
+  `https://registry.npmjs.org` instead of enabling
+  `--legacy-peer-deps`.
 
 This is connectivity-based rather than geolocation-based, so VPNs, proxies,
 private lines and overseas hosts are not classified from an IP-country guess.
