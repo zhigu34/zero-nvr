@@ -167,6 +167,38 @@ def test_media_probe_returns_only_matching_stream_tracks() -> None:
     assert probe.video.fps == 15
 
 
+def test_add_stream_proxy_forwards_auto_close_policy() -> None:
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        assert request.url.path.endswith("/addStreamProxy")
+        return httpx.Response(
+            200,
+            json={
+                "code": 0,
+                "data": {"key": "__defaultVhost__/zero-nvr/profile-live"},
+            },
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        adapter.add_stream_proxy(
+            app="zero-nvr",
+            stream="profile-live",
+            source_url=SOURCE_URL,
+            enable_hls=True,
+            auto_close=True,
+        )
+
+    assert len(requests) == 1
+    body = form(requests[0])
+    assert body["auto_close"] == ["1"]
+    assert body["enable_hls"] == ["1"]
+
+
 def test_zlm_error_does_not_echo_sensitive_source_url() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(

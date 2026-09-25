@@ -88,6 +88,7 @@ class MediaPlane(Protocol):
         mp4_save_path: str | None = None,
         mp4_max_second: int | None = None,
         retry_count: int = -1,
+        auto_close: bool = False,
     ) -> str: ...
 
     def delete_stream_proxy(

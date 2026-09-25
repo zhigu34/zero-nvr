@@ -214,6 +214,10 @@ Live page baseline:
 - stopping, hiding, switching, or superseding a tile invalidates that playback
   attempt; stale asynchronous WebRTC work must not continue into WHEP, HLS
   fallback, compatibility transcode, or later descriptor attachment;
+- demand-started profiles that are not also bound to RECORD use ZLMediaKit
+  `addStreamProxy.auto_close`, so the media runtime releases the pull when it
+  has no readers; any profile bound to RECORD keeps `auto_close` disabled so
+  stopping live preview can never stop the recording source;
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;
