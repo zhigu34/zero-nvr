@@ -566,7 +566,7 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
 
     monkeypatch.setattr(
         "app.modules.recordings.api.CameraMediaRuntimeService.ensure_streams",
-        lambda self, desired: [
+        lambda self, desired, *, wait_online_seconds=None: [
             item.reference
             for item in desired
         ],
