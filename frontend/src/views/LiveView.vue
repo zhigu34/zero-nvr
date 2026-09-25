@@ -39,6 +39,7 @@ const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const selectedIds = ref<string[]>([])
+const playingIds = ref<string[]>([])
 const layoutSlots = ref<LiveLayoutSlots>(4)
 const focusedCameraId = ref<string | null>(null)
 const cameraPanelOpen = ref(true)
@@ -118,6 +119,15 @@ const visibleCameraCount = computed(() =>
         layoutSlots.value
       )
 )
+
+const visiblePlayingCount = computed(() => {
+  const visibleIds = new Set(
+    visibleCameras.value.map((camera) => camera.id)
+  )
+  return playingIds.value.filter((id) =>
+    visibleIds.has(id)
+  ).length
+})
 
 const gridColumns = computed(() => {
   if (focusedCameraId.value || layoutSlots.value === 1) return 1
@@ -314,7 +324,7 @@ function handleNetworkChange(): void {
   evaluateNetworkQuality(false)
 }
 
-function initializeSelection(fillIfEmpty = true): void {
+function initializeSelection(): void {
   const validIds = new Set(
     cameras.value
       .filter((camera) => camera.enabled)
@@ -324,11 +334,9 @@ function initializeSelection(fillIfEmpty = true): void {
     (id) => validIds.has(id)
   )
 
-  if (fillIfEmpty && !selectedIds.value.length) {
-    selectedIds.value = enabledCameras.value
-      .slice(0, Math.min(4, enabledCameras.value.length))
-      .map((camera) => camera.id)
-  }
+  playingIds.value = playingIds.value.filter((id) =>
+    validIds.has(id) && selectedIds.value.includes(id)
+  )
 
   if (
     focusedCameraId.value &&
@@ -346,6 +354,7 @@ function applyLayout(layout: LiveViewLayout): void {
   selectedIds.value = layout.layout.camera_ids.filter(
     (cameraId) => enabledIds.has(cameraId)
   )
+  playingIds.value = []
   cameraPanelOpen.value = layout.layout.camera_panel_open
   focusedCameraId.value = null
   activeLayoutId.value = layout.id
@@ -380,11 +389,11 @@ async function refresh(): Promise<void> {
       if (defaultLayout) {
         applyLayout(defaultLayout)
       } else {
-        initializeSelection(true)
+        initializeSelection()
       }
       layoutsInitialized = true
     } else {
-      initializeSelection(activeLayoutId.value === null)
+      initializeSelection()
     }
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -399,6 +408,9 @@ function toggleCamera(camera: CameraSummary): void {
   const exists = selectedIds.value.includes(camera.id)
   if (exists) {
     selectedIds.value = selectedIds.value.filter(
+      (id) => id !== camera.id
+    )
+    playingIds.value = playingIds.value.filter(
       (id) => id !== camera.id
     )
     if (focusedCameraId.value === camera.id) {
@@ -429,7 +441,45 @@ function fillGrid(): void {
 
 function clearGrid(): void {
   selectedIds.value = []
+  playingIds.value = []
   focusedCameraId.value = null
+}
+
+function setCameraPlayback(
+  cameraId: string,
+  enabled: boolean
+): void {
+  if (
+    enabled &&
+    selectedIds.value.includes(cameraId)
+  ) {
+    playingIds.value = Array.from(
+      new Set([...playingIds.value, cameraId])
+    )
+    return
+  }
+
+  playingIds.value = playingIds.value.filter(
+    (id) => id !== cameraId
+  )
+}
+
+function startVisibleCameras(): void {
+  const visibleIds = visibleCameras.value.map(
+    (camera) => camera.id
+  )
+  playingIds.value = Array.from(
+    new Set([...playingIds.value, ...visibleIds])
+  )
+}
+
+function stopVisibleCameras(): void {
+  const visibleIds = new Set(
+    visibleCameras.value.map((camera) => camera.id)
+  )
+  playingIds.value = playingIds.value.filter(
+    (id) => !visibleIds.has(id)
+  )
 }
 
 function cameraSlotNumber(cameraId: string): number | null {
@@ -505,6 +555,12 @@ function focusCamera(cameraId: string): void {
 function setLayout(slots: LiveLayoutSlots): void {
   layoutSlots.value = slots
   focusedCameraId.value = null
+  const stillVisible = new Set(
+    selectedIds.value.slice(0, slots)
+  )
+  playingIds.value = playingIds.value.filter(
+    (id) => stillVisible.has(id)
+  )
 }
 
 function handleLayoutSelection(event: Event): void {
@@ -975,7 +1031,30 @@ onBeforeUnmount(() => {
             {{ t("live.backToGrid") }}
           </button>
 
-          <div v-else class="live-layout-switcher" :aria-label="t('live.gridLayout')">
+          <button
+            class="media-button media-button--text"
+            type="button"
+            :disabled="
+              !visibleCameras.length ||
+              visiblePlayingCount === visibleCameras.length
+            "
+            @click="startVisibleCameras"
+          >
+            <UiIcon name="play" :size="14" />
+            {{ t("live.startVisible") }}
+          </button>
+
+          <button
+            class="media-button media-button--text"
+            type="button"
+            :disabled="visiblePlayingCount === 0"
+            @click="stopVisibleCameras"
+          >
+            <UiIcon name="pause" :size="14" />
+            {{ t("live.stopVisible") }}
+          </button>
+
+          <div v-if="!focusedCameraId" class="live-layout-switcher" :aria-label="t('live.gridLayout')">
             <button
               v-for="slots in layoutOptions"
               :key="slots"
@@ -1018,7 +1097,9 @@ onBeforeUnmount(() => {
           :audio-enabled="
             Boolean(focusedCameraId) || layoutSlots === 1
           "
+          :playback-enabled="playingIds.includes(camera.id)"
           @focus="focusCamera"
+          @playback-change="setCameraPlayback"
         />
 
         <button

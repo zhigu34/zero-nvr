@@ -49,16 +49,20 @@ import UiIcon from "../ui/UiIcon.vue"
 const auth = useAuthStore()
 const { t } = useI18n({ useScope: "global" })
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   camera: CameraSummary
   quality: LiveQuality
   focused?: boolean
   audioEnabled?: boolean
   allowHighQuality?: boolean
-}>()
+  playbackEnabled?: boolean
+}>(), {
+  playbackEnabled: true
+})
 
 const emit = defineEmits<{
   focus: [cameraId: string]
+  playbackChange: [cameraId: string, enabled: boolean]
 }>()
 
 const tile = ref<HTMLElement | null>(null)
@@ -129,8 +133,15 @@ let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
 let visibilityObserver: IntersectionObserver | null = null
 
+const manuallyStopped = computed(
+  () => props.playbackEnabled === false
+)
+
 const playbackSuspended = computed(
-  () => !pageVisible.value || !tileVisible.value
+  () =>
+    manuallyStopped.value ||
+    !pageVisible.value ||
+    !tileVisible.value
 )
 
 const requestedQuality = computed<LiveQuality>(() =>
@@ -652,7 +663,8 @@ function handleTileFullscreenChange(): void {
 }
 
 function waitForIceGatheringComplete(
-  peer: RTCPeerConnection
+  peer: RTCPeerConnection,
+  timeoutMs: number
 ): Promise<void> {
   if (peer.iceGatheringState === "complete") {
     return Promise.resolve()
@@ -675,7 +687,7 @@ function waitForIceGatheringComplete(
         finish()
       }
     }
-    const timeout = window.setTimeout(finish, 2500)
+    const timeout = window.setTimeout(finish, timeoutMs)
     peer.addEventListener(
       "icegatheringstatechange",
       handleChange
@@ -771,7 +783,10 @@ async function attachWebRtc(
   try {
     const offer = await peer.createOffer()
     await peer.setLocalDescription(offer)
-    await waitForIceGatheringComplete(peer)
+    await waitForIceGatheringComplete(
+      peer,
+      iceServers.length ? 2500 : 800
+    )
 
     const offerSdp = peer.localDescription?.sdp
     if (!offerSdp) {
@@ -1216,37 +1231,52 @@ onBeforeUnmount(() => {
     >
       <UiIcon
         :name="
-          error
-            ? 'warning'
-            : playbackSuspended
-              ? 'pause'
-              : 'cameras'
+          manuallyStopped
+            ? 'play'
+            : error
+              ? 'warning'
+              : playbackSuspended
+                ? 'pause'
+                : 'cameras'
         "
         :size="26"
       />
       <strong>
         {{
-          error
-            ? reconnecting
-              ? t("live.tile.reconnecting")
-              : t("live.tile.streamUnavailable")
-            : playbackSuspended
-              ? t("live.tile.paused")
-              : t("live.tile.connecting")
+          manuallyStopped
+            ? t("live.tile.stopped")
+            : error
+              ? reconnecting
+                ? t("live.tile.reconnecting")
+                : t("live.tile.streamUnavailable")
+              : playbackSuspended
+                ? t("live.tile.paused")
+                : t("live.tile.connecting")
         }}
       </strong>
       <span>
         {{
-          error ||
-          (
-            playbackSuspended
-              ? t("live.tile.resumeWhenVisible")
-              : t("live.tile.startingSecureSession")
-          )
+          manuallyStopped
+            ? t("live.tile.startPlaybackHint")
+            : error ||
+              (
+                playbackSuspended
+                  ? t("live.tile.resumeWhenVisible")
+                  : t("live.tile.startingSecureSession")
+              )
         }}
       </span>
       <button
-        v-if="error && !playbackSuspended"
+        v-if="manuallyStopped"
+        class="media-button media-button--text"
+        type="button"
+        @click.stop="emit('playbackChange', camera.id, true)"
+      >
+        <UiIcon name="play" :size="14" />
+        {{ t("live.tile.startPlayback") }}
+      </button>
+      <button
+        v-else-if="error && !playbackSuspended"
         class="media-button media-button--text"
         type="button"
         @click.stop="retryStream"
@@ -1446,6 +1476,33 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="live-tile__buttons">
+        <button
+          class="media-button"
+          type="button"
+          :aria-label="
+            playbackEnabled
+              ? t('live.tile.stopPlayback')
+              : t('live.tile.startPlayback')
+          "
+          :title="
+            playbackEnabled
+              ? t('live.tile.stopPlayback')
+              : t('live.tile.startPlayback')
+          "
+          @click.stop="
+            emit(
+              'playbackChange',
+              camera.id,
+              !playbackEnabled
+            )
+          "
+        >
+          <UiIcon
+            :name="playbackEnabled ? 'pause' : 'play'"
+            :size="16"
+          />
+        </button>
+
         <button
           v-if="
             camera.ptz_capable &&

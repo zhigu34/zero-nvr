@@ -208,9 +208,14 @@ Live page baseline:
 - snapshot;
 - PTZ drawer/overlay when authorized;
 - quality/manual protocol diagnostics in advanced view;
+- camera assignment/layout state is separate from playback state: opening the
+  Live page or restoring a saved layout does not automatically establish media
+  sessions; operators explicitly start/pause one tile or all visible tiles;
 - live setup/playback failures show a sanitized actionable reason in the tile,
   preserving backend error code/request ID and WebRTC/HLS fallback context
   without exposing media URLs, tokens, or credentials;
+- LAN WebRTC caps host-only ICE gathering aggressively while TURN-backed
+  sessions retain the longer gathering window needed for relay candidates;
 - minimal overlay clutter by default.
 
 ## Acceptance tests
