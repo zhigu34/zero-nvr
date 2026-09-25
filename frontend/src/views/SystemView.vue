@@ -7,6 +7,7 @@ import {
   ref,
   watch
 } from "vue"
+import { useI18n } from "vue-i18n"
 
 import {
   listCameras,
@@ -84,6 +85,7 @@ type SystemTab =
   | "audit"
 
 const auth = useAuthStore()
+const { locale, t, te } = useI18n({ useScope: "global" })
 const tab = ref<SystemTab>("overview")
 const info = ref<SystemInfo | null>(null)
 const health = ref<SystemHealth | null>(null)
@@ -207,65 +209,65 @@ const navigation = computed(() => {
     icon: string
     visible: boolean
   }> = [
-    { id: "overview", label: "Overview", icon: "dashboard", visible: true },
+    { id: "overview", label: t("system.main.navOverview"), icon: "dashboard", visible: true },
     {
       id: "validation",
-      label: "Validation",
+      label: t("system.main.navValidation"),
       icon: "activity",
       visible: auth.hasPermission("system.view")
     },
-    { id: "general", label: "General", icon: "system", visible: true },
+    { id: "general", label: t("system.main.general"), icon: "system", visible: true },
     {
       id: "time",
-      label: "Time",
+      label: t("system.main.time"),
       icon: "calendar",
       visible: auth.hasPermission("system.view")
     },
     {
       id: "users",
-      label: "Users",
+      label: t("system.main.navUsers"),
       icon: "users",
       visible: auth.hasPermission("user.manage")
     },
     {
       id: "tokens",
-      label: "API tokens",
+      label: t("system.main.navApiTokens"),
       icon: "shield",
       visible: true
     },
     {
       id: "oidc",
-      label: "OIDC",
+      label: t("system.main.navOidc"),
       icon: "users",
       visible: auth.hasPermission("user.manage")
     },
     {
       id: "notifications",
-      label: "Notifications",
+      label: t("system.main.notifications"),
       icon: "bell",
       visible: auth.hasPermission("notification.view")
     },
     {
       id: "alerts",
-      label: "Alert rules",
+      label: t("system.main.navAlertRules"),
       icon: "bell",
       visible: auth.hasPermission("alert.manage")
     },
     {
       id: "ai",
-      label: "AI / Frigate",
+      label: t("system.main.aiFrigate"),
       icon: "brain",
       visible: auth.hasPermission("integration.manage")
     },
     {
       id: "backup",
-      label: "Backup",
+      label: t("system.main.backup"),
       icon: "backup",
       visible: auth.hasPermission("system.view")
     },
     {
       id: "audit",
-      label: "Audit",
+      label: t("system.main.audit"),
       icon: "audit",
       visible: auth.hasPermission("audit.view")
     }
@@ -294,7 +296,7 @@ function backupPolicyName(policyId: string): string {
   return (
     backupPolicies.value.find(
       (policy) => policy.id === policyId
-    )?.name ?? "Unknown policy"
+    )?.name ?? t("system.main.unknownPolicy")
   )
 }
 
@@ -315,7 +317,7 @@ function parseBackupEnvironment(
     const separator = line.indexOf("=")
     if (separator <= 0) {
       throw new Error(
-        `Repository credential line ${index + 1} must use KEY=value.`
+        t("system.main.repoLineFormat", { line: index + 1 })
       )
     }
 
@@ -323,12 +325,12 @@ function parseBackupEnvironment(
     const value = line.slice(separator + 1)
     if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(key)) {
       throw new Error(
-        `Repository credential line ${index + 1} has an invalid environment key.`
+        t("system.main.repoInvalidKey", { line: index + 1 })
       )
     }
     if (reserved.has(key)) {
       throw new Error(
-        `${key} is managed by the repository/password fields and cannot be entered as an environment credential.`
+        t("system.main.repoReservedKey", { key })
       )
     }
     environment[key] = value
@@ -348,10 +350,9 @@ async function copyHostCommand(
 ): Promise<void> {
   try {
     await navigator.clipboard.writeText(command)
-    notice.value = "Host command copied."
+    notice.value = t("system.main.hostCommandCopied")
   } catch {
-    notice.value =
-      "Clipboard access was blocked. Select and copy the command manually."
+    notice.value = t("system.main.clipboardBlocked")
   }
 }
 
@@ -375,8 +376,7 @@ async function handleConfigurationFile(
   configImportFileName.value = file.name
 
   if (file.size > 5 * 1024 * 1024) {
-    error.value =
-      "Configuration file is too large. The validation limit is 5 MB."
+    error.value = t("system.main.configTooLarge")
     return
   }
 
@@ -391,7 +391,7 @@ async function handleConfigurationFile(
       Array.isArray(parsed)
     ) {
       throw new Error(
-        "Configuration file must contain a JSON object."
+        t("system.main.configJsonObject")
       )
     }
     const bundle =
@@ -399,8 +399,7 @@ async function handleConfigurationFile(
     configImportValidation.value =
       await validateConfigurationImport(bundle)
     configImportBundle.value = bundle
-    notice.value =
-      "Configuration bundle is valid. Review the preflight before applying the merge."
+    notice.value = t("system.main.configValid")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -420,12 +419,11 @@ async function applyValidatedConfigurationImport(): Promise<void> {
   const credentialCount =
     configImportValidation.value.credentials_required.length
   const detail = credentialCount
-    ? ` ${credentialCount} credential-dependent resource(s) may be skipped and must be reconfigured afterward.`
+    ? t("system.main.configCredentialSkip", { count: credentialCount })
     : ""
   if (
     !window.confirm(
-      "Apply this validated configuration as a merge? Existing resources are not deleted and stored credentials are not overwritten." +
-        detail
+      t("system.main.configApplyConfirm") + detail
     )
   ) {
     return
@@ -440,7 +438,7 @@ async function applyValidatedConfigurationImport(): Promise<void> {
         configImportBundle.value
       )
     notice.value =
-      `Configuration merge applied: ${configImportApplyResult.value.applied_count} applied, ${configImportApplyResult.value.skipped_count} skipped.`
+      t("system.main.configApplied", { applied: configImportApplyResult.value.applied_count, skipped: configImportApplyResult.value.skipped_count })
     await Promise.all([
       loadBase(),
       loadBackups()
@@ -481,6 +479,11 @@ function statusClass(value: string): string {
   return "status-pill--muted"
 }
 
+function stateLabel(value: string): string {
+  const key = `system.main.state_${value.toLowerCase()}`
+  return te(key) ? t(key) : value
+}
+
 function pretty(value: string): string {
   return value
     .replaceAll("_", " ")
@@ -490,7 +493,7 @@ function pretty(value: string): string {
 
 function formatTime(value: string | null): string {
   if (!value) return "—"
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale.value, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -513,7 +516,7 @@ function formatBytes(value: number | null): string {
 }
 
 function healthMessage(item: HealthComponent): string {
-  return item.message || "Healthy"
+  return item.message || t("system.main.healthy")
 }
 
 function healthDetail(
@@ -569,11 +572,11 @@ function storageHealthSummary(
   }
   const used =
     typeof item.used_percent === "number"
-      ? `${item.used_percent.toFixed(1)}% used`
-      : "Usage unavailable"
+      ? t("system.main.storageUsed", { used: item.used_percent.toFixed(1) })
+      : t("system.main.usageUnavailable")
   const free =
     typeof item.free_bytes === "number"
-      ? `${formatBytes(item.free_bytes)} free`
+      ? t("system.main.storageFree", { free: formatBytes(item.free_bytes) })
       : null
   return [used, free].filter(Boolean).join(" · ")
 }
@@ -606,7 +609,7 @@ function storageWatermarkSummary(
   ) {
     return null
   }
-  return `Warn ${item.warning_percent}% · High ${item.high_percent}% · Critical ${item.critical_percent}%`
+  return t("system.main.watermarks", { warning: item.warning_percent, high: item.high_percent, critical: item.critical_percent })
 }
 
 
@@ -847,7 +850,7 @@ async function saveGeneral(): Promise<void> {
         system_name: generalForm.systemName.trim()
       }
     })
-    notice.value = "General settings saved."
+    notice.value = t("system.main.generalSaved")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -907,8 +910,7 @@ async function saveTime(
     timeForm.ntpMode === "manual" &&
     !servers.length
   ) {
-    error.value =
-      "Manual NTP mode requires at least one NTP server."
+    error.value = t("system.main.manualNtpRequired")
     return
   }
 
@@ -933,22 +935,20 @@ async function saveTime(
         : [""]
 
     if (!applyToCameras) {
-      notice.value =
-        "Time settings saved. Camera clocks were not changed."
+      notice.value = t("system.main.timeSavedNoApply")
       return
     }
 
     const applied = await applyCameraNtpSettings()
     ntpApplyResult.value = applied
     if (applied.total_devices === 0) {
-      notice.value =
-        "Time settings saved. No enabled ONVIF devices were found to configure."
+      notice.value = t("system.main.timeSavedNoDevices")
     } else if (applied.failed === 0) {
       notice.value =
-        `Time settings saved and applied to ${applied.updated} ONVIF device(s).`
+        t("system.main.timeSavedApplied", { updated: applied.updated })
     } else {
       notice.value =
-        `Time settings saved. NTP applied to ${applied.updated}/${applied.total_devices} ONVIF device(s).`
+        t("system.main.timeSavedPartial", { updated: applied.updated, total: applied.total_devices })
     }
     if (applied.updated) {
       await checkCameraClocks()
@@ -996,8 +996,7 @@ async function saveRuntime(): Promise<void> {
       }
     })
     settings.value = updated
-    notice.value =
-      "Runtime tuning saved. New playback restores and transcode work use it immediately."
+    notice.value = t("system.main.runtimeSaved")
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -1049,7 +1048,7 @@ async function saveNotification(): Promise<void> {
         editingNotification.value.id,
         changes
       )
-      notice.value = "Notification target updated."
+      notice.value = t("system.main.notificationUpdated")
     } else {
       await createNotificationTarget(
         name,
@@ -1058,7 +1057,7 @@ async function saveNotification(): Promise<void> {
           password_reset: notificationForm.passwordReset
         }
       )
-      notice.value = "Notification target created."
+      notice.value = t("system.main.notificationCreated")
     }
 
     editingNotification.value = null
@@ -1076,7 +1075,7 @@ async function testNotification(item: NotificationTarget): Promise<void> {
   error.value = null
   try {
     await testNotificationTarget(item.id)
-    notice.value = `${item.name} test notification sent.`
+    notice.value = t("system.main.notificationTestSent", { name: item.name })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -1096,7 +1095,7 @@ async function toggleNotification(item: NotificationTarget): Promise<void> {
 }
 
 async function removeNotification(item: NotificationTarget): Promise<void> {
-  if (!window.confirm(`Delete notification target "${item.name}"?`)) {
+  if (!window.confirm(t("system.main.deleteNotification", { name: item.name }))) {
     return
   }
   try {
@@ -1173,8 +1172,8 @@ async function saveFrigate(): Promise<void> {
     notice.value =
       frigateForm.enabled &&
       frigateForm.mode === "managed"
-        ? "Managed Frigate config rendered. Run ./deploy.sh feature enable frigate the first time, or ./deploy.sh feature restart frigate after changes."
-        : "Frigate settings saved."
+        ? t("system.main.managedFrigateSaved")
+        : t("system.main.frigateSaved")
     await loadFrigate()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -1189,7 +1188,7 @@ async function testFrigate(): Promise<void> {
   try {
     const result = await testFrigateProvider()
     frigateVersion.value = result.version
-    notice.value = `Frigate connected${result.version ? ` · ${result.version}` : ""}.`
+    notice.value = t("system.main.frigateConnected", { version: result.version ? ` · ${result.version}` : "" })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -1200,7 +1199,7 @@ async function testFrigate(): Promise<void> {
 async function queueBackfill(): Promise<void> {
   try {
     await backfillFrigate(600)
-    notice.value = "Frigate event backfill queued."
+    notice.value = t("system.main.frigateBackfill")
   } catch (caught) {
     error.value = errorMessage(caught)
   }
@@ -1208,7 +1207,7 @@ async function queueBackfill(): Promise<void> {
 
 function openBackupPanel(): void {
   editingBackupPolicy.value = null
-  backupForm.name = "System backup"
+  backupForm.name = t("system.main.systemBackup")
   backupForm.repository = ""
   backupForm.password = ""
   backupForm.environmentCredentials = ""
@@ -1353,7 +1352,7 @@ async function saveBackupPolicy(): Promise<void> {
         editingBackupPolicy.value.id,
         changes
       )
-      notice.value = "Backup policy updated."
+      notice.value = t("system.main.backupUpdated")
     } else {
       await createBackupPolicy({
         name: backupForm.name.trim(),
@@ -1372,7 +1371,7 @@ async function saveBackupPolicy(): Promise<void> {
         include_deployment_config:
           backupForm.includeDeploymentConfig
       })
-      notice.value = "Backup policy created."
+      notice.value = t("system.main.backupCreated")
     }
 
     editingBackupPolicy.value = null
@@ -1390,7 +1389,7 @@ async function runPolicy(policy: BackupPolicy): Promise<void> {
   error.value = null
   try {
     await runBackup(policy.id)
-    notice.value = `Backup started for ${policy.name}.`
+    notice.value = t("system.main.backupStarted", { name: policy.name })
     await loadBackups()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -1404,7 +1403,7 @@ async function verifySet(item: BackupSet): Promise<void> {
   error.value = null
   try {
     await verifyBackup(item.id)
-    notice.value = "Backup verification queued."
+    notice.value = t("system.main.backupVerifyQueued")
     await loadBackups()
   } catch (caught) {
     error.value = errorMessage(caught)
@@ -1436,7 +1435,7 @@ onBeforeUnmount(() => {
   <section class="system-workspace">
     <aside class="system-nav">
       <div class="system-nav__title">
-        <strong>System</strong>
+        <strong>{{ t("system.main.title") }}</strong>
         <span>{{ info?.version || "zero-nvr" }}</span>
       </div>
       <nav>
@@ -1467,8 +1466,8 @@ onBeforeUnmount(() => {
       <template v-if="tab === 'overview'">
         <header class="system-page-header">
           <div>
-            <strong>System overview</strong>
-            <span>Core health and runtime status.</span>
+            <strong>{{ t("system.main.overview") }}</strong>
+            <span>{{ t("system.main.coreHealth") }}</span>
           </div>
           <button
             class="button button--ghost"
@@ -1477,15 +1476,15 @@ onBeforeUnmount(() => {
             @click="loadBase"
           >
             <UiIcon name="refresh" :size="14" />
-            Refresh
+            {{ t("system.main.refresh") }}
           </button>
         </header>
 
         <div class="system-overview-grid">
           <article class="system-overview-card system-overview-card--hero">
             <div>
-              <span>Overall health</span>
-              <strong>{{ health?.status || "—" }}</strong>
+              <span>{{ t("system.main.overallHealth") }}</span>
+              <strong>{{ health?.status ? stateLabel(health.status) : "—" }}</strong>
             </div>
             <span
               class="system-health-orb"
@@ -1493,26 +1492,26 @@ onBeforeUnmount(() => {
             />
           </article>
           <article class="system-overview-card">
-            <span>Version</span>
+            <span>{{ t("system.main.version") }}</span>
             <strong>{{ info?.version || "—" }}</strong>
             <small>{{ info?.environment || "—" }}</small>
           </article>
           <article class="system-overview-card">
-            <span>Database</span>
+            <span>{{ t("system.main.database") }}</span>
             <strong>{{ pretty(info?.database_backend || "—") }}</strong>
-            <small>Active backend</small>
+            <small>{{ t("system.main.activeBackend") }}</small>
           </article>
           <article class="system-overview-card">
-            <span>Updates</span>
-            <strong>{{ pretty(updateInfo?.status || "unknown") }}</strong>
-            <small>{{ updateInfo?.latest_version || "No remote version reported" }}</small>
+            <span>{{ t("system.main.updates") }}</span>
+            <strong>{{ updateInfo?.status ? stateLabel(updateInfo.status) : t("system.main.unknown") }}</strong>
+            <small>{{ updateInfo?.latest_version || t("system.main.noRemoteVersion") }}</small>
           </article>
         </div>
 
         <div class="system-section">
           <div class="system-section__heading">
-            <strong>Components</strong>
-            <span>Live health checks from the control plane.</span>
+            <strong>{{ t("system.main.components") }}</strong>
+            <span>{{ t("system.main.liveHealth") }}</span>
           </div>
           <div class="health-component-grid">
             <article
@@ -1529,7 +1528,7 @@ onBeforeUnmount(() => {
                   class="status-pill"
                   :class="statusClass(component.status)"
                 >
-                  {{ component.status }}
+                  {{ stateLabel(component.status) }}
                 </span>
               </div>
               <p>{{ healthMessage(component) }}</p>
@@ -1550,7 +1549,7 @@ onBeforeUnmount(() => {
                     class="status-pill"
                     :class="statusClass(storageHealthStatus(target))"
                   >
-                    {{ target.level }}
+                    {{ stateLabel(target.level) }}
                   </span>
                   <small v-if="storageWatermarkSummary(target)">
                     {{ storageWatermarkSummary(target) }}
@@ -1573,8 +1572,8 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'general'">
         <header class="system-page-header">
           <div>
-            <strong>General</strong>
-            <span>System identity and runtime product tuning.</span>
+            <strong>{{ t("system.main.general") }}</strong>
+            <span>{{ t("system.main.generalDesc") }}</span>
           </div>
         </header>
 
@@ -1583,14 +1582,14 @@ onBeforeUnmount(() => {
           @submit.prevent="saveGeneral"
         >
           <label>
-            <span>System name</span>
+            <span>{{ t("system.main.systemName") }}</span>
             <input
               v-model="generalForm.systemName"
               required
               maxlength="128"
             />
             <small>
-              Display name for this zero-nvr installation.
+              {{ t("system.main.systemNameHint") }}
             </small>
           </label>
 
@@ -1600,17 +1599,16 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="generalSaving || !auth.hasPermission('system.manage')"
             >
-              {{ generalSaving ? "Saving…" : "Save general settings" }}
+              {{ generalSaving ? t("system.main.saving") : t("system.main.saveGeneral") }}
             </button>
           </div>
         </form>
 
         <div class="system-section">
           <div class="system-section__heading">
-            <strong>Runtime tuning</strong>
+            <strong>{{ t("system.main.runtimeTuning") }}</strong>
             <span>
-              Product runtime limits stored in the database. Changes apply
-              without editing .env or restarting the containers.
+              {{ t("system.main.runtimeHint") }}
             </span>
           </div>
           <form
@@ -1620,17 +1618,15 @@ onBeforeUnmount(() => {
             <div class="system-subsection">
               <div class="system-subsection__heading">
                 <div>
-                  <strong>Event prebuffer</strong>
+                  <strong>{{ t("system.main.eventPrebuffer") }}</strong>
                   <span>
-                    Fragment duration controls ZLM rolling segment length.
-                    Buffer duration controls how long finalized tmpfs
-                    fragments remain eligible for event promotion.
+                    {{ t("system.main.eventPrebufferHint") }}
                   </span>
                 </div>
               </div>
               <div class="system-form-row">
                 <label>
-                  <span>Fragment duration (seconds)</span>
+                  <span>{{ t("system.main.fragmentSeconds") }}</span>
                   <input
                     v-model.number="runtimeForm.prebufferFragmentSeconds"
                     type="number"
@@ -1640,7 +1636,7 @@ onBeforeUnmount(() => {
                   />
                 </label>
                 <label>
-                  <span>Buffer duration (seconds)</span>
+                  <span>{{ t("system.main.bufferSeconds") }}</span>
                   <input
                     v-model.number="runtimeForm.prebufferBufferSeconds"
                     type="number"
@@ -1651,24 +1647,22 @@ onBeforeUnmount(() => {
                 </label>
               </div>
               <small>
-                The tmpfs capacity and mount path remain deployment settings
-                because Docker must establish them before zero-nvr starts.
+                {{ t("system.main.tmpfsHint") }}
               </small>
             </div>
 
             <div class="system-subsection">
               <div class="system-subsection__heading">
                 <div>
-                  <strong>WebRTC TURN credentials</strong>
+                  <strong>{{ t("system.main.turnCredentials") }}</strong>
                   <span>
-                    Controls only the lifetime of temporary TURN credentials.
-                    TURN hosts, ports, realm and shared secret remain deployment settings.
+                    {{ t("system.main.turnHint") }}
                   </span>
                 </div>
               </div>
               <div class="system-form-row">
                 <label>
-                  <span>Credential TTL (seconds)</span>
+                  <span>{{ t("system.main.credentialTtl") }}</span>
                   <input
                     v-model.number="runtimeForm.turnCredentialTtlSeconds"
                     type="number"
@@ -1682,7 +1676,7 @@ onBeforeUnmount(() => {
 
             <div class="system-form-row">
               <label>
-                <span>Playback cache limit (MiB)</span>
+                <span>{{ t("system.main.playbackCacheLimit") }}</span>
                 <input
                   v-model.number="runtimeForm.playbackCacheMiB"
                   type="number"
@@ -1693,7 +1687,7 @@ onBeforeUnmount(() => {
                 />
               </label>
               <label>
-                <span>Playback cache TTL (seconds)</span>
+                <span>{{ t("system.main.playbackCacheTtl") }}</span>
                 <input
                   v-model.number="runtimeForm.playbackCacheTtlSeconds"
                   type="number"
@@ -1703,7 +1697,7 @@ onBeforeUnmount(() => {
                 />
               </label>
               <label>
-                <span>Restore lock TTL (seconds)</span>
+                <span>{{ t("system.main.restoreLockTtl") }}</span>
                 <input
                   v-model.number="runtimeForm.playbackRestoreLockTtlSeconds"
                   type="number"
@@ -1717,16 +1711,15 @@ onBeforeUnmount(() => {
             <div class="system-subsection">
               <div class="system-subsection__heading">
                 <div>
-                  <strong>Browser compatibility transcode</strong>
+                  <strong>{{ t("system.main.compatTranscode") }}</strong>
                   <span>
-                    Bounds the on-demand FFmpeg derivatives used only when a
-                    browser cannot consume the camera codec directly.
+                    {{ t("system.main.compatTranscodeHint") }}
                   </span>
                 </div>
               </div>
               <div class="system-form-row">
                 <label>
-                  <span>Max derivatives</span>
+                  <span>{{ t("system.main.maxDerivatives") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeMaxDerivatives"
                     type="number"
@@ -1736,7 +1729,7 @@ onBeforeUnmount(() => {
                   />
                 </label>
                 <label>
-                  <span>CPU threads</span>
+                  <span>{{ t("system.main.cpuThreads") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeCpuThreads"
                     type="number"
@@ -1746,7 +1739,7 @@ onBeforeUnmount(() => {
                   />
                 </label>
                 <label>
-                  <span>Video bitrate (kbps)</span>
+                  <span>{{ t("system.main.videoBitrate") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeVideoBitrateKbps"
                     type="number"
@@ -1759,7 +1752,7 @@ onBeforeUnmount(() => {
               </div>
               <div class="system-form-row">
                 <label>
-                  <span>Idle TTL (seconds)</span>
+                  <span>{{ t("system.main.idleTtl") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeIdleTtlSeconds"
                     type="number"
@@ -1769,7 +1762,7 @@ onBeforeUnmount(() => {
                   />
                 </label>
                 <label>
-                  <span>Lease TTL (seconds)</span>
+                  <span>{{ t("system.main.leaseTtl") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeLeaseTtlSeconds"
                     type="number"
@@ -1779,7 +1772,7 @@ onBeforeUnmount(() => {
                   />
                 </label>
                 <label>
-                  <span>Startup timeout (seconds)</span>
+                  <span>{{ t("system.main.startupTimeout") }}</span>
                   <input
                     v-model.number="runtimeForm.liveTranscodeStartupTimeoutSeconds"
                     type="number"
@@ -1798,7 +1791,7 @@ onBeforeUnmount(() => {
                 type="submit"
                 :disabled="runtimeSaving || !auth.hasPermission('system.manage')"
               >
-                {{ runtimeSaving ? "Saving…" : "Save runtime tuning" }}
+                {{ runtimeSaving ? t("system.main.saving") : t("system.main.saveRuntime") }}
               </button>
             </div>
           </form>
@@ -1808,9 +1801,9 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'time'">
         <header class="system-page-header">
           <div>
-            <strong>Time</strong>
+            <strong>{{ t("system.main.time") }}</strong>
             <span>
-              Canonical recording timezone and managed-camera clock policy.
+              {{ t("system.main.timeDesc") }}
             </span>
           </div>
           <button
@@ -1822,8 +1815,8 @@ onBeforeUnmount(() => {
             <UiIcon name="refresh" :size="14" />
             {{
               cameraClockLoading
-                ? "Checking clocks…"
-                : "Check camera clocks"
+                ? t("system.main.checkingClocks")
+                : t("system.main.checkClocks")
             }}
           </button>
         </header>
@@ -1833,7 +1826,7 @@ onBeforeUnmount(() => {
           @submit.prevent="saveTime(false)"
         >
           <label>
-            <span>Recording timezone</span>
+            <span>{{ t("system.main.recordingTimezone") }}</span>
             <input
               v-model="timeForm.recordingTimezone"
               required
@@ -1841,28 +1834,25 @@ onBeforeUnmount(() => {
               autocomplete="off"
             />
             <small>
-              IANA timezone used for human-readable recording paths,
-              timeline presentation and default wall-clock scheduling.
-              Canonical persisted timestamps remain UTC.
+              {{ t("system.main.recordingTimezoneHint") }}
             </small>
           </label>
 
           <label>
-            <span>Managed camera NTP source</span>
+            <span>{{ t("system.main.managedNtp") }}</span>
             <select v-model="timeForm.ntpMode">
               <option value="dhcp">
-                DHCP-provided NTP
+                {{ t("system.main.dhcpNtp") }}
               </option>
               <option value="manual">
-                Manual NTP servers
+                {{ t("system.main.manualNtp") }}
               </option>
             </select>
             <small v-if="timeForm.ntpMode === 'dhcp'">
-              Compatible cameras are instructed to use NTP supplied by DHCP.
-              Saved manual servers are retained for later reuse.
+              {{ t("system.main.dhcpNtpHint") }}
             </small>
             <small v-else>
-              Compatible cameras use the servers below in priority order.
+              {{ t("system.main.manualNtpHint") }}
             </small>
           </label>
 
@@ -1872,9 +1862,9 @@ onBeforeUnmount(() => {
           >
             <div class="time-ntp-list__heading">
               <div>
-                <strong>Manual NTP servers</strong>
+                <strong>{{ t("system.main.manualNtp") }}</strong>
                 <span>
-                  Highest priority first · up to four hostnames or IP addresses.
+                  {{ t("system.main.ntpPriorityHint") }}
                 </span>
               </div>
               <button
@@ -1884,7 +1874,7 @@ onBeforeUnmount(() => {
                 @click="addTimeNtpServer"
               >
                 <UiIcon name="plus" :size="13" />
-                Add server
+                {{ t("system.main.addServer") }}
               </button>
             </div>
 
@@ -1899,7 +1889,7 @@ onBeforeUnmount(() => {
                 </span>
                 <input
                   v-model="timeForm.ntpServers[index]"
-                  :aria-label="`NTP server priority ${index + 1}`"
+                  :aria-label="t('system.main.ntpServerPriority', { priority: index + 1 })"
                   placeholder="pool.ntp.org"
                   maxlength="253"
                   autocomplete="off"
@@ -1907,7 +1897,7 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button"
                   type="button"
-                  title="Move server up"
+                  :title="t('system.main.moveUp')"
                   :disabled="index === 0"
                   @click="moveTimeNtpServer(index, -1)"
                 >
@@ -1916,7 +1906,7 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button"
                   type="button"
-                  title="Move server down"
+                  :title="t('system.main.moveDown')"
                   :disabled="index === timeForm.ntpServers.length - 1"
                   @click="moveTimeNtpServer(index, 1)"
                 >
@@ -1925,7 +1915,7 @@ onBeforeUnmount(() => {
                 <button
                   class="icon-button icon-button--danger"
                   type="button"
-                  title="Remove server"
+                  :title="t('system.main.removeServer')"
                   @click="removeTimeNtpServer(index)"
                 >
                   <UiIcon name="trash" :size="13" />
@@ -1938,7 +1928,7 @@ onBeforeUnmount(() => {
             <UiIcon name="activity" :size="15" />
             <span>
               Saving changes does not rewrite camera clocks. Use
-              <strong>Save & apply to cameras</strong> only when you want
+              <strong>{{ t("system.main.saveApply") }}</strong> only when you want
               zero-nvr to push the saved NTP policy to enabled ONVIF devices.
             </span>
           </div>
@@ -1949,7 +1939,7 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="timeSaving || !auth.hasPermission('system.manage')"
             >
-              {{ timeSaving && !ntpApplying ? "Saving…" : "Save policy" }}
+              {{ timeSaving && !ntpApplying ? t("system.main.saving") : t("system.main.savePolicy") }}
             </button>
             <button
               class="button button--primary"
@@ -1959,8 +1949,8 @@ onBeforeUnmount(() => {
             >
               {{
                 ntpApplying
-                  ? "Saving & applying…"
-                  : "Save & apply to cameras"
+                  ? t("system.main.savingApplying")
+                  : t("system.main.saveApply")
               }}
             </button>
           </div>
@@ -1972,7 +1962,7 @@ onBeforeUnmount(() => {
         >
           <div class="host-clock-health__main">
             <div>
-              <strong>Host clock</strong>
+              <strong>{{ t("system.main.hostClock") }}</strong>
               <span>
                 Canonical zero-nvr time source ·
                 {{ healthDetail(hostClockHealth, "canonical_timezone") }}
@@ -1982,12 +1972,12 @@ onBeforeUnmount(() => {
               class="status-pill"
               :class="statusClass(hostClockHealth.status)"
             >
-              {{ hostClockHealth.status }}
+              {{ stateLabel(hostClockHealth.status) }}
             </span>
           </div>
           <dl>
             <div>
-              <dt>Sync state</dt>
+              <dt>{{ t("system.main.syncState") }}</dt>
               <dd>
                 {{
                   healthDetail(
@@ -1998,7 +1988,7 @@ onBeforeUnmount(() => {
               </dd>
             </div>
             <div>
-              <dt>Estimated offset</dt>
+              <dt>{{ t("system.main.estimatedOffset") }}</dt>
               <dd>
                 {{
                   healthDetail(
@@ -2009,7 +1999,7 @@ onBeforeUnmount(() => {
               </dd>
             </div>
             <div>
-              <dt>Estimated error</dt>
+              <dt>{{ t("system.main.estimatedError") }}</dt>
               <dd>
                 {{
                   healthDetail(
@@ -2020,7 +2010,7 @@ onBeforeUnmount(() => {
               </dd>
             </div>
             <div>
-              <dt>Probe</dt>
+              <dt>{{ t("system.main.probe") }}</dt>
               <dd>
                 {{
                   healthDetail(
@@ -2032,12 +2022,10 @@ onBeforeUnmount(() => {
             </div>
           </dl>
           <p v-if="hostClockHealth.status === 'DISABLED'">
-            Host synchronization status is not observable on this platform.
-            zero-nvr does not modify the host operating-system time service.
+            {{ t("system.main.hostClockUnobservable") }}
           </p>
           <p v-else-if="hostClockHealth.status !== 'OK'">
-            The host clock is not reported as synchronized. Recording
-            continues, but canonical timestamps depend on this clock.
+            {{ t("system.main.hostClockUnsynced") }}
           </p>
         </div>
 
@@ -2047,15 +2035,13 @@ onBeforeUnmount(() => {
         >
           <div>
             <strong>
-              Camera NTP ·
-              {{ ntpApplyResult.updated }}/{{ ntpApplyResult.total_devices }}
-              verified
+              {{ t("system.main.cameraNtpApplied", { updated: ntpApplyResult.updated, total: ntpApplyResult.total_devices }) }}
             </strong>
             <span>
               {{
                 ntpApplyResult.mode === "manual"
-                  ? "Manual NTP servers"
-                  : "DHCP-provided NTP"
+                  ? t("system.main.manualNtp")
+                  : t("system.main.dhcpNtp")
               }}
             </span>
           </div>
@@ -2063,7 +2049,7 @@ onBeforeUnmount(() => {
             class="status-pill"
             :class="ntpApplyResult.failed ? 'status-pill--error' : 'status-pill--ok'"
           >
-            {{ ntpApplyResult.failed ? "Partial" : "Applied" }}
+            {{ ntpApplyResult.failed ? t("system.main.partial") : t("system.main.appliedState") }}
           </span>
           <ul v-if="ntpApplyResult.failed">
             <li
@@ -2083,10 +2069,9 @@ onBeforeUnmount(() => {
         >
           <header>
             <div>
-              <strong>Camera clock health</strong>
+              <strong>{{ t("system.main.cameraClockHealth") }}</strong>
               <span>
-                {{ cameraClockHealth.total_devices }} enabled ONVIF device(s)
-                · checked {{ formatTime(cameraClockHealth.checked_at) }}
+                {{ t("system.main.clockChecked", { count: cameraClockHealth.total_devices, time: formatTime(cameraClockHealth.checked_at) }) }}
               </span>
             </div>
             <span
@@ -2101,7 +2086,7 @@ onBeforeUnmount(() => {
             v-if="!cameraClockHealth.results.length"
             class="camera-clock-health__empty"
           >
-            No enabled ONVIF devices to inspect.
+            {{ t("system.main.noOnvifClocks") }}
           </div>
           <div v-else class="camera-clock-health__rows">
             <article
@@ -2114,13 +2099,13 @@ onBeforeUnmount(() => {
                   {{
                     item.error_code
                       ? pretty(item.error_code)
-                      : `${item.date_time_type || "Unknown mode"} · ${item.timezone || "timezone unknown"}`
+                      : `${item.date_time_type || t("system.main.unknownMode")} · ${item.timezone || t("system.main.timezoneUnknown")}`
                   }}
                 </span>
               </div>
               <div class="camera-clock-health__metrics">
                 <span>
-                  Offset
+                  {{ t("system.main.offset") }}
                   <strong>
                     {{
                       item.offset_ms === null
@@ -2130,7 +2115,7 @@ onBeforeUnmount(() => {
                   </strong>
                 </span>
                 <span>
-                  RTT
+                  {{ t("system.main.rtt") }}
                   <strong>
                     {{
                       item.rtt_ms === null
@@ -2140,9 +2125,9 @@ onBeforeUnmount(() => {
                   </strong>
                 </span>
                 <span>
-                  Quality
+                  {{ t("system.main.quality") }}
                   <strong>
-                    {{ pretty(item.quality) }}
+                    {{ stateLabel(item.quality) }}
                   </strong>
                 </span>
               </div>
@@ -2150,7 +2135,7 @@ onBeforeUnmount(() => {
                 class="status-pill"
                 :class="statusClass(item.status)"
               >
-                {{ item.status }}
+                {{ stateLabel(item.status) }}
               </span>
             </article>
           </div>
@@ -2172,8 +2157,8 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'notifications'">
         <header class="system-page-header">
           <div>
-            <strong>Notifications</strong>
-            <span>Apprise targets for alerts, including SMTP and push services.</span>
+            <strong>{{ t("system.main.notifications") }}</strong>
+            <span>{{ t("system.main.notificationsDesc") }}</span>
           </div>
           <button
             v-if="auth.hasPermission('notification.manage')"
@@ -2182,7 +2167,7 @@ onBeforeUnmount(() => {
             @click="openNotificationPanel"
           >
             <UiIcon name="plus" :size="14" />
-            Add target
+            {{ t("system.main.addTarget") }}
           </button>
         </header>
 
@@ -2198,9 +2183,9 @@ onBeforeUnmount(() => {
             <div class="notification-card__main">
               <strong>{{ item.name }}</strong>
               <span>
-                {{ item.url_configured ? "Destination configured" : "Destination missing" }}
+                {{ item.url_configured ? t("system.main.destinationConfigured") : t("system.main.destinationMissing") }}
                 <template v-if="item.config.password_reset === true">
-                  · Password reset email
+                  {{ t("system.main.passwordResetEmail") }}
                 </template>
               </span>
             </div>
@@ -2208,7 +2193,7 @@ onBeforeUnmount(() => {
               class="status-pill"
               :class="item.enabled ? 'status-pill--ok' : 'status-pill--muted'"
             >
-              {{ item.enabled ? "Enabled" : "Disabled" }}
+              {{ item.enabled ? t("system.main.enabled") : t("system.main.disabled") }}
             </span>
             <div
               v-if="auth.hasPermission('notification.manage')"
@@ -2220,12 +2205,12 @@ onBeforeUnmount(() => {
                 :disabled="testingNotificationId === item.id"
                 @click="testNotification(item)"
               >
-                {{ testingNotificationId === item.id ? "Testing…" : "Test" }}
+                {{ testingNotificationId === item.id ? t("system.main.testing") : t("system.main.test") }}
               </button>
               <button
                 class="icon-button"
                 type="button"
-                title="Edit target"
+                :title="t('system.main.editNotification')"
                 @click="openEditNotification(item)"
               >
                 <UiIcon name="system" :size="14" />
@@ -2242,18 +2227,18 @@ onBeforeUnmount(() => {
 
         <div class="system-section">
           <div class="system-section__heading">
-            <strong>Recent deliveries</strong>
-            <span>Latest alert and security notification attempts.</span>
+            <strong>{{ t("system.main.recentDeliveries") }}</strong>
+            <span>{{ t("system.main.recentDeliveriesHint") }}</span>
           </div>
           <div class="system-table-wrap">
             <table class="system-table">
               <thead>
                 <tr>
-                  <th>Message</th>
-                  <th>Purpose</th>
-                  <th>Status</th>
-                  <th>Attempts</th>
-                  <th>Sent</th>
+                  <th>{{ t("system.main.message") }}</th>
+                  <th>{{ t("system.main.purpose") }}</th>
+                  <th>{{ t("system.main.status") }}</th>
+                  <th>{{ t("system.main.attempts") }}</th>
+                  <th>{{ t("system.main.sent") }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -2265,7 +2250,7 @@ onBeforeUnmount(() => {
                   <td>{{ pretty(item.purpose) }}</td>
                   <td>
                     <span class="status-pill" :class="statusClass(item.state)">
-                      {{ item.state }}
+                      {{ stateLabel(item.state) }}
                     </span>
                   </td>
                   <td>{{ item.attempt_count }}</td>
@@ -2288,11 +2273,11 @@ onBeforeUnmount(() => {
               <strong>
                 {{
                   editingNotification
-                    ? "Edit notification target"
-                    : "Add notification target"
+                    ? t("system.main.editNotification")
+                    : t("system.main.addNotification")
                 }}
               </strong>
-              <span>Any Apprise-compatible URL</span>
+              <span>{{ t("system.main.appriseCompatible") }}</span>
             </div>
             <button class="icon-button" type="button" @click="notificationPanelOpen = false; editingNotification = null">
               <UiIcon name="close" :size="16" />
@@ -2300,11 +2285,11 @@ onBeforeUnmount(() => {
           </header>
           <form class="storage-editor__form" @submit.prevent="saveNotification">
             <label>
-              <span>Name</span>
+              <span>{{ t("system.main.name") }}</span>
               <input v-model="notificationForm.name" required />
             </label>
             <label>
-              <span>Apprise URL</span>
+              <span>{{ t("system.main.appriseUrl") }}</span>
               <textarea
                 v-model="notificationForm.url"
                 rows="7"
@@ -2312,15 +2297,15 @@ onBeforeUnmount(() => {
                 spellcheck="false"
                 :placeholder="
                   editingNotification
-                    ? 'Leave blank to keep the existing destination'
+                    ? t("system.main.leaveDestination")
                     : 'mailto://user:pass@smtp.example.com?to=alerts@example.com'
                 "
               />
               <small>
                 {{
                   editingNotification
-                    ? "Leave blank to keep the existing encrypted URL."
-                    : "Stored encrypted and never returned to the browser."
+                    ? t("system.main.leaveEncryptedUrl")
+                    : t("system.main.encryptedNeverReturned")
                 }}
               </small>
             </label>
@@ -2330,24 +2315,23 @@ onBeforeUnmount(() => {
                 type="checkbox"
               />
               <span>
-                Use as password reset email target
+                {{ t("system.main.passwordResetTarget") }}
                 <small>
-                  Requires mailto/mailtos. zero-nvr replaces To/CC/BCC
-                  with the account email for each reset message.
+                  {{ t("system.main.passwordResetHint") }}
                 </small>
               </span>
             </label>
             <div class="storage-editor__actions">
               <button class="button button--ghost" type="button" @click="notificationPanelOpen = false; editingNotification = null">
-                Cancel
+                {{ t("system.main.cancel") }}
               </button>
               <button class="button button--primary" type="submit" :disabled="notificationSaving">
                 {{
                   notificationSaving
-                    ? "Saving…"
+                    ? t("system.main.saving")
                     : editingNotification
-                      ? "Save target"
-                      : "Create target"
+                      ? t("system.main.saveTarget")
+                      : t("system.main.createTarget")
                 }}
               </button>
             </div>
@@ -2366,8 +2350,8 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'ai'">
         <header class="system-page-header">
           <div>
-            <strong>AI / Frigate</strong>
-            <span>External or managed Frigate event provider.</span>
+            <strong>{{ t("system.main.aiFrigate") }}</strong>
+            <span>{{ t("system.main.frigateDesc") }}</span>
           </div>
           <div class="system-page-actions">
             <button
@@ -2378,7 +2362,7 @@ onBeforeUnmount(() => {
               @click="testFrigate"
             >
               <UiIcon name="activity" :size="14" />
-              {{ frigateTesting ? "Testing…" : "Test" }}
+              {{ frigateTesting ? t("system.main.testing") : t("system.main.test") }}
             </button>
             <button
               v-if="frigateConfigured && frigateForm.enabled"
@@ -2386,7 +2370,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="queueBackfill"
             >
-              Backfill 10m
+              {{ t("system.main.backfill10m") }}
             </button>
           </div>
         </header>
@@ -2394,14 +2378,14 @@ onBeforeUnmount(() => {
         <form class="system-form-card system-form-card--wide" @submit.prevent="saveFrigate">
           <div class="system-form-row">
             <label>
-              <span>Mode</span>
+              <span>{{ t("system.main.mode") }}</span>
               <select v-model="frigateForm.mode">
-                <option value="external">External Frigate</option>
-                <option value="managed">Managed profile</option>
+                <option value="external">{{ t("system.main.externalFrigate") }}</option>
+                <option value="managed">{{ t("system.main.managedProfile") }}</option>
               </select>
             </label>
             <label>
-              <span>Base URL</span>
+              <span>{{ t("system.main.baseUrl") }}</span>
               <input
                 v-model="frigateForm.baseUrl"
                 required
@@ -2412,18 +2396,18 @@ onBeforeUnmount(() => {
 
           <label class="storage-check">
             <input v-model="frigateForm.enabled" type="checkbox" />
-            <span>Enable Frigate event ingest</span>
+            <span>{{ t("system.main.enableFrigate") }}</span>
           </label>
 
           <div class="system-subsection">
             <div class="system-subsection__heading">
               <div>
-                <strong>Camera mapping</strong>
-                <span>Map Frigate camera keys to zero-nvr cameras.</span>
+                <strong>{{ t("system.main.cameraMapping") }}</strong>
+                <span>{{ t("system.main.cameraMappingHint") }}</span>
               </div>
               <button class="button button--ghost button--compact" type="button" @click="addFrigateMapping">
                 <UiIcon name="plus" :size="13" />
-                Add mapping
+                {{ t("system.main.addMapping") }}
               </button>
             </div>
             <div class="frigate-mapping-list">
@@ -2438,7 +2422,7 @@ onBeforeUnmount(() => {
                 />
                 <UiIcon name="next" :size="13" />
                 <select v-model="mapping.camera_id">
-                  <option value="" disabled>Select camera</option>
+                  <option value="" disabled>{{ t("system.main.selectCamera") }}</option>
                   <option
                     v-for="camera in cameras"
                     :key="camera.id"
@@ -2457,24 +2441,24 @@ onBeforeUnmount(() => {
           <div class="system-subsection">
             <div class="system-subsection__heading">
               <div>
-                <strong>HTTP credentials</strong>
-                <span>Leave blank to keep existing credentials.</span>
+                <strong>{{ t("system.main.httpCredentials") }}</strong>
+                <span>{{ t("system.main.keepCredentials") }}</span>
               </div>
               <span v-if="frigateConfigured" class="status-pill">
-                Existing: {{ frigateConfigured ? "configured" : "none" }}
+                {{ t("system.main.existing") }} {{ frigateConfigured ? t("system.main.configured") : t("system.main.none") }}
               </span>
             </div>
             <div class="system-form-row system-form-row--three">
               <label>
-                <span>Bearer token</span>
+                <span>{{ t("system.main.bearerToken") }}</span>
                 <input v-model="frigateForm.bearerToken" type="password" />
               </label>
               <label>
-                <span>Username</span>
+                <span>{{ t("system.main.username") }}</span>
                 <input v-model="frigateForm.httpUsername" />
               </label>
               <label>
-                <span>Password</span>
+                <span>{{ t("system.main.password") }}</span>
                 <input v-model="frigateForm.httpPassword" type="password" />
               </label>
             </div>
@@ -2483,25 +2467,25 @@ onBeforeUnmount(() => {
           <div class="system-subsection">
             <div class="system-subsection__heading">
               <div>
-                <strong>MQTT</strong>
-                <span>Optional low-latency Frigate event ingest.</span>
+                <strong>{{ t("system.main.mqtt") }}</strong>
+                <span>{{ t("system.main.mqttHint") }}</span>
               </div>
               <label class="storage-check">
                 <input v-model="frigateForm.mqttEnabled" type="checkbox" />
-                <span>Enable MQTT</span>
+                <span>{{ t("system.main.enableMqtt") }}</span>
               </label>
             </div>
             <div class="system-form-row system-form-row--three">
               <label>
-                <span>Host</span>
+                <span>{{ t("system.main.host") }}</span>
                 <input v-model="frigateForm.mqttHost" placeholder="mosquitto" />
               </label>
               <label>
-                <span>Port</span>
+                <span>{{ t("system.main.port") }}</span>
                 <input v-model.number="frigateForm.mqttPort" type="number" min="1" max="65535" />
               </label>
               <label>
-                <span>Topic prefix</span>
+                <span>{{ t("system.main.topicPrefix") }}</span>
                 <input v-model="frigateForm.mqttTopicPrefix" />
               </label>
             </div>
@@ -2512,7 +2496,7 @@ onBeforeUnmount(() => {
               Frigate {{ frigateVersion }}
             </span>
             <button class="button button--primary" type="submit" :disabled="frigateSaving">
-              {{ frigateSaving ? "Saving…" : "Save Frigate" }}
+              {{ frigateSaving ? t("system.main.saving") : t("system.main.saveFrigate") }}
             </button>
           </div>
         </form>
@@ -2521,8 +2505,8 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'backup'">
         <header class="system-page-header">
           <div>
-            <strong>Backup</strong>
-            <span>Restic-backed configuration, database and recovery backups.</span>
+            <strong>{{ t("system.main.backup") }}</strong>
+            <span>{{ t("system.main.backupDesc") }}</span>
           </div>
           <div
             v-if="auth.hasPermission('system.manage')"
@@ -2544,8 +2528,8 @@ onBeforeUnmount(() => {
               <UiIcon name="check" :size="14" />
               {{
                 configImportValidating
-                  ? "Validating…"
-                  : "Validate import"
+                  ? t("system.main.validating")
+                  : t("system.main.validateImport")
               }}
             </button>
             <button
@@ -2554,7 +2538,7 @@ onBeforeUnmount(() => {
               @click="exportConfiguration"
             >
               <UiIcon name="download" :size="14" />
-              Export configuration
+              {{ t("system.main.exportConfig") }}
             </button>
             <button
               class="button button--ghost"
@@ -2563,7 +2547,7 @@ onBeforeUnmount(() => {
               @click="loadBackups"
             >
               <UiIcon name="refresh" :size="14" />
-              {{ backupRefreshing ? "Refreshing…" : "Refresh" }}
+              {{ backupRefreshing ? t("system.main.saving") : t("system.main.refresh") }}
             </button>
             <button
               class="button button--primary"
@@ -2571,7 +2555,7 @@ onBeforeUnmount(() => {
               @click="openBackupPanel"
             >
               <UiIcon name="plus" :size="14" />
-              Add policy
+              {{ t("system.main.addPolicy") }}
             </button>
           </div>
         </header>
@@ -2579,14 +2563,12 @@ onBeforeUnmount(() => {
         <section class="backup-recovery-card">
           <div class="backup-recovery-card__heading">
             <div>
-              <strong>Disaster recovery</strong>
+              <strong>{{ t("system.main.disasterRecovery") }}</strong>
               <span>
-                Generate the encrypted RecoveryKit here. Decryption and
-                restore remain host-only so the API never controls Docker or
-                replaces its own live database.
+                {{ t("system.main.disasterRecoveryHint") }}
               </span>
             </div>
-            <span class="status-pill">Restore host-only</span>
+            <span class="status-pill">{{ t("system.main.restoreHostOnly") }}</span>
           </div>
 
           <SystemRecoveryKitPanel
@@ -2595,19 +2577,19 @@ onBeforeUnmount(() => {
 
           <div class="backup-recovery-commands">
             <div>
-              <span>List available restic snapshots</span>
+              <span>{{ t("system.main.listSnapshots") }}</span>
               <code>./deploy.sh restore list</code>
               <button
                 class="button button--ghost button--compact"
                 type="button"
                 @click="copyHostCommand('./deploy.sh restore list')"
               >
-                Copy
+                {{ t("system.main.copy") }}
               </button>
             </div>
 
             <div>
-              <span>Restore the latest recovery point</span>
+              <span>{{ t("system.main.restoreLatest") }}</span>
               <code>./deploy.sh restore latest --force</code>
               <button
                 class="button button--ghost button--compact"
@@ -2618,12 +2600,12 @@ onBeforeUnmount(() => {
                   )
                 "
               >
-                Copy
+                {{ t("system.main.copy") }}
               </button>
             </div>
 
             <div>
-              <span>Export plaintext RecoveryKit on the host</span>
+              <span>{{ t("system.main.exportRecoveryKit") }}</span>
               <code>./deploy.sh recovery-kit export</code>
               <button
                 class="button button--ghost button--compact"
@@ -2634,12 +2616,12 @@ onBeforeUnmount(() => {
                   )
                 "
               >
-                Copy
+                {{ t("system.main.copy") }}
               </button>
             </div>
 
             <div>
-              <span>Decrypt a downloaded .znrk kit on a clean host</span>
+              <span>{{ t("system.main.decryptKit") }}</span>
               <code>./deploy.sh recovery-kit decrypt /path/to/kit.znrk ./recovery-kit-restored</code>
               <button
                 class="button button--ghost button--compact"
@@ -2650,7 +2632,7 @@ onBeforeUnmount(() => {
                   )
                 "
               >
-                Copy
+                {{ t("system.main.copy") }}
               </button>
             </div>
           </div>
@@ -2658,9 +2640,7 @@ onBeforeUnmount(() => {
           <div class="storage-notice">
             <UiIcon name="warning" :size="14" />
             <span>
-              Restore stops the zero-nvr control plane, validates the staged
-              backup, replaces the database atomically, and then starts the
-              API and worker again. Recording media is not deleted by restore.
+              {{ t("system.main.restoreWarning") }}
             </span>
           </div>
         </section>
@@ -2671,7 +2651,7 @@ onBeforeUnmount(() => {
         >
           <div class="backup-policy-card__top">
             <div>
-              <strong>Configuration import preflight</strong>
+              <strong>{{ t("system.main.configPreflight") }}</strong>
               <span>
                 {{
                   configImportFileName
@@ -2681,13 +2661,13 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <span class="status-pill status-pill--ok">
-              Valid
+              {{ t("system.main.valid") }}
             </span>
           </div>
 
           <div class="system-summary-grid">
             <div>
-              <span>Format</span>
+              <span>{{ t("system.main.format") }}</span>
               <strong>
                 {{ configImportValidation.format }} v{{
                   configImportValidation.format_version
@@ -2695,16 +2675,16 @@ onBeforeUnmount(() => {
               </strong>
             </div>
             <div>
-              <span>Source version</span>
+              <span>{{ t("system.main.sourceVersion") }}</span>
               <strong>
                 {{
                   configImportValidation.source_application_version ||
-                  "Unknown"
+                  t("system.main.unknown")
                 }}
               </strong>
             </div>
             <div>
-              <span>Credentials required</span>
+              <span>{{ t("system.main.credentialsRequired") }}</span>
               <strong>
                 {{
                   configImportValidation.credentials_required.length
@@ -2717,8 +2697,8 @@ onBeforeUnmount(() => {
             <table class="system-table">
               <thead>
                 <tr>
-                  <th>Section</th>
-                  <th>Resources</th>
+                  <th>{{ t("system.main.section") }}</th>
+                  <th>{{ t("system.main.resources") }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -2740,9 +2720,9 @@ onBeforeUnmount(() => {
             <table class="system-table">
               <thead>
                 <tr>
-                  <th>Credential to re-enter</th>
-                  <th>Resource</th>
-                  <th>Section</th>
+                  <th>{{ t("system.main.credentialReenter") }}</th>
+                  <th>{{ t("system.main.resource") }}</th>
+                  <th>{{ t("system.main.section") }}</th>
                 </tr>
               </thead>
               <tbody>
@@ -2777,9 +2757,7 @@ onBeforeUnmount(() => {
           <div class="storage-notice">
             <UiIcon name="check" :size="14" />
             <span>
-              Preflight only: no configuration has changed yet. Merge apply
-              never deletes target resources and never overwrites stored
-              credential material.
+              {{ t("system.main.preflightHint") }}
             </span>
           </div>
 
@@ -2793,7 +2771,7 @@ onBeforeUnmount(() => {
               :disabled="configImportApplying"
               @click="discardConfigurationImport"
             >
-              Discard
+              {{ t("system.main.discard") }}
             </button>
             <button
               class="button button--primary"
@@ -2807,8 +2785,8 @@ onBeforeUnmount(() => {
             >
               {{
                 configImportApplying
-                  ? "Applying…"
-                  : "Apply configuration merge"
+                  ? t("system.main.applying")
+                  : t("system.main.applyConfigMerge")
               }}
             </button>
           </div>
@@ -2819,19 +2797,19 @@ onBeforeUnmount(() => {
           >
             <div class="system-summary-grid">
               <div>
-                <span>Applied</span>
+                <span>{{ t("system.main.applied") }}</span>
                 <strong>
                   {{ configImportApplyResult.applied_count }}
                 </strong>
               </div>
               <div>
-                <span>Skipped</span>
+                <span>{{ t("system.main.skipped") }}</span>
                 <strong>
                   {{ configImportApplyResult.skipped_count }}
                 </strong>
               </div>
               <div>
-                <span>Mode</span>
+                <span>{{ t("system.main.mode") }}</span>
                 <strong>{{ pretty(configImportApplyResult.mode) }}</strong>
               </div>
             </div>
@@ -2843,9 +2821,9 @@ onBeforeUnmount(() => {
               <table class="system-table">
                 <thead>
                   <tr>
-                    <th>Applied resource</th>
-                    <th>Section</th>
-                    <th>Action</th>
+                    <th>{{ t("system.main.appliedResource") }}</th>
+                    <th>{{ t("system.main.section") }}</th>
+                    <th>{{ t("system.main.action") }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2879,9 +2857,9 @@ onBeforeUnmount(() => {
               <table class="system-table">
                 <thead>
                   <tr>
-                    <th>Skipped resource</th>
-                    <th>Section</th>
-                    <th>Reason</th>
+                    <th>{{ t("system.main.skippedResource") }}</th>
+                    <th>{{ t("system.main.section") }}</th>
+                    <th>{{ t("system.main.reason") }}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2918,7 +2896,7 @@ onBeforeUnmount(() => {
                 type="button"
                 @click="discardConfigurationImport"
               >
-                Close result
+                {{ t("system.main.closeResult") }}
               </button>
             </div>
           </div>
@@ -2937,7 +2915,7 @@ onBeforeUnmount(() => {
                   {{
                     policy.schedule.cron
                       ? String(policy.schedule.cron)
-                      : "Manual only"
+                      : t("system.main.manualOnly")
                   }}
                 </span>
               </div>
@@ -2945,25 +2923,25 @@ onBeforeUnmount(() => {
                 class="status-pill"
                 :class="policy.enabled ? 'status-pill--ok' : 'status-pill--muted'"
               >
-                {{ policy.enabled ? "Enabled" : "Disabled" }}
+                {{ policy.enabled ? t("system.main.enabled") : t("system.main.disabled") }}
               </span>
             </div>
             <dl>
               <div>
-                <dt>Database</dt>
+                <dt>{{ t("system.main.database") }}</dt>
                 <dd>{{ policy.database_backend }}</dd>
               </div>
               <div>
-                <dt>Verify</dt>
-                <dd>{{ policy.verify_after_backup ? "After every run" : "Manual" }}</dd>
+                <dt>{{ t("system.main.verify") }}</dt>
+                <dd>{{ policy.verify_after_backup ? t("system.main.afterEveryRun") : t("system.main.manual") }}</dd>
               </div>
               <div>
-                <dt>Last run</dt>
+                <dt>{{ t("system.main.lastRun") }}</dt>
                 <dd>
                   {{
                     latestBackupByPolicy.get(policy.id)
                       ? formatTime(latestBackupByPolicy.get(policy.id)!.started_at)
-                      : "Never"
+                      : t("system.main.never")
                   }}
                 </dd>
               </div>
@@ -2978,7 +2956,7 @@ onBeforeUnmount(() => {
                 @click="openEditBackupPolicy(policy)"
               >
                 <UiIcon name="settings" :size="14" />
-                Edit
+                {{ t("system.main.edit") }}
               </button>
               <button
                 class="button button--ghost"
@@ -2987,7 +2965,7 @@ onBeforeUnmount(() => {
                 @click="runPolicy(policy)"
               >
                 <UiIcon name="backup" :size="14" />
-                {{ runningBackupId === policy.id ? "Starting…" : "Run now" }}
+                {{ runningBackupId === policy.id ? t("system.main.starting") : t("system.main.runNow") }}
               </button>
             </div>
           </article>
@@ -2995,18 +2973,18 @@ onBeforeUnmount(() => {
 
         <div class="system-section">
           <div class="system-section__heading">
-            <strong>Backup history</strong>
-            <span>Recent backup sets and verification state.</span>
+            <strong>{{ t("system.main.backupHistory") }}</strong>
+            <span>{{ t("system.main.backupHistoryHint") }}</span>
           </div>
           <div class="system-table-wrap">
             <table class="system-table">
               <thead>
                 <tr>
-                  <th>Backup</th>
-                  <th>State</th>
-                  <th>Size</th>
-                  <th>Verification</th>
-                  <th>Version</th>
+                  <th>{{ t("system.main.backup") }}</th>
+                  <th>{{ t("system.main.state") }}</th>
+                  <th>{{ t("system.main.size") }}</th>
+                  <th>{{ t("system.main.verification") }}</th>
+                  <th>{{ t("system.main.version") }}</th>
                   <th />
                 </tr>
               </thead>
@@ -3029,11 +3007,11 @@ onBeforeUnmount(() => {
                   </td>
                   <td>
                     <span class="status-pill" :class="statusClass(item.state)">
-                      {{ item.state }}
+                      {{ stateLabel(item.state) }}
                     </span>
                   </td>
                   <td>{{ formatBytes(item.size_bytes) }}</td>
-                  <td>{{ item.verification_state }}</td>
+                  <td>{{ stateLabel(item.verification_state) }}</td>
                   <td>{{ item.app_version }}</td>
                   <td class="system-table__actions">
                     <button
@@ -3043,7 +3021,7 @@ onBeforeUnmount(() => {
                       :disabled="verifyingBackupId === item.id"
                       @click="verifySet(item)"
                     >
-                      {{ verifyingBackupId === item.id ? "Queuing…" : "Verify" }}
+                      {{ verifyingBackupId === item.id ? t("system.main.queuing") : t("system.main.verify") }}
                     </button>
                   </td>
                 </tr>
@@ -3058,11 +3036,11 @@ onBeforeUnmount(() => {
               <strong>
                 {{
                   editingBackupPolicy
-                    ? "Edit backup policy"
-                    : "Add backup policy"
+                    ? t("system.main.editBackupPolicy")
+                    : t("system.main.addBackupPolicy")
                 }}
               </strong>
-              <span>Restic repository</span>
+              <span>{{ t("system.main.resticRepository") }}</span>
             </div>
             <button class="icon-button" type="button" @click="backupPanelOpen = false; editingBackupPolicy = null">
               <UiIcon name="close" :size="16" />
@@ -3070,26 +3048,26 @@ onBeforeUnmount(() => {
           </header>
           <form class="storage-editor__form" @submit.prevent="saveBackupPolicy">
             <label>
-              <span>Name</span>
+              <span>{{ t("system.main.name") }}</span>
               <input v-model="backupForm.name" required />
             </label>
             <label>
-              <span>Repository</span>
+              <span>{{ t("system.main.repository") }}</span>
               <input
                 v-model="backupForm.repository"
                 :required="!editingBackupPolicy"
                 :placeholder="
                   editingBackupPolicy
-                    ? 'Leave blank to keep the existing repository'
+                    ? t("system.main.leaveRepo")
                     : '/backups/zero-nvr or s3:...'
                 "
               />
               <small v-if="editingBackupPolicy">
-                Leave blank to keep the existing encrypted repository.
+                {{ t("system.main.repositoryKeepHint") }}
               </small>
             </label>
             <label>
-              <span>Restic password</span>
+              <span>{{ t("system.main.resticPassword") }}</span>
               <input
                 v-model="backupForm.password"
                 type="password"
@@ -3097,11 +3075,11 @@ onBeforeUnmount(() => {
                 autocomplete="new-password"
               />
               <small v-if="editingBackupPolicy">
-                Leave blank to keep the current password. A password-only change preserves repository environment credentials.
+                {{ t("system.main.passwordKeepHint") }}
               </small>
             </label>
             <label>
-              <span>Repository environment credentials</span>
+              <span>{{ t("system.main.repoEnvCredentials") }}</span>
               <textarea
                 v-model="backupForm.environmentCredentials"
                 rows="5"
@@ -3112,8 +3090,8 @@ onBeforeUnmount(() => {
                 One KEY=value per line. Values are encrypted in SecretStore.
                 {{
                   editingBackupPolicy
-                    ? " Leave blank to keep the existing encrypted environment credentials."
-                    : " Use this for S3/B2/SFTP backend-specific secret environment variables when required."
+                    ? t("system.main.leaveEnv")
+                    : t("system.main.envBackendHint")
                 }}
               </small>
             </label>
@@ -3122,58 +3100,58 @@ onBeforeUnmount(() => {
               class="storage-check"
             >
               <input v-model="backupForm.initializeIfMissing" type="checkbox" />
-              <span>Initialize repository if missing</span>
+              <span>{{ t("system.main.initRepository") }}</span>
             </label>
             <label class="storage-check">
               <input v-model="backupForm.enabled" type="checkbox" />
-              <span>Policy enabled</span>
+              <span>{{ t("system.main.policyEnabled") }}</span>
             </label>
             <label class="storage-check">
               <input v-model="backupForm.scheduled" type="checkbox" />
-              <span>Run on a schedule</span>
+              <span>{{ t("system.main.scheduled") }}</span>
             </label>
             <label v-if="backupForm.scheduled">
-              <span>Cron</span>
+              <span>{{ t("system.main.cron") }}</span>
               <input v-model="backupForm.cron" placeholder="0 3 * * *" />
               <small>Five-field cron, timezone: {{ settings?.general.display_timezone || "UTC" }}</small>
             </label>
             <div class="retention-days-grid">
               <label>
-                <span>Keep last</span>
+                <span>{{ t("system.main.keepLast") }}</span>
                 <input v-model.number="backupForm.keepLast" type="number" min="0" />
               </label>
               <label>
-                <span>Daily</span>
+                <span>{{ t("system.main.daily") }}</span>
                 <input v-model.number="backupForm.keepDaily" type="number" min="0" />
               </label>
               <label>
-                <span>Weekly</span>
+                <span>{{ t("system.main.weekly") }}</span>
                 <input v-model.number="backupForm.keepWeekly" type="number" min="0" />
               </label>
               <label>
-                <span>Monthly</span>
+                <span>{{ t("system.main.monthly") }}</span>
                 <input v-model.number="backupForm.keepMonthly" type="number" min="0" />
               </label>
             </div>
             <label class="storage-check">
               <input v-model="backupForm.verifyAfter" type="checkbox" />
-              <span>Verify after every backup</span>
+              <span>{{ t("system.main.verifyAfter") }}</span>
             </label>
             <label class="storage-check">
               <input v-model="backupForm.includeDeploymentConfig" type="checkbox" />
-              <span>Include deployment configuration / RecoveryKit inputs</span>
+              <span>{{ t("system.main.includeDeployment") }}</span>
             </label>
             <div class="storage-editor__actions">
               <button class="button button--ghost" type="button" @click="backupPanelOpen = false; editingBackupPolicy = null">
-                Cancel
+                {{ t("system.main.cancel") }}
               </button>
               <button class="button button--primary" type="submit" :disabled="backupSaving">
                 {{
                   backupSaving
-                    ? "Saving…"
+                    ? t("system.main.saving")
                     : editingBackupPolicy
-                      ? "Save policy"
-                      : "Create policy"
+                      ? t("system.main.saveBackupPolicy")
+                      : t("system.main.createBackupPolicy")
                 }}
               </button>
             </div>
@@ -3184,8 +3162,8 @@ onBeforeUnmount(() => {
       <template v-else-if="tab === 'audit'">
         <header class="system-page-header">
           <div>
-            <strong>Audit</strong>
-            <span>Privileged actions and configuration changes.</span>
+            <strong>{{ t("system.main.audit") }}</strong>
+            <span>{{ t("system.main.auditDesc") }}</span>
           </div>
           <button
             class="button button--ghost"
@@ -3194,26 +3172,26 @@ onBeforeUnmount(() => {
             @click="loadAudit"
           >
             <UiIcon name="refresh" :size="14" />
-            {{ auditLoading ? "Refreshing…" : "Refresh" }}
+            {{ auditLoading ? t("system.main.saving") : t("system.main.refresh") }}
           </button>
         </header>
 
         <div class="audit-toolbar">
           <label class="audit-filter">
-            <span>Period</span>
+            <span>{{ t("system.main.period") }}</span>
             <select
               v-model="auditFilters.period"
               @change="loadAudit"
             >
-              <option value="24h">Last 24 hours</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="all">All time</option>
+              <option value="24h">{{ t("system.main.last24h") }}</option>
+              <option value="7d">{{ t("system.main.last7d") }}</option>
+              <option value="30d">{{ t("system.main.last30d") }}</option>
+              <option value="all">{{ t("system.main.allTime") }}</option>
             </select>
           </label>
 
           <label class="audit-filter">
-            <span>Action</span>
+            <span>{{ t("system.main.action") }}</span>
             <input
               v-model="auditFilters.action"
               placeholder="camera.update"
@@ -3222,7 +3200,7 @@ onBeforeUnmount(() => {
           </label>
 
           <label class="audit-filter">
-            <span>Resource</span>
+            <span>{{ t("system.main.resource") }}</span>
             <input
               v-model="auditFilters.resourceType"
               placeholder="camera"
@@ -3231,15 +3209,15 @@ onBeforeUnmount(() => {
           </label>
 
           <label class="audit-filter">
-            <span>Result</span>
+            <span>{{ t("system.main.result") }}</span>
             <select
               v-model="auditFilters.result"
               @change="loadAudit"
             >
-              <option value="">All results</option>
-              <option value="success">Success</option>
-              <option value="failed">Failed</option>
-              <option value="denied">Denied</option>
+              <option value="">{{ t("system.main.allResults") }}</option>
+              <option value="success">{{ t("system.main.success") }}</option>
+              <option value="failed">{{ t("system.main.failed") }}</option>
+              <option value="denied">{{ t("system.main.denied") }}</option>
             </select>
           </label>
 
@@ -3249,7 +3227,7 @@ onBeforeUnmount(() => {
               type="button"
               @click="resetAuditFilters"
             >
-              Clear
+              {{ t("system.main.clear") }}
             </button>
             <button
               class="button button--primary button--compact"
@@ -3257,7 +3235,7 @@ onBeforeUnmount(() => {
               :disabled="auditLoading"
               @click="loadAudit"
             >
-              Apply
+              {{ t("system.main.apply") }}
             </button>
           </div>
         </div>
@@ -3266,14 +3244,14 @@ onBeforeUnmount(() => {
           v-if="auditLoading && !auditEvents.length"
           class="audit-empty"
         >
-          Loading audit events…
+          {{ t("system.main.loadingAudit") }}
         </div>
 
         <div
           v-else-if="!auditEvents.length"
           class="audit-empty"
         >
-          No audit events match these filters.
+          {{ t("system.main.noAudit") }}
         </div>
 
         <div v-else class="audit-list">
@@ -3290,7 +3268,7 @@ onBeforeUnmount(() => {
               </span>
             </div>
             <span class="status-pill" :class="statusClass(item.result)">
-              {{ item.result }}
+              {{ stateLabel(item.result) }}
             </span>
             <time>{{ formatTime(item.occurred_at) }}</time>
           </article>
@@ -3305,8 +3283,8 @@ onBeforeUnmount(() => {
         >
           {{
             auditLoadingMore
-              ? "Loading…"
-              : "Load more"
+              ? t("system.main.loading")
+              : t("system.main.loadMore")
           }}
         </button>
       </template>
