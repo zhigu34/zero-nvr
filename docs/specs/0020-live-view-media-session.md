@@ -107,6 +107,13 @@ Grid/substream playback may prefer HLS before WebRTC to avoid paying WHEP/ICE
 setup cost for every tile; a codec the browser cannot decode is skipped rather
 than learned through timeout.
 
+AUTO owns exactly one cross-source fallback chain: it completely exhausts the
+substream path (direct playback, then bounded compatibility transcode) before
+releasing that MediaSession/lease and advancing to the mainstream path (direct,
+then compatibility transcode). Manual Substream, Mainstream, and Profile choices
+never advance to another source automatically. Token renewal always follows the
+descriptor that actually reached first frame.
+
 WebRTC carries media. Application status/events normally use HTTP/SSE; zero-nvr does not introduce a general WebSocket dependency merely for live video.
 
 ## Browser/codec compatibility
