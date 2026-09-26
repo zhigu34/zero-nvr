@@ -261,6 +261,10 @@ Live page baseline:
   sessions retain the longer gathering window needed for relay candidates;
   the browser keeps non-trickle SDP completeness but uses a one-entry ICE
   candidate pool to pre-gather candidates and reduce time spent in that phase;
+- the backend WHEP proxy keeps ZLM connect/write/pool operations bounded by the
+  normal ZLM API timeout, but does not impose a shorter HTTP read timeout on
+  SDP negotiation; ZLMediaKit's own RTC timeout remains authoritative for
+  deciding when an in-progress WHEP negotiation has failed;
 - only the initial `/live` descriptor request resolves credentials for and
   ensures the selected profile's ZLM source runtime; before returning the
   descriptor it briefly waits for ZLM's allow-listed media probe to report a

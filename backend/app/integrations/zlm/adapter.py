@@ -215,6 +215,12 @@ class ZlmAdapter:
         if candidate_tcp:
             params["cand_tcp"] = candidate_tcp
 
+        whep_timeout = httpx.Timeout(
+            connect=self.settings.zlm_timeout_seconds,
+            read=None,
+            write=self.settings.zlm_timeout_seconds,
+            pool=self.settings.zlm_timeout_seconds,
+        )
         try:
             response = self._client.post(
                 "/index/api/whep",
@@ -224,6 +230,7 @@ class ZlmAdapter:
                     "Accept": "application/sdp",
                     "Content-Type": "application/sdp",
                 },
+                timeout=whep_timeout,
             )
         except httpx.TimeoutException as exc:
             raise ZlmIntegrationError(

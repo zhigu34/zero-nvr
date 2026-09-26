@@ -569,6 +569,12 @@ def test_whep_play_and_cleanup_use_standard_session_contract() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         requests.append(request)
         if request.url.path.endswith("/whep"):
+            assert request.extensions["timeout"] == {
+                "connect": 2.0,
+                "read": None,
+                "write": 2.0,
+                "pool": 2.0,
+            }
             return httpx.Response(
                 201,
                 text=answer,
