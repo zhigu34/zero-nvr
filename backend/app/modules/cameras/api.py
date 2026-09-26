@@ -3158,6 +3158,16 @@ def create_camera_live_compatibility(
         cleanup_compat()
         raise
 
+    (
+        source_codec,
+        source_width,
+        source_height,
+        source_fps,
+    ) = _live_track_metadata(
+        selection,
+        request,
+    )
+
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
@@ -3169,11 +3179,11 @@ def create_camera_live_compatibility(
         hls_url=hls_url,
         media_session_id=media_session_id,
         expires_at=expires_at,
-        source_codec=selection.profile.codec,
+        source_codec=source_codec,
         codec="h264",
-        width=selection.profile.width,
-        height=selection.profile.height,
-        fps=selection.profile.fps,
+        width=source_width,
+        height=source_height,
+        fps=source_fps,
         has_audio=selection.profile.has_audio,
         compatibility="h264_transcode",
         compatibility_lease_id=lease.lease_id,
