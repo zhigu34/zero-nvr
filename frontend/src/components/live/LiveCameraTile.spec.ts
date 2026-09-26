@@ -83,6 +83,9 @@ const camera: CameraSummary = {
 const descriptor: CameraLiveStream = {
   camera_id: camera.id,
   profile_id: "22222222-2222-2222-2222-222222222222",
+  source_role: "sub",
+  profile_name: "Sub",
+  adapter_profile_key: "manual-secondary",
   purpose: "LIVE_LOW",
   transport: "hls",
   transports: ["hls"],
