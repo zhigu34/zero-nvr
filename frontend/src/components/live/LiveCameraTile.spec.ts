@@ -288,7 +288,7 @@ describe("LiveCameraTile", () => {
     const wrapper = mount(LiveCameraTile, {
       props: {
         camera,
-        quality: "low",
+        quality: "high",
         playbackEnabled: true
       },
       global: {
@@ -318,7 +318,7 @@ describe("LiveCameraTile", () => {
     ).toHaveBeenNthCalledWith(
       1,
       camera.id,
-      "low",
+      "high",
       "auto",
       null
     )
@@ -327,7 +327,7 @@ describe("LiveCameraTile", () => {
     ).toHaveBeenNthCalledWith(
       2,
       camera.id,
-      "low",
+      "high",
       "main",
       null
     )
@@ -336,7 +336,7 @@ describe("LiveCameraTile", () => {
     ).toHaveBeenNthCalledWith(
       1,
       camera.id,
-      "low",
+      "high",
       subDescriptor.media_session_id
     )
     expect(
@@ -344,7 +344,7 @@ describe("LiveCameraTile", () => {
     ).toHaveBeenNthCalledWith(
       2,
       camera.id,
-      "low",
+      "high",
       mainDescriptor.media_session_id
     )
     expect(
@@ -376,7 +376,7 @@ describe("LiveCameraTile", () => {
     const wrapper = mount(LiveCameraTile, {
       props: {
         camera,
-        quality: "low",
+        quality: "high",
         playbackEnabled: false
       },
       global: {
@@ -398,7 +398,7 @@ describe("LiveCameraTile", () => {
       liveMocks.getCameraLiveStream
     ).toHaveBeenCalledWith(
       camera.id,
-      "low",
+      "high",
       "sub",
       null
     )
@@ -409,7 +409,7 @@ describe("LiveCameraTile", () => {
     wrapper.unmount()
   })
 
-  it("shows fast preview for H265 and clears it when playback stops", async () => {
+  it("uses fast preview without compatibility transcode for H265 grid playback", async () => {
     const h265Descriptor: CameraLiveStream = {
       ...descriptor,
       source_codec: "h265",
@@ -441,7 +441,14 @@ describe("LiveCameraTile", () => {
     )
     expect(wrapper.find(".live-tile__state").exists()).toBe(true)
     await preview.trigger("load")
+    await flushPromises()
     expect(wrapper.find(".live-tile__state").exists()).toBe(false)
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).not.toHaveBeenCalled()
+    expect(
+      wrapper.find(".live-status-dot").classes()
+    ).toContain("live-status-dot--active")
 
     await wrapper.setProps({ playbackEnabled: false })
     await nextTick()
@@ -455,8 +462,21 @@ describe("LiveCameraTile", () => {
 
   it("does not start fast preview for directly playable H264", async () => {
     liveMocks.getCameraLiveStream.mockResolvedValueOnce(descriptor)
-    liveMocks.getCameraCompatibleLiveStream.mockReturnValueOnce(
-      new Promise<CameraLiveStream>(() => undefined)
+    Object.defineProperty(
+      HTMLMediaElement.prototype,
+      "canPlayType",
+      {
+        configurable: true,
+        value: vi.fn(() => "probably")
+      }
+    )
+    Object.defineProperty(
+      HTMLVideoElement.prototype,
+      "requestVideoFrameCallback",
+      {
+        configurable: true,
+        value: vi.fn(() => 1)
+      }
     )
 
     const wrapper = mount(LiveCameraTile, {
@@ -472,6 +492,83 @@ describe("LiveCameraTile", () => {
     expect(
       wrapper.find(".live-tile__fast-preview").exists()
     ).toBe(false)
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it("upgrades H265 preview when requested quality becomes high", async () => {
+    const h265Descriptor: CameraLiveStream = {
+      ...descriptor,
+      source_codec: "h265",
+      codec: "h265",
+      transports: []
+    }
+    const compatible: CameraLiveStream = {
+      ...h265Descriptor,
+      source_codec: "h265",
+      codec: "h264",
+      transports: ["hls"],
+      compatibility: "h264_transcode",
+      compatibility_lease_id:
+        "88888888-8888-8888-8888-888888888888"
+    }
+    liveMocks.getCameraLiveStream
+      .mockResolvedValueOnce(h265Descriptor)
+      .mockResolvedValueOnce(h265Descriptor)
+    liveMocks.getCameraCompatibleLiveStream.mockResolvedValueOnce(
+      compatible
+    )
+    Object.defineProperty(
+      HTMLMediaElement.prototype,
+      "canPlayType",
+      {
+        configurable: true,
+        value: vi.fn(() => "probably")
+      }
+    )
+    Object.defineProperty(
+      HTMLVideoElement.prototype,
+      "requestVideoFrameCallback",
+      {
+        configurable: true,
+        value: vi.fn(() => 1)
+      }
+    )
+
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true
+      },
+      global: { stubs: { UiIcon: true } }
+    })
+    await flushPromises()
+    await wrapper.find(
+      ".live-tile__fast-preview"
+    ).trigger("load")
+    await flushPromises()
+
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).not.toHaveBeenCalled()
+
+    await wrapper.setProps({ quality: "high" })
+    await flushPromises()
+
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenCalledTimes(2)
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).toHaveBeenCalledWith(
+      camera.id,
+      "high",
+      h265Descriptor.media_session_id
+    )
 
     wrapper.unmount()
   })
@@ -530,11 +627,13 @@ describe("LiveCameraTile", () => {
     const wrapper = mount(LiveCameraTile, {
       props: {
         camera,
-        quality: "low",
+        quality: "high",
         playbackEnabled: true
       },
       global: { stubs: { UiIcon: true } }
     })
+    await flushPromises()
+    await nextTick()
     await flushPromises()
 
     expect(
@@ -543,6 +642,9 @@ describe("LiveCameraTile", () => {
     const previewElement = wrapper.find(
       ".live-tile__fast-preview"
     ).element as HTMLImageElement
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).toHaveBeenCalledTimes(1)
     expect(frameCallbacks).toHaveLength(1)
 
     frameCallbacks[0]?.()

@@ -141,27 +141,31 @@ Preferred order:
 
 V1 has not yet integrated the mature H.265 browser-player adapter. Until that
 adapter exists, H.265 is not sent through speculative native WebRTC/HLS merely
-because a browser reports codec support; after camera-side H.264 profile
-selection, remaining H.265 live requests go directly to the bounded H.264
-compatibility derivative.
+because a browser reports codec support. After camera-side H.264 profile
+selection, low-quality grid requests use the bounded JPEG preview path while
+focused/high-quality H.265 requests use the bounded H.264 compatibility
+derivative.
 
 Do not permanently transcode every camera.
 
-### Fast startup preview
+### Fast grid preview
 
 When the selected source has no direct browser playback path, the live tile may
-show a temporary multipart JPEG preview while the normal compatibility stream
-starts. The preview is derived from the exact ZLMediaKit source already bound to
-the authorized MediaSession; it never resolves camera credentials or accepts a
-different profile independently.
+show a multipart JPEG preview derived from the exact ZLMediaKit source already
+bound to the authorized MediaSession; it never resolves camera credentials or
+accepts a different profile independently.
 
 The preview is deliberately limited to 320-1280 pixels and 1-8 FPS, carries no
-audio, and is only a first-frame bridge. Directly playable H.264 sources do not
-start it. The browser closes the preview request as soon as the full-motion video
-renders its first frame, and also closes it on source changes, visibility
-suspension, playback stop, reconnect, or component teardown. Backend process
-cleanup follows streaming-response cancellation so a disconnected tile cannot
-leave a preview FFmpeg process running.
+audio, and is the final playback path for low-quality H.265 grid tiles. Those
+tiles do not start a compatibility transcode in parallel, preventing duplicate
+decode load from delaying directly playable cameras. Focused or high-quality
+H.265 playback may retain the JPEG image as a first-frame bridge while its
+full-motion compatibility stream starts. Directly playable H.264 sources do not
+start a JPEG preview. The browser closes the preview request on a quality/source
+change, visibility suspension, playback stop, reconnect, component teardown, or
+after upgraded full-motion video renders its first frame. Backend process cleanup
+follows streaming-response cancellation so a disconnected tile cannot leave a
+preview FFmpeg process running.
 
 ## On-demand compatibility transcode
 
@@ -374,9 +378,10 @@ Live page baseline:
   already-confirmed descriptor resumes from buffering; initial startup does not
   mark the tile active until a rendered frame has confirmed success, and the
   event must not clear reconnect/error state before that boundary; an H.265
-  source with no direct playback path may display its session-scoped fast JPEG
-  preview during this wait, but the preview never counts as successful video
-  attachment and is removed only at the rendered full-video frame boundary;
+  low-quality H.265 grid source with no direct playback path counts its first
+  session-scoped JPEG frame as successful grid playback without starting a
+  compatibility transcode; a focused/high-quality upgrade keeps the JPEG only
+  until the rendered full-video frame boundary;
 - focused live diagnostics break startup latency into descriptor API, ICE
   gathering, WHEP negotiation, and answer-to-rendered-frame phases without
   adding requests; these measurements are observational only and do not create
@@ -402,9 +407,11 @@ Live page baseline:
 1. Four-camera grid:
    - uses LIVE_LOW bindings;
    - does not create extra direct RTSP pulls from browsers.
+   - H.265 JPEG tiles do not start H.264 compatibility transcodes in parallel.
 
 2. Focus camera:
    - promotes to LIVE_HIGH;
+   - upgrades an H.265 JPEG tile to full-motion compatibility playback;
    - returning to grid can demote cleanly.
 
 3. Authorization:
@@ -418,7 +425,8 @@ Live page baseline:
 
 5. Incompatible codec:
    - uses alternate source/player or bounded on-demand derivative;
-   - may show a bounded, silent JPEG startup preview until full video renders;
+   - uses bounded, silent JPEG playback in the low-quality grid;
+   - may keep that JPEG as a startup bridge until focused full video renders;
    - recording is unaffected by transcode failure.
 
 6. ZLM restart:

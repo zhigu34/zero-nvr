@@ -115,7 +115,9 @@ interface LiveTelemetry {
 }
 
 const reconnecting = ref(false)
-const activeTransport = ref<"webrtc" | "hls" | null>(null)
+const activeTransport = ref<
+  "webrtc" | "hls" | "preview" | null
+>(null)
 const lastWebRtcFailure = ref<string | null>(null)
 const telemetry = ref<LiveTelemetry>({
   bitrateKbps: null,
@@ -154,6 +156,8 @@ let recordingErrorTimer: number | null = null
 let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
 let visibilityObserver: IntersectionObserver | null = null
+let settleFastPreviewReady:
+  ((ready: boolean) => void) | null = null
 
 const WEBRTC_FIRST_FRAME_TIMEOUT_MS = 6_000
 const HLS_FIRST_FRAME_TIMEOUT_MS = 8_000
@@ -183,6 +187,8 @@ const availableProfiles = computed<CameraStreamProfile[]>(() =>
 )
 
 function stopFastPreview(): void {
+  settleFastPreviewReady?.(false)
+  settleFastPreviewReady = null
   fastPreviewImage.value?.removeAttribute("src")
   fastPreviewUrl.value = null
   fastPreviewReady.value = false
@@ -193,10 +199,11 @@ function startFastPreview(
   capabilities: ReturnType<
     typeof detectLivePlaybackCapabilities
   >
-): void {
+): Promise<boolean> | null {
   if (!needsFastPreview(stream, capabilities)) {
-    return
+    return null
   }
+  settleFastPreviewReady?.(false)
   const fullscreen = fullscreenActive.value
   const preferredWidth = fullscreen ? 1280 : 640
   const renderedWidth = Math.round(
@@ -213,11 +220,16 @@ function startFastPreview(
     width,
     fullscreen ? 8 : 5
   )
+  return new Promise<boolean>((resolve) => {
+    settleFastPreviewReady = resolve
+  })
 }
 
 function handleFastPreviewLoad(): void {
   if (fastPreviewUrl.value) {
     fastPreviewReady.value = true
+    settleFastPreviewReady?.(true)
+    settleFastPreviewReady = null
   }
 }
 
@@ -1493,7 +1505,19 @@ async function attachPreferredStream(
     stream,
     capabilities
   )
-  startFastPreview(stream, capabilities)
+  const previewReady = startFastPreview(
+    stream,
+    capabilities
+  )
+  if (
+    previewReady &&
+    requestedQuality.value === "low" &&
+    await previewReady
+  ) {
+    requireActivePlayback(attemptGeneration)
+    activeTransport.value = "preview"
+    return stream
+  }
 
   let webRtcDiagnostic: Promise<string> | null = null
   let originalHlsFailure: string | null = null
@@ -1818,7 +1842,9 @@ async function loadStream(
       currentGeneration
     )
     requireActivePlayback(currentGeneration)
-    stopFastPreview()
+    if (activeTransport.value !== "preview") {
+      stopFastPreview()
+    }
     descriptor.value = playableStream
     playing.value = true
     error.value = null
@@ -1957,17 +1983,18 @@ watch(
 watch(
   () => [
     props.camera.id,
-    Boolean(props.audioEnabled)
+    Boolean(props.audioEnabled),
+    requestedQuality.value
   ] as const,
   (
-    [cameraId, audioEnabled],
-    [previousCameraId, previousAudioEnabled]
+    [cameraId, audioEnabled, quality],
+    [previousCameraId, previousAudioEnabled, previousQuality]
   ) => {
-    if (
-      cameraId === previousCameraId &&
-      previousAudioEnabled &&
-      !audioEnabled
-    ) {
+    const cameraChanged = cameraId !== previousCameraId
+    const qualityChanged = quality !== previousQuality
+    const audioUpgrade =
+      !previousAudioEnabled && audioEnabled
+    if (!cameraChanged && !qualityChanged && !audioUpgrade) {
       return
     }
 
@@ -2187,7 +2214,13 @@ onBeforeUnmount(() => {
           v-if="activeTransport"
           class="live-quality-badge"
         >
-          {{ activeTransport === "webrtc" ? "RTC" : "HLS" }}
+          {{
+            activeTransport === "webrtc"
+              ? "RTC"
+              : activeTransport === "preview"
+                ? "JPEG"
+                : "HLS"
+          }}
         </span>
         <span
           v-if="descriptor?.compatibility === 'h264_transcode'"
