@@ -199,6 +199,10 @@ jobs:
           sed -i 's/^ZERO_NVR_ZLM_RTSP_DIRECT_PROXY=.*/ZERO_NVR_ZLM_RTSP_DIRECT_PROXY=0/' .env
           ZERO_NVR_ENV_FILE="$PWD/.env" ./scripts/render-zlm-config.sh
           grep -Fxq "directProxy=0" deploy/zlm/config.ini
+
+          sed -i 's/^ZERO_NVR_ZLM_RTSP_DIRECT_PROXY=.*/ZERO_NVR_ZLM_RTSP_DIRECT_PROXY=auto/' .env
+          ZERO_NVR_ENV_FILE="$PWD/.env" ./scripts/render-zlm-config.sh
+          grep -Fxq "$upstream_direct_proxy" deploy/zlm/config.ini
           grep -Fxq \
             "on_play=http://zero-nvr:8000/internal/hooks/zlm/play" \
             deploy/zlm/config.ini
