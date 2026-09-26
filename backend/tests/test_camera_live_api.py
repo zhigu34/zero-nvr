@@ -224,7 +224,7 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
 
 
 
-def test_auto_low_live_prefers_known_h264_profile(
+def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -259,11 +259,11 @@ def test_auto_low_live_prefers_known_h264_profile(
                 stream=stream,
                 video=ZlmTrackProbe(
                     kind="video",
-                    codec="h264",
+                    codec="h265",
                     ready=True,
-                    width=1920,
-                    height=1080,
-                    fps=25.0,
+                    width=640,
+                    height=360,
+                    fps=10.0,
                 ),
                 audio=None,
             )
@@ -299,7 +299,7 @@ def test_auto_low_live_prefers_known_h264_profile(
             "/api/v1/cameras",
             json={
                 "mode": "manual_rtsp",
-                "name": "Codec Preference",
+                "name": "Source Priority",
                 "primary_stream": {
                     "name": "Main",
                     "rtsp_url": "rtsp://10.0.0.20/main",
@@ -316,86 +316,55 @@ def test_auto_low_live_prefers_known_h264_profile(
             item["adapter_profile_key"]: item
             for item in camera["streams"]
         }
-        primary_id = uuid.UUID(
-            streams["manual-primary"]["id"]
-        )
-        secondary_id = uuid.UUID(
-            streams["manual-secondary"]["id"]
-        )
+        primary_id = streams["manual-primary"]["id"]
+        secondary_id = streams["manual-secondary"]["id"]
 
-        with app.state.database.session() as session:
-            primary = session.get(
-                CameraStreamProfile,
-                primary_id,
-            )
-            secondary = session.get(
-                CameraStreamProfile,
-                secondary_id,
-            )
-            assert primary is not None
-            assert secondary is not None
-            primary.codec = "h264"
-            primary.width = 1920
-            primary.height = 1080
-            primary.fps = 25.0
-            primary.bitrate_kbps = 4096
-            secondary.codec = "h265"
-            secondary.width = 640
-            secondary.height = 360
-            secondary.fps = 10.0
-            secondary.bitrate_kbps = 512
-            session.commit()
-
-        low = client.get(
-            f"/api/v1/cameras/{camera['id']}/live?quality=low"
+        # Legacy quality=high must no longer jump AUTO straight to main.
+        automatic = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?quality=high"
         )
-        assert low.status_code == 200
-        body = low.json()
-        assert body["purpose"] == "LIVE_LOW"
-        assert body["profile_id"] == str(primary_id)
-        media_session_id = body["media_session_id"]
+        assert automatic.status_code == 200
+        auto_body = automatic.json()
+        assert auto_body["profile_id"] == secondary_id
+        assert auto_body["purpose"] == "LIVE_LOW"
+        assert auto_body["source_role"] == "sub"
+        assert auto_body["profile_name"] == "Sub"
+        assert (
+            auto_body["adapter_profile_key"]
+            == "manual-secondary"
+        )
 
         diagnostics = client.get(
             (
                 f"/api/v1/cameras/{camera['id']}/live/diagnostics"
-                f"?quality=low&media_session_id={media_session_id}"
+                f"?quality=high&media_session_id="
+                f"{auto_body['media_session_id']}"
             )
         )
         assert diagnostics.status_code == 200
-        assert diagnostics.json()["profile_id"] == str(
-            primary_id
+        assert diagnostics.json()["profile_id"] == secondary_id
+
+        explicit_sub = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?source=sub"
+        )
+        assert explicit_sub.status_code == 200
+        assert explicit_sub.json()["profile_id"] == secondary_id
+        assert explicit_sub.json()["source_role"] == "sub"
+
+        explicit_main = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?source=main"
+        )
+        assert explicit_main.status_code == 200
+        main_body = explicit_main.json()
+        assert main_body["profile_id"] == primary_id
+        assert main_body["purpose"] == "LIVE_HIGH"
+        assert main_body["source_role"] == "main"
+        assert main_body["profile_name"] == "Main"
+        assert (
+            main_body["adapter_profile_key"]
+            == "manual-primary"
         )
 
-        with app.state.database.session() as session:
-            primary = session.get(
-                CameraStreamProfile,
-                primary_id,
-            )
-            secondary = session.get(
-                CameraStreamProfile,
-                secondary_id,
-            )
-            assert primary is not None
-            assert secondary is not None
-            primary.codec = "h265"
-            primary.width = 3840
-            primary.height = 2160
-            primary.fps = 25.0
-            primary.bitrate_kbps = 8192
-            secondary.codec = "h264"
-            secondary.width = 1920
-            secondary.height = 1080
-            secondary.fps = 20.0
-            secondary.bitrate_kbps = 4096
-            session.commit()
-
-        high = client.get(
-            f"/api/v1/cameras/{camera['id']}/live?quality=high"
-        )
-        assert high.status_code == 200
-        high_body = high.json()
-        assert high_body["purpose"] == "LIVE_HIGH"
-        assert high_body["profile_id"] == str(secondary_id)
 
 
 def test_live_diagnostics_report_sanitized_zlm_track_state(

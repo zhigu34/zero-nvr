@@ -79,17 +79,26 @@ V1 candidates:
 
 The backend returns capabilities/descriptors; the frontend does not hard-code one global player path.
 
-## Protocol preference
+## Source and protocol preference
 
-A practical preference may be:
+AUTO live selection is source-first, not viewport-quality-first:
 
 ```text
-WebRTC
--> browser-compatible HTTP/fMP4/HLS path
--> compatibility player/derived stream when required
+substream direct playback
+-> substream compatibility transcode
+-> mainstream direct playback
+-> mainstream compatibility transcode
 ```
 
-The exact choice is based on browser/media capability rather than a universal fixed order. LIVE_LOW/grid playback prefers a browser-compatible HLS path before WebRTC so many small tiles do not each pay WHEP/ICE setup latency; LIVE_HIGH/RECORD playback keeps WebRTC first for lower focused-view latency. A codec that the browser explicitly cannot decode is skipped rather than attempted and learned through timeout.
+The initial descriptor therefore always starts from the LIVE_LOW/sub binding when
+one exists, even if the UI is focused/fullscreen or still sends the legacy
+`quality=high` hint. Mainstream use requires an explicit source advance (or no
+substream being available). Recording remains independently bound to RECORD.
+
+Within one selected source, protocol choice is based on browser/media capability.
+Grid/substream playback may prefer HLS before WebRTC to avoid paying WHEP/ICE
+setup cost for every tile; a codec the browser cannot decode is skipped rather
+than learned through timeout.
 
 WebRTC carries media. Application status/events normally use HTTP/SSE; zero-nvr does not introduce a general WebSocket dependency merely for live video.
 

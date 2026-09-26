@@ -5,10 +5,14 @@ import {
 } from "./client"
 
 export type LiveQuality = "auto" | "high" | "low"
+export type LiveSource = "auto" | "sub" | "main"
 
 export interface CameraLiveStream {
   camera_id: string
   profile_id: string
+  source_role: "sub" | "main"
+  profile_name: string
+  adapter_profile_key: string
   purpose: "LIVE_HIGH" | "LIVE_LOW" | "RECORD"
   transport: "hls"
   transports: Array<"webrtc" | "hls">
@@ -29,9 +33,10 @@ export interface CameraLiveStream {
 
 export function getCameraLiveStream(
   cameraId: string,
-  quality: LiveQuality
+  quality: LiveQuality,
+  source: LiveSource = "auto"
 ): Promise<CameraLiveStream> {
-  const params = new URLSearchParams({ quality })
+  const params = new URLSearchParams({ quality, source })
   return apiRequest<CameraLiveStream>(
     `/cameras/${encodeURIComponent(cameraId)}/live?${params}`
   )

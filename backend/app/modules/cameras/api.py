@@ -2010,6 +2010,8 @@ def replace_camera_stream_bindings(
 
 
 LivePurpose = Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
+LiveSource = Literal["auto", "sub", "main"]
+LiveSourceRole = Literal["sub", "main"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -2017,42 +2019,18 @@ class _LiveSelection:
     camera: Camera
     profile: CameraStreamProfile
     purpose: LivePurpose
+    source_role: LiveSourceRole
     runtime: CameraMediaRuntimeService
     reference: ZlmStreamReference
 
 
-def _normalized_live_codec(value: str | None) -> str:
-    normalized = (value or "").strip().lower()
-    if (
-        "h264" in normalized
-        or "avc" in normalized
-    ):
-        return "h264"
-    if (
-        "h265" in normalized
-        or "hevc" in normalized
-    ):
-        return "h265"
-    return "unknown"
-
-
-def _live_profile_score(
-    profile: CameraStreamProfile,
-) -> tuple[int, float, int, str]:
-    return (
-        (profile.width or 0) * (profile.height or 0),
-        profile.fps or 0.0,
-        profile.bitrate_kbps or 0,
-        str(profile.id),
-    )
-
-
-def _resolved_live_profile(
+def _profile_for_binding(
     camera: Camera,
-    binding: CameraStreamBinding,
-    purpose: LivePurpose,
+    binding: CameraStreamBinding | None,
 ) -> CameraStreamProfile | None:
-    bound = next(
+    if binding is None:
+        return None
+    return next(
         (
             item
             for item in camera.stream_profiles
@@ -2060,37 +2038,87 @@ def _resolved_live_profile(
         ),
         None,
     )
-    if (
-        bound is None
-        or binding.selection_mode != "auto"
-        or purpose not in {"LIVE_LOW", "LIVE_HIGH"}
-        or _normalized_live_codec(bound.codec) == "h264"
-    ):
-        return bound
 
-    compatible = [
-        item
-        for item in camera.stream_profiles
-        if (
-            item.stream_uri_ref is not None
-            and item.status != "unavailable"
-            and _normalized_live_codec(item.codec)
-            == "h264"
+
+def _select_bound_live_profile(
+    camera: Camera,
+    *,
+    source: LiveSource,
+) -> tuple[
+    CameraStreamProfile,
+    LivePurpose,
+    LiveSourceRole,
+]:
+    bindings = {
+        binding.purpose: binding
+        for binding in camera.stream_bindings
+    }
+    sub_binding = bindings.get("LIVE_LOW")
+    main_binding = (
+        bindings.get("LIVE_HIGH")
+        or bindings.get("RECORD")
+    )
+    sub_profile = _profile_for_binding(
+        camera,
+        sub_binding,
+    )
+    main_profile = _profile_for_binding(
+        camera,
+        main_binding,
+    )
+
+    if source == "sub":
+        if sub_profile is None or sub_binding is None:
+            raise ApiError(
+                status_code=409,
+                code="camera_live_substream_unavailable",
+                message="Camera has no substream available for live viewing.",
+            )
+        return (
+            sub_profile,
+            cast(LivePurpose, sub_binding.purpose),
+            "sub",
         )
-    ]
-    if not compatible:
-        return bound
-    selector = min if purpose == "LIVE_LOW" else max
-    return selector(
-        compatible,
-        key=_live_profile_score,
+
+    if source == "main":
+        if main_profile is None or main_binding is None:
+            raise ApiError(
+                status_code=409,
+                code="camera_live_mainstream_unavailable",
+                message="Camera has no mainstream available for live viewing.",
+            )
+        return (
+            main_profile,
+            cast(LivePurpose, main_binding.purpose),
+            "main",
+        )
+
+    # AUTO always starts with the camera-side low/sub binding. Browser
+    # compatibility is handled against that exact source before any later
+    # fallback is allowed to advance to the main source.
+    if sub_profile is not None and sub_binding is not None:
+        return (
+            sub_profile,
+            cast(LivePurpose, sub_binding.purpose),
+            "sub",
+        )
+    if main_profile is not None and main_binding is not None:
+        return (
+            main_profile,
+            cast(LivePurpose, main_binding.purpose),
+            "main",
+        )
+    raise ApiError(
+        status_code=409,
+        code="camera_live_stream_unavailable",
+        message="Camera has no stream bound for live viewing.",
     )
 
 
 def _select_live_stream(
     *,
     camera_id: uuid.UUID,
-    quality: Literal["auto", "high", "low"],
+    source: LiveSource,
     request: Request,
     session: Session,
 ) -> _LiveSelection:
@@ -2105,63 +2133,12 @@ def _select_live_stream(
             message="Camera is disabled.",
         )
 
-    priorities: dict[
-        str,
-        tuple[LivePurpose, ...],
-    ] = {
-        "auto": (
-            "LIVE_LOW",
-            "LIVE_HIGH",
-            "RECORD",
-        ),
-        "low": (
-            "LIVE_LOW",
-            "LIVE_HIGH",
-            "RECORD",
-        ),
-        "high": (
-            "LIVE_HIGH",
-            "RECORD",
-            "LIVE_LOW",
-        ),
-    }
-    bindings = {
-        binding.purpose: binding
-        for binding in camera.stream_bindings
-    }
-    purpose = next(
-        (
-            candidate
-            for candidate in priorities[quality]
-            if candidate in bindings
-        ),
-        None,
-    )
-    if purpose is None:
-        raise ApiError(
-            status_code=409,
-            code="camera_live_stream_unavailable",
-            message=(
-                "Camera has no stream bound "
-                "for live viewing."
-            ),
+    profile, purpose, source_role = (
+        _select_bound_live_profile(
+            camera,
+            source=source,
         )
-
-    binding = bindings[purpose]
-    profile = _resolved_live_profile(
-        camera,
-        binding,
-        purpose,
     )
-    if profile is None:
-        raise ApiError(
-            status_code=409,
-            code="camera_stream_binding_invalid",
-            message=(
-                "Camera live binding references "
-                "a missing profile."
-            ),
-        )
 
     runtime = CameraMediaRuntimeService(
         request.app.state.settings
@@ -2191,6 +2168,7 @@ def _select_live_stream(
         camera=camera,
         profile=profile,
         purpose=purpose,
+        source_role=source_role,
         runtime=runtime,
         reference=references[0],
     )
@@ -2495,15 +2473,6 @@ def _live_selection_for_media_session(
         ),
         None,
     )
-    selected_profile = (
-        _resolved_live_profile(
-            camera,
-            binding,
-            purpose,
-        )
-        if binding is not None
-        else None
-    )
     profile = next(
         (
             item
@@ -2513,8 +2482,8 @@ def _live_selection_for_media_session(
         None,
     )
     binding_valid = (
-        selected_profile is not None
-        and selected_profile.id == profile_id
+        binding is not None
+        and binding.stream_profile_id == profile_id
     )
     if not binding_valid or profile is None:
         raise ApiError(
@@ -2533,6 +2502,11 @@ def _live_selection_for_media_session(
         camera=camera,
         profile=profile,
         purpose=purpose,
+        source_role=(
+            "sub"
+            if purpose == "LIVE_LOW"
+            else "main"
+        ),
         runtime=runtime,
         reference=runtime.reference_for(
             camera_id=camera.id,
@@ -2554,6 +2528,7 @@ def get_camera_live_stream(
         "high",
         "low",
     ] = Query(default="auto"),
+    source: LiveSource = Query(default="auto"),
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
@@ -2563,7 +2538,7 @@ def get_camera_live_stream(
 ) -> CameraLiveStreamView:
     selection = _select_live_stream(
         camera_id=camera_id,
-        quality=quality,
+        source=source,
         request=request,
         session=session,
     )
@@ -2642,6 +2617,9 @@ def get_camera_live_stream(
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
+        source_role=selection.source_role,
+        profile_name=selection.profile.name,
+        adapter_profile_key=selection.profile.adapter_profile_key,
         transports=_live_transports(
             request,
             ice_servers=ice_servers,
@@ -3134,6 +3112,9 @@ def create_camera_live_compatibility(
     return CameraLiveStreamView(
         camera_id=selection.camera.id,
         profile_id=selection.profile.id,
+        source_role=selection.source_role,
+        profile_name=selection.profile.name,
+        adapter_profile_key=selection.profile.adapter_profile_key,
         purpose=selection.purpose,
         transports=["hls"],
         hls_url=hls_url,

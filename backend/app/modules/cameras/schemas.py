@@ -332,6 +332,9 @@ class CameraLiveSessionKeepaliveView(BaseModel):
 class CameraLiveStreamView(BaseModel):
     camera_id: uuid.UUID
     profile_id: uuid.UUID
+    source_role: Literal["sub", "main"]
+    profile_name: str
+    adapter_profile_key: str
     purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
     transport: Literal["hls"] = "hls"
     transports: list[
