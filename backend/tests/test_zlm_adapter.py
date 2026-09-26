@@ -646,3 +646,54 @@ def test_whep_play_and_cleanup_use_standard_session_contract() -> None:
         "id": ["rtc-session-1"],
         "token": ["rtc-delete-token"],
     }
+
+
+def test_add_stream_proxy_reuses_existing_proxy_without_exposing_raw_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/addStreamProxy")
+        return httpx.Response(
+            200,
+            json={
+                "code": -1,
+                "msg": "This stream already exists",
+            },
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        key = adapter.add_stream_proxy(
+            app="zero-nvr",
+            stream="profile-existing",
+            source_url=SOURCE_URL,
+            enable_hls=True,
+        )
+
+    assert key == "__defaultVhost__/zero-nvr/profile-existing"
+
+
+def test_add_stream_proxy_keeps_other_code_minus_one_failures_fatal() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/addStreamProxy")
+        return httpx.Response(
+            200,
+            json={
+                "code": -1,
+                "msg": "No valid Sdp Track",
+            },
+        )
+
+    with ZlmAdapter(
+        settings(),
+        transport=httpx.MockTransport(handler),
+    ) as adapter:
+        with pytest.raises(ZlmIntegrationError) as captured:
+            adapter.add_stream_proxy(
+                app="zero-nvr",
+                stream="profile-bad",
+                source_url=SOURCE_URL,
+                enable_hls=True,
+            )
+
+    assert captured.value.code == "zlm_operation_failed"
