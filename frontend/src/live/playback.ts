@@ -137,10 +137,6 @@ export function resolveLivePlaybackTransports(
       (
         codec === "h264" &&
         capabilities.webrtcH264
-      ) ||
-      (
-        codec === "h265" &&
-        capabilities.webrtcH265
       )
     )
   const hlsCompatible =
@@ -150,10 +146,6 @@ export function resolveLivePlaybackTransports(
       (
         codec === "h264" &&
         capabilities.hlsH264
-      ) ||
-      (
-        codec === "h265" &&
-        capabilities.hlsH265
       )
     )
 
