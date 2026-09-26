@@ -35,6 +35,41 @@ vi.mock("vue-i18n", () => ({
   })
 }))
 
+vi.mock("../../api/cameras", () => ({
+  getCamera: vi.fn(() => Promise.resolve({
+    id: "11111111-1111-1111-1111-111111111111",
+    name: "Front Door",
+    enabled: true,
+    maintenance: false,
+    retired_at: null,
+    location: "Entrance",
+    storage_label: null,
+    adapter_type: "manual_rtsp",
+    time_sync_mode: "monitor",
+    ptz_capable: false,
+    streams: [
+      {
+        id: "22222222-2222-2222-2222-222222222222",
+        name: "Sub",
+        adapter_profile_key: "manual-secondary",
+        codec: "h264",
+        width: 640,
+        height: 360,
+        fps: 15,
+        bitrate_kbps: 512,
+        gop_seconds: null,
+        audio_codec: null,
+        has_audio: false,
+        status: "available",
+        last_verified_at: null
+      }
+    ],
+    bindings: []
+  })),
+  moveCameraPtz: vi.fn(() => Promise.resolve()),
+  stopCameraPtz: vi.fn(() => Promise.resolve())
+}))
+
 vi.mock("../../stores/auth", () => ({
   useAuthStore: () => ({
     hasPermission: () => false
@@ -93,6 +128,7 @@ const descriptor: CameraLiveStream = {
   media_session_id:
     "33333333-3333-3333-3333-333333333333",
   expires_at: "2026-09-26T00:30:00Z",
+  source_codec: "h264",
   codec: "h264",
   width: 640,
   height: 360,
