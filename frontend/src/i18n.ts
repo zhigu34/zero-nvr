@@ -315,6 +315,8 @@ const messages = {
             "WebRTC: {webrtc} · fallback: {fallback}",
           compatibilityFallbackFailed:
             "HLS: {hls} · H.264 compatibility: {compatibility}",
+          autoSourceFallbackFailed:
+            "Substream path failed: {sub} · mainstream path failed: {main}",
           hlsFatal:
             "HLS fatal error: {details}",
           firstFrameTimeout:
@@ -1901,6 +1903,7 @@ const messages = {
           playbackFailed: "实时视频播放失败，正在自动重连。",
           transportFallbackFailed: "WebRTC：{webrtc} · 后续回退：{fallback}",
           compatibilityFallbackFailed: "HLS：{hls} · H.264 兼容流：{compatibility}",
+          autoSourceFallbackFailed: "子码流路径失败：{sub} · 主码流路径失败：{main}",
           hlsFatal: "HLS 致命错误：{details}",
           firstFrameTimeout: "{transport} 会话已建立，但 {seconds} 秒内没有收到可播放的视频首帧。",
           sourceOffline: "{base} ZLMediaKit 显示当前选择的源流尚未上线。",
