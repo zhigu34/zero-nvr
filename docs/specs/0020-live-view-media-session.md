@@ -93,7 +93,14 @@ substream direct playback
 The initial descriptor therefore always starts from the LIVE_LOW/sub binding when
 one exists, even if the UI is focused/fullscreen or still sends the legacy
 `quality=high` hint. Mainstream use requires an explicit source advance (or no
-substream being available). Recording remains independently bound to RECORD.
+substream being available). The Live tile exposes Auto, Substream, Mainstream,
+and discovered-profile choices; explicit profile selection is scoped to the
+ephemeral MediaSession and does not rewrite persistent camera bindings.
+Recording remains independently bound to RECORD.
+
+The descriptor exposes the actual source role, profile name/key, source codec,
+playback codec, dimensions, transport, and compatibility acceleration. The UI
+must display this real media path instead of generic SD/HD labels.
 
 Within one selected source, protocol choice is based on browser/media capability.
 Grid/substream playback may prefer HLS before WebRTC to avoid paying WHEP/ICE
