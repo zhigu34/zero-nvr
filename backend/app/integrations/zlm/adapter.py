@@ -481,7 +481,7 @@ class ZlmAdapter:
         key = data.get("key") if isinstance(data, dict) else None
         if (
             (not isinstance(key, str) or not key)
-            and payload.get("code") == -1
+            and str(payload.get("code")) == "-1"
             and payload.get("msg") == "This stream already exists"
         ):
             return f"__defaultVhost__/{app}/{stream}"
