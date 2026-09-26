@@ -158,6 +158,10 @@ Requirements:
   RTMP input registration alone is not treated as browser-ready because the
   compatibility consumer receives HLS;
 - idle derivatives are cleaned up;
+- exited FFmpeg derivatives are removed before admitting a new derivative,
+  including their shared leases and expiry timers, so they cannot consume
+  capacity until lease expiry; keepalive rejects and removes leases whose
+  derivative has exited so viewers can reconnect;
 - failure/capacity exhaustion does not affect recording;
 - hardware acceleration may be used when actually available;
 - CPU fallback must have resource limits.

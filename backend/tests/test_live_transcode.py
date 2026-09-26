@@ -7,6 +7,7 @@ import pytest
 
 from app.core.config import Settings
 from app.core.db import Base, Database
+from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.cameras.live_transcode import (
     LiveTranscodeError,
     LiveTranscodeManager,
@@ -265,6 +266,115 @@ def test_capacity_refuses_second_active_derivative(
     assert "1/1 derivatives" in str(captured.value)
     assert "1 active leases" in str(captured.value)
     manager.stop()
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_capacity_reclaims_exited_derivative_with_active_leases(
+    tmp_path: Path,
+    returncode: int,
+) -> None:
+    FakeTimer.created = []
+    processes: list[FakeProcess] = []
+
+    def popen(*_args, **_kwargs):
+        process = FakeProcess()
+        processes.append(process)
+        return process
+
+    manager = LiveTranscodeManager(
+        settings(tmp_path, live_transcode_max_derivatives=2),
+        popen_factory=popen,
+        run_factory=lambda *_args, **_kwargs: FakeCompleted(),
+        zlm_factory=FakeZlm,
+        timer_factory=FakeTimer,
+    )
+    camera_id = uuid.uuid4()
+    owner_user_id = uuid.uuid4()
+
+    def acquire(profile_id):
+        return manager.acquire(
+            camera_id=camera_id,
+            owner_user_id=owner_user_id,
+            profile_id=profile_id,
+            source_url=f"rtsp://zlmediakit:554/zero-nvr/profile-{profile_id.hex}",
+            has_audio=False,
+        )
+
+    try:
+        failed_profile = uuid.uuid4()
+        first = acquire(failed_profile)
+        second = acquire(failed_profile)
+        failed_timers = list(FakeTimer.created)
+        healthy = acquire(uuid.uuid4())
+        processes[0].returncode = returncode
+
+        replacement = acquire(uuid.uuid4())
+
+        assert len(processes) == 3
+        assert all(timer.cancelled for timer in failed_timers)
+        for lease in (first, second):
+            assert not manager.touch(
+                lease.lease_id,
+                camera_id=camera_id,
+                owner_user_id=owner_user_id,
+            )
+            assert not manager.release(lease.lease_id)
+        for lease in (healthy, replacement):
+            assert manager.touch(
+                lease.lease_id,
+                camera_id=camera_id,
+                owner_user_id=owner_user_id,
+            )
+        assert not processes[1].terminated
+        assert not processes[2].terminated
+        with pytest.raises(LiveTranscodeError) as captured:
+            acquire(uuid.uuid4())
+        assert captured.value.code == "live_transcode_capacity"
+        assert "2 active leases" in str(captured.value)
+    finally:
+        manager.stop()
+
+
+@pytest.mark.parametrize("returncode", [0, 1])
+def test_keepalive_rejects_exited_derivative_and_revokes_shared_leases(
+    tmp_path: Path,
+    returncode: int,
+) -> None:
+    FakeTimer.created = []
+    process = FakeProcess()
+    manager = LiveTranscodeManager(
+        settings(tmp_path),
+        popen_factory=lambda *_args, **_kwargs: process,
+        run_factory=lambda *_args, **_kwargs: FakeCompleted(),
+        zlm_factory=FakeZlm,
+        timer_factory=FakeTimer,
+    )
+    camera_id = uuid.uuid4()
+    owner_user_id = uuid.uuid4()
+    profile_id = uuid.uuid4()
+    try:
+        leases = [
+            manager.acquire(
+                camera_id=camera_id,
+                owner_user_id=owner_user_id,
+                profile_id=profile_id,
+                source_url=f"rtsp://zlmediakit:554/zero-nvr/profile-{profile_id.hex}",
+                has_audio=False,
+            )
+            for _ in range(2)
+        ]
+        process.returncode = returncode
+
+        for lease in leases:
+            assert not manager.touch(
+                lease.lease_id,
+                camera_id=camera_id,
+                owner_user_id=owner_user_id,
+            )
+            assert not manager.release(lease.lease_id)
+        assert all(timer.cancelled for timer in FakeTimer.created)
+    finally:
+        manager.stop()
 
 
 def test_hardware_failure_falls_back_to_bounded_cpu(

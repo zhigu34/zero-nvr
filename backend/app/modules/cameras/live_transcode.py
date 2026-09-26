@@ -505,6 +505,12 @@ class LiveTranscodeManager:
     def _free_idle_capacity_locked(
         self,
     ) -> None:
+        # Exited processes cannot serve any of their viewers. Reap them
+        # before counting capacity, even when their leases are still alive.
+        for key, entry in list(self._derivatives.items()):
+            if entry.process.poll() is not None:
+                self._drop_entry_locked(key)
+
         if (
             len(self._derivatives)
             < self._tuning()
@@ -632,6 +638,10 @@ class LiveTranscodeManager:
                 or lease.owner_user_id
                 != owner_user_id
             ):
+                return False
+            entry = self._derivatives.get(lease.key)
+            if entry is None or entry.process.poll() is not None:
+                self._drop_entry_locked(lease.key)
                 return False
             self._schedule_lease_expiry_locked(
                 lease_id
