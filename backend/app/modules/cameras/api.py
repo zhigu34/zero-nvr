@@ -2523,11 +2523,11 @@ def get_camera_live_stream(
     camera_id: uuid.UUID,
     request: Request,
     response: Response,
-    quality: Literal[
+    _quality: Literal[
         "auto",
         "high",
         "low",
-    ] = Query(default="auto"),
+    ] = Query(default="auto", alias="quality"),
     source: LiveSource = Query(default="auto"),
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
