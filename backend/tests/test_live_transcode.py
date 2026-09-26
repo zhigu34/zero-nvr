@@ -262,6 +262,8 @@ def test_capacity_refuses_second_active_derivative(
         captured.value.code
         == "live_transcode_capacity"
     )
+    assert "1/1 derivatives" in str(captured.value)
+    assert "1 active leases" in str(captured.value)
     manager.stop()
 
 
