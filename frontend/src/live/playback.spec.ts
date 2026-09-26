@@ -22,6 +22,12 @@ function stream(
   return {
     camera_id: "11111111-1111-1111-1111-111111111111",
     profile_id: "22222222-2222-2222-2222-222222222222",
+    source_role: purpose === "LIVE_LOW" ? "sub" : "main",
+    profile_name: purpose === "LIVE_LOW" ? "Sub" : "Main",
+    adapter_profile_key:
+      purpose === "LIVE_LOW"
+        ? "manual-secondary"
+        : "manual-primary",
     purpose,
     transport: "hls",
     transports: ["webrtc", "hls"],
