@@ -88,7 +88,7 @@ class FakeZlm:
     ) -> bool:
         assert app == "zero-nvr-compat"
         assert stream.startswith("h264-")
-        assert schema == "rtmp"
+        assert schema == "hls"
         return True
 
 

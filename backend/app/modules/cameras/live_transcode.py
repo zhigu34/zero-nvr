@@ -336,7 +336,7 @@ class LiveTranscodeManager:
                         if zlm.is_media_online(
                             app=reference.app,
                             stream=reference.stream,
-                            schema="rtmp",
+                            schema="hls",
                         ):
                             return True
                     except ZlmIntegrationError:

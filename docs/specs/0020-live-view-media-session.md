@@ -103,6 +103,12 @@ Preferred order:
 2. use a mature player path that supports the codec;
 3. only then create a bounded FFmpeg compatibility derivative.
 
+V1 has not yet integrated the mature H.265 browser-player adapter. Until that
+adapter exists, H.265 is not sent through speculative native WebRTC/HLS merely
+because a browser reports codec support; after camera-side H.264 profile
+selection, remaining H.265 live requests go directly to the bounded H.264
+compatibility derivative.
+
 Do not permanently transcode every camera.
 
 ## On-demand compatibility transcode
@@ -116,10 +122,10 @@ Requirements:
   derivatives for a minimum useful 4-grid fallback while Runtime Tuning keeps the
   operator-adjustable limit bounded to 1-8;
 - may be shared by viewers requesting the same compatible derivative;
-- derivative startup waits only for the ZLMediaKit compatibility MediaSource
-  to register online within the bounded startup timeout; it does not add a
-  second video-track readiness gate on top of ZLMediaKit and the browser
-  player's first-frame boundary;
+- derivative startup waits for ZLMediaKit's HLS MediaSource for the
+  compatibility stream to register online within the bounded startup timeout;
+  RTMP input registration alone is not treated as browser-ready because the
+  compatibility consumer receives HLS;
 - idle derivatives are cleaned up;
 - failure/capacity exhaustion does not affect recording;
 - hardware acceleration may be used when actually available;
@@ -275,11 +281,11 @@ Live page baseline:
   only those missing capability fields from that already-ready ZLM probe so the
   browser can skip transports known to be incompatible with the actual source
   codec instead of learning through timeout/failure;
-- for an auto-managed LIVE_LOW binding, a known H.264 camera profile is preferred
-  over a bound non-H.264/unknown profile so grid/auto playback can consume
-  camera-side compatible media instead of allocating an FFmpeg compatibility
-  derivative; manual bindings and LIVE_HIGH remain authoritative and are never
-  silently downgraded by this rule;
+- for auto-managed LIVE_LOW and LIVE_HIGH bindings, known H.264 camera
+  profiles are preferred before allocating an FFmpeg compatibility derivative:
+  LIVE_LOW chooses the lowest-quality available H.264 profile and LIVE_HIGH
+  chooses the highest-quality available H.264 profile; manual bindings remain
+  authoritative and RECORD never changes codec merely for browser compatibility;
   this prevents the browser's first WHEP/HLS attempt from racing the gap
   between stream registration and video-track readiness; the bounded wait
   reuses ZLM state and does not introduce a second reconnect engine;

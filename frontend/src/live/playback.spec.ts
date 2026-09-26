@@ -65,4 +65,17 @@ describe("resolveLivePlaybackTransports", () => {
       )
     ).toEqual([])
   })
+
+  it("routes H265 to compatibility even when the browser advertises it", () => {
+    expect(
+      resolveLivePlaybackTransports(
+        stream("LIVE_HIGH", "h265"),
+        {
+          ...capabilities,
+          webrtcH265: true,
+          hlsH265: true
+        }
+      )
+    ).toEqual([])
+  })
 })

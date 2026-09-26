@@ -2063,7 +2063,7 @@ def _resolved_live_profile(
     if (
         bound is None
         or binding.selection_mode != "auto"
-        or purpose != "LIVE_LOW"
+        or purpose not in {"LIVE_LOW", "LIVE_HIGH"}
         or _normalized_live_codec(bound.codec) == "h264"
     ):
         return bound
@@ -2080,7 +2080,8 @@ def _resolved_live_profile(
     ]
     if not compatible:
         return bound
-    return min(
+    selector = min if purpose == "LIVE_LOW" else max
+    return selector(
         compatible,
         key=_live_profile_score,
     )

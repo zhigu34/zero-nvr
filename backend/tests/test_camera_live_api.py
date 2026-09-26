@@ -366,6 +366,37 @@ def test_auto_low_live_prefers_known_h264_profile(
             primary_id
         )
 
+        with app.state.database.session() as session:
+            primary = session.get(
+                CameraStreamProfile,
+                primary_id,
+            )
+            secondary = session.get(
+                CameraStreamProfile,
+                secondary_id,
+            )
+            assert primary is not None
+            assert secondary is not None
+            primary.codec = "h265"
+            primary.width = 3840
+            primary.height = 2160
+            primary.fps = 25.0
+            primary.bitrate_kbps = 8192
+            secondary.codec = "h264"
+            secondary.width = 1920
+            secondary.height = 1080
+            secondary.fps = 20.0
+            secondary.bitrate_kbps = 4096
+            session.commit()
+
+        high = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?quality=high"
+        )
+        assert high.status_code == 200
+        high_body = high.json()
+        assert high_body["purpose"] == "LIVE_HIGH"
+        assert high_body["profile_id"] == str(secondary_id)
+
 
 def test_live_diagnostics_report_sanitized_zlm_track_state(
     tmp_path: Path,

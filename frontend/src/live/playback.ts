@@ -121,6 +121,15 @@ export function resolveLivePlaybackTransports(
   const codec = normalizedCodec(stream.codec)
   const result: Array<"webrtc" | "hls"> = []
 
+  // V1 does not ship a mature browser H.265 player adapter yet.
+  // Browser capability advertisement is not sufficient evidence that the
+  // ZLM-to-browser path is interoperable, so H.265 goes directly to the
+  // bounded H.264 compatibility derivative unless a camera-side H.264
+  // profile was selected by the backend.
+  if (codec === "h265") {
+    return result
+  }
+
   const rtcCompatible =
     capabilities.webrtc &&
     (
