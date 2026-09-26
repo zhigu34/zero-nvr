@@ -2040,6 +2040,26 @@ def _profile_for_binding(
     )
 
 
+def _normalized_live_codec(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if "h264" in normalized or "avc" in normalized:
+        return "h264"
+    if "h265" in normalized or "hevc" in normalized:
+        return "h265"
+    return "unknown"
+
+
+def _live_profile_score(
+    profile: CameraStreamProfile,
+) -> tuple[int, float, int, str]:
+    return (
+        (profile.width or 0) * (profile.height or 0),
+        profile.fps or 0.0,
+        profile.bitrate_kbps or 0,
+        str(profile.id),
+    )
+
+
 def _select_bound_live_profile(
     camera: Camera,
     *,
@@ -2125,20 +2145,54 @@ def _select_bound_live_profile(
             "main",
         )
 
-    # AUTO always starts with the camera-side low/sub binding. Browser
-    # compatibility is handled against that exact source before any later
-    # fallback is allowed to advance to the main source.
-    if sub_profile is not None and sub_binding is not None:
+    default_profile = sub_profile or main_profile
+    default_binding = (
+        sub_binding
+        if sub_profile is not None
+        else main_binding
+    )
+    if default_profile is not None and default_binding is not None:
+        if default_binding.selection_mode == "auto":
+            h264_profiles = [
+                item
+                for item in camera.stream_profiles
+                if (
+                    item.stream_uri_ref is not None
+                    and item.status != "unavailable"
+                    and _normalized_live_codec(item.codec) == "h264"
+                )
+            ]
+            if h264_profiles:
+                selected = min(
+                    h264_profiles,
+                    key=_live_profile_score,
+                )
+                if (
+                    sub_profile is not None
+                    and sub_binding is not None
+                    and selected.id == sub_profile.id
+                ):
+                    return (
+                        selected,
+                        cast(LivePurpose, sub_binding.purpose),
+                        "sub",
+                    )
+                if (
+                    main_profile is not None
+                    and main_binding is not None
+                    and selected.id == main_profile.id
+                ):
+                    return (
+                        selected,
+                        cast(LivePurpose, main_binding.purpose),
+                        "main",
+                    )
+                return selected, "PROFILE", "profile"
+
         return (
-            sub_profile,
-            cast(LivePurpose, sub_binding.purpose),
-            "sub",
-        )
-    if main_profile is not None and main_binding is not None:
-        return (
-            main_profile,
-            cast(LivePurpose, main_binding.purpose),
-            "main",
+            default_profile,
+            cast(LivePurpose, default_binding.purpose),
+            "sub" if default_binding is sub_binding else "main",
         )
     raise ApiError(
         status_code=409,

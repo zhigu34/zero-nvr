@@ -18,6 +18,7 @@ from app.integrations.zlm import (
 from app.modules.cameras.live_transcode import LiveTranscodeLease
 from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
+from app.modules.cameras.models import CameraStreamProfile
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -229,7 +230,7 @@ def test_live_descriptor_stays_on_substream_for_legacy_quality_hints(
 
 
 
-def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
+def test_auto_live_prefers_camera_h264_while_manual_sources_stay_exact(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -324,20 +325,42 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
         primary_id = streams["manual-primary"]["id"]
         secondary_id = streams["manual-secondary"]["id"]
 
-        # Legacy quality=high must no longer jump AUTO straight to main.
+        with app.state.database.session() as session:
+            primary = session.get(
+                CameraStreamProfile,
+                uuid.UUID(primary_id),
+            )
+            secondary = session.get(
+                CameraStreamProfile,
+                uuid.UUID(secondary_id),
+            )
+            assert primary is not None
+            assert secondary is not None
+            primary.codec = "h264"
+            primary.width = 1920
+            primary.height = 1080
+            primary.fps = 25.0
+            primary.bitrate_kbps = 4096
+            secondary.codec = "h265"
+            secondary.width = 640
+            secondary.height = 360
+            secondary.fps = 10.0
+            secondary.bitrate_kbps = 512
+            session.commit()
+
         automatic = client.get(
             f"/api/v1/cameras/{camera['id']}/live?quality=high"
         )
-        assert automatic.status_code == 200
+        assert automatic.status_code == 200, automatic.text
         auto_body = automatic.json()
-        assert auto_body["profile_id"] == secondary_id
-        assert auto_body["purpose"] == "LIVE_LOW"
-        assert auto_body["source_role"] == "sub"
-        assert auto_body["profile_name"] == "Sub"
-        assert auto_body["source_codec"] == "h265"
+        assert auto_body["profile_id"] == primary_id
+        assert auto_body["purpose"] == "LIVE_HIGH"
+        assert auto_body["source_role"] == "main"
+        assert auto_body["profile_name"] == "Main"
+        assert auto_body["source_codec"] == "h264"
         assert (
             auto_body["adapter_profile_key"]
-            == "manual-secondary"
+            == "manual-primary"
         )
 
         diagnostics = client.get(
@@ -348,7 +371,7 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
             )
         )
         assert diagnostics.status_code == 200
-        assert diagnostics.json()["profile_id"] == secondary_id
+        assert diagnostics.json()["profile_id"] == primary_id
 
         explicit_sub = client.get(
             f"/api/v1/cameras/{camera['id']}/live?source=sub"
@@ -356,6 +379,7 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
         assert explicit_sub.status_code == 200
         assert explicit_sub.json()["profile_id"] == secondary_id
         assert explicit_sub.json()["source_role"] == "sub"
+        assert explicit_sub.json()["source_codec"] == "h265"
 
         explicit_main = client.get(
             f"/api/v1/cameras/{camera['id']}/live?source=main"
@@ -370,6 +394,25 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
             main_body["adapter_profile_key"]
             == "manual-primary"
         )
+
+        with app.state.database.session() as session:
+            secondary = session.get(
+                CameraStreamProfile,
+                uuid.UUID(secondary_id),
+            )
+            assert secondary is not None
+            secondary.codec = "h264"
+            secondary.width = 3840
+            secondary.height = 2160
+            secondary.fps = 30.0
+            secondary.bitrate_kbps = 8192
+            session.commit()
+
+        lowest_cost = client.get(
+            f"/api/v1/cameras/{camera['id']}/live"
+        )
+        assert lowest_cost.status_code == 200
+        assert lowest_cost.json()["profile_id"] == primary_id
 
         explicit_profile = client.get(
             (
