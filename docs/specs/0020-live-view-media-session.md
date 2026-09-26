@@ -81,22 +81,26 @@ The backend returns capabilities/descriptors; the frontend does not hard-code on
 
 ## Source and protocol preference
 
-AUTO live selection is source-first, not viewport-quality-first:
+AUTO live selection avoids compatibility work when the camera already exposes a
+browser-compatible profile:
 
 ```text
-substream direct playback
--> substream compatibility transcode
--> mainstream direct playback
--> mainstream compatibility transcode
+lowest-cost available H.264 profile direct playback
+-> bound substream direct playback
+-> bound substream compatibility transcode
+-> bound mainstream direct playback
+-> bound mainstream compatibility transcode
 ```
 
-The initial descriptor therefore always starts from the LIVE_LOW/sub binding when
-one exists, even if the UI is focused/fullscreen or still sends the legacy
-`quality=high` hint. Mainstream use requires an explicit source advance (or no
-substream being available). The Live tile exposes Auto, Substream, Mainstream,
-and discovered-profile choices; explicit profile selection is scoped to the
-ephemeral MediaSession and does not rewrite persistent camera bindings.
-Recording remains independently bound to RECORD.
+For an auto-managed live binding, the initial descriptor chooses the available
+H.264 camera profile with the lowest resolution, frame rate, and bitrate. Its
+actual Substream, Mainstream, or Profile role is preserved in the descriptor.
+When no known H.264 profile exists, AUTO starts from LIVE_LOW/sub and retains the
+bounded cross-source compatibility fallback. A manually managed binding remains
+authoritative. The Live tile also exposes explicit Substream, Mainstream, and
+discovered-profile choices; those choices never switch source silently and do not
+rewrite persistent camera bindings. Recording remains independently bound to
+RECORD.
 
 The descriptor exposes the actual source role, profile name/key, source codec,
 playback codec, dimensions, transport, and compatibility acceleration. The UI
@@ -107,14 +111,15 @@ Grid/substream playback may prefer HLS before WebRTC to avoid paying WHEP/ICE
 setup cost for every tile; a codec the browser cannot decode is skipped rather
 than learned through timeout.
 
-AUTO owns exactly one cross-source fallback chain: it completely exhausts the
-substream path (direct playback, then bounded compatibility transcode) before
-releasing that MediaSession/lease and advancing to the mainstream path (direct,
-then compatibility transcode). The client waits for compatibility-lease and
-MediaSession revocation before acquiring the next source so rapid failures cannot
-temporarily consume all transcode slots. Manual Substream, Mainstream, and Profile
-choices never advance to another source automatically. Token renewal always
-follows the descriptor that actually reached first frame.
+When no camera-side H.264 profile is known, AUTO owns exactly one cross-source
+fallback chain: it completely exhausts the substream path (direct playback, then
+bounded compatibility transcode) before releasing that MediaSession/lease and
+advancing to the mainstream path (direct, then compatibility transcode). The
+client waits for compatibility-lease and MediaSession revocation before acquiring
+the next source so rapid failures cannot temporarily consume all transcode slots.
+Manual Substream, Mainstream, and Profile choices never advance to another source
+automatically. Token renewal always follows the descriptor that actually reached
+first frame.
 
 ZLMediaKit pull-proxy creation is treated as idempotent for the exact upstream
 `This stream already exists` response. A proxy may exist while its media source
@@ -316,11 +321,10 @@ Live page baseline:
   only those missing capability fields from that already-ready ZLM probe so the
   browser can skip transports known to be incompatible with the actual source
   codec instead of learning through timeout/failure;
-- for auto-managed LIVE_LOW and LIVE_HIGH bindings, known H.264 camera
-  profiles are preferred before allocating an FFmpeg compatibility derivative:
-  LIVE_LOW chooses the lowest-quality available H.264 profile and LIVE_HIGH
-  chooses the highest-quality available H.264 profile; manual bindings remain
-  authoritative and RECORD never changes codec merely for browser compatibility;
+- when the default live binding is auto-managed, AUTO chooses the lowest-cost
+  known H.264 camera profile before allocating an FFmpeg compatibility
+  derivative; manual bindings and explicit source choices remain authoritative,
+  and RECORD never changes codec merely for browser compatibility;
   this prevents the browser's first WHEP/HLS attempt from racing the gap
   between stream registration and video-track readiness; the bounded wait
   reuses ZLM state and does not introduce a second reconnect engine;
