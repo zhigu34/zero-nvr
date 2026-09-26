@@ -16,7 +16,6 @@ from app.integrations.zlm import (
     ZlmWhepSession,
 )
 from app.modules.cameras.live_transcode import LiveTranscodeLease
-from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 
