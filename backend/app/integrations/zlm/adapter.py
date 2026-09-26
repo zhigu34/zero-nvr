@@ -121,6 +121,7 @@ class ZlmAdapter:
         api: str,
         *,
         params: dict[str, object] | None = None,
+        accepted_error: tuple[int, str] | None = None,
     ) -> dict[str, Any]:
         form = {
             "secret": self._api_secret(),
@@ -172,6 +173,13 @@ class ZlmAdapter:
             numeric_code = -1
 
         if numeric_code != 0:
+            raw_message = payload.get("msg")
+            if (
+                accepted_error is not None
+                and numeric_code == accepted_error[0]
+                and raw_message == accepted_error[1]
+            ):
+                return payload
             # Deliberately ignore raw msg/data because they can echo input URLs.
             raise ZlmIntegrationError(
                 "zlm_operation_failed",
@@ -467,9 +475,16 @@ class ZlmAdapter:
                 "mp4_save_path": mp4_save_path,
                 "mp4_max_second": mp4_max_second,
             },
+            accepted_error=(-1, "This stream already exists"),
         )
         data = payload.get("data")
         key = data.get("key") if isinstance(data, dict) else None
+        if (
+            (not isinstance(key, str) or not key)
+            and payload.get("code") == -1
+            and payload.get("msg") == "This stream already exists"
+        ):
+            return f"__defaultVhost__/{app}/{stream}"
         if not isinstance(key, str) or not key:
             raise ZlmIntegrationError(
                 "zlm_invalid_response",
