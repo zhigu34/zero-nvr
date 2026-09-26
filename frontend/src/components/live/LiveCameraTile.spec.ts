@@ -141,6 +141,9 @@ const descriptor: CameraLiveStream = {
 describe("LiveCameraTile", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    liveMocks.revokeCameraMediaSession.mockImplementation(
+      () => Promise.resolve()
+    )
     Object.defineProperty(
       HTMLMediaElement.prototype,
       "pause",
@@ -234,6 +237,13 @@ describe("LiveCameraTile", () => {
         "66666666-6666-6666-6666-666666666666"
     }
 
+    let releaseSubSession!: () => void
+    const subSessionReleased = new Promise<void>((resolve) => {
+      releaseSubSession = resolve
+    })
+    liveMocks.revokeCameraMediaSession
+      .mockImplementationOnce(() => subSessionReleased)
+
     liveMocks.getCameraLiveStream
       .mockResolvedValueOnce(subDescriptor)
       .mockResolvedValueOnce(mainDescriptor)
@@ -258,6 +268,19 @@ describe("LiveCameraTile", () => {
       }
     })
 
+    await flushPromises()
+
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenCalledTimes(1)
+    expect(
+      liveMocks.revokeCameraMediaSession
+    ).toHaveBeenCalledWith(
+      camera.id,
+      subDescriptor.media_session_id
+    )
+
+    releaseSubSession()
     await flushPromises()
 
     expect(
