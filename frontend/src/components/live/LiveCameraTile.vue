@@ -11,8 +11,11 @@ import {
 import { useI18n } from "vue-i18n"
 
 import {
+  getCamera,
   moveCameraPtz,
   stopCameraPtz,
+  type CameraDetail,
+  type CameraStreamProfile,
   type CameraSummary
 } from "../../api/cameras"
 import {
@@ -32,7 +35,8 @@ import {
   releaseCameraCompatibilityLease,
   revokeCameraMediaSession,
   type CameraLiveStream,
-  type LiveQuality
+  type LiveQuality,
+  type LiveSource
 } from "../../api/live"
 import {
   createRecordingTrigger,
@@ -82,6 +86,10 @@ const ptzHolding = ref(false)
 const pageVisible = ref(!document.hidden)
 const tileVisible = ref(true)
 const fullscreenActive = ref(false)
+const cameraDetail = ref<CameraDetail | null>(null)
+const selectedSource = ref<LiveSource>("auto")
+const selectedProfileId = ref<string | null>(null)
+
 interface LiveTelemetry {
   bitrateKbps: number | null
   packetLossPct: number | null
@@ -162,6 +170,90 @@ const requestedQuality = computed<LiveQuality>(() =>
     ? "high"
     : props.quality
 )
+
+const availableProfiles = computed<CameraStreamProfile[]>(() =>
+  (cameraDetail.value?.streams ?? []).filter(
+    (profile) => profile.status !== "unavailable"
+  )
+)
+
+const sourceSelectionValue = computed(() =>
+  selectedSource.value === "profile" &&
+  selectedProfileId.value
+    ? `profile:${selectedProfileId.value}`
+    : selectedSource.value
+)
+
+function codecLabel(value: string | null | undefined): string {
+  return (value || "?").toUpperCase()
+}
+
+const livePathSummary = computed(() => {
+  const stream = descriptor.value
+  if (!stream) return null
+
+  const role =
+    stream.source_role === "sub"
+      ? "SUB"
+      : stream.source_role === "main"
+        ? "MAIN"
+        : "PROFILE"
+  const sourceCodec = codecLabel(
+    stream.source_codec || stream.codec
+  )
+  const playbackCodec = codecLabel(stream.codec)
+  const codec =
+    stream.compatibility === "h264_transcode" &&
+    sourceCodec !== playbackCodec
+      ? `${sourceCodec}→${playbackCodec}`
+      : playbackCodec
+  const resolution =
+    stream.width && stream.height
+      ? `${stream.width}×${stream.height}`
+      : null
+  const transport = activeTransport.value
+    ? activeTransport.value.toUpperCase()
+    : null
+  const acceleration =
+    stream.compatibility === "h264_transcode"
+      ? (stream.compatibility_acceleration || "cpu").toUpperCase()
+      : null
+
+  return [
+    role,
+    stream.profile_name,
+    codec,
+    resolution,
+    transport,
+    acceleration
+  ].filter(Boolean).join(" · ")
+})
+
+async function loadCameraDetail(): Promise<void> {
+  try {
+    cameraDetail.value = await getCamera(props.camera.id)
+  } catch {
+    cameraDetail.value = null
+  }
+}
+
+function handleSourceSelection(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value
+  if (value.startsWith("profile:")) {
+    selectedSource.value = "profile"
+    selectedProfileId.value = value.slice("profile:".length)
+  } else {
+    selectedSource.value = value as LiveSource
+    selectedProfileId.value = null
+  }
+
+  reconnectAttempt = 0
+  destroyPlayer()
+  descriptor.value = null
+  if (!playbackSuspended.value) {
+    void loadStream()
+  }
+}
 
 const manualRecordingActive = computed(() => {
   const trigger = recordingTrigger.value
@@ -1546,7 +1638,9 @@ async function loadStream(
     const descriptorStartedAt = performance.now()
     const stream = await getCameraLiveStream(
       props.camera.id,
-      requestedQuality.value
+      requestedQuality.value,
+      selectedSource.value,
+      selectedProfileId.value
     )
     telemetry.value.descriptorMs = Math.max(
       0,
@@ -1649,6 +1743,7 @@ function handleVideoError(): void {
 }
 
 onMounted(() => {
+  void loadCameraDetail()
   pageVisible.value = !document.hidden
 
   if (
@@ -1692,6 +1787,15 @@ onMounted(() => {
     handleTileFullscreenChange
   )
 })
+
+watch(
+  () => props.camera.id,
+  () => {
+    selectedSource.value = "auto"
+    selectedProfileId.value = null
+    void loadCameraDetail()
+  }
+)
 
 watch(
   () => [
@@ -1860,6 +1964,36 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="live-tile__badges">
+        <select
+          class="live-source-select"
+          :value="sourceSelectionValue"
+          :title="t('live.tile.sourceSelect')"
+          @click.stop
+          @dblclick.stop
+          @change.stop="handleSourceSelection"
+        >
+          <option value="auto">{{ t("live.tile.sourceAuto") }}</option>
+          <option value="sub">{{ t("live.tile.sourceSub") }}</option>
+          <option value="main">{{ t("live.tile.sourceMain") }}</option>
+          <optgroup
+            v-if="availableProfiles.length"
+            :label="t('live.tile.sourceProfiles')"
+          >
+            <option
+              v-for="profile in availableProfiles"
+              :key="profile.id"
+              :value="`profile:${profile.id}`"
+            >
+              {{ profile.name }}
+              {{ profile.codec ? ` · ${profile.codec.toUpperCase()}` : "" }}
+              {{
+                profile.width && profile.height
+                  ? ` · ${profile.width}×${profile.height}`
+                  : ""
+              }}
+            </option>
+          </optgroup>
+        </select>
         <span
           v-if="manualRecordingActive"
           class="live-recording-badge"
@@ -1869,11 +2003,11 @@ onBeforeUnmount(() => {
         </span>
         <span v-if="descriptor" class="live-quality-badge">
           {{
-            descriptor.purpose === "LIVE_LOW"
-              ? "SD"
-              : descriptor.purpose === "RECORD"
-                ? "REC"
-                : "HD"
+            descriptor.source_role === "sub"
+              ? "SUB"
+              : descriptor.source_role === "main"
+                ? "MAIN"
+                : "PROFILE"
           }}
         </span>
         <span
@@ -1889,7 +2023,7 @@ onBeforeUnmount(() => {
             acceleration: descriptor.compatibility_acceleration || 'cpu'
           })"
         >
-          H264
+          {{ codecLabel(descriptor.source_codec) }}→H264
         </span>
       </div>
     </header>
@@ -1975,8 +2109,12 @@ onBeforeUnmount(() => {
 
     <footer class="live-tile__controls">
       <div class="live-tile__meta">
-        <span v-if="descriptor?.width && descriptor?.height">
-          {{ descriptor.width }}×{{ descriptor.height }}
+        <span
+          v-if="livePathSummary"
+          class="live-path-summary"
+          :title="livePathSummary"
+        >
+          {{ livePathSummary }}
         </span>
         <span v-if="descriptor?.fps">
           {{ Math.round(descriptor.fps) }} FPS
@@ -2168,6 +2306,25 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.live-source-select {
+  max-width: 150px;
+  height: 22px;
+  padding: 0 20px 0 6px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(10, 12, 15, 0.78);
+  color: rgba(255, 255, 255, 0.86);
+  font: inherit;
+  font-size: 9px;
+}
+
+.live-path-summary {
+  max-width: min(62vw, 520px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .live-recording-badge {
