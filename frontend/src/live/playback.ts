@@ -150,7 +150,7 @@ export function resolveLivePlaybackTransports(
     )
 
   const ordered: Array<"webrtc" | "hls"> =
-    stream.purpose === "LIVE_LOW"
+    stream.source_role === "sub"
       ? ["hls", "webrtc"]
       : ["webrtc", "hls"]
 
