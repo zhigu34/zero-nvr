@@ -140,6 +140,7 @@ const descriptor: CameraLiveStream = {
 
 describe("LiveCameraTile", () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     Object.defineProperty(
       HTMLMediaElement.prototype,
       "pause",
@@ -208,6 +209,149 @@ describe("LiveCameraTile", () => {
     expect(
       wrapper.find(".live-status-dot").classes()
     ).not.toContain("live-status-dot--active")
+
+    wrapper.unmount()
+  })
+
+  it("advances AUTO from failed substream compatibility to mainstream", async () => {
+    const subDescriptor: CameraLiveStream = {
+      ...descriptor,
+      source_codec: "h265",
+      codec: "h265",
+      transports: [],
+      media_session_id:
+        "44444444-4444-4444-4444-444444444444"
+    }
+    const mainDescriptor: CameraLiveStream = {
+      ...subDescriptor,
+      profile_id:
+        "55555555-5555-5555-5555-555555555555",
+      source_role: "main",
+      profile_name: "Main",
+      adapter_profile_key: "manual-primary",
+      purpose: "LIVE_HIGH",
+      media_session_id:
+        "66666666-6666-6666-6666-666666666666"
+    }
+
+    liveMocks.getCameraLiveStream
+      .mockResolvedValueOnce(subDescriptor)
+      .mockResolvedValueOnce(mainDescriptor)
+    liveMocks.getCameraCompatibleLiveStream
+      .mockRejectedValueOnce(
+        new Error("sub compatibility failed")
+      )
+      .mockRejectedValueOnce(
+        new Error("main compatibility failed")
+      )
+
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true
+      },
+      global: {
+        stubs: {
+          UiIcon: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenNthCalledWith(
+      1,
+      camera.id,
+      "low",
+      "auto",
+      null
+    )
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenNthCalledWith(
+      2,
+      camera.id,
+      "low",
+      "main",
+      null
+    )
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).toHaveBeenNthCalledWith(
+      1,
+      camera.id,
+      "low",
+      subDescriptor.media_session_id
+    )
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).toHaveBeenNthCalledWith(
+      2,
+      camera.id,
+      "low",
+      mainDescriptor.media_session_id
+    )
+    expect(
+      liveMocks.revokeCameraMediaSession
+    ).toHaveBeenCalledWith(
+      camera.id,
+      subDescriptor.media_session_id
+    )
+
+    wrapper.unmount()
+  })
+
+  it("does not advance a manually selected substream to mainstream", async () => {
+    const subDescriptor: CameraLiveStream = {
+      ...descriptor,
+      source_codec: "h265",
+      codec: "h265",
+      transports: [],
+      media_session_id:
+        "77777777-7777-7777-7777-777777777777"
+    }
+    liveMocks.getCameraLiveStream.mockResolvedValueOnce(
+      subDescriptor
+    )
+    liveMocks.getCameraCompatibleLiveStream.mockRejectedValueOnce(
+      new Error("sub compatibility failed")
+    )
+
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: false
+      },
+      global: {
+        stubs: {
+          UiIcon: true
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.find(".live-source-select").setValue("sub")
+    await wrapper.setProps({ playbackEnabled: true })
+    await flushPromises()
+
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenCalledTimes(1)
+    expect(
+      liveMocks.getCameraLiveStream
+    ).toHaveBeenCalledWith(
+      camera.id,
+      "low",
+      "sub",
+      null
+    )
+    expect(
+      liveMocks.getCameraCompatibleLiveStream
+    ).toHaveBeenCalledTimes(1)
 
     wrapper.unmount()
   })
