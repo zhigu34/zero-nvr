@@ -95,7 +95,7 @@ export function releaseCameraCompatibilityLease(
 export interface CameraLiveDiagnostic {
   camera_id: string
   profile_id: string
-  purpose: "LIVE_HIGH" | "LIVE_LOW" | "RECORD"
+  purpose: "LIVE_HIGH" | "LIVE_LOW" | "RECORD" | "PROFILE"
   state:
     | "source_offline"
     | "video_missing"
