@@ -47,7 +47,7 @@ def make_app(tmp_path: Path):
     return app
 
 
-def test_live_descriptor_uses_bound_profile_without_exposing_source(
+def test_live_descriptor_stays_on_substream_for_legacy_quality_hints(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -177,8 +177,14 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         )
         assert high.status_code == 200
         high_body = high.json()
-        assert high_body["purpose"] == "LIVE_HIGH"
-        assert high_body["profile_id"] != low_body["profile_id"]
+        assert high_body["purpose"] == "LIVE_LOW"
+        assert high_body["profile_id"] == low_body["profile_id"]
+        assert high_body["source_role"] == "sub"
+        assert high_body["profile_name"] == "Sub"
+        assert (
+            high_body["adapter_profile_key"]
+            == "manual-secondary"
+        )
         assert (
             high_body["media_session_id"]
             != low_body["media_session_id"]
