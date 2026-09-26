@@ -373,7 +373,7 @@ class CameraLiveStreamView(BaseModel):
 class CameraLiveDiagnosticView(BaseModel):
     camera_id: uuid.UUID
     profile_id: uuid.UUID
-    purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
+    purpose: Literal["LIVE_HIGH", "LIVE_LOW", "RECORD", "PROFILE"]
     state: Literal[
         "source_offline",
         "video_missing",
