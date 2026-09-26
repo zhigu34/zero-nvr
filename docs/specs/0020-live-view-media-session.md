@@ -273,6 +273,11 @@ Live page baseline:
   only those missing capability fields from that already-ready ZLM probe so the
   browser can skip transports known to be incompatible with the actual source
   codec instead of learning through timeout/failure;
+- for an auto-managed LIVE_LOW binding, a known H.264 camera profile is preferred
+  over a bound non-H.264/unknown profile so grid/auto playback can consume
+  camera-side compatible media instead of allocating an FFmpeg compatibility
+  derivative; manual bindings and LIVE_HIGH remain authoritative and are never
+  silently downgraded by this rule;
   this prevents the browser's first WHEP/HLS attempt from racing the gap
   between stream registration and video-track readiness; the bounded wait
   reuses ZLM state and does not introduce a second reconnect engine;

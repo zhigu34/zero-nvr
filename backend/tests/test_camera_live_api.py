@@ -16,6 +16,7 @@ from app.integrations.zlm import (
     ZlmWhepSession,
 )
 from app.modules.cameras.live_transcode import LiveTranscodeLease
+from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 
@@ -221,6 +222,149 @@ def test_live_descriptor_uses_bound_profile_without_exposing_source(
         assert unavailable.status_code == 409
         assert unavailable.json()["error"]["code"] == "camera_disabled"
 
+
+
+def test_auto_low_live_prefers_known_h264_profile(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
+        return [item.reference for item in desired]
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h264",
+                    ready=True,
+                    width=1920,
+                    height=1080,
+                    fps=25.0,
+                ),
+                audio=None,
+            )
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        created = client.post(
+            "/api/v1/cameras",
+            json={
+                "mode": "manual_rtsp",
+                "name": "Codec Preference",
+                "primary_stream": {
+                    "name": "Main",
+                    "rtsp_url": "rtsp://10.0.0.20/main",
+                },
+                "secondary_stream": {
+                    "name": "Sub",
+                    "rtsp_url": "rtsp://10.0.0.20/sub",
+                },
+            },
+        )
+        assert created.status_code == 201
+        camera = created.json()
+        streams = {
+            item["adapter_profile_key"]: item
+            for item in camera["streams"]
+        }
+        primary_id = uuid.UUID(
+            streams["manual-primary"]["id"]
+        )
+        secondary_id = uuid.UUID(
+            streams["manual-secondary"]["id"]
+        )
+
+        with app.state.database.session() as session:
+            primary = session.get(
+                CameraStreamProfile,
+                primary_id,
+            )
+            secondary = session.get(
+                CameraStreamProfile,
+                secondary_id,
+            )
+            assert primary is not None
+            assert secondary is not None
+            primary.codec = "h264"
+            primary.width = 1920
+            primary.height = 1080
+            primary.fps = 25.0
+            primary.bitrate_kbps = 4096
+            secondary.codec = "h265"
+            secondary.width = 640
+            secondary.height = 360
+            secondary.fps = 10.0
+            secondary.bitrate_kbps = 512
+            session.commit()
+
+        low = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?quality=low"
+        )
+        assert low.status_code == 200
+        body = low.json()
+        assert body["purpose"] == "LIVE_LOW"
+        assert body["profile_id"] == str(primary_id)
+        media_session_id = body["media_session_id"]
+
+        diagnostics = client.get(
+            (
+                f"/api/v1/cameras/{camera['id']}/live/diagnostics"
+                f"?quality=low&media_session_id={media_session_id}"
+            )
+        )
+        assert diagnostics.status_code == 200
+        assert diagnostics.json()["profile_id"] == str(
+            primary_id
+        )
 
 
 def test_live_diagnostics_report_sanitized_zlm_track_state(

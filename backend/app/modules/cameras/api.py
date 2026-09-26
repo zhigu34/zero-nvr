@@ -2021,6 +2021,71 @@ class _LiveSelection:
     reference: ZlmStreamReference
 
 
+def _normalized_live_codec(value: str | None) -> str:
+    normalized = (value or "").strip().lower()
+    if (
+        "h264" in normalized
+        or "avc" in normalized
+    ):
+        return "h264"
+    if (
+        "h265" in normalized
+        or "hevc" in normalized
+    ):
+        return "h265"
+    return "unknown"
+
+
+def _live_profile_score(
+    profile: CameraStreamProfile,
+) -> tuple[int, float, int, str]:
+    return (
+        (profile.width or 0) * (profile.height or 0),
+        profile.fps or 0.0,
+        profile.bitrate_kbps or 0,
+        str(profile.id),
+    )
+
+
+def _resolved_live_profile(
+    camera: Camera,
+    binding: CameraStreamBinding,
+    purpose: LivePurpose,
+) -> CameraStreamProfile | None:
+    bound = next(
+        (
+            item
+            for item in camera.stream_profiles
+            if item.id == binding.stream_profile_id
+        ),
+        None,
+    )
+    if (
+        bound is None
+        or binding.selection_mode != "auto"
+        or purpose != "LIVE_LOW"
+        or _normalized_live_codec(bound.codec) == "h264"
+    ):
+        return bound
+
+    compatible = [
+        item
+        for item in camera.stream_profiles
+        if (
+            item.stream_uri_ref is not None
+            and item.status != "unavailable"
+            and _normalized_live_codec(item.codec)
+            == "h264"
+        )
+    ]
+    if not compatible:
+        return bound
+    return min(
+        compatible,
+        key=_live_profile_score,
+    )
+
+
 def _select_live_stream(
     *,
     camera_id: uuid.UUID,
@@ -2082,14 +2147,10 @@ def _select_live_stream(
         )
 
     binding = bindings[purpose]
-    profile = next(
-        (
-            item
-            for item in camera.stream_profiles
-            if item.id
-            == binding.stream_profile_id
-        ),
-        None,
+    profile = _resolved_live_profile(
+        camera,
+        binding,
+        purpose,
     )
     if profile is None:
         raise ApiError(
@@ -2425,10 +2486,22 @@ def _live_selection_for_media_session(
             message="Camera is disabled.",
         )
 
-    binding_valid = any(
-        binding.purpose == purpose
-        and binding.stream_profile_id == profile_id
-        for binding in camera.stream_bindings
+    binding = next(
+        (
+            item
+            for item in camera.stream_bindings
+            if item.purpose == purpose
+        ),
+        None,
+    )
+    selected_profile = (
+        _resolved_live_profile(
+            camera,
+            binding,
+            purpose,
+        )
+        if binding is not None
+        else None
     )
     profile = next(
         (
@@ -2437,6 +2510,10 @@ def _live_selection_for_media_session(
             if item.id == profile_id
         ),
         None,
+    )
+    binding_valid = (
+        selected_profile is not None
+        and selected_profile.id == profile_id
     )
     if not binding_valid or profile is None:
         raise ApiError(
