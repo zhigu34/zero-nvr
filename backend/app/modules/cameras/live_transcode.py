@@ -567,14 +567,20 @@ class LiveTranscodeManager:
 
             if entry is None:
                 self._free_idle_capacity_locked()
+                tuning = self._tuning()
                 if (
                     len(self._derivatives)
-                    >= self._tuning()
-                    .live_transcode_max_derivatives
+                    >= tuning.live_transcode_max_derivatives
                 ):
+                    active_leases = len(self._leases)
                     raise LiveTranscodeError(
                         "live_transcode_capacity",
-                        "Compatibility transcode capacity is exhausted.",
+                        (
+                            "Compatibility transcode capacity is exhausted "
+                            f"({len(self._derivatives)}/"
+                            f"{tuning.live_transcode_max_derivatives} "
+                            f"derivatives, {active_leases} active leases)."
+                        ),
                         status_code=503,
                     )
                 entry = self._start_derivative(
