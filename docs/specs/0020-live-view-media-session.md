@@ -110,9 +110,17 @@ than learned through timeout.
 AUTO owns exactly one cross-source fallback chain: it completely exhausts the
 substream path (direct playback, then bounded compatibility transcode) before
 releasing that MediaSession/lease and advancing to the mainstream path (direct,
-then compatibility transcode). Manual Substream, Mainstream, and Profile choices
-never advance to another source automatically. Token renewal always follows the
-descriptor that actually reached first frame.
+then compatibility transcode). The client waits for compatibility-lease and
+MediaSession revocation before acquiring the next source so rapid failures cannot
+temporarily consume all transcode slots. Manual Substream, Mainstream, and Profile
+choices never advance to another source automatically. Token renewal always
+follows the descriptor that actually reached first frame.
+
+ZLMediaKit pull-proxy creation is treated as idempotent for the exact upstream
+`This stream already exists` response. A proxy may exist while its media source
+is temporarily offline/reconnecting, so zero-nvr reuses that proxy identity
+instead of issuing a second pull. Other ZLM `addStreamProxy` code -1 failures
+remain fatal and sanitized.
 
 WebRTC carries media. Application status/events normally use HTTP/SSE; zero-nvr does not introduce a general WebSocket dependency merely for live video.
 
