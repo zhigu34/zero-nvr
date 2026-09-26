@@ -34,6 +34,7 @@ function stream(
     hls_url: "/zlm/zero-nvr/profile-test/hls.m3u8",
     media_session_id: "33333333-3333-3333-3333-333333333333",
     expires_at: "2026-09-26T00:30:00Z",
+    source_codec: codec,
     codec,
     width: 640,
     height: 360,
@@ -70,6 +71,19 @@ describe("resolveLivePlaybackTransports", () => {
         capabilities
       )
     ).toEqual([])
+  })
+
+  it("uses WebRTC-first ordering for an explicit profile", () => {
+    expect(
+      resolveLivePlaybackTransports(
+        {
+          ...stream("LIVE_LOW", "h264"),
+          source_role: "profile",
+          purpose: "PROFILE"
+        },
+        capabilities
+      )
+    ).toEqual(["webrtc", "hls"])
   })
 
   it("routes H265 to compatibility even when the browser advertises it", () => {
