@@ -173,3 +173,18 @@ export function resolveLivePlaybackTransports(
 
   return result
 }
+
+
+export function needsFastPreview(
+  stream: CameraLiveStream,
+  capabilities: LivePlaybackCapabilities
+): boolean {
+  return (
+    stream.compatibility !== "h264_transcode" &&
+    normalizedCodec(stream.codec) === "h265" &&
+    resolveLivePlaybackTransports(
+      stream,
+      capabilities
+    ).length === 0
+  )
+}

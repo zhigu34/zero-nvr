@@ -147,6 +147,22 @@ compatibility derivative.
 
 Do not permanently transcode every camera.
 
+### Fast startup preview
+
+When the selected source has no direct browser playback path, the live tile may
+show a temporary multipart JPEG preview while the normal compatibility stream
+starts. The preview is derived from the exact ZLMediaKit source already bound to
+the authorized MediaSession; it never resolves camera credentials or accepts a
+different profile independently.
+
+The preview is deliberately limited to 320-1280 pixels and 1-8 FPS, carries no
+audio, and is only a first-frame bridge. Directly playable H.264 sources do not
+start it. The browser closes the preview request as soon as the full-motion video
+renders its first frame, and also closes it on source changes, visibility
+suspension, playback stop, reconnect, or component teardown. Backend process
+cleanup follows streaming-response cancellation so a disconnected tile cannot
+leave a preview FFmpeg process running.
+
 ## On-demand compatibility transcode
 
 FFmpeg may create a live compatibility derivative when needed.
@@ -357,7 +373,10 @@ Live page baseline:
   earlier event may restore the lightweight playing indicator only after an
   already-confirmed descriptor resumes from buffering; initial startup does not
   mark the tile active until a rendered frame has confirmed success, and the
-  event must not clear reconnect/error state before that boundary;
+  event must not clear reconnect/error state before that boundary; an H.265
+  source with no direct playback path may display its session-scoped fast JPEG
+  preview during this wait, but the preview never counts as successful video
+  attachment and is removed only at the rendered full-video frame boundary;
 - focused live diagnostics break startup latency into descriptor API, ICE
   gathering, WHEP negotiation, and answer-to-rendered-frame phases without
   adding requests; these measurements are observational only and do not create
@@ -399,6 +418,7 @@ Live page baseline:
 
 5. Incompatible codec:
    - uses alternate source/player or bounded on-demand derivative;
+   - may show a bounded, silent JPEG startup preview until full video renders;
    - recording is unaffected by transcode failure.
 
 6. ZLM restart:

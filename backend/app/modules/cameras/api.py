@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import ipaddress
 from datetime import timedelta
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ import uuid
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi.responses import StreamingResponse
 from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
 
@@ -45,6 +47,7 @@ from .capability_health import (
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
 from .live_transcode import LiveTranscodeError
+from .live_preview import LivePreviewError, open_live_preview
 from .turn import (
     TurnConfigurationError,
     TurnCredentialService,
@@ -2738,6 +2741,104 @@ def get_camera_live_stream(
         has_audio=selection.profile.has_audio,
         ice_servers=ice_servers,
         ice_error=ice_error,
+    )
+
+
+@router.get(
+    "/cameras/{camera_id}/live/preview.mjpeg",
+)
+async def get_camera_live_preview(
+    camera_id: uuid.UUID,
+    request: Request,
+    media_session_id: uuid.UUID = Query(),
+    width: int = Query(default=640, ge=320, le=1280),
+    fps: int = Query(default=5, ge=1, le=8),
+    context: AuthContext = Depends(
+        require_camera_permission("camera.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> StreamingResponse:
+    _require_live_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+    )
+    selection = _live_selection_for_media_session(
+        request,
+        media_session_id=media_session_id,
+        camera_id=camera_id,
+        user_id=context.user.id,
+        session=session,
+    )
+    session.commit()
+
+    source_url, _expires_at = ZlmMediaAccess(
+        request.app.state.settings
+    ).sign_url(
+        selection.runtime.internal_rtsp_url(
+            selection.reference
+        ),
+        app=selection.reference.app,
+        stream=selection.reference.stream,
+        ttl_seconds=ZlmMediaAccess.live_ttl_seconds,
+        session_id=media_session_id,
+    )
+    try:
+        preview = await open_live_preview(
+            request.app.state.settings,
+            source_url=source_url,
+            width=width,
+            fps=fps,
+        )
+    except LivePreviewError as exc:
+        raise ApiError(
+            status_code=502,
+            code=exc.code,
+            message=str(exc),
+            details={},
+        ) from exc
+
+    preview_loop = asyncio.get_running_loop()
+    cleanup_key = f"preview:{uuid.uuid4()}"
+
+    def cleanup_preview() -> None:
+        preview.close_soon(preview_loop)
+
+    if not request.app.state.media_sessions.register_cleanup(
+        media_session_id,
+        key=cleanup_key,
+        cleanup=cleanup_preview,
+    ):
+        await preview.close()
+        raise ApiError(
+            status_code=404,
+            code="media_session_not_found",
+            message=(
+                "Live media session was not "
+                "found or has expired."
+            ),
+        )
+
+    async def stream_preview():
+        try:
+            async for chunk in preview.stream():
+                yield chunk
+        finally:
+            request.app.state.media_sessions.unregister_cleanup(
+                media_session_id,
+                key=cleanup_key,
+            )
+
+    return StreamingResponse(
+        stream_preview(),
+        media_type=(
+            "multipart/x-mixed-replace; boundary=ffmpeg"
+        ),
+        headers={
+            "Cache-Control": "private, no-store",
+            "X-Accel-Buffering": "no",
+        },
     )
 
 
