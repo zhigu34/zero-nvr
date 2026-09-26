@@ -1587,10 +1587,18 @@ async function toggleManualRecording(): Promise<void> {
   }
 }
 
-function resetLiveSourceAttempt(): void {
+async function resetLiveSourceAttemptAndWait(): Promise<void> {
   releaseWebRtcSession()
-  releaseCompatibilityLease()
-  releaseMediaSession()
+
+  if (compatibilityKeepaliveTimer !== null) {
+    window.clearInterval(compatibilityKeepaliveTimer)
+    compatibilityKeepaliveTimer = null
+  }
+  const leaseId = compatibilityLeaseId
+  const sessionId = activeMediaSessionId
+  compatibilityLeaseId = null
+  activeMediaSessionId = null
+
   hls?.destroy()
   hls = null
   activeTransport.value = null
@@ -1601,6 +1609,20 @@ function resetLiveSourceAttempt(): void {
     element.srcObject = null
     element.removeAttribute("src")
     element.load()
+  }
+
+  if (leaseId && sessionId) {
+    await releaseCameraCompatibilityLease(
+      props.camera.id,
+      leaseId,
+      sessionId
+    ).catch(() => undefined)
+  }
+  if (sessionId) {
+    await revokeCameraMediaSession(
+      props.camera.id,
+      sessionId
+    ).catch(() => undefined)
   }
 }
 
@@ -1664,7 +1686,7 @@ async function resolvePlayableStream(
     }
 
     const subFailure = liveDiagnosticMessage(caught)
-    resetLiveSourceAttempt()
+    await resetLiveSourceAttemptAndWait()
     requireActivePlayback(attemptGeneration)
     lastWebRtcFailure.value = null
 
@@ -1707,8 +1729,14 @@ async function loadStream(
   if (preserveError) {
     reconnecting.value = true
   }
-  resetLiveSourceAttempt()
   const currentGeneration = ++generation
+  await resetLiveSourceAttemptAndWait()
+  if (
+    generation !== currentGeneration ||
+    playbackSuspended.value
+  ) {
+    return
+  }
   streamStartedAt = performance.now()
   telemetry.value = {
     ...telemetry.value,
@@ -1763,7 +1791,7 @@ async function loadStream(
       return
     }
     error.value = liveDiagnosticMessage(caught)
-    resetLiveSourceAttempt()
+    await resetLiveSourceAttemptAndWait()
     scheduleReconnect()
   } finally {
     if (generation === currentGeneration) {
