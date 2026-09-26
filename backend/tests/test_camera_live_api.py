@@ -334,6 +334,7 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
         assert auto_body["purpose"] == "LIVE_LOW"
         assert auto_body["source_role"] == "sub"
         assert auto_body["profile_name"] == "Sub"
+        assert auto_body["source_codec"] == "h265"
         assert (
             auto_body["adapter_profile_key"]
             == "manual-secondary"
@@ -368,6 +369,28 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
         assert (
             main_body["adapter_profile_key"]
             == "manual-primary"
+        )
+
+        explicit_profile = client.get(
+            (
+                f"/api/v1/cameras/{camera['id']}/live"
+                f"?source=profile&profile_id={primary_id}"
+            )
+        )
+        assert explicit_profile.status_code == 200
+        profile_body = explicit_profile.json()
+        assert profile_body["profile_id"] == primary_id
+        assert profile_body["purpose"] == "PROFILE"
+        assert profile_body["source_role"] == "profile"
+        assert profile_body["profile_name"] == "Main"
+
+        missing_profile = client.get(
+            f"/api/v1/cameras/{camera['id']}/live?source=profile"
+        )
+        assert missing_profile.status_code == 422
+        assert (
+            missing_profile.json()["error"]["code"]
+            == "camera_live_profile_required"
         )
 
 
