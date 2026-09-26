@@ -384,6 +384,19 @@ def test_auto_live_starts_with_substream_and_explicit_main_selects_main(
         assert profile_body["source_role"] == "profile"
         assert profile_body["profile_name"] == "Main"
 
+        profile_diagnostics = client.get(
+            (
+                f"/api/v1/cameras/{camera['id']}/live/diagnostics"
+                f"?media_session_id={profile_body['media_session_id']}"
+            )
+        )
+        assert profile_diagnostics.status_code == 200
+        assert profile_diagnostics.json()["purpose"] == "PROFILE"
+        assert (
+            profile_diagnostics.json()["profile_id"]
+            == primary_id
+        )
+
         missing_profile = client.get(
             f"/api/v1/cameras/{camera['id']}/live?source=profile"
         )
@@ -941,10 +954,44 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
             )
             return True
 
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h265",
+                    ready=True,
+                    width=640,
+                    height=360,
+                    fps=15.0,
+                ),
+                audio=None,
+            )
+
     monkeypatch.setattr(
         CameraMediaRuntimeService,
         "ensure_streams",
         fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
     )
     app.state.live_transcodes = FakeTranscodes()
 
@@ -1001,7 +1048,10 @@ def test_compatibility_transcode_uses_internal_stream_and_lease(
         )
         assert compatibility.status_code == 201
         body = compatibility.json()
+        assert body["source_codec"] == "h265"
         assert body["codec"] == "h264"
+        assert body["width"] == 640
+        assert body["height"] == 360
         assert body["transports"] == ["hls"]
         assert (
             body["media_session_id"]
