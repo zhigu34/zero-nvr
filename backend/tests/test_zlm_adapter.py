@@ -654,7 +654,7 @@ def test_add_stream_proxy_reuses_existing_proxy_without_exposing_raw_error() -> 
         return httpx.Response(
             200,
             json={
-                "code": -1,
+                "code": "-1",
                 "msg": "This stream already exists",
             },
         )
