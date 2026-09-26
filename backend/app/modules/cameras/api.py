@@ -2009,9 +2009,9 @@ def replace_camera_stream_bindings(
 
 
 
-LivePurpose = Literal["LIVE_HIGH", "LIVE_LOW", "RECORD"]
-LiveSource = Literal["auto", "sub", "main"]
-LiveSourceRole = Literal["sub", "main"]
+LivePurpose = Literal["LIVE_HIGH", "LIVE_LOW", "RECORD", "PROFILE"]
+LiveSource = Literal["auto", "sub", "main", "profile"]
+LiveSourceRole = Literal["sub", "main", "profile"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -2044,6 +2044,7 @@ def _select_bound_live_profile(
     camera: Camera,
     *,
     source: LiveSource,
+    profile_id: uuid.UUID | None = None,
 ) -> tuple[
     CameraStreamProfile,
     LivePurpose,
@@ -2066,6 +2067,37 @@ def _select_bound_live_profile(
         camera,
         main_binding,
     )
+
+    if source == "profile":
+        if profile_id is None:
+            raise ApiError(
+                status_code=422,
+                code="camera_live_profile_required",
+                message="profile_id is required when source=profile.",
+            )
+        selected_profile = next(
+            (
+                item
+                for item in camera.stream_profiles
+                if item.id == profile_id
+            ),
+            None,
+        )
+        if (
+            selected_profile is None
+            or selected_profile.stream_uri_ref is None
+            or selected_profile.status == "unavailable"
+        ):
+            raise ApiError(
+                status_code=409,
+                code="camera_live_profile_unavailable",
+                message="The selected live profile is unavailable.",
+            )
+        return (
+            selected_profile,
+            "PROFILE",
+            "profile",
+        )
 
     if source == "sub":
         if sub_profile is None or sub_binding is None:
@@ -2119,6 +2151,7 @@ def _select_live_stream(
     *,
     camera_id: uuid.UUID,
     source: LiveSource,
+    profile_id: uuid.UUID | None,
     request: Request,
     session: Session,
 ) -> _LiveSelection:
@@ -2137,6 +2170,7 @@ def _select_live_stream(
         _select_bound_live_profile(
             camera,
             source=source,
+            profile_id=profile_id,
         )
     )
 
@@ -2446,6 +2480,7 @@ def _live_selection_for_media_session(
         "LIVE_HIGH",
         "LIVE_LOW",
         "RECORD",
+        "PROFILE",
     }:
         raise ApiError(
             status_code=409,
@@ -2481,10 +2516,17 @@ def _live_selection_for_media_session(
         ),
         None,
     )
-    binding_valid = (
-        binding is not None
-        and binding.stream_profile_id == profile_id
-    )
+    if purpose == "PROFILE":
+        binding_valid = bool(
+            profile is not None
+            and profile.stream_uri_ref is not None
+            and profile.status != "unavailable"
+        )
+    else:
+        binding_valid = (
+            binding is not None
+            and binding.stream_profile_id == profile_id
+        )
     if not binding_valid or profile is None:
         raise ApiError(
             status_code=409,
@@ -2503,9 +2545,13 @@ def _live_selection_for_media_session(
         profile=profile,
         purpose=purpose,
         source_role=(
-            "sub"
-            if purpose == "LIVE_LOW"
-            else "main"
+            "profile"
+            if purpose == "PROFILE"
+            else (
+                "sub"
+                if purpose == "LIVE_LOW"
+                else "main"
+            )
         ),
         runtime=runtime,
         reference=runtime.reference_for(
@@ -2529,6 +2575,7 @@ def get_camera_live_stream(
         "low",
     ] = Query(default="auto", alias="quality"),
     source: LiveSource = Query(default="auto"),
+    profile_id: uuid.UUID | None = Query(default=None),
     context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
@@ -2539,6 +2586,7 @@ def get_camera_live_stream(
     selection = _select_live_stream(
         camera_id=camera_id,
         source=source,
+        profile_id=profile_id,
         request=request,
         session=session,
     )
@@ -2628,6 +2676,7 @@ def get_camera_live_stream(
         hls_url=hls_url,
         media_session_id=media_session_id,
         expires_at=expires_at,
+        source_codec=codec,
         codec=codec,
         width=width,
         height=height,
@@ -3120,6 +3169,7 @@ def create_camera_live_compatibility(
         hls_url=hls_url,
         media_session_id=media_session_id,
         expires_at=expires_at,
+        source_codec=selection.profile.codec,
         codec="h264",
         width=selection.profile.width,
         height=selection.profile.height,
