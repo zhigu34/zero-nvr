@@ -12,12 +12,21 @@ hook_secret="$(protected_env_get ZERO_NVR_ZLM_HOOK_SECRET)"
 image="$(env_get ZERO_NVR_ZLM_IMAGE "zlmediakit/zlmediakit:master")"
 webrtc_port="$(env_get ZERO_NVR_ZLM_WEBRTC_PORT "8001")"
 webrtc_extern_ip="$(env_get ZERO_NVR_ZLM_WEBRTC_EXTERN_IP "")"
+rtsp_direct_proxy="$(env_get ZERO_NVR_ZLM_RTSP_DIRECT_PROXY "auto")"
 
 if [[ ! "$webrtc_port" =~ ^[1-9][0-9]*$ ]] \
   || (( webrtc_port > 65535 )); then
   echo "error: ZERO_NVR_ZLM_WEBRTC_PORT must be between 1 and 65535" >&2
   exit 1
 fi
+
+case "$rtsp_direct_proxy" in
+  auto|0|1) ;;
+  *)
+    echo "error: ZERO_NVR_ZLM_RTSP_DIRECT_PROXY must be auto, 0, or 1" >&2
+    exit 1
+    ;;
+esac
 
 if [[ ${#api_secret} -lt 32 || ${#hook_secret} -lt 32 ]]; then
   echo "error: ZLM API/hook secrets must be generated before rendering config" >&2
@@ -40,6 +49,7 @@ export ZERO_NVR_ZLM_HOOK_SECRET="$hook_secret"
 export ZERO_NVR_ZLM_HOOK_BASE_URL="http://zero-nvr:8000/internal/hooks/zlm"
 export ZERO_NVR_ZLM_WEBRTC_PORT="$webrtc_port"
 export ZERO_NVR_ZLM_WEBRTC_EXTERN_IP="$webrtc_extern_ip"
+export ZERO_NVR_ZLM_RTSP_DIRECT_PROXY="$rtsp_direct_proxy"
 
 awk '
   /^\[[^]]+\]$/ {
@@ -78,7 +88,10 @@ awk '
     print "enableFmp4=1"; next
   }
   section=="rtsp" && /^directProxy=/ {
-    print "directProxy=0"; next
+    if (ENVIRON["ZERO_NVR_ZLM_RTSP_DIRECT_PROXY"] == "auto") {
+      print; next
+    }
+    print "directProxy=" ENVIRON["ZERO_NVR_ZLM_RTSP_DIRECT_PROXY"]; next
   }
   section=="rtc" && /^externIP=/ {
     print "externIP=" ENVIRON["ZERO_NVR_ZLM_WEBRTC_EXTERN_IP"]; next
@@ -96,7 +109,9 @@ grep -Fxq "apiDebug=0" "$rendered"
 grep -Fxq "secret=$api_secret" "$rendered"
 grep -Fxq "mediaServerId=$hook_secret" "$rendered"
 grep -Fxq "enableFmp4=1" "$rendered"
-grep -Fxq "directProxy=0" "$rendered"
+if [[ "$rtsp_direct_proxy" != "auto" ]]; then
+  grep -Fxq "directProxy=$rtsp_direct_proxy" "$rendered"
+fi
 grep -Fxq "externIP=$webrtc_extern_ip" "$rendered"
 grep -Fxq "port=$webrtc_port" "$rendered"
 grep -Fxq "tcpPort=$webrtc_port" "$rendered"
