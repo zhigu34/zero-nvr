@@ -1357,41 +1357,42 @@ async function attachPreferredStream(
   )
 
   let webRtcDiagnostic: Promise<string> | null = null
-
-  if (transports.includes("webrtc")) {
-    try {
-      await attachWebRtc(
-        stream,
-        attemptGeneration
-      )
-      lastWebRtcFailure.value = null
-      return stream
-    } catch (caught) {
-      if (caught instanceof PlaybackCancelledError) {
-        throw caught
-      }
-      requireActivePlayback(attemptGeneration)
-      // WHEP is preferred but never blocks a compatible HLS fallback.
-      if (caught instanceof FirstFrameTimeoutError) {
-        const initial = caught.message
-        lastWebRtcFailure.value = initial
-        webRtcDiagnostic = firstFrameTimeoutReason(caught).then(
-          (reason) => {
-            if (lastWebRtcFailure.value === initial) {
-              lastWebRtcFailure.value = reason
-            }
-            return reason
-          }
-        )
-      } else {
-        lastWebRtcFailure.value = liveDiagnosticMessage(caught)
-      }
-    }
-  }
-
   let originalHlsFailure: string | null = null
-  requireActivePlayback(attemptGeneration)
-  if (transports.includes("hls")) {
+
+  for (const transport of transports) {
+    requireActivePlayback(attemptGeneration)
+
+    if (transport === "webrtc") {
+      try {
+        await attachWebRtc(
+          stream,
+          attemptGeneration
+        )
+        lastWebRtcFailure.value = null
+        return stream
+      } catch (caught) {
+        if (caught instanceof PlaybackCancelledError) {
+          throw caught
+        }
+        requireActivePlayback(attemptGeneration)
+        if (caught instanceof FirstFrameTimeoutError) {
+          const initial = caught.message
+          lastWebRtcFailure.value = initial
+          webRtcDiagnostic = firstFrameTimeoutReason(caught).then(
+            (reason) => {
+              if (lastWebRtcFailure.value === initial) {
+                lastWebRtcFailure.value = reason
+              }
+              return reason
+            }
+          )
+        } else {
+          lastWebRtcFailure.value = liveDiagnosticMessage(caught)
+        }
+      }
+      continue
+    }
+
     try {
       await attachHls(
         stream,

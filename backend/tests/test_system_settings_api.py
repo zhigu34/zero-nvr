@@ -75,7 +75,7 @@ def test_system_settings_are_bounded_persisted_and_audited(
             "playback_cache_max_bytes": 4294967296,
             "playback_cache_ttl_seconds": 21600,
             "playback_restore_lock_ttl_seconds": 900,
-            "live_transcode_max_derivatives": 2,
+            "live_transcode_max_derivatives": 4,
             "live_transcode_idle_ttl_seconds": 20,
             "live_transcode_lease_ttl_seconds": 30,
             "live_transcode_startup_timeout_seconds": 10.0,

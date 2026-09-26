@@ -134,13 +134,6 @@ export function resolveLivePlaybackTransports(
         capabilities.webrtcH265
       )
     )
-  if (
-    available.has("webrtc") &&
-    rtcCompatible
-  ) {
-    result.push("webrtc")
-  }
-
   const hlsCompatible =
     capabilities.hls &&
     (
@@ -154,11 +147,27 @@ export function resolveLivePlaybackTransports(
         capabilities.hlsH265
       )
     )
-  if (
-    available.has("hls") &&
-    hlsCompatible
-  ) {
-    result.push("hls")
+
+  const ordered: Array<"webrtc" | "hls"> =
+    stream.purpose === "LIVE_LOW"
+      ? ["hls", "webrtc"]
+      : ["webrtc", "hls"]
+
+  for (const transport of ordered) {
+    if (
+      transport === "webrtc" &&
+      available.has("webrtc") &&
+      rtcCompatible
+    ) {
+      result.push("webrtc")
+    }
+    if (
+      transport === "hls" &&
+      available.has("hls") &&
+      hlsCompatible
+    ) {
+      result.push("hls")
+    }
   }
 
   return result

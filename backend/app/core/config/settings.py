@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     ffmpeg_binary: str = "ffmpeg"
     ffprobe_binary: str = "ffprobe"
     ffmpeg_timeout_seconds: float = 3600.0
-    live_transcode_max_derivatives: int = 2
+    live_transcode_max_derivatives: int = 4
     live_transcode_idle_ttl_seconds: int = 20
     live_transcode_lease_ttl_seconds: int = 30
     live_transcode_startup_timeout_seconds: float = 10.0

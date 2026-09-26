@@ -89,7 +89,7 @@ WebRTC
 -> compatibility player/derived stream when required
 ```
 
-The exact choice is based on browser/media capability rather than a universal fixed order.
+The exact choice is based on browser/media capability rather than a universal fixed order. LIVE_LOW/grid playback prefers a browser-compatible HLS path before WebRTC so many small tiles do not each pay WHEP/ICE setup latency; LIVE_HIGH/RECORD playback keeps WebRTC first for lower focused-view latency. A codec that the browser explicitly cannot decode is skipped rather than attempted and learned through timeout.
 
 WebRTC carries media. Application status/events normally use HTTP/SSE; zero-nvr does not introduce a general WebSocket dependency merely for live video.
 
@@ -112,7 +112,9 @@ FFmpeg may create a live compatibility derivative when needed.
 Requirements:
 
 - only on demand;
-- bounded global/per-host capacity;
+- bounded global/per-host capacity; the V1 default permits four simultaneous
+  derivatives for a minimum useful 4-grid fallback while Runtime Tuning keeps the
+  operator-adjustable limit bounded to 1-8;
 - may be shared by viewers requesting the same compatible derivative;
 - derivative startup waits only for the ZLMediaKit compatibility MediaSource
   to register online within the bounded startup timeout; it does not add a
