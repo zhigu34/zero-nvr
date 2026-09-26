@@ -1587,6 +1587,113 @@ async function toggleManualRecording(): Promise<void> {
   }
 }
 
+function resetLiveSourceAttempt(): void {
+  releaseWebRtcSession()
+  releaseCompatibilityLease()
+  releaseMediaSession()
+  hls?.destroy()
+  hls = null
+  activeTransport.value = null
+
+  const element = video.value
+  if (element) {
+    element.pause()
+    element.srcObject = null
+    element.removeAttribute("src")
+    element.load()
+  }
+}
+
+async function fetchLiveDescriptor(
+  source: LiveSource,
+  profileId: string | null,
+  attemptGeneration: number
+): Promise<CameraLiveStream> {
+  const descriptorStartedAt = performance.now()
+  const stream = await getCameraLiveStream(
+    props.camera.id,
+    requestedQuality.value,
+    source,
+    profileId
+  )
+  telemetry.value.descriptorMs =
+    (telemetry.value.descriptorMs ?? 0) +
+    Math.max(
+      0,
+      performance.now() - descriptorStartedAt
+    )
+
+  if (
+    generation !== attemptGeneration ||
+    playbackSuspended.value
+  ) {
+    void revokeCameraMediaSession(
+      props.camera.id,
+      stream.media_session_id
+    ).catch(() => undefined)
+    throw new PlaybackCancelledError()
+  }
+
+  activeMediaSessionId = stream.media_session_id
+  return stream
+}
+
+async function resolvePlayableStream(
+  attemptGeneration: number
+): Promise<CameraLiveStream> {
+  const initial = await fetchLiveDescriptor(
+    selectedSource.value,
+    selectedProfileId.value,
+    attemptGeneration
+  )
+
+  try {
+    return await attachPreferredStream(
+      initial,
+      attemptGeneration
+    )
+  } catch (caught) {
+    if (caught instanceof PlaybackCancelledError) {
+      throw caught
+    }
+    if (
+      selectedSource.value !== "auto" ||
+      initial.source_role !== "sub"
+    ) {
+      throw caught
+    }
+
+    const subFailure = liveDiagnosticMessage(caught)
+    resetLiveSourceAttempt()
+    requireActivePlayback(attemptGeneration)
+    lastWebRtcFailure.value = null
+
+    try {
+      const main = await fetchLiveDescriptor(
+        "main",
+        null,
+        attemptGeneration
+      )
+      return await attachPreferredStream(
+        main,
+        attemptGeneration
+      )
+    } catch (mainCaught) {
+      if (
+        mainCaught instanceof PlaybackCancelledError
+      ) {
+        throw mainCaught
+      }
+      throw new Error(
+        t("live.tile.errors.autoSourceFallbackFailed", {
+          sub: subFailure,
+          main: liveDiagnosticMessage(mainCaught)
+        })
+      )
+    }
+  }
+}
+
 async function loadStream(
   options: { preserveError?: boolean } = {}
 ): Promise<void> {
@@ -1600,9 +1707,7 @@ async function loadStream(
   if (preserveError) {
     reconnecting.value = true
   }
-  releaseWebRtcSession()
-  releaseCompatibilityLease()
-  releaseMediaSession()
+  resetLiveSourceAttempt()
   const currentGeneration = ++generation
   streamStartedAt = performance.now()
   telemetry.value = {
@@ -1624,8 +1729,6 @@ async function loadStream(
     answerToFrameMs: null
   }
   clearTokenRefresh()
-  hls?.destroy()
-  hls = null
   descriptor.value = null
   if (!preserveError) {
     error.value = null
@@ -1635,30 +1738,7 @@ async function loadStream(
   playing.value = false
 
   try {
-    const descriptorStartedAt = performance.now()
-    const stream = await getCameraLiveStream(
-      props.camera.id,
-      requestedQuality.value,
-      selectedSource.value,
-      selectedProfileId.value
-    )
-    telemetry.value.descriptorMs = Math.max(
-      0,
-      performance.now() - descriptorStartedAt
-    )
-    if (
-      generation !== currentGeneration ||
-      playbackSuspended.value
-    ) {
-      void revokeCameraMediaSession(
-        props.camera.id,
-        stream.media_session_id
-      ).catch(() => undefined)
-      return
-    }
-    activeMediaSessionId = stream.media_session_id
-    const playableStream = await attachPreferredStream(
-      stream,
+    const playableStream = await resolvePlayableStream(
       currentGeneration
     )
     requireActivePlayback(currentGeneration)
@@ -1671,7 +1751,9 @@ async function loadStream(
       generation === currentGeneration &&
       !playbackSuspended.value
     ) {
-      scheduleTokenRefresh(stream.expires_at)
+      scheduleTokenRefresh(
+        playableStream.expires_at
+      )
     }
   } catch (caught) {
     if (
@@ -1681,9 +1763,7 @@ async function loadStream(
       return
     }
     error.value = liveDiagnosticMessage(caught)
-    releaseWebRtcSession()
-    releaseCompatibilityLease()
-    releaseMediaSession()
+    resetLiveSourceAttempt()
     scheduleReconnect()
   } finally {
     if (generation === currentGeneration) {
