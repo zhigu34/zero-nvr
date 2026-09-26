@@ -24,6 +24,7 @@ import {
 } from "../../api/client"
 import { browserMediaUrl } from "../../api/media"
 import {
+  cameraLivePreviewUrl,
   cameraSnapshotUrl,
   createCameraWhepSession,
   deleteCameraWhepSession,
@@ -46,6 +47,7 @@ import {
 } from "../../api/recordings"
 import {
   detectLivePlaybackCapabilities,
+  needsFastPreview,
   resolveLivePlaybackTransports
 } from "../../live/playback"
 import { useAuthStore } from "../../stores/auth"
@@ -89,6 +91,9 @@ const fullscreenActive = ref(false)
 const cameraDetail = ref<CameraDetail | null>(null)
 const selectedSource = ref<LiveSource>("auto")
 const selectedProfileId = ref<string | null>(null)
+const fastPreviewUrl = ref<string | null>(null)
+const fastPreviewReady = ref(false)
+const fastPreviewImage = ref<HTMLImageElement | null>(null)
 
 interface LiveTelemetry {
   bitrateKbps: number | null
@@ -176,6 +181,45 @@ const availableProfiles = computed<CameraStreamProfile[]>(() =>
     (profile) => profile.status !== "unavailable"
   )
 )
+
+function stopFastPreview(): void {
+  fastPreviewImage.value?.removeAttribute("src")
+  fastPreviewUrl.value = null
+  fastPreviewReady.value = false
+}
+
+function startFastPreview(
+  stream: CameraLiveStream,
+  capabilities: ReturnType<
+    typeof detectLivePlaybackCapabilities
+  >
+): void {
+  if (!needsFastPreview(stream, capabilities)) {
+    return
+  }
+  const fullscreen = fullscreenActive.value
+  const preferredWidth = fullscreen ? 1280 : 640
+  const renderedWidth = Math.round(
+    tile.value?.clientWidth || preferredWidth
+  )
+  const width = Math.max(
+    320,
+    Math.min(preferredWidth, renderedWidth)
+  )
+  fastPreviewReady.value = false
+  fastPreviewUrl.value = cameraLivePreviewUrl(
+    props.camera.id,
+    stream.media_session_id,
+    width,
+    fullscreen ? 8 : 5
+  )
+}
+
+function handleFastPreviewLoad(): void {
+  if (fastPreviewUrl.value) {
+    fastPreviewReady.value = true
+  }
+}
 
 const sourceSelectionValue = computed(() =>
   selectedSource.value === "profile" &&
@@ -1014,6 +1058,7 @@ function destroyPlayer(): void {
   releaseMediaSession()
   activeTransport.value = null
   playing.value = false
+  stopFastPreview()
 
   if (video.value) {
     video.value.pause()
@@ -1443,10 +1488,12 @@ async function attachPreferredStream(
   attemptGeneration: number
 ): Promise<CameraLiveStream> {
   requireActivePlayback(attemptGeneration)
+  const capabilities = detectLivePlaybackCapabilities(video.value)
   const transports = resolveLivePlaybackTransports(
     stream,
-    detectLivePlaybackCapabilities(video.value)
+    capabilities
   )
+  startFastPreview(stream, capabilities)
 
   let webRtcDiagnostic: Promise<string> | null = null
   let originalHlsFailure: string | null = null
@@ -1588,6 +1635,7 @@ async function toggleManualRecording(): Promise<void> {
 }
 
 async function resetLiveSourceAttemptAndWait(): Promise<void> {
+  stopFastPreview()
   releaseWebRtcSession()
 
   if (compatibilityKeepaliveTimer !== null) {
@@ -1770,6 +1818,7 @@ async function loadStream(
       currentGeneration
     )
     requireActivePlayback(currentGeneration)
+    stopFastPreview()
     descriptor.value = playableStream
     playing.value = true
     error.value = null
@@ -1996,8 +2045,26 @@ onBeforeUnmount(() => {
       @error="handleVideoError"
     />
 
+    <img
+      v-if="fastPreviewUrl"
+      ref="fastPreviewImage"
+      class="live-tile__fast-preview"
+      :class="{
+        'live-tile__fast-preview--ready': fastPreviewReady
+      }"
+      :src="fastPreviewUrl"
+      alt=""
+      aria-hidden="true"
+      @load="handleFastPreviewLoad"
+      @error="stopFastPreview"
+    />
+
     <div
-      v-if="loading || error || playbackSuspended"
+      v-if="
+        (loading && !fastPreviewReady) ||
+        error ||
+        playbackSuspended
+      "
       class="live-tile__state"
     >
       <UiIcon
@@ -2408,6 +2475,21 @@ onBeforeUnmount(() => {
 
 
 <style scoped>
+.live-tile__fast-preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: #050607;
+  object-fit: contain;
+  opacity: 0;
+}
+
+.live-tile__fast-preview--ready {
+  opacity: 1;
+}
+
 .live-tile__badges {
   display: flex;
   align-items: center;

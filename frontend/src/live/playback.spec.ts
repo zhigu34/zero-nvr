@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { CameraLiveStream } from "../api/live"
 import {
+  needsFastPreview,
   resolveLivePlaybackTransports,
   type LivePlaybackCapabilities
 } from "./playback"
@@ -97,5 +98,31 @@ describe("resolveLivePlaybackTransports", () => {
         }
       )
     ).toEqual([])
+  })
+})
+
+describe("needsFastPreview", () => {
+  it("uses a fast placeholder only for a source without direct playback", () => {
+    expect(
+      needsFastPreview(
+        stream("LIVE_LOW", "h265"),
+        capabilities
+      )
+    ).toBe(true)
+    expect(
+      needsFastPreview(
+        stream("LIVE_LOW", "h264"),
+        capabilities
+      )
+    ).toBe(false)
+    expect(
+      needsFastPreview(
+        {
+          ...stream("LIVE_LOW", "h264"),
+          compatibility: "h264_transcode"
+        },
+        capabilities
+      )
+    ).toBe(false)
   })
 })

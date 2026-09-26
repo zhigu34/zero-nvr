@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 import uuid
 from pathlib import Path
 
@@ -16,6 +18,7 @@ from app.integrations.zlm import (
     ZlmWhepSession,
 )
 from app.modules.cameras.live_transcode import LiveTranscodeLease
+from app.modules.cameras.live_preview import LivePreviewError
 from app.modules.cameras.media_runtime import ZlmStreamReference
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.models import CameraStreamProfile
@@ -676,6 +679,263 @@ def test_camera_snapshot_uses_internal_zlm_stream_only(
     assert "camera-secret" not in source_url
     assert "camera-token" not in source_url
     assert "10.0.0.10" not in source_url
+
+
+def test_fast_live_preview_is_scoped_to_media_session(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    captured: dict[str, object] = {}
+
+    def fake_ensure(
+        self,
+        desired,
+        *,
+        wait_online_seconds=None,
+    ):
+        return [item.reference for item in desired]
+
+    class FakePreview:
+        async def stream(self):
+            yield (
+                b"--ffmpeg\r\n"
+                b"Content-Type: image/jpeg\r\n\r\n"
+                b"\xff\xd8preview\xff\xd9\r\n"
+            )
+
+    async def fake_open_preview(
+        settings,
+        *,
+        source_url: str,
+        width: int,
+        fps: int,
+    ):
+        captured["source_url"] = source_url
+        captured["width"] = width
+        captured["fps"] = fps
+        return FakePreview()
+
+    class FakeZlmAdapter:
+        def __init__(self, _settings):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def media_probe(
+            self,
+            *,
+            app: str,
+            stream: str,
+            schema: str,
+        ):
+            return ZlmMediaProbe(
+                stream=stream,
+                video=ZlmTrackProbe(
+                    kind="video",
+                    codec="h265",
+                    ready=True,
+                    width=1920,
+                    height=1080,
+                    fps=15.0,
+                ),
+                audio=None,
+            )
+
+    monkeypatch.setattr(
+        CameraMediaRuntimeService,
+        "ensure_streams",
+        fake_ensure,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.open_live_preview",
+        fake_open_preview,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        "app.modules.cameras.api.ZlmAdapter",
+        FakeZlmAdapter,
+    )
+
+    with TestClient(app) as client:
+        assert client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 201
+        assert client.post(
+            "/api/v1/auth/login",
+            json={
+                "username": "admin",
+                "password": ADMIN_PASSWORD,
+            },
+        ).status_code == 200
+
+        camera_ids: list[str] = []
+        for name, host in (
+            ("Front Door", "10.0.0.10"),
+            ("Meeting Room", "10.0.0.11"),
+        ):
+            created = client.post(
+                "/api/v1/cameras",
+                json={
+                    "mode": "manual_rtsp",
+                    "name": name,
+                    "location": "Office",
+                    "primary_stream": {
+                        "name": "Main",
+                        "rtsp_url": (
+                            "rtsp://alice:camera-secret@"
+                            f"{host}/main?token=camera-token"
+                        ),
+                    },
+                    "secondary_stream": None,
+                },
+            )
+            assert created.status_code == 201
+            camera_ids.append(created.json()["id"])
+
+        descriptor = client.get(
+            f"/api/v1/cameras/{camera_ids[0]}/live"
+        )
+        assert descriptor.status_code == 200
+        media_session_id = descriptor.json()["media_session_id"]
+
+        preview = client.get(
+            (
+                f"/api/v1/cameras/{camera_ids[0]}"
+                "/live/preview.mjpeg"
+                f"?media_session_id={media_session_id}"
+                "&width=640&fps=5"
+            )
+        )
+        assert preview.status_code == 200
+        assert preview.headers["cache-control"] == "private, no-store"
+        assert preview.headers["content-type"].startswith(
+            "multipart/x-mixed-replace; boundary=ffmpeg"
+        )
+        assert b"preview" in preview.content
+        assert captured["width"] == 640
+        assert captured["fps"] == 5
+        source_url = str(captured["source_url"])
+        assert source_url.startswith(
+            "rtsp://zlmediakit:554/zero-nvr/profile-"
+        )
+        assert "camera-secret" not in source_url
+        assert "camera-token" not in source_url
+
+        preview_started = threading.Event()
+        preview_closed = threading.Event()
+
+        class RevocablePreview:
+            async def close(self) -> None:
+                preview_closed.set()
+
+            def close_soon(self, loop) -> None:
+                loop.call_soon_threadsafe(
+                    lambda: asyncio.create_task(self.close())
+                )
+
+            async def stream(self):
+                preview_started.set()
+                yield (
+                    b"--ffmpeg\r\n"
+                    b"Content-Type: image/jpeg\r\n\r\n"
+                    b"\xff\xd8preview\xff\xd9\r\n"
+                )
+                while not preview_closed.is_set():
+                    await asyncio.sleep(0.01)
+
+        revocable = RevocablePreview()
+
+        async def open_revocable(*_args, **_kwargs):
+            return revocable
+
+        monkeypatch.setattr(
+            "app.modules.cameras.api.open_live_preview",
+            open_revocable,
+            raising=False,
+        )
+        streamed: dict[str, object] = {}
+
+        def request_preview() -> None:
+            streamed["response"] = client.get(
+                (
+                    f"/api/v1/cameras/{camera_ids[0]}"
+                    "/live/preview.mjpeg"
+                    f"?media_session_id={media_session_id}"
+                )
+            )
+
+        request_thread = threading.Thread(
+            target=request_preview
+        )
+        request_thread.start()
+        assert preview_started.wait(1)
+        assert app.state.media_sessions.revoke(
+            uuid.UUID(media_session_id)
+        )
+        closed_in_time = preview_closed.wait(1)
+        if not closed_in_time:
+            preview_closed.set()
+        request_thread.join(timeout=2)
+
+        assert closed_in_time
+        assert not request_thread.is_alive()
+        assert streamed["response"].status_code == 200
+
+        replacement = client.get(
+            f"/api/v1/cameras/{camera_ids[0]}/live"
+        )
+        assert replacement.status_code == 200
+        media_session_id = replacement.json()[
+            "media_session_id"
+        ]
+
+        cross_camera = client.get(
+            (
+                f"/api/v1/cameras/{camera_ids[1]}"
+                "/live/preview.mjpeg"
+                f"?media_session_id={media_session_id}"
+            )
+        )
+        assert cross_camera.status_code == 404
+        assert (
+            cross_camera.json()["error"]["code"]
+            == "media_session_not_found"
+        )
+
+        async def fail_preview(*_args, **_kwargs):
+            raise LivePreviewError(
+                "live_preview_start_failed",
+                "Fast live preview did not become ready.",
+            )
+
+        monkeypatch.setattr(
+            "app.modules.cameras.api.open_live_preview",
+            fail_preview,
+            raising=False,
+        )
+        failed = client.get(
+            (
+                f"/api/v1/cameras/{camera_ids[0]}"
+                "/live/preview.mjpeg"
+                f"?media_session_id={media_session_id}"
+            )
+        )
+        assert failed.status_code == 502
+        assert (
+            failed.json()["error"]["code"]
+            == "live_preview_start_failed"
+        )
+        assert "rtsp://" not in json.dumps(failed.json())
 
 
 

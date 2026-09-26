@@ -272,6 +272,24 @@ export function cameraSnapshotUrl(cameraId: string): string {
 }
 
 
+export function cameraLivePreviewUrl(
+  cameraId: string,
+  mediaSessionId: string,
+  width: number,
+  fps: number
+): string {
+  const params = new URLSearchParams({
+    media_session_id: mediaSessionId,
+    width: String(width),
+    fps: String(fps)
+  })
+  return (
+    `/api/v1/cameras/${encodeURIComponent(cameraId)}` +
+    `/live/preview.mjpeg?${params}`
+  )
+}
+
+
 export type LiveLayoutSlots = 1 | 4 | 9 | 16
 
 export interface LiveViewLayoutState {
