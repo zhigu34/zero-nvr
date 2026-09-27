@@ -52,11 +52,9 @@ import {
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
 import TolerantPlaybackTile from "../components/playback/TolerantPlaybackTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
-import { PlaybackDriftController } from "../playback/driftController"
 import {
   absoluteMediaTimeMs,
   mediaElementTimelineOriginSeconds,
-  mediaTimeSecondsForAbsoluteMs,
   MediaTimelineOriginTracker
 } from "../playback/mediaTimebase"
 import { MasterPlaybackClock } from "../playback/masterClock"
@@ -117,7 +115,6 @@ const currentAt = ref(new Date())
 const masterClock = new MasterPlaybackClock(
   currentAt.value.getTime()
 )
-const driftController = new PlaybackDriftController()
 const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
 const mediaOriginBySlot: Record<
@@ -927,10 +924,7 @@ function clearVideoElement(
   element.load()
 }
 
-function resetDriftCorrection(): void {
-  driftController.reset(
-    performance.now()
-  )
+function resetActivePlaybackRate(): void {
   const element = activeVideo()
   if (element) {
     element.playbackRate =
@@ -1194,7 +1188,7 @@ function toggleSyncCamera(
 }
 
 function clearPlayers(): void {
-  resetDriftCorrection()
+  resetActivePlaybackRate()
   if (masterClock.state === "playing") {
     masterClock.pause()
     currentAt.value = new Date(
@@ -1438,9 +1432,6 @@ async function switchToStandbyAtBoundary(
   setMasterClockTime(
     boundaryMs,
     "seeking"
-  )
-  driftController.reset(
-    performance.now()
   )
   standbyPlayback.value = null
   standbySegment.value = null
@@ -2254,9 +2245,6 @@ function setPlaybackRate(
 
   masterClock.setPlaybackRate(rate)
   playbackRate.value = rate
-  driftController.reset(
-    performance.now()
-  )
 
   for (const element of [
     videoA.value,
@@ -2300,21 +2288,75 @@ function handlePlayerPlay(
   if (multiCameraMode.value) return
   if (slot === activePlayerSlot.value) {
     const element = videoForSlot(slot)
-    driftController.reset(
-      performance.now()
-    )
     if (element) {
       element.playbackRate =
         playbackRate.value
     }
-    masterClock.play(
-      masterClock.currentTimeMs(),
-      playbackRate.value
-    )
     playing.value = true
-    startMasterClockFrame()
-    scheduleBoundarySwitch(slot)
   }
+}
+
+function mediaTimeForSlot(
+  slot: "a" | "b"
+): number | null {
+  if (playbackAnchorMs.value === null) {
+    return null
+  }
+
+  const element = videoForSlot(slot)
+  if (!element) return null
+
+  const originSeconds =
+    captureMediaOrigin(slot)
+  if (originSeconds === null) return null
+
+  return absoluteMediaTimeMs(
+    playbackAnchorMs.value,
+    element.currentTime,
+    originSeconds
+  )
+}
+
+function handlePlayerPlaying(
+  slot: "a" | "b"
+): void {
+  if (
+    multiCameraMode.value ||
+    slot !== activePlayerSlot.value
+  ) {
+    return
+  }
+
+  const mediaTimeMs =
+    mediaTimeForSlot(slot) ??
+    currentAt.value.getTime()
+  masterClock.play(
+    mediaTimeMs,
+    playbackRate.value
+  )
+  currentAt.value = new Date(mediaTimeMs)
+  playing.value = true
+  startMasterClockFrame()
+  scheduleBoundarySwitch(slot)
+}
+
+function handlePlayerWaiting(
+  slot: "a" | "b"
+): void {
+  if (
+    multiCameraMode.value ||
+    slot !== activePlayerSlot.value
+  ) {
+    return
+  }
+
+  const mediaTimeMs =
+    mediaTimeForSlot(slot) ??
+    masterClock.currentTimeMs()
+  masterClock.pause(mediaTimeMs)
+  currentAt.value = new Date(mediaTimeMs)
+  stopMasterClockFrame()
+  clearBoundarySwitchTimer()
 }
 
 function handlePlayerPause(
@@ -2322,18 +2364,12 @@ function handlePlayerPause(
 ): void {
   if (multiCameraMode.value) return
   if (slot === activePlayerSlot.value) {
-    if (
-      masterClock.state === "playing"
-    ) {
-      masterClock.pause()
-      currentAt.value = new Date(
-        masterClock.currentTimeMs()
-      )
-    }
-    driftController.reset(
-      performance.now()
-    )
     const element = videoForSlot(slot)
+    const mediaTimeMs =
+      mediaTimeForSlot(slot) ??
+      masterClock.currentTimeMs()
+    masterClock.pause(mediaTimeMs)
+    currentAt.value = new Date(mediaTimeMs)
     if (element) {
       element.playbackRate =
         playbackRate.value
@@ -2357,26 +2393,6 @@ function handleTimeUpdate(
   const element = videoForSlot(slot)
   if (!element) return
 
-  const originSeconds =
-    captureMediaOrigin(slot)
-  if (originSeconds === null) return
-
-  const masterTimeMs =
-    masterClock.currentTimeMs()
-  const segment = activeTimelineSegment.value
-  if (segment) {
-    const boundaryMs = new Date(
-      segment.end_at
-    ).getTime()
-    if (masterTimeMs >= boundaryMs) {
-      requestBoundarySwitch(
-        slot,
-        boundaryMs
-      )
-      return
-    }
-  }
-
   if (
     masterClock.state !== "playing" ||
     element.paused ||
@@ -2385,62 +2401,27 @@ function handleTimeUpdate(
     return
   }
 
-  const mediaTimeMs = absoluteMediaTimeMs(
-    playbackAnchorMs.value,
-    element.currentTime,
-    originSeconds
-  )
-  const driftMs =
-    mediaTimeMs - masterTimeMs
-  const action = driftController.evaluate(
-    driftMs,
+  const mediaTimeMs =
+    mediaTimeForSlot(slot)
+  if (mediaTimeMs === null) return
+
+  masterClock.play(
+    mediaTimeMs,
     playbackRate.value,
-    performance.now()
   )
+  currentAt.value = new Date(mediaTimeMs)
 
-  if (action.kind === "rate") {
-    if (
-      Math.abs(
-        element.playbackRate -
-          action.playbackRate
-      ) > 0.001
-    ) {
-      element.playbackRate =
-        action.playbackRate
-    }
-    return
-  }
-
-  if (action.kind !== "hard_seek") {
-    return
-  }
-
-  element.playbackRate =
-    playbackRate.value
-  const targetSeconds =
-    mediaTimeSecondsForAbsoluteMs(
-      playbackAnchorMs.value,
-      masterTimeMs,
-      originSeconds
-    )
-  const clampedTargetSeconds = Math.max(
-    originSeconds,
-    targetSeconds
-  )
-  if (
-    Number.isFinite(element.duration) &&
-    element.duration > 0
-  ) {
-    element.currentTime = Math.min(
-      clampedTargetSeconds,
-      Math.max(
-        0,
-        element.duration - 0.01
+  const segment = activeTimelineSegment.value
+  if (segment) {
+    const boundaryMs = new Date(
+      segment.end_at
+    ).getTime()
+    if (mediaTimeMs >= boundaryMs) {
+      requestBoundarySwitch(
+        slot,
+        boundaryMs
       )
-    )
-  } else {
-    element.currentTime =
-      clampedTargetSeconds
+    }
   }
 }
 
@@ -2774,6 +2755,9 @@ onBeforeUnmount(() => {
           :muted="effectiveMuted"
           preload="auto"
           @play="handlePlayerPlay('a')"
+          @playing="handlePlayerPlaying('a')"
+          @waiting="handlePlayerWaiting('a')"
+          @stalled="handlePlayerWaiting('a')"
           @pause="handlePlayerPause('a')"
           @canplay="handlePlayerCanPlay('a')"
           @timeupdate="handleTimeUpdate('a')"
@@ -2792,6 +2776,9 @@ onBeforeUnmount(() => {
           :muted="effectiveMuted"
           preload="auto"
           @play="handlePlayerPlay('b')"
+          @playing="handlePlayerPlaying('b')"
+          @waiting="handlePlayerWaiting('b')"
+          @stalled="handlePlayerWaiting('b')"
           @pause="handlePlayerPause('b')"
           @canplay="handlePlayerCanPlay('b')"
           @timeupdate="handleTimeUpdate('b')"
