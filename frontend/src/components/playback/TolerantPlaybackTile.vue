@@ -16,6 +16,12 @@ import {
   type PlaybackResolve
 } from "../../api/playback"
 import { PlaybackDriftController } from "../../playback/driftController"
+import {
+  absoluteMediaTimeMs,
+  mediaElementTimelineOriginSeconds,
+  mediaTimeSecondsForAbsoluteMs,
+  MediaTimelineOriginTracker
+} from "../../playback/mediaTimebase"
 
 type SyncTileStateName =
   | "resolving"
@@ -61,6 +67,7 @@ const failure = ref<string | null>(null)
 const driftController = new PlaybackDriftController()
 
 let mediaAnchorMs: number | null = null
+const mediaOrigin = new MediaTimelineOriginTracker()
 let resolveGeneration = 0
 let retryTimer: number | null = null
 let gapWakeAtMs: number | null = null
@@ -168,6 +175,7 @@ function clearMedia(): void {
   }
   mediaUrl.value = null
   mediaAnchorMs = null
+  mediaOrigin.reset()
   buffering.value = false
   mediaReady.value = false
   resetDrift()
@@ -202,10 +210,17 @@ function alignToMaster(): void {
     return
   }
 
+  const mediaOriginSeconds = mediaOrigin.capture(
+    mediaElementTimelineOriginSeconds(element),
+    false
+  )
+
   const targetSeconds =
-    (props.masterTimeMs -
-      mediaAnchorMs) /
-    1000
+    mediaTimeSecondsForAbsoluteMs(
+      mediaAnchorMs,
+      props.masterTimeMs,
+      mediaOriginSeconds
+    )
   if (!Number.isFinite(targetSeconds)) {
     return
   }
@@ -314,8 +329,14 @@ async function resolveAtMaster(): Promise<void> {
 function handleCanPlay(): void {
   buffering.value = false
   mediaReady.value = true
-  alignToMaster()
   const element = video.value
+  if (element) {
+    mediaOrigin.capture(
+      mediaElementTimelineOriginSeconds(element),
+      true
+    )
+  }
+  alignToMaster()
   if (
     props.playing &&
     element
@@ -352,9 +373,16 @@ function handleTimeUpdate(): void {
     return
   }
 
-  const mediaTimeMs =
-    mediaAnchorMs +
-    element.currentTime * 1000
+  const mediaOriginSeconds = mediaOrigin.capture(
+    mediaElementTimelineOriginSeconds(element),
+    false
+  )
+
+  const mediaTimeMs = absoluteMediaTimeMs(
+    mediaAnchorMs,
+    element.currentTime,
+    mediaOriginSeconds
+  )
   const driftMs =
     mediaTimeMs -
     props.masterTimeMs
@@ -384,9 +412,11 @@ function handleTimeUpdate(): void {
   element.playbackRate =
     props.playbackRate
   const targetSeconds =
-    (props.masterTimeMs -
-      mediaAnchorMs) /
-    1000
+    mediaTimeSecondsForAbsoluteMs(
+      mediaAnchorMs,
+      props.masterTimeMs,
+      mediaOriginSeconds
+    )
   element.currentTime = clampMediaTime(
     element,
     targetSeconds
