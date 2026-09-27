@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections import deque
 from collections.abc import AsyncIterator
 from contextlib import suppress
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ MIN_PREVIEW_FPS = 1
 MAX_PREVIEW_FPS = 8
 PREVIEW_START_TIMEOUT_SECONDS = 8.0
 PREVIEW_STOP_TIMEOUT_SECONDS = 2.0
+MAX_PREVIEW_FRAME_BYTES = 2 * 1024 * 1024
 
 
 _cleanup_tasks: set[asyncio.Task[None]] = set()
@@ -24,6 +26,51 @@ class LivePreviewError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+class JpegFrameParser:
+    def __init__(
+        self,
+        max_frame_bytes: int = MAX_PREVIEW_FRAME_BYTES,
+    ) -> None:
+        if max_frame_bytes < 4:
+            raise ValueError("max_frame_bytes must be at least 4")
+        self.max_frame_bytes = max_frame_bytes
+        self._buffer = bytearray()
+
+    def feed(self, chunk: bytes) -> list[bytes]:
+        self._buffer.extend(chunk)
+        frames: list[bytes] = []
+        while True:
+            start = self._buffer.find(b"\xff\xd8")
+            if start < 0:
+                trailing_ff = self._buffer.endswith(b"\xff")
+                self._buffer.clear()
+                if trailing_ff:
+                    self._buffer.append(0xFF)
+                return frames
+            if start:
+                del self._buffer[:start]
+
+            end = self._buffer.find(b"\xff\xd9", 2)
+            if end < 0:
+                if len(self._buffer) > self.max_frame_bytes:
+                    self._buffer.clear()
+                    raise LivePreviewError(
+                        "live_preview_frame_too_large",
+                        "Fast live preview produced an oversized frame.",
+                    )
+                return frames
+
+            frame_end = end + 2
+            if frame_end > self.max_frame_bytes:
+                self._buffer.clear()
+                raise LivePreviewError(
+                    "live_preview_frame_too_large",
+                    "Fast live preview produced an oversized frame.",
+                )
+            frames.append(bytes(self._buffer[:frame_end]))
+            del self._buffer[:frame_end]
 
 
 def build_live_preview_command(
@@ -69,7 +116,7 @@ def build_live_preview_command(
         "-q:v",
         "7",
         "-f",
-        "mpjpeg",
+        "image2pipe",
         "pipe:1",
     ]
 
@@ -130,7 +177,9 @@ async def _stop_process(
 @dataclass(slots=True)
 class LivePreviewSession:
     process: asyncio.subprocess.Process
-    first_chunk: bytes
+    first_frame: bytes
+    parser: JpegFrameParser
+    pending_frames: deque[bytes] | None = None
     _close_task: asyncio.Task[None] | None = None
 
     async def close(self) -> None:
@@ -151,17 +200,39 @@ class LivePreviewSession:
         with suppress(RuntimeError):
             loop.call_soon_threadsafe(schedule)
 
-    async def stream(self) -> AsyncIterator[bytes]:
+    async def frames(self) -> AsyncIterator[bytes]:
         try:
-            yield self.first_chunk
+            yield self.first_frame
+            if self.pending_frames is not None:
+                while self.pending_frames:
+                    yield self.pending_frames.popleft()
             assert self.process.stdout is not None
             while True:
                 chunk = await self.process.stdout.read(64 * 1024)
                 if not chunk:
                     break
-                yield chunk
+                for frame in self.parser.feed(chunk):
+                    yield frame
         finally:
             await self.close()
+
+
+async def multipart_preview_stream(
+    frames: AsyncIterator[bytes],
+    *,
+    boundary: str = "ffmpeg",
+) -> AsyncIterator[bytes]:
+    boundary_bytes = boundary.encode("ascii")
+    async for frame in frames:
+        yield (
+            b"--"
+            + boundary_bytes
+            + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
+            + str(len(frame)).encode("ascii")
+            + b"\r\n\r\n"
+            + frame
+            + b"\r\n"
+        )
 
 
 async def open_live_preview(
@@ -191,9 +262,20 @@ async def open_live_preview(
         ) from exc
 
     assert process.stdout is not None
+    parser = JpegFrameParser()
+
+    async def read_first_frames() -> list[bytes]:
+        while True:
+            chunk = await process.stdout.read(64 * 1024)
+            if not chunk:
+                return []
+            frames = parser.feed(chunk)
+            if frames:
+                return frames
+
     try:
-        first_chunk = await asyncio.wait_for(
-            process.stdout.read(64 * 1024),
+        startup_frames = await asyncio.wait_for(
+            read_first_frames(),
             timeout=PREVIEW_START_TIMEOUT_SECONDS,
         )
     except asyncio.CancelledError:
@@ -212,7 +294,7 @@ async def open_live_preview(
             "Fast live preview did not become ready.",
         ) from exc
 
-    if not first_chunk:
+    if not startup_frames:
         await _stop_process(process)
         raise LivePreviewError(
             "live_preview_start_failed",
@@ -221,5 +303,7 @@ async def open_live_preview(
 
     return LivePreviewSession(
         process=process,
-        first_chunk=first_chunk,
+        first_frame=startup_frames[0],
+        parser=parser,
+        pending_frames=deque(startup_frames[1:]),
     )

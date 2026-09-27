@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from itsdangerous import BadData, URLSafeTimedSerializer
 from sqlalchemy.orm import Session
+from starlette.requests import HTTPConnection
 
 from app.core.db import get_db_session
 from app.core.db.types import utc_now
@@ -47,7 +48,11 @@ from .capability_health import (
 from .discovery_service import CameraDiscoveryService
 from .groups import CameraGroupService
 from .live_transcode import LiveTranscodeError
-from .live_preview import LivePreviewError, open_live_preview
+from .live_preview import (
+    LivePreviewError,
+    multipart_preview_stream,
+    open_live_preview,
+)
 from .turn import (
     TurnConfigurationError,
     TurnCredentialService,
@@ -2018,7 +2023,7 @@ LiveSourceRole = Literal["sub", "main", "profile"]
 
 
 @dataclass(frozen=True, slots=True)
-class _LiveSelection:
+class LiveSelection:
     camera: Camera
     profile: CameraStreamProfile
     purpose: LivePurpose
@@ -2211,7 +2216,7 @@ def _select_live_stream(
     profile_id: uuid.UUID | None,
     request: Request,
     session: Session,
-) -> _LiveSelection:
+) -> LiveSelection:
     camera = CameraService.get_camera(
         session,
         camera_id,
@@ -2255,7 +2260,7 @@ def _select_live_stream(
             details={},
         ) from exc
 
-    return _LiveSelection(
+    return LiveSelection(
         camera=camera,
         profile=profile,
         purpose=purpose,
@@ -2423,7 +2428,7 @@ def _whep_candidate_udp(
 
 
 def _live_track_metadata(
-    selection: _LiveSelection,
+    selection: LiveSelection,
     request: Request,
 ) -> tuple[
     str | None,
@@ -2509,15 +2514,15 @@ def _require_live_media_session(
     )
 
 
-def _live_selection_for_media_session(
-    request: Request,
+def live_selection_for_media_session(
+    connection: HTTPConnection,
     *,
     media_session_id: uuid.UUID,
     camera_id: uuid.UUID,
     user_id: uuid.UUID,
     session: Session,
-) -> _LiveSelection:
-    context = request.app.state.media_sessions.stream_context(
+) -> LiveSelection:
+    context = connection.app.state.media_sessions.stream_context(
         media_session_id,
         owner_user_id=user_id,
         camera_id=camera_id,
@@ -2595,9 +2600,9 @@ def _live_selection_for_media_session(
         )
 
     runtime = CameraMediaRuntimeService(
-        request.app.state.settings
+        connection.app.state.settings
     )
-    return _LiveSelection(
+    return LiveSelection(
         camera=camera,
         profile=profile,
         purpose=purpose,
@@ -2764,7 +2769,7 @@ async def get_camera_live_preview(
         camera_id=camera_id,
         user_id=context.user.id,
     )
-    selection = _live_selection_for_media_session(
+    selection = live_selection_for_media_session(
         request,
         media_session_id=media_session_id,
         camera_id=camera_id,
@@ -2822,7 +2827,9 @@ async def get_camera_live_preview(
 
     async def stream_preview():
         try:
-            async for chunk in preview.stream():
+            async for chunk in multipart_preview_stream(
+                preview.frames()
+            ):
                 yield chunk
         finally:
             request.app.state.media_sessions.unregister_cleanup(
@@ -2868,7 +2875,7 @@ def get_camera_live_diagnostics(
         camera_id=camera_id,
         user_id=context.user.id,
     )
-    selection = _live_selection_for_media_session(
+    selection = live_selection_for_media_session(
         request,
         media_session_id=media_session_id,
         camera_id=camera_id,
@@ -3046,7 +3053,7 @@ async def create_camera_whep_session(
             message="WebRTC offer SDP is invalid.",
         ) from exc
 
-    selection = _live_selection_for_media_session(
+    selection = live_selection_for_media_session(
         request,
         media_session_id=media_session_id,
         camera_id=camera_id,
@@ -3225,7 +3232,7 @@ def create_camera_live_compatibility(
         camera_id=camera_id,
         user_id=context.user.id,
     )
-    selection = _live_selection_for_media_session(
+    selection = live_selection_for_media_session(
         request,
         media_session_id=media_session_id,
         camera_id=camera_id,
@@ -3430,7 +3437,7 @@ def keep_camera_live_session(
         get_db_session
     ),
 ) -> CameraLiveSessionKeepaliveView:
-    _live_selection_for_media_session(
+    live_selection_for_media_session(
         request,
         media_session_id=media_session_id,
         camera_id=camera_id,

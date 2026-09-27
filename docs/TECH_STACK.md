@@ -341,6 +341,8 @@ First-production-release live stack:
 - ZLMediaKit for WebRTC, fMP4/HLS delivery, live protocol conversion, and media-session runtime;
 - coturn for STUN/TURN traversal;
 - FFmpeg for on-demand compatibility transcode when no browser-compatible source profile exists;
+- FastAPI WebSocket plus FFmpeg `image2pipe` for one multiplexed, bounded JPEG
+  channel serving incompatible H.265 grid tiles;
 - browser capability probing rather than user-agent-only codec assumptions.
 
 Default transport preference:
@@ -349,7 +351,12 @@ Default transport preference:
 WebRTC -> fMP4 -> HLS
 ```
 
-Grid/focused quality primarily switches between `live_preview` and `live_main`. Transcoding is compatibility fallback rather than the default ingest path.
+Grid/focused quality primarily switches between `live_preview` and `live_main`.
+Direct H.264 keeps its WebRTC/HLS path. Low-quality H.265 grids multiplex
+complete JPEG frames for 4/9/16 layouts over one same-origin WebSocket with
+one-latest-frame backpressure per slot; focused H.265 may use the existing
+standalone multipart preview while promoting to compatibility playback.
+Transcoding is compatibility fallback rather than the default ingest path.
 
 Live transcode can use detected platform acceleration such as VAAPI/QSV/NVENC/VideoToolbox when available; recording correctness has priority over optional live-transcode demand.
 

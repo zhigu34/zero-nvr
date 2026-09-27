@@ -50,6 +50,10 @@ import {
   needsFastPreview,
   resolveLivePlaybackTransports
 } from "../../live/playback"
+import type {
+  LivePreviewWallClient,
+  PreviewWallRegistration
+} from "../../live/previewWall"
 import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
 
@@ -63,8 +67,12 @@ const props = withDefaults(defineProps<{
   audioEnabled?: boolean
   allowHighQuality?: boolean
   playbackEnabled?: boolean
+  previewWall?: LivePreviewWallClient | null
+  previewSlot?: number | null
 }>(), {
-  playbackEnabled: true
+  playbackEnabled: true,
+  previewWall: null,
+  previewSlot: null
 })
 
 const emit = defineEmits<{
@@ -158,6 +166,8 @@ let ptzStopPromise: Promise<void> | null = null
 let visibilityObserver: IntersectionObserver | null = null
 let settleFastPreviewReady:
   ((ready: boolean) => void) | null = null
+let sharedPreviewRegistration: PreviewWallRegistration | null = null
+let fastPreviewObjectUrl: string | null = null
 
 const WEBRTC_FIRST_FRAME_TIMEOUT_MS = 6_000
 const HLS_FIRST_FRAME_TIMEOUT_MS = 8_000
@@ -189,6 +199,12 @@ const availableProfiles = computed<CameraStreamProfile[]>(() =>
 function stopFastPreview(): void {
   settleFastPreviewReady?.(false)
   settleFastPreviewReady = null
+  sharedPreviewRegistration?.close()
+  sharedPreviewRegistration = null
+  if (fastPreviewObjectUrl) {
+    URL.revokeObjectURL(fastPreviewObjectUrl)
+    fastPreviewObjectUrl = null
+  }
   fastPreviewImage.value?.removeAttribute("src")
   fastPreviewUrl.value = null
   fastPreviewReady.value = false
@@ -203,7 +219,69 @@ function startFastPreview(
   if (!needsFastPreview(stream, capabilities)) {
     return null
   }
-  settleFastPreviewReady?.(false)
+  stopFastPreview()
+  if (
+    requestedQuality.value === "low" &&
+    props.previewWall &&
+    props.previewSlot !== null
+  ) {
+    const previewWall = props.previewWall
+    const previewSlot = props.previewSlot
+    const previewGeneration = generation
+    let registration: PreviewWallRegistration
+    registration = previewWall.subscribe(
+      {
+        slot: previewSlot,
+        cameraId: props.camera.id,
+        mediaSessionId: stream.media_session_id
+      },
+      {
+        onFrame(jpeg) {
+          if (
+            sharedPreviewRegistration !== registration ||
+            generation !== previewGeneration
+          ) {
+            return
+          }
+          const nextUrl = URL.createObjectURL(jpeg)
+          const previousUrl = fastPreviewObjectUrl
+          fastPreviewObjectUrl = nextUrl
+          fastPreviewUrl.value = nextUrl
+          fastPreviewReady.value = true
+          reconnecting.value = false
+          error.value = null
+          if (previousUrl) URL.revokeObjectURL(previousUrl)
+        },
+        onReady() {
+          // A complete JPEG frame, rather than source readiness, is the
+          // boundary that marks this tile playable.
+        },
+        onError(message) {
+          if (
+            sharedPreviewRegistration !== registration ||
+            generation !== previewGeneration
+          ) {
+            return
+          }
+          error.value = message
+          descriptor.value = null
+          loading.value = false
+          destroyPlayer()
+          scheduleReconnect()
+        },
+        onReconnecting() {
+          if (
+            sharedPreviewRegistration === registration &&
+            generation === previewGeneration
+          ) {
+            reconnecting.value = true
+          }
+        }
+      }
+    )
+    sharedPreviewRegistration = registration
+    return registration.firstFrame
+  }
   const fullscreen = fullscreenActive.value
   const preferredWidth = fullscreen ? 1280 : 640
   const renderedWidth = Math.round(
@@ -1511,12 +1589,19 @@ async function attachPreferredStream(
   )
   if (
     previewReady &&
-    requestedQuality.value === "low" &&
-    await previewReady
+    requestedQuality.value === "low"
   ) {
-    requireActivePlayback(attemptGeneration)
-    activeTransport.value = "preview"
-    return stream
+    const sharedPreview = sharedPreviewRegistration !== null
+    if (await previewReady) {
+      requireActivePlayback(attemptGeneration)
+      activeTransport.value = "preview"
+      return stream
+    }
+    if (sharedPreview) {
+      throw new Error(
+        error.value || t("live.tile.errors.playbackFailed")
+      )
+    }
   }
 
   let webRtcDiagnostic: Promise<string> | null = null
@@ -1984,17 +2069,37 @@ watch(
   () => [
     props.camera.id,
     Boolean(props.audioEnabled),
-    requestedQuality.value
+    requestedQuality.value,
+    props.previewWall,
+    props.previewSlot
   ] as const,
   (
-    [cameraId, audioEnabled, quality],
-    [previousCameraId, previousAudioEnabled, previousQuality]
+    [cameraId, audioEnabled, quality, previewWall, previewSlot],
+    [
+      previousCameraId,
+      previousAudioEnabled,
+      previousQuality,
+      previousPreviewWall,
+      previousPreviewSlot
+    ]
   ) => {
     const cameraChanged = cameraId !== previousCameraId
     const qualityChanged = quality !== previousQuality
+    const previewBindingChanged =
+      (previewWall !== previousPreviewWall ||
+        previewSlot !== previousPreviewSlot) &&
+      (
+        sharedPreviewRegistration !== null ||
+        activeTransport.value === "preview"
+      )
     const audioUpgrade =
       !previousAudioEnabled && audioEnabled
-    if (!cameraChanged && !qualityChanged && !audioUpgrade) {
+    if (
+      !cameraChanged &&
+      !qualityChanged &&
+      !previewBindingChanged &&
+      !audioUpgrade
+    ) {
       return
     }
 

@@ -19,6 +19,10 @@ import type {
 import type {
   CameraLiveStream
 } from "../../api/live"
+import type {
+  LivePreviewWallClient,
+  PreviewWallListener
+} from "../../live/previewWall"
 import LiveCameraTile from "./LiveCameraTile.vue"
 
 const liveMocks = vi.hoisted(() => ({
@@ -190,6 +194,14 @@ describe("LiveCameraTile", () => {
         value: undefined
       }
     )
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:preview-frame")
+    })
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn()
+    })
   })
 
   it("revokes a stale descriptor returned after playback stops", async () => {
@@ -409,7 +421,7 @@ describe("LiveCameraTile", () => {
     wrapper.unmount()
   })
 
-  it("uses fast preview without compatibility transcode for H265 grid playback", async () => {
+  it("uses the shared wall without multipart fallback for H265 grid playback", async () => {
     const h265Descriptor: CameraLiveStream = {
       ...descriptor,
       source_codec: "h265",
@@ -422,26 +434,52 @@ describe("LiveCameraTile", () => {
     liveMocks.getCameraCompatibleLiveStream.mockReturnValueOnce(
       new Promise<CameraLiveStream>(() => undefined)
     )
+    let wallListener!: PreviewWallListener
+    let resolveFirstFrame!: (ready: boolean) => void
+    const registrationClose = vi.fn()
+    const firstFrame = new Promise<boolean>((resolve) => {
+      resolveFirstFrame = resolve
+    })
+    const previewWall: LivePreviewWallClient = {
+      setLayout: vi.fn(),
+      subscribe: vi.fn((_input, listener) => {
+        wallListener = listener
+        return { firstFrame, close: registrationClose }
+      }),
+      close: vi.fn()
+    }
+    vi.mocked(URL.createObjectURL)
+      .mockReturnValueOnce("blob:preview-frame-1")
+      .mockReturnValueOnce("blob:preview-frame-2")
 
     const wrapper = mount(LiveCameraTile, {
       props: {
         camera,
         quality: "low",
-        playbackEnabled: true
+        playbackEnabled: true,
+        previewWall,
+        previewSlot: 3
       },
       global: { stubs: { UiIcon: true } }
     })
     await flushPromises()
 
-    const preview = wrapper.find(".live-tile__fast-preview")
-    const previewElement = preview.element as HTMLImageElement
-    expect(preview.exists()).toBe(true)
-    expect(preview.attributes("src")).toContain(
-      h265Descriptor.media_session_id
+    expect(previewWall.subscribe).toHaveBeenCalledWith(
+      {
+        slot: 3,
+        cameraId: camera.id,
+        mediaSessionId: h265Descriptor.media_session_id
+      },
+      expect.any(Object)
     )
     expect(wrapper.find(".live-tile__state").exists()).toBe(true)
-    await preview.trigger("load")
+    expect(wrapper.find(".live-tile__fast-preview").exists()).toBe(false)
+
+    wallListener.onFrame(new Blob(["jpeg"], { type: "image/jpeg" }))
+    resolveFirstFrame(true)
     await flushPromises()
+    const preview = wrapper.find(".live-tile__fast-preview")
+    expect(preview.attributes("src")).toBe("blob:preview-frame-1")
     expect(wrapper.find(".live-tile__state").exists()).toBe(false)
     expect(
       liveMocks.getCameraCompatibleLiveStream
@@ -450,12 +488,24 @@ describe("LiveCameraTile", () => {
       wrapper.find(".live-status-dot").classes()
     ).toContain("live-status-dot--active")
 
+    wallListener.onFrame(new Blob(["new-jpeg"], { type: "image/jpeg" }))
+    await nextTick()
+    expect(
+      wrapper.find(".live-tile__fast-preview").attributes("src")
+    ).toBe("blob:preview-frame-2")
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+      "blob:preview-frame-1"
+    )
+
     await wrapper.setProps({ playbackEnabled: false })
     await nextTick()
+    expect(registrationClose).toHaveBeenCalledOnce()
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith(
+      "blob:preview-frame-2"
+    )
     expect(
       wrapper.find(".live-tile__fast-preview").exists()
     ).toBe(false)
-    expect(previewElement.hasAttribute("src")).toBe(false)
 
     wrapper.unmount()
   })
@@ -496,7 +546,110 @@ describe("LiveCameraTile", () => {
       liveMocks.getCameraCompatibleLiveStream
     ).not.toHaveBeenCalled()
 
+    await wrapper.setProps({
+      previewWall: {
+        setLayout: vi.fn(),
+        subscribe: vi.fn(),
+        close: vi.fn()
+      },
+      previewSlot: 1
+    })
+    await flushPromises()
+    expect(liveMocks.getCameraLiveStream).toHaveBeenCalledOnce()
+
     wrapper.unmount()
+  })
+
+  it("unregisters a pending shared preview when the tile unmounts", async () => {
+    const h265Descriptor: CameraLiveStream = {
+      ...descriptor,
+      source_codec: "h265",
+      codec: "h265",
+      transports: []
+    }
+    liveMocks.getCameraLiveStream.mockResolvedValueOnce(h265Descriptor)
+    const registrationClose = vi.fn()
+    const previewWall: LivePreviewWallClient = {
+      setLayout: vi.fn(),
+      subscribe: vi.fn(() => ({
+        firstFrame: new Promise<boolean>(() => undefined),
+        close: registrationClose
+      })),
+      close: vi.fn()
+    }
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true,
+        previewWall,
+        previewSlot: 0
+      },
+      global: { stubs: { UiIcon: true } }
+    })
+    await flushPromises()
+
+    expect(previewWall.subscribe).toHaveBeenCalledOnce()
+    wrapper.unmount()
+    expect(registrationClose).toHaveBeenCalledOnce()
+  })
+
+  it("rebinds a shared preview when its slot or controller changes", async () => {
+    const h265Descriptor: CameraLiveStream = {
+      ...descriptor,
+      source_codec: "h265",
+      codec: "h265",
+      transports: []
+    }
+    liveMocks.getCameraLiveStream.mockResolvedValue(h265Descriptor)
+    const firstClose = vi.fn()
+    const secondClose = vi.fn()
+    const firstWall: LivePreviewWallClient = {
+      setLayout: vi.fn(),
+      subscribe: vi.fn(() => ({
+        firstFrame: new Promise<boolean>(() => undefined),
+        close: firstClose
+      })),
+      close: vi.fn()
+    }
+    const secondWall: LivePreviewWallClient = {
+      setLayout: vi.fn(),
+      subscribe: vi.fn(() => ({
+        firstFrame: new Promise<boolean>(() => undefined),
+        close: secondClose
+      })),
+      close: vi.fn()
+    }
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true,
+        previewWall: firstWall,
+        previewSlot: 0
+      },
+      global: { stubs: { UiIcon: true } }
+    })
+    await flushPromises()
+
+    await wrapper.setProps({ previewSlot: 1 })
+    await flushPromises()
+    expect(firstClose).toHaveBeenCalledOnce()
+    expect(firstWall.subscribe).toHaveBeenLastCalledWith(
+      expect.objectContaining({ slot: 1 }),
+      expect.any(Object)
+    )
+
+    await wrapper.setProps({ previewWall: secondWall })
+    await flushPromises()
+    expect(firstClose).toHaveBeenCalledTimes(2)
+    expect(secondWall.subscribe).toHaveBeenCalledWith(
+      expect.objectContaining({ slot: 1 }),
+      expect.any(Object)
+    )
+
+    wrapper.unmount()
+    expect(secondClose).toHaveBeenCalledOnce()
   })
 
   it("upgrades H265 preview when requested quality becomes high", async () => {

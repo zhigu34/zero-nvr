@@ -697,12 +697,8 @@ def test_fast_live_preview_is_scoped_to_media_session(
         return [item.reference for item in desired]
 
     class FakePreview:
-        async def stream(self):
-            yield (
-                b"--ffmpeg\r\n"
-                b"Content-Type: image/jpeg\r\n\r\n"
-                b"\xff\xd8preview\xff\xd9\r\n"
-            )
+        async def frames(self):
+            yield b"\xff\xd8preview\xff\xd9"
 
     async def fake_open_preview(
         settings,
@@ -821,7 +817,12 @@ def test_fast_live_preview_is_scoped_to_media_session(
         assert preview.headers["content-type"].startswith(
             "multipart/x-mixed-replace; boundary=ffmpeg"
         )
-        assert b"preview" in preview.content
+        assert preview.content == (
+            b"--ffmpeg\r\n"
+            b"Content-Type: image/jpeg\r\n"
+            b"Content-Length: 11\r\n\r\n"
+            b"\xff\xd8preview\xff\xd9\r\n"
+        )
         assert captured["width"] == 640
         assert captured["fps"] == 5
         source_url = str(captured["source_url"])
@@ -843,13 +844,9 @@ def test_fast_live_preview_is_scoped_to_media_session(
                     lambda: asyncio.create_task(self.close())
                 )
 
-            async def stream(self):
+            async def frames(self):
                 preview_started.set()
-                yield (
-                    b"--ffmpeg\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n"
-                    b"\xff\xd8preview\xff\xd9\r\n"
-                )
+                yield b"\xff\xd8preview\xff\xd9"
                 while not preview_closed.is_set():
                     await asyncio.sleep(0.01)
 

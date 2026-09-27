@@ -5,6 +5,7 @@ import uuid
 
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
+from starlette.requests import HTTPConnection
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
@@ -13,13 +14,13 @@ from .camera_scope import CameraScopeService, EffectiveCameraScope
 from .service import AuthContext, AuthService
 
 
-def get_auth_context(
-    request: Request,
-    session: Session = Depends(get_db_session),
+def resolve_auth_context(
+    connection: HTTPConnection,
+    session: Session,
 ) -> AuthContext:
-    settings = request.app.state.settings
+    settings = connection.app.state.settings
     authorization = (
-        request.headers.get("authorization") or ""
+        connection.headers.get("authorization") or ""
     ).strip()
     service = AuthService(settings)
     if authorization:
@@ -42,7 +43,7 @@ def get_auth_context(
                 message="Authentication is required.",
             )
     else:
-        token = request.cookies.get(
+        token = connection.cookies.get(
             settings.session_cookie_name
         )
         context = service.resolve_session(
@@ -53,6 +54,13 @@ def get_auth_context(
     # endpoint later performs ONVIF/ZLM/rclone/FFmpeg/network work.
     session.commit()
     return context
+
+
+def get_auth_context(
+    request: Request,
+    session: Session = Depends(get_db_session),
+) -> AuthContext:
+    return resolve_auth_context(request, session)
 
 
 def require_permission(permission: str) -> Callable[..., AuthContext]:

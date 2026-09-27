@@ -348,13 +348,29 @@ LivePlaybackResolver
 MediaSession
    ↓
 MediaPlane / ZLMediaKit
-   ↓
-Camera live_preview / live_main
+   ├─ WebRTC / HLS for direct or focused playback
+   └─ one preview WebSocket for incompatible H.265 grid tiles
+          ↓ complete JPEG frames by slot + subscription ID
+       Camera live_preview / live_main
 ```
 
 Default transport preference is WebRTC, then fMP4, then HLS when the codec/transport combination is actually supported.
 
-Grid tiles use `live_preview`; focused/fullscreen views may promote to `live_main`. Automatic quality uses viewport/network hints with hysteresis to avoid stream thrash.
+Grid tiles use `live_preview`; focused/fullscreen views may promote to
+`live_main`. Directly playable grid sources remain on WebRTC/HLS. Incompatible
+H.265 grid sources share one authenticated WebSocket instead of opening one
+endless multipart HTTP response per tile. Server profiles are fixed by layout:
+4 slots at 640 px/5 FPS, 9 at 480 px/3 FPS, and 16 at 320 px/2 FPS. Each slot
+keeps only its latest unsent JPEG, so a slow browser drops stale frames instead
+of accumulating latency. Automatic quality uses viewport/network hints with
+hysteresis to avoid stream thrash.
+
+Every preview subscription is bound to the user's effective camera scope and
+the tile's MediaSession. A slot and client-generated subscription ID form the
+binary routing boundary. Removing a tile, revoking its MediaSession, hiding the
+page, or disconnecting the socket stops the corresponding FFmpeg process.
+Focused H.265 playback may retain the standalone multipart preview as a startup
+bridge while it promotes to bounded compatibility playback.
 
 H.265 recording remains independent from browser live compatibility. When the browser cannot directly consume the selected H.265 live source, zero-nvr first prefers a compatible H.264 source profile and otherwise may create a shared on-demand H.264 live derivative through TranscodeManager.
 
