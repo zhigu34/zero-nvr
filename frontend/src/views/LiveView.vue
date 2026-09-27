@@ -3,7 +3,8 @@ import {
   computed,
   onBeforeUnmount,
   onMounted,
-  ref
+  ref,
+  watch
 } from "vue"
 import { useI18n } from "vue-i18n"
 
@@ -24,6 +25,10 @@ import {
 } from "../api/live"
 import LiveCameraTile from "../components/live/LiveCameraTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
+import {
+  createLivePreviewWallClient,
+  type PreviewGridSlots
+} from "../live/previewWall"
 import { useAuthStore } from "../stores/auth"
 
 interface NetworkInformationLike extends EventTarget {
@@ -35,6 +40,7 @@ interface NetworkInformationLike extends EventTarget {
 
 const auth = useAuthStore()
 const { t } = useI18n({ useScope: "global" })
+const previewWall = createLivePreviewWallClient()
 const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
@@ -145,6 +151,17 @@ const streamQuality = computed<LiveQuality>(() => {
 
 const highQualityAllowed = computed(
   () => !networkConstrained.value
+)
+
+const previewWallLayout = computed<PreviewGridSlots | null>(() => {
+  if (focusedCameraId.value || layoutSlots.value === 1) return null
+  return layoutSlots.value
+})
+
+watch(
+  previewWallLayout,
+  (slots) => previewWall.setLayout(slots),
+  { immediate: true }
 )
 
 const activeLayout = computed(() =>
@@ -719,6 +736,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  previewWall.close()
   networkInformation()?.removeEventListener(
     "change",
     handleNetworkChange
@@ -1088,7 +1106,7 @@ onBeforeUnmount(() => {
         :style="{ '--live-columns': String(gridColumns) }"
       >
         <LiveCameraTile
-          v-for="camera in visibleCameras"
+          v-for="(camera, index) in visibleCameras"
           :key="camera.id"
           :camera="camera"
           :quality="streamQuality"
@@ -1098,6 +1116,8 @@ onBeforeUnmount(() => {
             Boolean(focusedCameraId) || layoutSlots === 1
           "
           :playback-enabled="playingIds.includes(camera.id)"
+          :preview-wall="previewWallLayout === null ? null : previewWall"
+          :preview-slot="index"
           @focus="focusCamera"
           @playback-change="setCameraPlayback"
         />

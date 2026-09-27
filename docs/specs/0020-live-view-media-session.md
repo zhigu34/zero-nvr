@@ -127,7 +127,11 @@ is temporarily offline/reconnecting, so zero-nvr reuses that proxy identity
 instead of issuing a second pull. Other ZLM `addStreamProxy` code -1 failures
 remain fatal and sanitized.
 
-WebRTC carries media. Application status/events normally use HTTP/SSE; zero-nvr does not introduce a general WebSocket dependency merely for live video.
+WebRTC carries directly playable video. Application status/events normally use
+HTTP/SSE. The bounded H.265 grid preview is the narrow exception: one
+same-origin WebSocket multiplexes complete JPEG frames for every visible grid
+slot so long-lived HTTP/1.1 responses do not exhaust the browser connection
+pool.
 
 ## Browser/codec compatibility
 
@@ -150,22 +154,32 @@ Do not permanently transcode every camera.
 
 ### Fast grid preview
 
-When the selected source has no direct browser playback path, the live tile may
-show a multipart JPEG preview derived from the exact ZLMediaKit source already
-bound to the authorized MediaSession; it never resolves camera credentials or
-accepts a different profile independently.
+When a low-quality grid source has no direct browser playback path, the live
+page registers the tile's slot, camera, and authorized MediaSession on
+`/api/v1/live/previews/ws`. One authenticated same-origin WebSocket carries all
+visible H.265 JPEG previews. The server revalidates camera scope and
+MediaSession ownership for each subscription; camera credentials and raw RTSP
+URLs never cross the socket.
 
-The preview is deliberately limited to 320-1280 pixels and 1-8 FPS, carries no
-audio, and is the final playback path for low-quality H.265 grid tiles. Those
-tiles do not start a compatibility transcode in parallel, preventing duplicate
-decode load from delaying directly playable cameras. Focused or high-quality
-H.265 playback may retain the JPEG image as a first-frame bridge while its
-full-motion compatibility stream starts. Directly playable H.264 sources do not
-start a JPEG preview. The browser closes the preview request on a quality/source
-change, visibility suspension, playback stop, reconnect, component teardown, or
-after upgraded full-motion video renders its first frame. Backend process cleanup
-follows streaming-response cancellation so a disconnected tile cannot leave a
-preview FFmpeg process running.
+The server derives fixed resource profiles from the grid layout: 4 tiles use
+640 pixels at 5 FPS, 9 tiles use 480 pixels at 3 FPS, and 16 tiles use 320
+pixels at 2 FPS. Each slot retains only its newest unsent JPEG, and ready slots
+are drained fairly. Binary messages contain protocol version, slot, unsigned
+32-bit subscription ID, and one complete JPEG capped at 2 MiB. The subscription
+ID changes when a slot is reassigned, preventing a queued frame from the former
+camera appearing in the new tile.
+
+These JPEG tiles do not start compatibility transcodes in parallel. Directly
+playable H.264 tiles stay on their existing WebRTC/HLS path. Focused or
+high-quality H.265 playback may still use the standalone multipart JPEG endpoint
+as a first-frame bridge while bounded full-motion compatibility playback starts.
+The multipart endpoint also remains available for diagnostics, but grid playback
+never falls back to one response per tile.
+
+Quality/source changes, visibility suspension, playback stop, component
+teardown, MediaSession revocation, and socket disconnect unregister the affected
+subscriptions and stop their FFmpeg processes. A failed or revoked slot emits a
+slot-scoped error while other subscriptions continue.
 
 ## On-demand compatibility transcode
 
@@ -452,4 +466,5 @@ Live page baseline:
 5. FFmpeg live transcode is on-demand derived media only.
 6. Live transcode/TURN failure never stops recording.
 7. TURN is capability-dependent and non-blocking for V1.
-8. Application WebSocket is not required for video transport.
+8. Direct playback does not require an application WebSocket; incompatible
+   low-quality H.265 grid previews share one authenticated WebSocket per page.

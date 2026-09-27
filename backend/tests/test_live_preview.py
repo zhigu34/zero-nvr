@@ -9,11 +9,13 @@ from app.core.config import Settings
 
 try:
     from app.modules.cameras.live_preview import (
+        JpegFrameParser,
         LivePreviewError,
         build_live_preview_command,
         open_live_preview,
     )
 except ModuleNotFoundError:
+    JpegFrameParser = None
     LivePreviewError = None
     build_live_preview_command = None
     open_live_preview = None
@@ -102,7 +104,7 @@ def test_preview_command_preserves_startup_gop_and_is_bounded(
         "fps=8,scale='min(1280,iw)':-2"
     )
     assert command[command.index("-c:v") + 1] == "mjpeg"
-    assert command[-3:] == ["-f", "mpjpeg", "pipe:1"]
+    assert command[-3:] == ["-f", "image2pipe", "pipe:1"]
 
     minimum = build_live_preview_command(
         settings(tmp_path),
@@ -115,13 +117,40 @@ def test_preview_command_preserves_startup_gop_and_is_bounded(
     )
 
 
+def test_jpeg_frame_parser_handles_split_noise_and_multiple_frames() -> None:
+    assert JpegFrameParser is not None
+    parser = JpegFrameParser()
+
+    assert parser.feed(b"noise\xff") == []
+    assert parser.feed(b"\xd8first") == []
+    assert parser.feed(b"\xff\xd9junk\xff\xd8second\xff") == [
+        b"\xff\xd8first\xff\xd9"
+    ]
+    assert parser.feed(b"\xd9tail") == [
+        b"\xff\xd8second\xff\xd9"
+    ]
+
+
+def test_jpeg_frame_parser_rejects_oversized_frame() -> None:
+    assert JpegFrameParser is not None
+    assert LivePreviewError is not None
+    parser = JpegFrameParser(max_frame_bytes=8)
+
+    with pytest.raises(LivePreviewError) as caught:
+        parser.feed(b"\xff\xd8" + b"1234567")
+
+    assert caught.value.code == "live_preview_frame_too_large"
+
+
 @pytest.mark.asyncio
-async def test_preview_stream_yields_first_chunk_and_stops_process(
+async def test_preview_frames_yield_complete_jpegs_and_stop_process(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     assert open_live_preview is not None
-    process = FakeProcess([b"first-jpeg", b"second-jpeg"])
+    first = b"\xff\xd8first\xff\xd9"
+    second = b"\xff\xd8second\xff\xd9"
+    process = FakeProcess([first[:5], first[5:] + second[:4], second[4:]])
     commands: list[tuple[object, ...]] = []
 
     async def create_subprocess(*command, **kwargs):
@@ -140,10 +169,10 @@ async def test_preview_stream_yields_first_chunk_and_stops_process(
         width=640,
         fps=5,
     )
-    stream = preview.stream()
+    stream = preview.frames()
 
-    assert await anext(stream) == b"first-jpeg"
-    assert await anext(stream) == b"second-jpeg"
+    assert await anext(stream) == first
+    assert await anext(stream) == second
     await stream.aclose()
 
     assert commands
@@ -230,10 +259,11 @@ async def test_cancelled_stream_cleanup_escalates_to_kill(
     process = StubbornProcess()
     preview = live_preview.LivePreviewSession(
         process=process,
-        first_chunk=b"first-jpeg",
+        first_frame=b"\xff\xd8first\xff\xd9",
+        parser=live_preview.JpegFrameParser(),
     )
-    stream = preview.stream()
-    assert await anext(stream) == b"first-jpeg"
+    stream = preview.frames()
+    assert await anext(stream) == b"\xff\xd8first\xff\xd9"
 
     closing = asyncio.create_task(stream.aclose())
     await asyncio.sleep(0)
