@@ -53,6 +53,12 @@ import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanva
 import TolerantPlaybackTile from "../components/playback/TolerantPlaybackTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { PlaybackDriftController } from "../playback/driftController"
+import {
+  absoluteMediaTimeMs,
+  mediaElementTimelineOriginSeconds,
+  mediaTimeSecondsForAbsoluteMs,
+  MediaTimelineOriginTracker
+} from "../playback/mediaTimebase"
 import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
 
@@ -114,6 +120,13 @@ const masterClock = new MasterPlaybackClock(
 const driftController = new PlaybackDriftController()
 const timelineCenterMs = ref<number | null>(null)
 const playbackAnchorMs = ref<number | null>(null)
+const mediaOriginBySlot: Record<
+  "a" | "b",
+  MediaTimelineOriginTracker
+> = {
+  a: new MediaTimelineOriginTracker(),
+  b: new MediaTimelineOriginTracker()
+}
 const playbackResult = ref<PlaybackResolve | null>(null)
 const playerAUrl = ref<string | null>(null)
 const playerBUrl = ref<string | null>(null)
@@ -319,11 +332,19 @@ const activeMediaDiagnostics = computed(() => {
   const element = activeVideo()
   if (!element) return null
 
+  const originSeconds =
+    mediaOriginBySlot[
+      activePlayerSlot.value
+    ].value
   const mediaTimeMs =
-    playbackAnchorMs.value === null
+    playbackAnchorMs.value === null ||
+    originSeconds === null
       ? null
-      : playbackAnchorMs.value +
-        element.currentTime * 1000
+      : absoluteMediaTimeMs(
+          playbackAnchorMs.value,
+          element.currentTime,
+          originSeconds
+        )
 
   return {
     readyState:
@@ -876,11 +897,25 @@ function setPlayerUrl(
   slot: "a" | "b",
   value: string | null
 ): void {
+  mediaOriginBySlot[slot].reset()
   if (slot === "a") {
     playerAUrl.value = value
   } else {
     playerBUrl.value = value
   }
+}
+
+function captureMediaOrigin(
+  slot: "a" | "b",
+  confirm = false
+): number | null {
+  const element = videoForSlot(slot)
+  if (!element) return null
+
+  return mediaOriginBySlot[slot].capture(
+    mediaElementTimelineOriginSeconds(element),
+    confirm
+  )
 }
 
 function clearVideoElement(
@@ -1173,6 +1208,8 @@ function clearPlayers(): void {
   clearVideoElement(videoB.value)
   playerAUrl.value = null
   playerBUrl.value = null
+  mediaOriginBySlot.a.reset()
+  mediaOriginBySlot.b.reset()
   activePlayerSlot.value = "a"
   activeSegmentId.value = null
   activeTimelineSegment.value = null
@@ -1532,6 +1569,7 @@ function scheduleBoundarySwitch(
 function handlePlayerCanPlay(
   slot: "a" | "b"
 ): void {
+  captureMediaOrigin(slot, true)
   if (slot !== standbySlot()) return
 
   const element = videoForSlot(slot)
@@ -2319,6 +2357,10 @@ function handleTimeUpdate(
   const element = videoForSlot(slot)
   if (!element) return
 
+  const originSeconds =
+    captureMediaOrigin(slot)
+  if (originSeconds === null) return
+
   const masterTimeMs =
     masterClock.currentTimeMs()
   const segment = activeTimelineSegment.value
@@ -2343,9 +2385,11 @@ function handleTimeUpdate(
     return
   }
 
-  const mediaTimeMs =
-    playbackAnchorMs.value +
-    element.currentTime * 1000
+  const mediaTimeMs = absoluteMediaTimeMs(
+    playbackAnchorMs.value,
+    element.currentTime,
+    originSeconds
+  )
   const driftMs =
     mediaTimeMs - masterTimeMs
   const action = driftController.evaluate(
@@ -2373,18 +2417,22 @@ function handleTimeUpdate(
 
   element.playbackRate =
     playbackRate.value
-  const targetSeconds = Math.max(
-    0,
-    (masterTimeMs -
-      playbackAnchorMs.value) /
-      1000
+  const targetSeconds =
+    mediaTimeSecondsForAbsoluteMs(
+      playbackAnchorMs.value,
+      masterTimeMs,
+      originSeconds
+    )
+  const clampedTargetSeconds = Math.max(
+    originSeconds,
+    targetSeconds
   )
   if (
     Number.isFinite(element.duration) &&
     element.duration > 0
   ) {
     element.currentTime = Math.min(
-      targetSeconds,
+      clampedTargetSeconds,
       Math.max(
         0,
         element.duration - 0.01
@@ -2392,7 +2440,7 @@ function handleTimeUpdate(
     )
   } else {
     element.currentTime =
-      targetSeconds
+      clampedTargetSeconds
   }
 }
 
