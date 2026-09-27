@@ -82,7 +82,7 @@ class StubbornProcess(FakeProcess):
         return -9
 
 
-def test_preview_command_is_low_latency_and_bounded(
+def test_preview_command_preserves_startup_gop_and_is_bounded(
     tmp_path: Path,
 ) -> None:
     assert build_live_preview_command is not None
@@ -96,7 +96,7 @@ def test_preview_command_is_low_latency_and_bounded(
 
     assert command[0] == "ffmpeg"
     assert command[command.index("-rtsp_transport") + 1] == "tcp"
-    assert "nobuffer" in command
+    assert "nobuffer" not in command
     assert "low_delay" in command
     assert command[command.index("-vf") + 1] == (
         "fps=8,scale='min(1280,iw)':-2"

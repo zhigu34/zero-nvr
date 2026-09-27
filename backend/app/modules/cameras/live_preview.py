@@ -41,6 +41,9 @@ def build_live_preview_command(
         MIN_PREVIEW_FPS,
         min(MAX_PREVIEW_FPS, fps),
     )
+    # Keep packets read while FFmpeg inspects ZLM's RTSP stream. ZLM may
+    # provide the cached H.265 keyframe during that phase; `nobuffer` drops
+    # it and can make decoding begin with dependent frames rendered as gray.
     return [
         settings.ffmpeg_binary,
         "-nostdin",
@@ -49,8 +52,6 @@ def build_live_preview_command(
         "error",
         "-rtsp_transport",
         "tcp",
-        "-fflags",
-        "nobuffer",
         "-flags",
         "low_delay",
         "-i",
