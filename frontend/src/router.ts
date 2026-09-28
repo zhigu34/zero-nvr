@@ -8,7 +8,7 @@ import AppShell from "./layouts/AppShell.vue"
 import AlertsView from "./views/AlertsView.vue"
 import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
-import EventsView from "./views/EventsView.vue"
+import DetectionsView from "./views/DetectionsView.vue"
 import LoginView from "./views/LoginView.vue"
 import FilesView from "./views/FilesView.vue"
 import LiveView from "./views/LiveView.vue"
@@ -70,7 +70,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: "events",
         name: "events",
-        component: EventsView,
+        component: DetectionsView,
         meta: {
           titleKey: "route.events"
         }
