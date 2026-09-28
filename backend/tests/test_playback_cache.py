@@ -391,9 +391,8 @@ def test_playback_cache_uses_runtime_tuning_from_database(
     finally:
         database.close()
 
-def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_grant(
+def test_playback_resolve_and_media_require_camera_scope_and_support_ranges(
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
     settings = Settings(
         secret_key="playback-grant-test-secret-key-32-bytes-minimum",
@@ -407,43 +406,6 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
     )
     app = create_app(settings)
     Base.metadata.create_all(app.state.database.engine)
-
-    loaded: dict[str, object] = {}
-
-    class FakeZlmAdapter:
-        def __init__(self, _settings: Settings) -> None:
-            pass
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *_exc):
-            return None
-
-        def load_mp4_file(
-            self,
-            *,
-            app: str,
-            stream: str,
-            file_path: str,
-            seek_ms: int,
-            speed: float,
-        ) -> bool:
-            loaded.update(
-                {
-                    "app": app,
-                    "stream": stream,
-                    "file_path": file_path,
-                    "seek_ms": seek_ms,
-                    "speed": speed,
-                }
-            )
-            return True
-
-    monkeypatch.setattr(
-        "app.modules.recordings.playback.ZlmAdapter",
-        FakeZlmAdapter,
-    )
 
     started_at = datetime(2026, 9, 20, 10, 0, tzinfo=UTC)
     local_root = settings.recordings_dir
@@ -593,6 +555,14 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
             denied_segment.json()["error"]["code"]
             == "recording_not_found"
         )
+        denied_media = client.get(
+            f"/api/v1/recordings/{segment_id}/media"
+        )
+        assert denied_media.status_code == 404
+        assert (
+            denied_media.json()["error"]["code"]
+            == "recording_not_found"
+        )
 
         client.cookies.clear()
         assert client.post(
@@ -631,14 +601,11 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
         assert playable.status_code == 200
         body = playable.json()
         assert body["status"] == "playable"
-        assert body["transport"] == "fmp4"
+        assert body["transport"] == "mp4"
         assert body["offset_ms"] == 15_000
-        assert body["url"].startswith(
-            "/zlm/zero-nvr-vod/segment-"
+        assert body["url"] == (
+            f"/api/v1/recordings/{segment_id}/media"
         )
-        assert ".live.mp4?" in body["url"]
-        assert "zn_exp=" in body["url"]
-        assert "zn_sig=" in body["url"]
         assert body["expires_at"]
         expiry = datetime.fromisoformat(
             body["expires_at"]
@@ -648,8 +615,24 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
         ).total_seconds()
         assert 270 <= remaining <= 310
 
-        assert loaded["app"] == "zero-nvr-vod"
-        assert loaded["seek_ms"] == 15_000
+        full_media = client.get(body["url"])
+        assert full_media.status_code == 200
+        assert full_media.content == b"playback-media"
+        assert full_media.headers["accept-ranges"] == "bytes"
+        assert full_media.headers["content-type"] == "video/mp4"
+        assert full_media.headers[
+            "content-disposition"
+        ].startswith("inline;")
+
+        partial_media = client.get(
+            body["url"],
+            headers={"Range": "bytes=3-10"},
+        )
+        assert partial_media.status_code == 206
+        assert partial_media.content == b"yback-me"
+        assert partial_media.headers["content-range"] == (
+            "bytes 3-10/14"
+        )
 
         by_segment = client.post(
             (
@@ -672,7 +655,13 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
             by_segment_body["offset_ms"]
             == 30_000
         )
-        assert loaded["seek_ms"] == 30_000
+
+        media_path.unlink()
+        missing_media = client.get(body["url"])
+        assert missing_media.status_code == 409
+        assert missing_media.json()["error"]["code"] == (
+            "recording_media_missing"
+        )
 
         invalid_offset = client.post(
             (
@@ -692,7 +681,6 @@ def test_playback_resolve_requires_camera_scope_and_returns_short_lived_signed_g
         serialized = (
             str(body)
             + str(by_segment_body)
-            + str(loaded)
         )
         assert "rtsp://" not in serialized
         assert "camera-secret" not in serialized

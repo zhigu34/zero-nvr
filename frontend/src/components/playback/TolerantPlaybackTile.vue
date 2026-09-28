@@ -70,6 +70,8 @@ const driftController = new PlaybackDriftController({
 const serverResyncRearmDriftMs = 250
 
 let mediaAnchorMs: number | null = null
+let initialSeekSeconds: number | null = null
+let initialSeekApplied = true
 const mediaOrigin = new MediaTimelineOriginTracker()
 let resolveGeneration = 0
 let retryTimer: number | null = null
@@ -179,6 +181,8 @@ function clearMedia(): void {
   }
   mediaUrl.value = null
   mediaAnchorMs = null
+  initialSeekSeconds = null
+  initialSeekApplied = true
   mediaOrigin.reset()
   buffering.value = false
   mediaReady.value = false
@@ -242,11 +246,19 @@ async function resolveAtMaster(): Promise<void> {
       return
     }
 
+    const segmentStartMs = new Date(
+      result.segment_start_at
+    ).getTime()
     mediaAnchorMs =
-      new Date(
-        result.segment_start_at
-      ).getTime() +
-      result.offset_ms
+      result.transport === "mp4"
+        ? segmentStartMs
+        : segmentStartMs + result.offset_ms
+    initialSeekSeconds =
+      result.transport === "mp4"
+        ? result.offset_ms / 1000
+        : null
+    initialSeekApplied =
+      initialSeekSeconds === null
     mediaUrl.value = browserMediaUrl(
       result.url
     )
@@ -285,13 +297,45 @@ async function resolveAtMaster(): Promise<void> {
   }
 }
 
-function handleCanPlay(): void {
-  buffering.value = false
-  mediaReady.value = true
+function applyInitialSeek(): void {
+  if (initialSeekApplied) return
+
+  const element = video.value
+  if (!element || initialSeekSeconds === null) return
+
+  initialSeekApplied = true
+  if (
+    Math.abs(
+      element.currentTime - initialSeekSeconds
+    ) > 0.001
+  ) {
+    element.currentTime = initialSeekSeconds
+  }
+}
+
+function handleLoadedMetadata(): void {
+  applyInitialSeek()
   const element = video.value
   if (element) {
     mediaOrigin.capture(
-      mediaElementTimelineOriginSeconds(element),
+      initialSeekSeconds !== null
+        ? 0
+        : mediaElementTimelineOriginSeconds(element),
+      true
+    )
+  }
+}
+
+function handleCanPlay(): void {
+  buffering.value = false
+  mediaReady.value = true
+  applyInitialSeek()
+  const element = video.value
+  if (element) {
+    mediaOrigin.capture(
+      initialSeekSeconds !== null
+        ? 0
+        : mediaElementTimelineOriginSeconds(element),
       true
     )
   }
@@ -502,6 +546,7 @@ onBeforeUnmount(() => {
         playsinline
         preload="auto"
         :muted="muted"
+        @loadedmetadata="handleLoadedMetadata"
         @canplay="handleCanPlay"
         @playing="handlePlaying"
         @waiting="handleWaiting"

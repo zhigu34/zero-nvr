@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -1080,25 +1081,66 @@ def _resolve_playback_plan(
         )
 
     assert isinstance(plan, PlayablePlan)
-    try:
-        url, expires_at = PlaybackResolverService.activate(
-            request.app.state.settings,
-            plan,
-        )
-    except ZlmIntegrationError as exc:
-        raise ApiError(
-            status_code=exc.status_code,
-            code=exc.code,
-            message=str(exc),
-        ) from exc
-
     return PlaybackPlayableView(
         segment_id=plan.segment_id,
         segment_start_at=plan.segment_start_at,
         offset_ms=plan.offset_ms,
-        url=url,
-        expires_at=expires_at,
+        url=(
+            f"/api/v1/recordings/{plan.segment_id}/media"
+        ),
+        expires_at=(
+            datetime.now(UTC)
+            + timedelta(
+                seconds=PlaybackResolverService.descriptor_ttl_seconds
+            )
+        ),
         codec=plan.codec,
+    )
+
+
+@router.get(
+    "/recordings/{segment_id}/media",
+    response_class=FileResponse,
+)
+def get_recording_media(
+    segment_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> Response:
+    segment = RecordingCatalogQueryService.get_segment(
+        session,
+        segment_id,
+    )
+    _require_segment_scope(
+        context=context,
+        session=session,
+        camera_id=segment.camera_id,
+    )
+    plan = PlaybackResolverService.plan_segment(
+        session,
+        segment_id=segment_id,
+        settings=request.app.state.settings,
+    )
+    session.commit()
+    if (
+        not isinstance(plan, PlayablePlan)
+        or not plan.file_path.is_file()
+    ):
+        raise ApiError(
+            status_code=409,
+            code="recording_media_missing",
+            message="The selected recording file is missing.",
+            details={"segment_id": str(segment_id)},
+        )
+
+    return FileResponse(
+        plan.file_path,
+        media_type="video/mp4",
+        filename=f"zero-nvr-recording-{segment_id}.mp4",
+        content_disposition_type="inline",
     )
 
 

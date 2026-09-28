@@ -224,4 +224,227 @@ describe("PlaybackView server-resolved VOD", () => {
     expect(setCurrentTime).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+
+  it("seeks a static recording to its offset once after metadata loads", async () => {
+    apiMocks.resolveRecordingSegment.mockResolvedValue({
+      status: "playable",
+      segment_id:
+        "22222222-2222-2222-2222-222222222222",
+      segment_start_at: anchorIso,
+      offset_ms: 15_000,
+      transport: "mp4",
+      url: "/api/v1/recordings/segment/media",
+      expires_at: "2026-09-28T00:05:00Z",
+      codec: "h264"
+    })
+    const wrapper = mount(PlaybackView, {
+      global: {
+        stubs: {
+          PlaybackTimelineCanvas: true,
+          TolerantPlaybackTile: true,
+          UiIcon: true
+        }
+      }
+    })
+    await flushPromises()
+
+    const video = wrapper.get("video")
+    let currentTime = 0
+    const setCurrentTime = vi.fn((value: number) => {
+      currentTime = value
+    })
+    Object.defineProperties(video.element, {
+      currentTime: {
+        configurable: true,
+        get: () => currentTime,
+        set: setCurrentTime
+      },
+      duration: {
+        configurable: true,
+        value: 300
+      },
+      paused: {
+        configurable: true,
+        get: () => false
+      },
+      readyState: {
+        configurable: true,
+        get: () => 4
+      },
+      seekable: {
+        configurable: true,
+        value: {
+          length: 1,
+          start: () => 0,
+          end: () => 300
+        }
+      }
+    })
+
+    await video.trigger("loadedmetadata")
+    await video.trigger("loadedmetadata")
+    await video.trigger("canplay")
+    await video.trigger("timeupdate")
+
+    expect(setCurrentTime).toHaveBeenCalledTimes(1)
+    expect(setCurrentTime).toHaveBeenCalledWith(15)
+    wrapper.unmount()
+  })
+
+  it("seeks preloaded MP4 files again when a player slot is reused", async () => {
+    vi.useFakeTimers()
+    const firstId =
+      "22222222-2222-2222-2222-222222222222"
+    const secondId =
+      "33333333-3333-3333-3333-333333333333"
+    const thirdId =
+      "44444444-4444-4444-4444-444444444444"
+    const iso = (offsetSeconds: number) =>
+      new Date(
+        anchorMs + offsetSeconds * 1000
+      ).toISOString()
+    apiMocks.getCameraTimeline.mockResolvedValue({
+      camera_id: cameraId,
+      detail: "hour",
+      range: {
+        start_at: iso(-1),
+        end_at: iso(20)
+      },
+      segments: [
+        {
+          id: firstId,
+          playback_ref: firstId,
+          start_at: iso(0),
+          end_at: iso(3),
+          availability: "local"
+        },
+        {
+          id: secondId,
+          playback_ref: secondId,
+          start_at: iso(2),
+          end_at: iso(5),
+          availability: "local"
+        },
+        {
+          id: thirdId,
+          playback_ref: thirdId,
+          start_at: iso(4),
+          end_at: iso(7),
+          availability: "local"
+        }
+      ],
+      recording_ranges: [
+        {
+          start_at: iso(0),
+          end_at: iso(7),
+          availability: "local"
+        }
+      ],
+      gaps: [],
+      events: []
+    })
+    apiMocks.resolveRecordingSegment.mockImplementation(
+      (segmentId: string, offsetMs: number) =>
+        Promise.resolve({
+          status: "playable",
+          segment_id: segmentId,
+          segment_start_at:
+            segmentId === firstId
+              ? iso(0)
+              : segmentId === secondId
+                ? iso(2)
+                : iso(4),
+          offset_ms: offsetMs,
+          transport: "mp4",
+          url: `/api/v1/recordings/${segmentId}/media`,
+          expires_at: iso(20),
+          codec: "h264"
+        })
+    )
+    const wrapper = mount(PlaybackView, {
+      global: {
+        stubs: {
+          PlaybackTimelineCanvas: true,
+          TolerantPlaybackTile: true,
+          UiIcon: true
+        }
+      }
+    })
+    await flushPromises()
+
+    const instrument = (element: Element) => {
+      let currentTime = 0
+      const setCurrentTime = vi.fn((value: number) => {
+        currentTime = value
+      })
+      Object.defineProperties(element, {
+        currentTime: {
+          configurable: true,
+          get: () => currentTime,
+          set: setCurrentTime
+        },
+        duration: {
+          configurable: true,
+          value: 3
+        },
+        paused: {
+          configurable: true,
+          get: () => false
+        },
+        readyState: {
+          configurable: true,
+          get: () => 4
+        },
+        seekable: {
+          configurable: true,
+          value: {
+            length: 1,
+            start: () => 0,
+            end: () => 3
+          }
+        }
+      })
+      return setCurrentTime
+    }
+
+    const initialVideos = wrapper.findAll("video")
+    expect(initialVideos).toHaveLength(2)
+    const active = initialVideos[0]
+    const firstStandby = initialVideos[1]
+    instrument(active.element)
+    const firstStandbySeek = instrument(
+      firstStandby.element
+    )
+    await active.trigger("loadedmetadata")
+    await firstStandby.trigger("loadedmetadata")
+    await firstStandby.trigger("canplay")
+
+    expect(firstStandbySeek).toHaveBeenCalledWith(1)
+    await active.trigger("playing")
+    await vi.advanceTimersByTimeAsync(3_000)
+    await flushPromises()
+
+    const reusedVideos = wrapper.findAll("video")
+    expect(reusedVideos).toHaveLength(2)
+    const reusedStandby = reusedVideos.find(
+      (item) =>
+        !item.classes().includes(
+          "playback-video--active"
+        )
+    )
+    expect(reusedStandby).toBeDefined()
+    const reusedStandbySeek = instrument(
+      reusedStandby!.element
+    )
+    await reusedStandby!.trigger("loadedmetadata")
+    await reusedStandby!.trigger("loadedmetadata")
+    await reusedStandby!.trigger("canplay")
+
+    expect(reusedStandbySeek).toHaveBeenCalledTimes(1)
+    expect(reusedStandbySeek).toHaveBeenCalledWith(1)
+    expect(
+      apiMocks.resolveRecordingSegment
+    ).toHaveBeenCalledTimes(3)
+    wrapper.unmount()
+  })
 })

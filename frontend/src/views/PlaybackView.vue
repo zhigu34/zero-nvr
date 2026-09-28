@@ -124,6 +124,14 @@ const mediaOriginBySlot: Record<
   a: new MediaTimelineOriginTracker(),
   b: new MediaTimelineOriginTracker()
 }
+const initialSeekSecondsBySlot: Record<
+  "a" | "b",
+  number | null
+> = { a: null, b: null }
+const initialSeekAppliedBySlot: Record<
+  "a" | "b",
+  boolean
+> = { a: true, b: true }
 const playbackResult = ref<PlaybackResolve | null>(null)
 const playerAUrl = ref<string | null>(null)
 const playerBUrl = ref<string | null>(null)
@@ -892,14 +900,41 @@ function standbySlot(): "a" | "b" {
 
 function setPlayerUrl(
   slot: "a" | "b",
-  value: string | null
+  value: string | null,
+  initialSeekSeconds: number | null = null
 ): void {
   mediaOriginBySlot[slot].reset()
+  initialSeekSecondsBySlot[slot] =
+    initialSeekSeconds
+  initialSeekAppliedBySlot[slot] =
+    initialSeekSeconds === null
   if (slot === "a") {
     playerAUrl.value = value
   } else {
     playerBUrl.value = value
   }
+}
+
+function applyInitialSeek(
+  slot: "a" | "b"
+): void {
+  if (initialSeekAppliedBySlot[slot]) return
+
+  const element = videoForSlot(slot)
+  const target = initialSeekSecondsBySlot[slot]
+  if (!element || target === null) return
+
+  initialSeekAppliedBySlot[slot] = true
+  if (Math.abs(element.currentTime - target) > 0.001) {
+    element.currentTime = target
+  }
+}
+
+function handlePlayerLoadedMetadata(
+  slot: "a" | "b"
+): void {
+  applyInitialSeek(slot)
+  captureMediaOrigin(slot, true)
 }
 
 function captureMediaOrigin(
@@ -909,9 +944,13 @@ function captureMediaOrigin(
   const element = videoForSlot(slot)
   if (!element) return null
 
+  const staticMp4 =
+    initialSeekSecondsBySlot[slot] !== null
   return mediaOriginBySlot[slot].capture(
-    mediaElementTimelineOriginSeconds(element),
-    confirm
+    staticMp4
+      ? 0
+      : mediaElementTimelineOriginSeconds(element),
+    confirm || staticMp4
   )
 }
 
@@ -1343,7 +1382,10 @@ async function preloadNextSegment(
     standbyReady.value = false
     setPlayerUrl(
       standbySlot(),
-      browserMediaUrl(result.url)
+      browserMediaUrl(result.url),
+      result.transport === "mp4"
+        ? result.offset_ms / 1000
+        : null
     )
     await nextTick()
 
@@ -1428,7 +1470,12 @@ async function switchToStandbyAtBoundary(
   activeSegmentId.value = standby.segment_id
   activeTimelineSegment.value = nextSegment
   playbackResult.value = standby
-  playbackAnchorMs.value = boundaryMs
+  playbackAnchorMs.value =
+    standby.transport === "mp4"
+      ? new Date(
+          standby.segment_start_at
+        ).getTime()
+      : boundaryMs
   setMasterClockTime(
     boundaryMs,
     "seeking"
@@ -1560,6 +1607,7 @@ function scheduleBoundarySwitch(
 function handlePlayerCanPlay(
   slot: "a" | "b"
 ): void {
+  applyInitialSeek(slot)
   captureMediaOrigin(slot, true)
   if (slot !== standbySlot()) return
 
@@ -1682,21 +1730,27 @@ async function resolveAt(
       ) ??
       null
     )
-    playbackAnchorMs.value = (
-      new Date(
-        result.segment_start_at
-      ).getTime() +
-      result.offset_ms
-    )
+    const segmentStartMs = new Date(
+      result.segment_start_at
+    ).getTime()
+    const requestedTimeMs =
+      segmentStartMs + result.offset_ms
+    playbackAnchorMs.value =
+      result.transport === "mp4"
+        ? segmentStartMs
+        : requestedTimeMs
     setMasterClockTime(
-      playbackAnchorMs.value,
+      requestedTimeMs,
       "seeking"
     )
     activeSegmentId.value = result.segment_id
     activeTimelineSegment.value = canonicalSegment
     setPlayerUrl(
       activePlayerSlot.value,
-      browserMediaUrl(result.url)
+      browserMediaUrl(result.url),
+      result.transport === "mp4"
+        ? result.offset_ms / 1000
+        : null
     )
     await nextTick()
 
@@ -2754,6 +2808,7 @@ onBeforeUnmount(() => {
           playsinline
           :muted="effectiveMuted"
           preload="auto"
+          @loadedmetadata="handlePlayerLoadedMetadata('a')"
           @play="handlePlayerPlay('a')"
           @playing="handlePlayerPlaying('a')"
           @waiting="handlePlayerWaiting('a')"
@@ -2775,6 +2830,7 @@ onBeforeUnmount(() => {
           playsinline
           :muted="effectiveMuted"
           preload="auto"
+          @loadedmetadata="handlePlayerLoadedMetadata('b')"
           @play="handlePlayerPlay('b')"
           @playing="handlePlayerPlaying('b')"
           @waiting="handlePlayerWaiting('b')"
