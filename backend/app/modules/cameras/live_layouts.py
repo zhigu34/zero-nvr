@@ -25,7 +25,7 @@ router = APIRouter()
 
 
 class LiveViewLayoutState(BaseModel):
-    slots: Literal[1, 4, 9, 16] = 4
+    slots: Literal[1, 4, 6, 9, 16] = 4
     camera_ids: list[uuid.UUID] = Field(
         default_factory=list,
         max_length=16,

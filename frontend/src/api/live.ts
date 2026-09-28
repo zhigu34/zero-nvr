@@ -290,7 +290,7 @@ export function cameraLivePreviewUrl(
 }
 
 
-export type LiveLayoutSlots = 1 | 4 | 9 | 16
+export type LiveLayoutSlots = 1 | 4 | 6 | 9 | 16
 
 export interface LiveViewLayoutState {
   slots: LiveLayoutSlots

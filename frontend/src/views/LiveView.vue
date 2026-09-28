@@ -41,7 +41,7 @@ interface NetworkInformationLike extends EventTarget {
 const auth = useAuthStore()
 const { t } = useI18n({ useScope: "global" })
 const previewWall = createLivePreviewWallClient()
-const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
+const layoutOptions: LiveLayoutSlots[] = [1, 4, 6, 9, 16]
 const workspace = ref<HTMLElement | null>(null)
 const cameras = ref<CameraSummary[]>([])
 const selectedIds = ref<string[]>([])
@@ -138,6 +138,7 @@ const visiblePlayingCount = computed(() => {
 const gridColumns = computed(() => {
   if (focusedCameraId.value || layoutSlots.value === 1) return 1
   if (layoutSlots.value === 4) return 2
+  if (layoutSlots.value === 6) return 3 // 1+5 mode uses a 3x3 grid
   if (layoutSlots.value === 9) return 3
   return 4
 })
@@ -893,216 +894,129 @@ onBeforeUnmount(() => {
     </aside>
 
     <div class="live-stage">
-      <header class="live-toolbar">
-        <div class="live-toolbar__left">
+      <!-- Floating Pill Bar (UniFi style) -->
+      <header class="live-floating-bar-container">
+        <!-- Left: Presets & Controls -->
+        <div class="live-floating-pill">
           <button
             class="media-button"
             type="button"
             :title="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
-            :aria-label="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
             @click="cameraPanelOpen = !cameraPanelOpen"
           >
             <UiIcon name="panel" :size="16" />
           </button>
+          <div class="pill-divider"></div>
 
-          <span class="live-toolbar__title">
-            {{ focusedCameraId ? t("live.cameraFocus") : t("live.liveView") }}
-          </span>
-
-          <span class="live-toolbar__status">
-            <i />
-            {{ t("live.liveCount", { count: visibleCameraCount }) }}
-            <template v-if="!focusedCameraId">
-              · {{ t("live.viewCount", { count: layoutSlots }) }}
+          <div class="preset-controls" v-if="!focusedCameraId">
+            <template v-if="layoutCreateOpen">
+              <form class="live-layout-create" @submit.prevent="createCurrentLayout">
+                <input
+                  v-model="layoutNameDraft"
+                  type="text"
+                  maxlength="128"
+                  :placeholder="t('live.layoutName')"
+                  autofocus
+                />
+                <button class="media-button" type="submit" :disabled="layoutBusy || !layoutNameDraft.trim()">
+                  <UiIcon name="check" :size="14" />
+                </button>
+                <button class="media-button" type="button" @click="cancelLayoutCreate">
+                  <UiIcon name="close" :size="14" />
+                </button>
+              </form>
             </template>
-          </span>
-
-          <span
-            v-if="selectedCameras.length > layoutSlots && !focusedCameraId"
-            class="live-toolbar__hint"
-          >
-            {{ t("live.hiddenCount", {
-              count: selectedCameras.length - layoutSlots
-            }) }}
-          </span>
-
-          <span
-            v-if="layoutNotice"
-            class="live-toolbar__hint"
-          >
-            {{ layoutNotice }}
-          </span>
-
-          <span
-            v-if="networkConstrained"
-            class="live-toolbar__hint"
-          >
-            {{ t("live.networkSaving") }}
-          </span>
+            <template v-else>
+              <select
+                class="preset-select"
+                :value="activeLayoutId || ''"
+                @change="handleLayoutSelection"
+              >
+                <option value="">{{ t("live.currentView") }}</option>
+                <option v-for="layout in savedLayouts" :key="layout.id" :value="layout.id">
+                  {{ layout.is_default ? "★ " : "" }}{{ layout.name }}
+                </option>
+              </select>
+              <button
+                v-if="activeLayout"
+                class="media-button"
+                :disabled="layoutBusy || !layoutDirty"
+                @click="saveActiveLayout"
+                :title="t('live.saveChanges')"
+              ><UiIcon name="save" :size="14" /></button>
+              <button
+                class="media-button"
+                :disabled="layoutBusy"
+                @click="beginLayoutCreate"
+                :title="t('live.saveAsNew')"
+              ><UiIcon name="plus" :size="14" /></button>
+              <button
+                v-if="activeLayout"
+                class="media-button"
+                :class="{'media-button--active': activeLayout.is_default}"
+                :disabled="layoutBusy || activeLayout.is_default"
+                @click="setActiveLayoutDefault"
+                :title="t('live.setDefaultLayout')"
+              ><UiIcon name="star" :size="14" /></button>
+              <button
+                v-if="activeLayout"
+                class="media-button"
+                :disabled="layoutBusy"
+                @click="deleteActiveLayout"
+                :title="t('live.deleteSavedLayout')"
+              ><UiIcon name="trash" :size="14" /></button>
+            </template>
+          </div>
         </div>
 
-        <div class="live-toolbar__actions">
-          <form
-            v-if="!focusedCameraId && layoutCreateOpen"
-            class="live-layout-create"
-            @submit.prevent="createCurrentLayout"
-          >
-            <input
-              v-model="layoutNameDraft"
-              type="text"
-              maxlength="128"
-              :placeholder="t('live.layoutName')"
-              :aria-label="t('live.layoutName')"
-              autofocus
-            />
-            <button
-              class="media-button"
-              type="submit"
-              :title="t('live.saveNewLayout')"
-              :disabled="layoutBusy || !layoutNameDraft.trim()"
-            >
-              <UiIcon name="check" :size="14" />
-            </button>
-            <button
-              class="media-button"
-              type="button"
-              :title="t('live.cancel')"
-              @click="cancelLayoutCreate"
-            >
-              <UiIcon name="close" :size="14" />
-            </button>
-          </form>
-
-          <div
-            v-if="!focusedCameraId && !layoutCreateOpen"
-            class="live-saved-layouts"
-          >
-            <select
-              :value="activeLayoutId || ''"
-              :aria-label="t('live.savedLayouts')"
-              @change="handleLayoutSelection"
-            >
-              <option value="">{{ t("live.currentView") }}</option>
-              <option
-                v-for="layout in savedLayouts"
-                :key="layout.id"
-                :value="layout.id"
-              >
-                {{ layout.is_default ? "★ " : "" }}{{ layout.name }}
-              </option>
-            </select>
-            <button
-              v-if="activeLayout"
-              class="media-button"
-              type="button"
-              :title="t('live.saveChanges')"
-              :disabled="layoutBusy || !layoutDirty"
-              @click="saveActiveLayout"
-            >
-              <UiIcon name="save" :size="14" />
-            </button>
-            <button
-              class="media-button"
-              type="button"
-              :title="t('live.saveAsNew')"
-              :disabled="layoutBusy"
-              @click="beginLayoutCreate"
-            >
-              <UiIcon name="plus" :size="14" />
-            </button>
-            <button
-              v-if="activeLayout"
-              class="media-button"
-              :class="{
-                'media-button--active': activeLayout.is_default
-              }"
-              type="button"
-              :title="
-                activeLayout.is_default
-                  ? t('live.defaultLayout')
-                  : t('live.setDefaultLayout')
-              "
-              :disabled="layoutBusy || activeLayout.is_default"
-              @click="setActiveLayoutDefault"
-            >
-              <UiIcon name="star" :size="14" />
-            </button>
-            <button
-              v-if="activeLayout"
-              class="media-button"
-              type="button"
-              :title="t('live.deleteSavedLayout')"
-              :disabled="layoutBusy"
-              @click="deleteActiveLayout"
-            >
-              <UiIcon name="trash" :size="14" />
-            </button>
-          </div>
-
+        <!-- Center: Grid Selection & Focus Exit -->
+        <div class="live-floating-pill">
           <button
             v-if="focusedCameraId"
-            class="media-button media-button--text"
+            class="media-button media-button--text text-amber"
             type="button"
             @click="focusedCameraId = null"
           >
             <UiIcon name="grid4" :size="15" />
             {{ t("live.backToGrid") }}
           </button>
-
-          <button
-            class="media-button media-button--text"
-            type="button"
-            :disabled="
-              !visibleCameras.length ||
-              visiblePlayingCount === visibleCameras.length
-            "
-            @click="startVisibleCameras"
-          >
-            <UiIcon name="play" :size="14" />
-            {{ t("live.startVisible") }}
-          </button>
-
-          <button
-            class="media-button media-button--text"
-            type="button"
-            :disabled="visiblePlayingCount === 0"
-            @click="stopVisibleCameras"
-          >
-            <UiIcon name="pause" :size="14" />
-            {{ t("live.stopVisible") }}
-          </button>
-
-          <div v-if="!focusedCameraId" class="live-layout-switcher" :aria-label="t('live.gridLayout')">
+          
+          <div v-if="!focusedCameraId" class="live-layout-switcher">
             <button
               v-for="slots in layoutOptions"
               :key="slots"
               class="media-button"
               :class="{ 'media-button--active': layoutSlots === slots }"
               type="button"
-              :title="t('live.cameraLayout', { count: slots })"
               @click="setLayout(slots)"
             >
-              <UiIcon :name="`grid${slots}`" :size="16" />
+              <span v-if="slots === 6" style="font-size: 11px; font-weight: bold;">1+5</span>
+              <UiIcon v-else :name="`grid${slots}`" :size="16" />
             </button>
           </div>
+        </div>
 
+        <!-- Right: Status & Fullscreen -->
+        <div class="live-floating-pill">
+          <button class="media-button media-button--text" :title="t('live.networkSaving')">
+            <span v-if="networkConstrained" class="status-dot status-dot--warning"></span>
+            <span v-else class="status-dot status-dot--ok"></span>
+            <span style="font-size: 11px; margin-left: 4px;">{{ networkConstrained ? 'Sub Stream' : 'Auto Quality' }}</span>
+          </button>
+          <div class="pill-divider"></div>
           <button
             class="media-button"
             type="button"
-            :title="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
-            :aria-label="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
             @click="toggleFullscreen"
           >
-            <UiIcon
-              :name="fullscreen ? 'minimize' : 'maximize'"
-              :size="16"
-            />
+            <UiIcon :name="fullscreen ? 'minimize' : 'maximize'" :size="16" />
           </button>
         </div>
       </header>
 
       <div
         class="live-grid"
+        :class="{ 'live-grid--1-5': layoutSlots === 6 && !focusedCameraId }"
         :style="{ '--live-columns': String(gridColumns) }"
       >
         <LiveCameraTile

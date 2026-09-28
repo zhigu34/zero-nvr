@@ -5043,3 +5043,89 @@ strong {
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
+
+
+/* UniFi Protect Floating Pill Bar */
+.live-floating-bar-container {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.live-floating-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: rgba(21, 24, 34, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  color: #fff;
+}
+
+.pill-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.live-floating-pill .media-button {
+  color: #a0a7b0;
+  border-radius: 9999px;
+}
+
+.live-floating-pill .media-button:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.live-floating-pill .media-button--active {
+  background: #246bfd;
+  color: #fff;
+}
+
+.preset-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.preset-select {
+  background: transparent;
+  color: #fff;
+  border: none;
+  outline: none;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preset-select option {
+  background: #151822;
+  color: #fff;
+}
+
+.text-amber {
+  color: #fbbf24 !important;
+}
+.text-amber:hover {
+  color: #fcd34d !important;
+  background: rgba(251, 191, 36, 0.1) !important;
+}
+
+/* 1+5 Master-Slave Grid */
+.live-grid--1-5 > :first-child {
+  grid-column: 1 / span 2;
+  grid-row: 1 / span 2;
+}
+

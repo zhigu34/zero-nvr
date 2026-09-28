@@ -1,4 +1,4 @@
-export type PreviewGridSlots = 4 | 9 | 16
+export type PreviewGridSlots = 4 | 6 | 9 | 16
 
 export interface PreviewWallListener {
   onFrame(jpeg: Blob): void

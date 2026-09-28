@@ -49,6 +49,7 @@ class PreviewWallSync:
 
 _PROFILES = {
     4: PreviewWallProfile(width=640, fps=5),
+    6: PreviewWallProfile(width=640, fps=5),
     9: PreviewWallProfile(width=480, fps=3),
     16: PreviewWallProfile(width=320, fps=2),
 }
