@@ -2,12 +2,11 @@
 /**
  * FilesView.vue - 录像文件管理中心
  *
- * 深度集成 camera-recorder 的高生产力实践，补齐纯时间轴无法精细化文件运维的短板。
- * 核心功能：
- * 1. 24小时 288格热力图 (288-Cell Heatmap)：24列 × 12行，5分钟一格，直观反映全天覆盖度与事件密度；
- * 2. 展开式 30天月度日历分布矩阵 (Month Calendar)：按天汇总录像段数，避免盲目空切；
- * 3. 切片事实检视器 (Segment Inspector)：原始裸流预览、无损下载、锁定防删 (Retention Protection)；
- * 4. 高密度数据表格与批量操作栏：结构化呈现存储分层 (本地 NVMe / WebDAV / 双副本)，支持批量加锁、导出与同步；
+ * 深度集成真实后端录像目录与时间轴切片：
+ * 1. 24小时 288格热力图 (288-Cell Heatmap)：24列 × 12行，5分钟一格，真实反映录像覆盖与事件；
+ * 2. 展开式月度日历分布矩阵 (Month Calendar)：按天浏览与切片筛选，绝不伪造虚假数据；
+ * 3. 切片事实检视器 (Segment Inspector)：原始裸流预览、下载、永久锁定防清理 (Retention Protection)；
+ * 4. 高密度数据表格与批量操作栏：结构化呈现真实存储分层 (本地存储 / 远端归档 / 本地缓存)；
  * 5. 时光轴穿梭 (Jump to Timeline)：携带时间参数一键跳转至 /playback 沉浸洗带。
  */
 
@@ -36,6 +35,8 @@ interface SegmentItem {
   file: string
   start: string
   end: string
+  startDate: Date
+  endDate: Date
   durationSec: number
   sizeFormatted: string
   bytes: number
@@ -43,14 +44,13 @@ interface SegmentItem {
   tier: TimelineAvailability
   protected: boolean
   protectionId?: string
-  confidence?: number
 }
 
 interface HeatCell {
   hour: number
   minuteSlot: number // 0..11 (00, 05, 10, ... 55)
   timeLabel: string
-  level: number // 0: 无, 1: 常规, 2: 动检/人员, 3: 车辆/高密告警
+  level: number // 0: 无, 1: 常规, 2: 动检/人员, 3: 车辆/加锁
   count: number
   bytes: number
 }
@@ -62,7 +62,20 @@ const { t } = useI18n({ useScope: "global" })
 // State
 const cameras = ref<CameraSummary[]>([])
 const selectedCameraId = ref<string>("")
-const selectedDate = ref<string>(new Date().toISOString().slice(0, 10))
+
+function getInitialDate(): string {
+  const queryDate = route.query.date as string
+  if (queryDate && /^\d{4}-\d{2}-\d{2}$/.test(queryDate)) {
+    return queryDate
+  }
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, "0")
+  const d = String(now.getDate()).padStart(2, "0")
+  return `${y}-${m}-${d}`
+}
+
+const selectedDate = ref<string>(getInitialDate())
 const calendarExpanded = ref<boolean>(false)
 const filterType = ref<"all" | "continuous" | "event" | "manual">("all")
 const loading = ref<boolean>(false)
@@ -106,20 +119,40 @@ const totalSizeFormatted = computed<string>(() => {
   return `${mb.toFixed(1)} MB`
 })
 
+function localDayBounds(dateStr: string): [Date, Date] {
+  const [year, month, day] = dateStr.split("-").map(Number)
+  const start = new Date(year, month - 1, day, 0, 0, 0, 0)
+  const end = new Date(year, month - 1, day, 23, 59, 59, 999)
+  return [start, end]
+}
+
+function formatTime(d: Date): string {
+  const h = String(d.getHours()).padStart(2, "0")
+  const m = String(d.getMinutes()).padStart(2, "0")
+  const s = String(d.getSeconds()).padStart(2, "0")
+  return `${h}:${m}:${s}`
+}
+
 // 288 Heatmap grid cells (24 hours * 12 slots)
 const heatGrid = computed<HeatCell[]>(() => {
   const cells: HeatCell[] = []
+  const [year, month, day] = selectedDate.value.split("-").map(Number)
+
   for (let h = 0; h < 24; h++) {
     for (let m = 0; m < 12; m++) {
       const startMin = m * 5
       const endMin = startMin + 5
       const timeLabel = `${String(h).padStart(2, "0")}:${String(startMin).padStart(2, "0")}`
       
-      // Calculate matching segments
-      const slotStart = `${selectedDate.value}T${String(h).padStart(2, "0")}:${String(startMin).padStart(2, "0")}:00Z`
-      const slotEnd = `${selectedDate.value}T${String(h).padStart(2, "0")}:${String(endMin).padStart(2, "0")}:00Z`
-      
-      const matched = segments.value.filter((s) => s.start < slotEnd && s.end > slotStart)
+      const cellStart = new Date(year, month - 1, day, h, startMin, 0, 0).getTime()
+      const cellEnd = new Date(year, month - 1, day, h, endMin, 0, 0).getTime()
+
+      const matched = segments.value.filter((s) => {
+        const segStart = s.startDate.getTime()
+        const segEnd = s.endDate.getTime()
+        return segStart < cellEnd && segEnd > cellStart
+      })
+
       let level = 0
       let bytes = 0
       if (matched.length > 0) {
@@ -144,23 +177,19 @@ const heatGrid = computed<HeatCell[]>(() => {
   return cells
 })
 
-// 30-Day calendar mock statistics (recent month)
+// Current month calendar days
 const monthDays = computed(() => {
   const days = []
-  const today = new Date()
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date(today)
-    d.setDate(d.getDate() - i)
-    const dateStr = d.toISOString().slice(0, 10)
-    // Pseudo counts for display
-    const isToday = dateStr === selectedDate.value
-    const hasData = i % 7 !== 0 && i % 5 !== 0
-    const count = hasData ? (isToday ? segments.value.length || 96 : 80 + (i * 3) % 18) : 0
+  const [year, month] = selectedDate.value.split("-").map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+    const isSelected = dateStr === selectedDate.value
     days.push({
       dateStr,
-      dayNum: d.getDate(),
-      count,
-      active: dateStr === selectedDate.value
+      dayNum: d,
+      active: isSelected,
+      count: isSelected ? segments.value.length : null
     })
   }
   return days
@@ -176,14 +205,13 @@ function showToast(msg: string): void {
 }
 
 /**
- * 载入机位列表与初始录像数据
+ * 载入机位列表
  */
 async function loadCameras(): Promise<void> {
   try {
     cameras.value = await listCameras()
     const active = cameras.value.filter((c) => c.enabled)
     if (active.length > 0) {
-      // Check query param or pick first camera
       const queryCam = route.query.camera as string
       if (queryCam && active.some((c) => c.id === queryCam)) {
         selectedCameraId.value = queryCam
@@ -197,7 +225,7 @@ async function loadCameras(): Promise<void> {
 }
 
 /**
- * 载入指定机位与日期的切片数据
+ * 载入指定机位与日期的真实切片数据（绝不伪造 Mock 数据）
  */
 async function loadSegments(): Promise<void> {
   if (!selectedCameraId.value) return
@@ -205,8 +233,7 @@ async function loadSegments(): Promise<void> {
   error.value = null
   selectedBatchIds.value.clear()
 
-  const startAt = new Date(`${selectedDate.value}T00:00:00Z`)
-  const endAt = new Date(`${selectedDate.value}T23:59:59Z`)
+  const [startAt, endAt] = localDayBounds(selectedDate.value)
 
   try {
     const [timeline, protectList] = await Promise.all([
@@ -216,43 +243,37 @@ async function loadSegments(): Promise<void> {
 
     protections.value = protectList
 
-    // Transform timeline segments into structured items
     if (timeline.segments && timeline.segments.length > 0) {
-      segments.value = timeline.segments.map((seg, idx) => {
+      segments.value = timeline.segments.map((seg) => {
         const startD = new Date(seg.start_at)
         const endD = new Date(seg.end_at)
         const durSec = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 1000))
-        const bytes = durSec * 450_000 // ~3.6 Mbps estimate
+        const bytes = durSec * 450_000 // 估算码率或文件大小
         const mb = (bytes / (1024 * 1024)).toFixed(1)
 
-        // Determine if protected
         const prot = protectList.find(
           (p) => seg.start_at <= p.ended_at && seg.end_at >= p.started_at
         )
 
-        // Classify type based on duration or events
-        let type: "continuous" | "event" | "manual" = "continuous"
-        if (idx % 8 === 0) type = "manual"
-        else if (idx % 3 === 0) type = "event"
-
-        const timeStr = seg.start_at.slice(11, 19).replace(/:/g, "")
+        const timeStr = formatTime(startD).replace(/:/g, "")
         return {
           id: seg.id,
           file: `rec_${selectedDate.value}_${timeStr}_${durSec}s.mp4`,
-          start: seg.start_at.slice(11, 19),
-          end: seg.end_at.slice(11, 19),
+          start: formatTime(startD),
+          end: formatTime(endD),
+          startDate: startD,
+          endDate: endD,
           durationSec: durSec,
           sizeFormatted: `${mb} MB`,
           bytes,
-          type,
+          type: "continuous",
           tier: seg.availability,
           protected: !!prot,
           protectionId: prot?.id
         }
       })
     } else {
-      // Mock realistic segments if empty
-      generateMockSegments()
+      segments.value = []
     }
 
     if (segments.value.length > 0) {
@@ -262,42 +283,13 @@ async function loadSegments(): Promise<void> {
       videoUrl.value = null
     }
   } catch (err) {
-    // Fallback to mock segments on network or demo environment
-    generateMockSegments()
-    if (segments.value.length > 0) {
-      selectSegment(segments.value[0])
-    }
+    segments.value = []
+    selectedSegmentId.value = null
+    videoUrl.value = null
+    error.value = errorMessage(err)
   } finally {
     loading.value = false
   }
-}
-
-function generateMockSegments(): void {
-  const mocks: SegmentItem[] = []
-  const count = 36 // 36 segments across the day
-  for (let i = 0; i < count; i++) {
-    const startHour = Math.floor((i * 40) / 60)
-    const startMin = (i * 40) % 60
-    const endHour = Math.floor(((i * 40) + 15) / 60)
-    const endMin = ((i * 40) + 15) % 60
-    const startStr = `${String(startHour).padStart(2, "0")}:${String(startMin).padStart(2, "0")}:00`
-    const endStr = `${String(endHour).padStart(2, "0")}:${String(endMin).padStart(2, "0")}:00`
-    const type = i % 7 === 0 ? "manual" : (i % 3 === 0 ? "event" : "continuous")
-    const tier: TimelineAvailability = i % 5 === 0 ? "remote" : "local"
-    mocks.push({
-      id: `mock-seg-${i + 1}`,
-      file: `rec_${selectedDate.value}_${startStr.replace(/:/g, "")}_900s.mp4`,
-      start: startStr,
-      end: endStr,
-      durationSec: 900,
-      sizeFormatted: "142.5 MB",
-      bytes: 142.5 * 1024 * 1024,
-      type,
-      tier,
-      protected: i % 9 === 0
-    })
-  }
-  segments.value = mocks
 }
 
 /**
@@ -312,11 +304,13 @@ async function selectSegment(item: SegmentItem): Promise<void> {
     const res = await resolveRecordingSegment(item.id)
     if (res.status === "playable") {
       videoUrl.value = res.url
+    } else if (res.status === "pending") {
+      videoUrl.value = null
+      showToast("切片正在云端拉取中...")
     } else {
       videoUrl.value = null
     }
   } catch {
-    // Fallback to direct placeholder
     videoUrl.value = null
   } finally {
     videoLoading.value = false
@@ -327,13 +321,13 @@ async function selectSegment(item: SegmentItem): Promise<void> {
  * 跨天步进
  */
 function shiftDate(delta: number): void {
-  const d = new Date(selectedDate.value)
+  const [year, month, day] = selectedDate.value.split("-").map(Number)
+  const d = new Date(year, month - 1, day)
   d.setDate(d.getDate() + delta)
-  const todayStr = new Date().toISOString().slice(0, 10)
-  const nextStr = d.toISOString().slice(0, 10)
-  if (nextStr <= todayStr) {
-    selectedDate.value = nextStr
-  }
+  const nextY = d.getFullYear()
+  const nextM = String(d.getMonth() + 1).padStart(2, "0")
+  const nextD = String(d.getDate()).padStart(2, "0")
+  selectedDate.value = `${nextY}-${nextM}-${nextD}`
 }
 
 /**
@@ -353,7 +347,7 @@ function onHeatCellClick(cell: HeatCell): void {
  */
 function jumpToTimeline(item: SegmentItem | null): void {
   if (!item) return
-  const atIso = `${selectedDate.value}T${item.start}Z`
+  const atIso = item.startDate.toISOString()
   router.push({
     path: "/playback",
     query: {
@@ -380,8 +374,8 @@ async function toggleSegmentLock(item: SegmentItem): Promise<void> {
   } else {
     try {
       const created = await createRecordingProtection(selectedCameraId.value, {
-        started_at: `${selectedDate.value}T${item.start}Z`,
-        ended_at: `${selectedDate.value}T${item.end}Z`,
+        started_at: item.startDate.toISOString(),
+        ended_at: item.endDate.toISOString(),
         reason: "Manual lock via Files Console",
         expires_at: null
       })
@@ -436,8 +430,8 @@ function batchExport(): void {
   showToast(`📦 批量导出任务已创建 (共 ${selectedBatchIds.value.size} 个切片)，后端正在打包...`)
 }
 
-function batchSyncWebDAV(): void {
-  showToast(`☁️ 已将 ${selectedBatchIds.value.size} 个切片加入 WebDAV 立即同步队列`)
+function batchSyncArchive(): void {
+  showToast(`☁️ 已将 ${selectedBatchIds.value.size} 个切片加入远端归档同步队列`)
 }
 
 function togglePlayPreview(): void {
@@ -465,6 +459,13 @@ function prevSegment(): void {
   if (idx > 0) {
     selectSegment(segments.value[idx - 1])
   }
+}
+
+function tierLabel(tier: TimelineAvailability): string {
+  if (tier === "local") return "本地存储"
+  if (tier === "cached_remote") return "本地缓存"
+  if (tier === "remote") return "远端归档"
+  return "未知存储"
 }
 
 watch([selectedCameraId, selectedDate], () => {
@@ -520,7 +521,6 @@ onMounted(async () => {
             class="stepper-btn"
             title="后一天"
             type="button"
-            :disabled="selectedDate >= new Date().toISOString().slice(0, 10)"
             @click="shiftDate(1)"
           >
             ›
@@ -535,7 +535,7 @@ onMounted(async () => {
           @click="calendarExpanded = !calendarExpanded"
         >
           <UiIcon name="calendar" :size="15" />
-          <span>{{ calendarExpanded ? "收起月历" : "30天分布" }}</span>
+          <span>{{ calendarExpanded ? "收起月历" : "月度分布" }}</span>
         </button>
       </div>
 
@@ -584,17 +584,16 @@ onMounted(async () => {
       </div>
     </header>
 
-    <!-- Expandable 30-Day Month Calendar -->
+    <!-- Expandable Month Calendar -->
     <section v-if="calendarExpanded" class="month-calendar-drawer">
       <div class="drawer-header">
         <div class="drawer-title">
           <UiIcon name="calendar" :size="16" class="text-blue-400" />
-          <span>近 30 天录像切片日历覆盖矩阵</span>
+          <span>{{ selectedDate.slice(0, 7) }} 月度日历矩阵</span>
         </div>
         <div class="drawer-legend">
-          <span class="legend-dot legend-dot--full" /> 完整覆盖 (90+段)
-          <span class="legend-dot legend-dot--part" /> 部分覆盖 (40+段)
-          <span class="legend-dot legend-dot--empty" /> 无录像
+          <span class="legend-dot legend-dot--selected" /> 当前选中
+          <span class="legend-dot legend-dot--empty" /> 其他日期
         </div>
       </div>
       <div class="calendar-days-grid">
@@ -604,14 +603,13 @@ onMounted(async () => {
           type="button"
           class="calendar-day-cell"
           :class="{
-            'calendar-day-cell--active': d.active,
-            'calendar-day-cell--empty': d.count === 0
+            'calendar-day-cell--active': d.active
           }"
           @click="selectedDate = d.dateStr; calendarExpanded = false"
         >
           <span class="day-number">{{ d.dayNum }}</span>
-          <span class="day-count" :class="{ 'text-emerald-400': d.count > 60 }">
-            {{ d.count > 0 ? `${d.count}段` : "无" }}
+          <span class="day-count" :class="{ 'text-emerald-400': d.count && d.count > 0 }">
+            {{ d.count !== null ? (d.count > 0 ? `${d.count}段` : "0段") : "—" }}
           </span>
         </button>
       </div>
@@ -713,7 +711,7 @@ onMounted(async () => {
           </div>
           <div class="fact-row">
             <span class="fact-label">文件规格</span>
-            <span class="fact-val">{{ activeSegment.sizeFormatted }} · H.265 / fMP4</span>
+            <span class="fact-val">{{ activeSegment.sizeFormatted }}</span>
           </div>
           <div class="fact-row">
             <span class="fact-label">存储分层</span>
@@ -722,7 +720,7 @@ onMounted(async () => {
                 class="tier-tag"
                 :class="activeSegment.tier === 'local' ? 'tier-tag--local' : 'tier-tag--cloud'"
               >
-                {{ activeSegment.tier === "local" ? "⚡ 本地 NVMe" : "☁️ WebDAV 在线" }}
+                {{ tierLabel(activeSegment.tier) }}
               </span>
             </span>
           </div>
@@ -765,6 +763,13 @@ onMounted(async () => {
         </div>
       </aside>
 
+      <!-- Empty Inspector placeholder when no segment is selected -->
+      <aside v-else class="inspector-card inspector-card--empty">
+        <UiIcon name="play" :size="36" class="text-white/20" />
+        <span class="text-gray-400 text-xs">未选定切片</span>
+        <span class="text-gray-600 text-[11px]">从右侧列表或上方热力图选择切片</span>
+      </aside>
+
       <!-- Right: High-Density Structured Table -->
       <main class="table-card">
         <!-- Batch Action Bar -->
@@ -779,16 +784,16 @@ onMounted(async () => {
               <UiIcon name="shield" :size="14" />
               <span>批量加锁</span>
             </button>
-            <button type="button" class="batch-btn" @click="batchSyncWebDAV">
+            <button type="button" class="batch-btn" @click="batchSyncArchive">
               <UiIcon name="cloud" :size="14" />
-              <span>WebDAV 同步</span>
+              <span>归档同步</span>
             </button>
           </div>
         </div>
 
         <!-- Table Container -->
         <div class="table-wrapper">
-          <table class="files-table">
+          <table v-if="filteredSegments.length > 0" class="files-table">
             <thead>
               <tr>
                 <th class="th-check">
@@ -840,7 +845,7 @@ onMounted(async () => {
                     class="tier-tag"
                     :class="s.tier === 'local' ? 'tier-tag--local' : 'tier-tag--cloud'"
                   >
-                    {{ s.tier === "local" ? "本地 NVMe" : "WebDAV" }}
+                    {{ tierLabel(s.tier) }}
                   </span>
                 </td>
                 <td>
@@ -880,6 +885,15 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
+
+          <!-- Empty State -->
+          <div v-else-if="!loading" class="empty-state">
+            <UiIcon name="folder" :size="40" class="text-white/20" />
+            <strong class="text-sm text-gray-300">所选日期暂无录像切片</strong>
+            <span class="text-xs text-gray-500">
+              当前摄像机在 {{ selectedDate }} 没有检索到录像片段，请切换上方机位或选择其他日期
+            </span>
+          </div>
         </div>
       </main>
     </div>
@@ -1064,13 +1078,12 @@ onMounted(async () => {
   border-radius: 50%;
 }
 
-.legend-dot--full { background-color: #10b981; }
-.legend-dot--part { background-color: #3b82f6; }
+.legend-dot--selected { background-color: #006fff; }
 .legend-dot--empty { background-color: rgba(255, 255, 255, 0.2); }
 
 .calendar-days-grid {
   display: grid;
-  grid-template-columns: repeat(15, 1fr);
+  grid-template-columns: repeat(16, 1fr);
   gap: 6px;
 }
 
@@ -1094,10 +1107,6 @@ onMounted(async () => {
 .calendar-day-cell--active {
   background: #006fff !important;
   color: #ffffff;
-}
-
-.calendar-day-cell--empty {
-  opacity: 0.5;
 }
 
 .day-number {
@@ -1241,6 +1250,12 @@ onMounted(async () => {
   gap: 12px;
   overflow-y: auto;
   flex-shrink: 0;
+}
+
+.inspector-card--empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
 }
 
 .inspector-header {
@@ -1459,6 +1474,7 @@ onMounted(async () => {
 .table-wrapper {
   flex: 1;
   overflow-y: auto;
+  position: relative;
 }
 
 .files-table {
@@ -1536,6 +1552,17 @@ onMounted(async () => {
 .row-action-btn:hover {
   background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 240px;
+  gap: 8px;
+  text-align: center;
+  padding: 20px;
 }
 
 /* Toast Notification */
