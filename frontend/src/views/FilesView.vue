@@ -481,15 +481,24 @@ onMounted(async () => {
 <template>
   <div class="files-view">
     <!-- Top Floating Toolbar -->
-    <header class="files-header">
-      <div class="files-header__left">
-        <!-- Camera Selector Pill -->
-        <div class="control-pill">
-          <UiIcon name="cameras" :size="16" class="control-pill__icon text-blue-400" />
+    
+    <!-- Top Management Header & Filter Bar -->
+    <div class="h-13 bg-[#10131c] border-b border-white/8 px-4 flex items-center justify-between shrink-0 z-30 flex-wrap gap-2 py-2">
+      <div class="flex items-center space-x-3">
+        <!-- View Title -->
+        <div class="flex items-center space-x-2 text-white font-semibold text-xs tracking-wide">
+          <span class="w-2 h-2 rounded-full bg-amber-500"></span>
+          <span>录像文件管理中心 (Files & WebDAV)</span>
+        </div>
+
+        <div class="h-4 w-px bg-white/10"></div>
+
+        <!-- Camera Selector -->
+        <div class="flex items-center space-x-1.5 text-xs">
+          <span class="text-gray-400">机位:</span>
           <select
             v-model="selectedCameraId"
-            class="control-pill__select"
-            aria-label="选择回放机位"
+            class="bg-[#171b26] border border-white/15 rounded-lg px-2.5 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
           >
             <option
               v-for="cam in cameras"
@@ -501,88 +510,48 @@ onMounted(async () => {
           </select>
         </div>
 
-        <!-- Date Stepper Pill -->
-        <div class="control-pill">
-          <button
-            class="stepper-btn"
-            title="前一天"
-            type="button"
-            @click="shiftDate(-1)"
-          >
-            ‹
-          </button>
+        <!-- Date Picker & Shortcuts -->
+        <div class="flex items-center space-x-1 text-xs">
           <input
             v-model="selectedDate"
             type="date"
-            class="stepper-date"
-            aria-label="录像日期"
+            class="bg-[#171b26] border border-white/15 rounded-lg px-2.5 py-1 text-white text-xs font-mono focus:outline-none focus:border-blue-500"
           />
+          <button @click="shiftDate(-1)" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 text-[11px]">前一天</button>
+          <button @click="shiftDate(1)" class="px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-blue-400 text-[11px]">后一天</button>
           <button
-            class="stepper-btn"
-            title="后一天"
-            type="button"
-            @click="shiftDate(1)"
+            @click="calendarExpanded = !calendarExpanded"
+            class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white text-[11px] flex items-center space-x-1 border border-white/10"
           >
-            ›
+            <UiIcon name="calendar" :size="15" />
+            <span>{{ calendarExpanded ? "收起月历" : "展开月历" }}</span>
           </button>
         </div>
+      </div>
 
-        <!-- Month Calendar Toggle -->
-        <button
-          type="button"
-          class="calendar-toggle-btn"
-          :class="{ 'calendar-toggle-btn--active': calendarExpanded }"
-          @click="calendarExpanded = !calendarExpanded"
+      <!-- Filter Selects -->
+      <div class="flex items-center space-x-2 text-xs">
+        <!-- Type Filter -->
+        <select
+          v-model="filterType"
+          class="bg-[#171b26] border border-white/15 rounded-lg px-2 py-1 text-gray-300 text-[11px] focus:outline-none"
         >
-          <UiIcon name="calendar" :size="15" />
-          <span>{{ calendarExpanded ? "收起月历" : "月度分布" }}</span>
+          <option value="all">状态筛选: 全部 ({{ segments.length }})</option>
+          <option value="continuous">常规 24h</option>
+          <option value="event">动检事件</option>
+          <option value="manual">手动录制</option>
+        </select>
+
+        <div class="summary-badge px-2 py-1 bg-white/5 rounded-lg text-gray-300 text-[11px]">
+          总计: <strong class="text-blue-400">{{ totalSizeFormatted }}</strong>
+        </div>
+
+        <button @click="loadSegments()" class="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white" title="刷新">
+          <UiIcon name="refresh" :size="14" />
         </button>
       </div>
+    </div>
 
-      <!-- Right Summary & Filter -->
-      <div class="files-header__right">
-        <!-- Type Filter Chips -->
-        <div class="filter-chips">
-          <button
-            type="button"
-            class="chip-btn"
-            :class="{ 'chip-btn--active': filterType === 'all' }"
-            @click="filterType = 'all'"
-          >
-            全部 ({{ segments.length }})
-          </button>
-          <button
-            type="button"
-            class="chip-btn"
-            :class="{ 'chip-btn--active': filterType === 'continuous' }"
-            @click="filterType = 'continuous'"
-          >
-            常规 24h
-          </button>
-          <button
-            type="button"
-            class="chip-btn"
-            :class="{ 'chip-btn--active': filterType === 'event' }"
-            @click="filterType = 'event'"
-          >
-            动检事件
-          </button>
-          <button
-            type="button"
-            class="chip-btn"
-            :class="{ 'chip-btn--active': filterType === 'manual' }"
-            @click="filterType = 'manual'"
-          >
-            手动录制
-          </button>
-        </div>
-
-        <div class="summary-badge">
-          <span>总计: </span>
-          <strong>{{ totalSizeFormatted }}</strong>
-        </div>
-      </div>
-    </header>
 
     <!-- Expandable Month Calendar -->
     <section v-if="calendarExpanded" class="month-calendar-drawer">
@@ -648,8 +617,13 @@ onMounted(async () => {
               v-for="(cell, idx) in heatGrid"
               :key="idx"
               type="button"
-              class="heat-cell"
-              :class="`heat-cell--level-${cell.level}`"
+              class="heat-cell-btn"
+              :class="{
+                'empty': cell.level === 0,
+                'recorded': cell.level === 1,
+                'warning': cell.level === 2,
+                'cloud': cell.level === 3
+              }"
               :title="`[${cell.timeLabel}] ${cell.count > 0 ? `${cell.count} 个切片 · ${(cell.bytes / 1024 / 1024).toFixed(1)} MB` : '无录像'}`"
               @click="onHeatCellClick(cell)"
             />
@@ -1218,10 +1192,10 @@ onMounted(async () => {
   z-index: 10;
 }
 
-.heat-cell--level-0 { background: rgba(255, 255, 255, 0.04); }
-.heat-cell--level-1 { background: #059669; }
-.heat-cell--level-2 { background: #2563eb; }
-.heat-cell--level-3 { background: #d97706; }
+.empty { background: rgba(255, 255, 255, 0.04); }
+.recorded { background: #059669; }
+.warning { background: #2563eb; }
+.cloud { background: #d97706; }
 
 .heat-hour-axis {
   display: grid;

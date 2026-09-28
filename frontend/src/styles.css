@@ -5129,3 +5129,54 @@ strong {
   grid-row: 1 / span 2;
 }
 
+
+/* 24 小时 288 槽位录像热力图 (camera-recorder 风格，24列 x 12行) */
+.heat-grid-24 {
+  display: grid !important;
+  grid-template-columns: repeat(24, minmax(0, 1fr)) !important;
+  grid-template-rows: repeat(12, 6px) !important;
+  grid-auto-flow: column !important;
+  gap: 2px 2px !important;
+  width: 100% !important;
+}
+.heat-cell-btn {
+  height: 6px !important;
+  min-height: 6px !important;
+  border-radius: 1px !important;
+  background: rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  transition: all 0.12s ease;
+  display: block;
+  width: 100%;
+}
+.heat-cell-btn:hover {
+  transform: scale(1.4);
+  z-index: 30;
+  position: relative;
+  filter: brightness(1.4);
+}
+.heat-cell-btn.recorded {
+  background: rgba(0, 111, 255, 0.65);
+}
+.heat-cell-btn.cloud {
+  background: #006fff;
+  box-shadow: inset 0 0 0 1px #8b5cf6;
+}
+.heat-cell-btn.warning {
+  background: #f59e0b;
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.8);
+}
+.heat-cell-btn.empty {
+  background: rgba(255, 255, 255, 0.05);
+}
+.heat-cell-btn.active {
+  background: #38bdf8 !important;
+  outline: 2px solid #ffffff;
+  outline-offset: 1px;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.95);
+  z-index: 40;
+  position: relative;
+  transform: scale(1.3);
+}
