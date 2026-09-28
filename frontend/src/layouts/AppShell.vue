@@ -24,6 +24,7 @@ const navigation = [
   { to: "/dashboard", labelKey: "nav.dashboard", icon: "dashboard" },
   { to: "/live", labelKey: "nav.live", icon: "live" },
   { to: "/playback", labelKey: "nav.playback", icon: "playback" },
+  { to: "/files", labelKey: "nav.files", icon: "folder" },
   { to: "/events", labelKey: "nav.events", icon: "events" },
   {
     to: "/alerts",

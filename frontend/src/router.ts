@@ -10,6 +10,7 @@ import DashboardView from "./views/DashboardView.vue"
 import CamerasView from "./views/CamerasView.vue"
 import EventsView from "./views/EventsView.vue"
 import LoginView from "./views/LoginView.vue"
+import FilesView from "./views/FilesView.vue"
 import LiveView from "./views/LiveView.vue"
 import PlaybackView from "./views/PlaybackView.vue"
 import SetupView from "./views/SetupView.vue"
@@ -56,6 +57,14 @@ const routes: RouteRecordRaw[] = [
         component: PlaybackView,
         meta: {
           titleKey: "route.playback"
+        }
+      },
+      {
+        path: "files",
+        name: "files",
+        component: FilesView,
+        meta: {
+          titleKey: "route.files"
         }
       },
       {
