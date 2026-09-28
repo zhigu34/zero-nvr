@@ -77,6 +77,38 @@ interface SyncTileState {
   blocksStrict: boolean
 }
 
+
+const cameraDropdownOpen = ref(false)
+const datePickerOpen = ref(false)
+
+function togglePlaybackCameraDropdown() {
+  cameraDropdownOpen.value = !cameraDropdownOpen.value
+  if (cameraDropdownOpen.value) datePickerOpen.value = false
+}
+
+function togglePlaybackDatePicker() {
+  datePickerOpen.value = !datePickerOpen.value
+  if (datePickerOpen.value) cameraDropdownOpen.value = false
+}
+
+function shiftPlaybackDay(days: number) {
+  const current = new Date(selectedDate.value)
+  current.setDate(current.getDate() + days)
+  selectedDate.value = formatDateInput(current)
+  handleDateChange()
+}
+
+function setPlaybackDate(dateStr: string) {
+  selectedDate.value = dateStr
+  handleDateChange()
+  datePickerOpen.value = false
+}
+
+function selectPlaybackCamera(id: string) {
+  selectCamera(id)
+  cameraDropdownOpen.value = false
+}
+
 const auth = useAuthStore()
 const route = useRoute()
 const { locale, t, te } = useI18n({
@@ -2539,232 +2571,110 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="playback-workspace">
-    <aside
-      v-if="cameraPanelOpen"
-      class="live-camera-panel playback-camera-panel"
-    >
-      <div class="live-camera-panel__header">
-        <div>
-          <strong>{{ t("playback.cameras") }}</strong>
-          <span>{{ t("playback.availableCount", { count: cameras.length }) }}</span>
-        </div>
-        <button
-          class="icon-button topbar-icon-button"
-          type="button"
-          :title="t('playback.refreshCameras')"
-          :aria-label="t('playback.refreshCameras')"
-          :disabled="loadingCameras"
-          @click="refreshCameras"
-        >
-          <UiIcon name="refresh" :size="16" />
-        </button>
-      </div>
-
-      <label class="live-search">
-        <UiIcon name="search" :size="15" />
-        <input
-          v-model="search"
-          type="search"
-          :placeholder="t('playback.searchCameras')"
-          :aria-label="t('playback.searchCameras')"
-        />
-      </label>
-
-      <div class="live-camera-list">
-        <div
-          v-for="camera in filteredCameras"
-          :key="camera.id"
-          class="playback-camera-select-row"
-        >
-          <button
-            class="live-camera-row playback-camera-select-row__primary"
-            :class="{
-              'live-camera-row--selected':
-                activeCameraId === camera.id
-            }"
-            type="button"
-            @click="selectCamera(camera.id)"
-          >
-            <span
-              class="live-camera-row__status"
-              :class="{
-                'live-camera-row__status--enabled':
-                  camera.enabled
-              }"
-            />
-            <span class="live-camera-row__copy">
-              <strong>{{ camera.name }}</strong>
-              <small>
-                {{
-                  camera.location ||
-                  camera.adapter_type ||
-                  t("playback.cameraFallback")
-                }}
-              </small>
-            </span>
-            <span class="live-camera-row__check">
-              <UiIcon
-                v-if="activeCameraId === camera.id"
-                name="chevron-right"
-                :size="14"
-              />
-            </span>
-          </button>
-
-          <button
-            class="playback-sync-toggle"
-            :class="{
-              'playback-sync-toggle--active':
-                isSyncParticipant(camera.id)
-            }"
-            type="button"
-            :disabled="
-              activeCameraId === camera.id
-            "
-            :title="
-              activeCameraId === camera.id
-                ? t('playback.primarySyncCamera')
-                : isSyncParticipant(camera.id)
-                  ? t('playback.removeFromSync')
-                  : t('playback.addToSync')
-            "
-            :aria-label="
-              isSyncParticipant(camera.id)
-                ? t('playback.removeSyncCamera')
-                : t('playback.addSyncCamera')
-            "
-            @click="toggleSyncCamera(camera.id)"
-          >
-            <UiIcon
-              :name="
-                isSyncParticipant(camera.id)
-                  ? 'check'
-                  : 'plus'
-              "
-              :size="13"
-            />
-          </button>
-        </div>
-
-        <div
-          v-if="!filteredCameras.length && !loadingCameras"
-          class="live-camera-list__empty"
-        >
-          {{ t("playback.noCamerasFound") }}
-        </div>
-      </div>
-    </aside>
-
     <div ref="stage" class="playback-stage">
-      <header class="live-toolbar playback-toolbar">
-        <div class="live-toolbar__left">
-          <button
-            class="media-button"
-            type="button"
-            :title="cameraPanelOpen ? t('playback.hideCameras') : t('playback.showCameras')"
-            @click="cameraPanelOpen = !cameraPanelOpen"
-          >
-            <UiIcon name="panel" :size="16" />
-          </button>
-          <span class="live-toolbar__title">
-            {{ activeCamera?.name || t("playback.title") }}
-          </span>
-          <span
-            v-if="multiCameraMode"
-            class="playback-sync-mode-badge"
-          >
-            {{
-              syncMode === "strict"
-                ? strictBarrierActive
-                  ? t("playback.strictWaiting", { count: strictBlockers.length })
-                  : t("playback.strict")
-                : t("playback.tolerant")
-            }}
-            · {{ t("playback.participantCount", { count: playbackParticipants.length }) }}
-          </span>
-        </div>
 
-        <div class="playback-toolbar__center">
-          <label class="playback-date-control">
-            <UiIcon name="calendar" :size="14" />
-            <input
-              v-model="selectedDate"
-              type="date"
-              :aria-label="t('playback.playbackDate')"
-              @change="handleDateChange"
-            />
-          </label>
-        </div>
+      <header class="h-12 bg-[#10131c] border-b border-white/8 px-4 flex items-center justify-between shrink-0 z-30">
+        <div class="flex items-center space-x-3">
+          <!-- View Title -->
+          <div class="flex items-center space-x-2 text-white font-semibold text-xs tracking-wide">
+            <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+            <span>{{ t("playback.title") }}</span>
+          </div>
 
-        <div class="live-toolbar__actions">
-          <div
-            v-if="multiCameraMode"
-            class="playback-sync-switcher"
-          >
-            <button
-              class="media-button media-button--text"
-              :class="{
-                'media-button--active':
-                  syncMode === 'tolerant'
-              }"
-              type="button"
-              @click="setSyncMode('tolerant')"
-            >
-              {{ t("playback.tolerant") }}
+          <div class="h-4 w-px bg-white/10"></div>
+
+          <!-- Camera Selector Dropdown Pill (UniFi 机位选择器) -->
+          <div class="relative">
+            <button @click="togglePlaybackCameraDropdown" id="btn-playback-camera" class="flex items-center space-x-2 px-3 py-1 rounded-xl bg-[#171b26] border border-white/15 hover:border-blue-500/50 text-white text-xs font-semibold transition" :title="t('playback.cameras')">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 pulse-live"></span>
+              <span id="playback-camera-name">{{ activeCamera?.name || t("playback.cameraFallback") }}</span>
+              <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
             </button>
-            <button
-              class="media-button media-button--text"
-              :class="{
-                'media-button--active':
-                  syncMode === 'strict'
-              }"
-              type="button"
-              @click="setSyncMode('strict')"
-            >
-              {{ t("playback.strict") }}
+            <!-- Camera Dropdown Menu -->
+            <div v-if="cameraDropdownOpen" id="playback-camera-dropdown" class="absolute top-10 left-0 w-64 bg-[#151822] border border-white/15 rounded-2xl shadow-2xl p-2 z-50 text-xs">
+              <div class="px-2 py-1 text-[10px] text-gray-400 uppercase font-mono tracking-wider border-b border-white/10 mb-1">选择回放机位 (Cameras)</div>
+              <div class="space-y-0.5 max-h-64 overflow-y-auto">
+                <button v-for="camera in cameras" :key="camera.id" @click="selectPlaybackCamera(camera.id)" class="w-full px-2.5 py-1.5 rounded-lg hover:bg-blue-600/20 text-left flex items-center justify-between group" :class="activeCameraId === camera.id ? 'text-white' : 'text-gray-300 hover:text-white'">
+                  <div class="flex items-center space-x-2">
+                    <span class="w-1.5 h-1.5 rounded-full" :class="camera.enabled ? 'bg-emerald-400' : 'bg-gray-500'"></span>
+                    <span class="font-medium">{{ camera.name }}</span>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Date Selector Pill (UniFi 日期选择与切换) -->
+          <div class="flex items-center space-x-1 text-xs">
+            <button @click="shiftPlaybackDay(-1)" class="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white" title="前一天">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg>
+            </button>
+            <div class="relative">
+              <button @click="togglePlaybackDatePicker" id="btn-playback-date" class="flex items-center space-x-1.5 px-2.5 py-1 rounded-lg bg-[#171b26] border border-white/15 hover:border-blue-500/50 text-white font-mono text-xs transition" title="点击选择回放日期">
+                <svg class="w-3.5 h-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <span id="playback-date-label">{{ selectedDate }}</span>
+                <svg class="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+              </button>
+              
+              <!-- Popover Calendar -->
+              <div v-if="datePickerOpen" id="playback-datepicker-popover" class="absolute top-10 left-0 w-72 bg-[#151822] border border-white/15 rounded-2xl shadow-2xl p-3 z-50 text-xs">
+                <div class="flex items-center justify-between pb-2 mb-2 border-b border-white/10">
+                  <span class="font-bold text-white text-xs">选择回放日期</span>
+                  <div class="flex items-center space-x-1">
+                    <button @click="setPlaybackDate(formatDateInput(new Date()))" class="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-bold">今天</button>
+                    <button @click="shiftPlaybackDay(-1)" class="px-2 py-0.5 rounded bg-white/5 hover:bg-white/10 text-gray-300 text-[10px]">昨天</button>
+                    <button @click="togglePlaybackDatePicker" class="text-gray-400 hover:text-white ml-1">✕</button>
+                  </div>
+                </div>
+                <div class="space-y-2">
+                  <input type="date" v-model="selectedDate" @change="handleDateChange" class="w-full bg-[#0e1118] border border-white/15 rounded-lg px-2.5 py-1.5 text-white font-mono text-xs focus:outline-none focus:border-blue-500">
+                </div>
+              </div>
+            </div>
+            <button @click="shiftPlaybackDay(1)" id="btn-playback-next-day" class="p-1 rounded-lg bg-white/5 text-gray-600 hover:text-white transition" title="后一天">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
             </button>
           </div>
 
-          <button
-            class="media-button media-button--text"
-            :class="{
-              'media-button--active':
-                skipGaps
-            }"
-            type="button"
-            :aria-pressed="skipGaps"
-            :title="t('playback.skipGapsTitle')"
-            @click="skipGaps = !skipGaps"
-          >
-            {{ t("playback.skipGaps") }}
+          <div class="h-4 w-px bg-white/10"></div>
+          
+          <!-- Sync Mode Toggle: Phase 8 容错模式 vs 严格法庭同步模式 -->
+          <div v-if="multiCameraMode" class="flex items-center bg-[#171b26] p-0.5 rounded-lg border border-white/10 text-xs">
+            <button @click="setSyncMode('tolerant')" id="btn-sync-tolerant" class="px-2 py-0.5 rounded text-[11px] font-medium" :class="syncMode === 'tolerant' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'">容错同步</button>
+            <button @click="setSyncMode('strict')" id="btn-sync-strict" class="px-2 py-0.5 rounded text-[11px] font-medium" :class="syncMode === 'strict' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'">严格法庭同步</button>
+          </div>
+        </div>
+
+        <div class="flex items-center space-x-2">
+          <!-- Retain Zoom Switcher & Skip Gaps functionality in right side of header -->
+          <button class="px-2.5 py-1 rounded-lg border text-xs font-semibold flex items-center space-x-1" :class="skipGaps ? 'bg-blue-600/20 text-blue-300 border-blue-500/30' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10 hover:text-white'" @click="skipGaps = !skipGaps">
+            <span>{{ t("playback.skipGaps") }}</span>
           </button>
 
-          <div class="playback-zoom-switcher">
-            <button
-              v-for="hours in zoomOptions"
-              :key="hours"
-              class="media-button media-button--text"
-              :class="{ 'media-button--active': zoomHours === hours }"
-              type="button"
-              @click="setZoom(hours)"
-            >
+          <div class="flex items-center bg-[#171b26] p-0.5 rounded-lg border border-white/10 text-xs">
+            <button v-for="hours in zoomOptions" :key="hours" @click="setZoom(hours)" class="px-2 py-0.5 rounded text-[11px] font-medium" :class="zoomHours === hours ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'">
               {{ hours }}h
             </button>
           </div>
 
-          <button
-            class="media-button"
-            type="button"
-            :title="fullscreen ? t('playback.exitFullscreen') : t('playback.fullscreenPlayback')"
-            @click="toggleFullscreen"
-          >
-            <UiIcon
-              :name="fullscreen ? 'minimize' : 'maximize'"
-              :size="16"
-            />
+          <button class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white border border-white/10 text-xs font-semibold flex items-center space-x-1" @click="toggleFullscreen">
+            <svg v-if="!fullscreen" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+            <svg v-else class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 14h6m0 0v6m0-6l-7 7m17-11h-6m0 0V4m0 6l7-7M4 10h6m0 0V4m0 6l-7-7m17 11h-6m0 0v6m0-6l7 7"/></svg>
+          </button>
+
+          <!-- Buttons from prototype -->
+          <button @click="openActionPanel('protect')" class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 text-xs font-semibold flex items-center space-x-1">
+            <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+            <span>加锁保护 (Protect)</span>
+          </button>
+
+          <button @click="openActionPanel('export')" id="btn-unifi-clip" class="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold flex items-center space-x-1.5 shadow-lg shadow-blue-600/30 transition">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>
+            <span>剪辑导出 (Clip)</span>
           </button>
         </div>
       </header>
+
 
       <div
         v-if="multiCameraMode"
