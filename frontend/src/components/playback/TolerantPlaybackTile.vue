@@ -19,7 +19,6 @@ import { PlaybackDriftController } from "../../playback/driftController"
 import {
   absoluteMediaTimeMs,
   mediaElementTimelineOriginSeconds,
-  mediaTimeSecondsForAbsoluteMs,
   MediaTimelineOriginTracker
 } from "../../playback/mediaTimebase"
 
@@ -64,13 +63,18 @@ const buffering = ref(false)
 const mediaReady = ref(false)
 const failure = ref<string | null>(null)
 
-const driftController = new PlaybackDriftController()
+const driftController = new PlaybackDriftController({
+  hardSeekMs: 5_000,
+  maxRateAdjustment: 0.08
+})
+const serverResyncRearmDriftMs = 250
 
 let mediaAnchorMs: number | null = null
 const mediaOrigin = new MediaTimelineOriginTracker()
 let resolveGeneration = 0
 let retryTimer: number | null = null
 let gapWakeAtMs: number | null = null
+let serverResyncArmed = true
 
 const syncState = computed<SyncTileState>(() => {
   if (failure.value) {
@@ -181,54 +185,9 @@ function clearMedia(): void {
   resetDrift()
 }
 
-function clampMediaTime(
-  element: HTMLVideoElement,
-  seconds: number
-): number {
-  const target = Math.max(0, seconds)
-  if (
-    Number.isFinite(element.duration) &&
-    element.duration > 0
-  ) {
-    return Math.min(
-      target,
-      Math.max(
-        0,
-        element.duration - 0.01
-      )
-    )
-  }
-  return target
-}
-
-function alignToMaster(): void {
+function preparePlayback(): void {
   const element = video.value
-  if (
-    !element ||
-    mediaAnchorMs === null
-  ) {
-    return
-  }
-
-  const mediaOriginSeconds = mediaOrigin.capture(
-    mediaElementTimelineOriginSeconds(element),
-    false
-  )
-
-  const targetSeconds =
-    mediaTimeSecondsForAbsoluteMs(
-      mediaAnchorMs,
-      props.masterTimeMs,
-      mediaOriginSeconds
-    )
-  if (!Number.isFinite(targetSeconds)) {
-    return
-  }
-
-  element.currentTime = clampMediaTime(
-    element,
-    targetSeconds
-  )
+  if (!element) return
   element.playbackRate =
     props.playbackRate
   driftController.reset(
@@ -305,7 +264,7 @@ async function resolveAtMaster(): Promise<void> {
       element.readyState >=
       element.HAVE_FUTURE_DATA
     ) {
-      alignToMaster()
+      preparePlayback()
       if (props.playing) {
         await element.play().catch(
           () => undefined
@@ -336,7 +295,7 @@ function handleCanPlay(): void {
       true
     )
   }
-  alignToMaster()
+  preparePlayback()
   if (
     props.playing &&
     element
@@ -358,6 +317,7 @@ function handlePlaying(): void {
 }
 
 function handleEnded(): void {
+  serverResyncArmed = true
   void resolveAtMaster()
 }
 
@@ -386,6 +346,12 @@ function handleTimeUpdate(): void {
   const driftMs =
     mediaTimeMs -
     props.masterTimeMs
+  if (
+    Math.abs(driftMs) <=
+    serverResyncRearmDriftMs
+  ) {
+    serverResyncArmed = true
+  }
   const action = driftController.evaluate(
     driftMs,
     props.playbackRate,
@@ -409,18 +375,17 @@ function handleTimeUpdate(): void {
     return
   }
 
+  if (!serverResyncArmed) {
+    element.playbackRate =
+      props.playbackRate *
+      (driftMs > 0 ? 0.92 : 1.08)
+    return
+  }
+
+  serverResyncArmed = false
   element.playbackRate =
     props.playbackRate
-  const targetSeconds =
-    mediaTimeSecondsForAbsoluteMs(
-      mediaAnchorMs,
-      props.masterTimeMs,
-      mediaOriginSeconds
-    )
-  element.currentTime = clampMediaTime(
-    element,
-    targetSeconds
-  )
+  void resolveAtMaster()
 }
 
 watch(
@@ -443,7 +408,7 @@ watch(
       return
     }
 
-    alignToMaster()
+    preparePlayback()
     if (
       element.readyState >=
       element.HAVE_FUTURE_DATA
@@ -474,6 +439,7 @@ watch(
 watch(
   () => props.seekGeneration,
   () => {
+    serverResyncArmed = true
     void resolveAtMaster()
   }
 )
@@ -481,6 +447,7 @@ watch(
 watch(
   () => props.cameraId,
   () => {
+    serverResyncArmed = true
     void resolveAtMaster()
   }
 )
