@@ -43,8 +43,14 @@ const playable: PlaybackPlayable = {
   codec: "h264"
 }
 
-function configureVideo(element: HTMLVideoElement) {
-  let currentTime = 120
+function configureVideo(
+  element: HTMLVideoElement,
+  initialTime = 120,
+  duration = Number.POSITIVE_INFINITY,
+  initialSeekableStart: number | null = 120
+) {
+  let currentTime = initialTime
+  let seekableStart = initialSeekableStart
   const setCurrentTime = vi.fn((value: number) => {
     currentTime = value
   })
@@ -56,7 +62,7 @@ function configureVideo(element: HTMLVideoElement) {
     },
     duration: {
       configurable: true,
-      value: Number.POSITIVE_INFINITY
+      value: duration
     },
     paused: {
       configurable: true,
@@ -68,15 +74,18 @@ function configureVideo(element: HTMLVideoElement) {
     },
     seekable: {
       configurable: true,
-      value: {
-        length: 1,
-        start: () => 120,
-        end: () => 180
-      }
+      get: () => ({
+        length: seekableStart === null ? 0 : 1,
+        start: () => seekableStart ?? 0,
+        end: () => duration
+      })
     }
   })
   return {
     setCurrentTime,
+    setSeekableStart: (value: number | null) => {
+      seekableStart = value
+    },
     advanceCurrentTime: (seconds: number) => {
       currentTime += seconds
     }
@@ -85,7 +94,10 @@ function configureVideo(element: HTMLVideoElement) {
 
 async function mountTile(
   masterTimeMs = anchorMs,
-  playbackRate = 1
+  playbackRate = 1,
+  initialTime = 120,
+  duration = Number.POSITIVE_INFINITY,
+  seekableStart: number | null = 120
 ) {
   const wrapper = mount(TolerantPlaybackTile, {
     props: {
@@ -102,7 +114,10 @@ async function mountTile(
   await flushPromises()
   const video = wrapper.get("video")
   const controls = configureVideo(
-    video.element as HTMLVideoElement
+    video.element as HTMLVideoElement,
+    initialTime,
+    duration,
+    seekableStart
   )
   return { wrapper, video, ...controls }
 }
@@ -150,6 +165,92 @@ describe("TolerantPlaybackTile server-resolved VOD", () => {
     await video.trigger("canplay")
 
     expect(setCurrentTime).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it("seeks a static recording to its offset once after metadata loads", async () => {
+    playbackMocks.resolveCameraPlayback.mockResolvedValue({
+      ...playable,
+      offset_ms: 15_000,
+      transport: "mp4",
+      url: "/api/v1/recordings/segment/media"
+    })
+    const {
+      wrapper,
+      video,
+      setCurrentTime,
+      setSeekableStart
+    } = await mountTile(
+      anchorMs + 15_000,
+      1,
+      0,
+      300,
+      null
+    )
+
+    await video.trigger("loadedmetadata")
+    await video.trigger("loadedmetadata")
+    setSeekableStart(0)
+    await video.trigger("canplay")
+    await video.trigger("playing")
+    await video.trigger("timeupdate")
+
+    expect(setCurrentTime).toHaveBeenCalledTimes(1)
+    expect(setCurrentTime).toHaveBeenCalledWith(15)
+    expect(
+      playbackMocks.resolveCameraPlayback
+    ).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it("applies a fresh offset when an MP4 source is re-resolved", async () => {
+    vi.useFakeTimers()
+    playbackMocks.resolveCameraPlayback.mockImplementation(
+      (_cameraId: string, at: Date) =>
+        Promise.resolve({
+          ...playable,
+          transport: "mp4",
+          url: "/api/v1/recordings/segment/media",
+          offset_ms: at.getTime() - anchorMs
+        })
+    )
+    const { wrapper, video } = await mountTile(
+      anchorMs,
+      1,
+      0,
+      300,
+      0
+    )
+    await video.trigger("loadedmetadata")
+    await video.trigger("canplay")
+    await video.trigger("playing")
+
+    await wrapper.setProps({
+      masterTimeMs: anchorMs + 6_000
+    })
+    await video.trigger("timeupdate")
+    await flushPromises()
+
+    expect(
+      playbackMocks.resolveCameraPlayback
+    ).toHaveBeenCalledTimes(2)
+    const replacement = wrapper.get("video")
+    const replacementControls = configureVideo(
+      replacement.element as HTMLVideoElement,
+      0,
+      300,
+      0
+    )
+    await replacement.trigger("loadedmetadata")
+    await replacement.trigger("loadedmetadata")
+    await replacement.trigger("canplay")
+
+    expect(
+      replacementControls.setCurrentTime
+    ).toHaveBeenCalledTimes(1)
+    expect(
+      replacementControls.setCurrentTime
+    ).toHaveBeenCalledWith(6)
     wrapper.unmount()
   })
 

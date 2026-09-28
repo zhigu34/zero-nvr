@@ -242,7 +242,7 @@ class PlaybackPlayableView(BaseModel):
     segment_id: uuid.UUID
     segment_start_at: datetime
     offset_ms: int
-    transport: Literal["fmp4"] = "fmp4"
+    transport: Literal["mp4"] = "mp4"
     url: str
     expires_at: datetime
     codec: str | None = None

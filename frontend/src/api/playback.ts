@@ -83,7 +83,7 @@ export interface PlaybackPlayable {
   segment_id: string
   segment_start_at: string
   offset_ms: number
-  transport: "fmp4"
+  transport: "mp4" | "fmp4"
   url: string
   expires_at: string
   codec: string | null

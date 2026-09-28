@@ -11,7 +11,6 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import Settings
 from app.core.errors import ApiError
-from app.integrations.zlm import ZlmAdapter, ZlmMediaAccess
 from app.modules.storage.models import RecordingLocation
 
 from .models import RecordingSegment
@@ -45,7 +44,6 @@ PlaybackPlan = PlayablePlan | PendingPlan | GapPlan
 
 
 class PlaybackResolverService:
-    vod_app = "zero-nvr-vod"
     descriptor_ttl_seconds = 300
 
     @staticmethod
@@ -347,45 +345,4 @@ class PlaybackResolverService:
             reason=reason,
             previous_at=previous_at,
             next_at=next_at,
-        )
-
-    @classmethod
-    def activate(
-        cls,
-        settings: Settings,
-        plan: PlayablePlan,
-    ) -> tuple[str, datetime]:
-        if not plan.file_path.is_file():
-            raise ApiError(
-                status_code=409,
-                code="recording_media_missing",
-                message="The selected recording file is missing.",
-                details={"segment_id": str(plan.segment_id)},
-            )
-
-        stream = (
-            f"segment-{plan.segment_id.hex}-"
-            f"{uuid.uuid4().hex}"
-        )
-        with ZlmAdapter(settings) as zlm:
-            if not zlm.load_mp4_file(
-                app=cls.vod_app,
-                stream=stream,
-                file_path=str(plan.file_path),
-                seek_ms=plan.offset_ms,
-                speed=1.0,
-            ):
-                raise ApiError(
-                    status_code=503,
-                    code="playback_media_load_failed",
-                    message="ZLMediaKit could not load the recording.",
-                )
-
-        base = settings.zlm_public_base_url.rstrip("/")
-        unsigned_url = f"{base}/{cls.vod_app}/{stream}.live.mp4"
-        return ZlmMediaAccess(settings).sign_url(
-            unsigned_url,
-            app=cls.vod_app,
-            stream=stream,
-            ttl_seconds=cls.descriptor_ttl_seconds,
         )
