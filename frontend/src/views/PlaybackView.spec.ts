@@ -307,36 +307,36 @@ describe("PlaybackView server-resolved VOD", () => {
       camera_id: cameraId,
       detail: "hour",
       range: {
-        start_at: iso(-60),
-        end_at: iso(900)
+        start_at: iso(-1),
+        end_at: iso(20)
       },
       segments: [
         {
           id: firstId,
           playback_ref: firstId,
           start_at: iso(0),
-          end_at: iso(300),
+          end_at: iso(3),
           availability: "local"
         },
         {
           id: secondId,
           playback_ref: secondId,
-          start_at: iso(290),
-          end_at: iso(590),
+          start_at: iso(2),
+          end_at: iso(5),
           availability: "local"
         },
         {
           id: thirdId,
           playback_ref: thirdId,
-          start_at: iso(580),
-          end_at: iso(880),
+          start_at: iso(4),
+          end_at: iso(7),
           availability: "local"
         }
       ],
       recording_ranges: [
         {
           start_at: iso(0),
-          end_at: iso(880),
+          end_at: iso(7),
           availability: "local"
         }
       ],
@@ -352,12 +352,12 @@ describe("PlaybackView server-resolved VOD", () => {
             segmentId === firstId
               ? iso(0)
               : segmentId === secondId
-                ? iso(290)
-                : iso(580),
+                ? iso(2)
+                : iso(4),
           offset_ms: offsetMs,
           transport: "mp4",
           url: `/api/v1/recordings/${segmentId}/media`,
-          expires_at: iso(900),
+          expires_at: iso(20),
           codec: "h264"
         })
     )
@@ -385,7 +385,7 @@ describe("PlaybackView server-resolved VOD", () => {
         },
         duration: {
           configurable: true,
-          value: 300
+          value: 3
         },
         paused: {
           configurable: true,
@@ -400,7 +400,7 @@ describe("PlaybackView server-resolved VOD", () => {
           value: {
             length: 1,
             start: () => 0,
-            end: () => 300
+            end: () => 3
           }
         }
       })
@@ -419,9 +419,9 @@ describe("PlaybackView server-resolved VOD", () => {
     await firstStandby.trigger("loadedmetadata")
     await firstStandby.trigger("canplay")
 
-    expect(firstStandbySeek).toHaveBeenCalledWith(10)
+    expect(firstStandbySeek).toHaveBeenCalledWith(1)
     await active.trigger("playing")
-    await vi.advanceTimersByTimeAsync(300_000)
+    await vi.advanceTimersByTimeAsync(3_000)
     await flushPromises()
 
     const reusedVideos = wrapper.findAll("video")
@@ -441,7 +441,7 @@ describe("PlaybackView server-resolved VOD", () => {
     await reusedStandby!.trigger("canplay")
 
     expect(reusedStandbySeek).toHaveBeenCalledTimes(1)
-    expect(reusedStandbySeek).toHaveBeenCalledWith(10)
+    expect(reusedStandbySeek).toHaveBeenCalledWith(1)
     expect(
       apiMocks.resolveRecordingSegment
     ).toHaveBeenCalledTimes(3)
