@@ -3761,11 +3761,12 @@ strong {
 
 .storage-editor__header {
   display: flex;
-  min-height: 54px;
+  min-height: 56px;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px 0 13px;
-  border-bottom: 1px solid var(--border-subtle);
+  padding: 0 18px;
+  border-bottom: 1px solid var(--uf-border);
+  background: var(--uf-bg-card);
 }
 
 .storage-editor__header strong,
@@ -3774,32 +3775,34 @@ strong {
 }
 
 .storage-editor__header strong {
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--uf-text-primary);
 }
 
 .storage-editor__header span {
   margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 9px;
+  color: var(--uf-text-muted);
+  font-size: 11px;
 }
 
 .storage-editor__form {
   display: grid;
-  gap: 11px;
-  padding: 13px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .storage-editor__form > label,
 .retention-days-grid label {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .storage-editor__form label > span,
 .retention-days-grid label > span {
-  color: var(--text-muted);
-  font-size: 8px;
-  font-weight: 650;
+  color: var(--uf-text-muted);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -3809,36 +3812,37 @@ strong {
 .storage-editor__form textarea,
 .retention-days-grid input {
   width: 100%;
-  min-height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--uf-border);
+  border-radius: 8px;
   outline: 0;
-  background: var(--surface-base);
-  color: var(--text-primary);
+  background: var(--uf-bg-input);
+  color: var(--uf-text-primary);
   font: inherit;
-  font-size: 10px;
+  font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .storage-editor__form textarea {
   min-height: 160px;
-  padding-block: 8px;
+  padding: 10px;
   resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
-  line-height: 1.45;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .storage-editor__form input:focus,
 .storage-editor__form select:focus,
 .storage-editor__form textarea:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-color: var(--uf-accent);
+  box-shadow: 0 0 0 3px var(--uf-accent-soft);
 }
 
 .storage-editor__form label small {
-  color: var(--text-muted);
-  font-size: 8px;
+  color: var(--uf-text-muted);
+  font-size: 11px;
 }
 
 .storage-check {
@@ -4902,18 +4906,38 @@ strong {
   text-align: right;
 }
 
+.unifi-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+@keyframes slideDrawer {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
 .system-drawer {
   position: fixed;
   top: var(--topbar-height);
   right: 0;
   bottom: 0;
-  z-index: 35;
-  width: min(440px, 94vw);
+  z-index: 45;
+  width: min(480px, 94vw);
   overflow-y: auto;
   border-left: 1px solid var(--uf-border);
   background: var(--uf-bg-card);
   box-shadow: var(--uf-shadow-lg);
   padding: 24px;
+  animation: slideDrawer 0.22s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .system-role-list {

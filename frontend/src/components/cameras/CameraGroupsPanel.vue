@@ -238,7 +238,8 @@ onMounted(() => {
       </article>
     </div>
 
-    <aside v-if="editorOpen" class="camera-group-drawer">
+    <div v-if="editorOpen" class="camera-group-drawer-backdrop" @click.self="editorOpen = false">
+      <aside class="camera-group-drawer" @click.stop>
       <header class="storage-editor__header">
         <div>
           <strong>
@@ -336,7 +337,8 @@ onMounted(() => {
           </button>
         </div>
       </form>
-    </aside>
+      </aside>
+    </div>
   </section>
 </template>
 
@@ -434,34 +436,54 @@ onMounted(() => {
   gap: 3px;
 }
 
-.camera-group-drawer {
+.camera-group-drawer-backdrop {
   position: fixed;
-  top: var(--topbar-height);
-  right: 0;
-  bottom: 0;
-  z-index: 45;
-  width: min(400px, 94vw);
+  inset: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.camera-group-drawer {
+  position: relative;
+  width: min(440px, 94vw);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
   overflow-y: auto;
-  border-left: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-  box-shadow: -16px 0 42px rgba(0, 0, 0, 0.18);
+  border-left: 1px solid var(--uf-border);
+  background: var(--uf-bg-card);
+  box-shadow: var(--uf-shadow-lg);
+  animation: slideDrawer 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawer {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 
 .camera-group-form {
   display: grid;
-  gap: 11px;
-  padding: 12px;
+  gap: 14px;
+  padding: 18px;
 }
 
 .camera-group-form > label {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .camera-group-form label > span {
-  color: var(--text-muted);
-  font-size: 8px;
-  font-weight: 650;
+  color: var(--uf-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
@@ -469,41 +491,53 @@ onMounted(() => {
 .camera-group-form textarea,
 .camera-group-form select {
   width: 100%;
-  min-height: 34px;
-  padding: 0 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--uf-border);
+  border-radius: 8px;
   outline: 0;
-  background: var(--surface-base);
-  color: var(--text-primary);
+  background: var(--uf-bg-input);
+  color: var(--uf-text-primary);
   font: inherit;
-  font-size: 9px;
+  font-size: 13px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.camera-group-form input:focus,
+.camera-group-form textarea:focus,
+.camera-group-form select:focus {
+  border-color: var(--uf-accent);
+  box-shadow: 0 0 0 3px var(--uf-accent-soft);
 }
 
 .camera-group-form textarea {
-  min-height: 70px;
-  padding-block: 7px;
+  min-height: 80px;
+  padding: 8px 10px;
   resize: vertical;
 }
 
 .camera-group-form fieldset {
   margin: 0;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  padding: 12px;
+  border: 1px solid var(--uf-border);
+  border-radius: 10px;
+  background: var(--uf-bg-card-sub);
 }
 
 .camera-group-form legend {
-  padding: 0 5px;
-  color: var(--text-muted);
-  font-size: 8px;
-  font-weight: 650;
+  padding: 0 6px;
+  color: var(--uf-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .camera-group-camera-list {
   display: grid;
-  gap: 4px;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
 }
 
 .camera-group-camera-list button {
@@ -511,19 +545,25 @@ onMounted(() => {
   min-height: 44px;
   grid-template-columns: 8px minmax(0, 1fr) 18px;
   align-items: center;
-  gap: 7px;
-  padding: 5px 7px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--surface-base);
-  color: var(--text-primary);
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--uf-border);
+  border-radius: 8px;
+  background: var(--uf-bg-card);
+  color: var(--uf-text-primary);
   cursor: pointer;
   text-align: left;
+  transition: all 0.15s ease;
+}
+
+.camera-group-camera-list button:hover {
+  background: var(--uf-bg-hover);
 }
 
 .camera-group-camera-list .camera-group-camera--selected {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 1px var(--accent);
+  border-color: var(--uf-accent);
+  background: var(--uf-accent-soft);
+  box-shadow: 0 0 0 1px var(--uf-accent);
 }
 
 .camera-group-camera-list strong,
@@ -532,12 +572,14 @@ onMounted(() => {
 }
 
 .camera-group-camera-list strong {
-  font-size: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--uf-text-primary);
 }
 
 .camera-group-camera-list small {
   margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 7px;
+  color: var(--uf-text-muted);
+  font-size: 11px;
 }
 </style>
