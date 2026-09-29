@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 
 import {
@@ -54,7 +54,19 @@ type WorkingAction =
   | "create"
   | null
 
-const mode = ref<Mode>("onvif")
+const props = withDefaults(
+  defineProps<{
+    initialMode?: Mode
+  }>(),
+  {
+    initialMode: "onvif"
+  }
+)
+
+const mode = ref<Mode>(props.initialMode)
+watch(() => props.initialMode, (val) => {
+  if (val) mode.value = val
+})
 const working = ref<WorkingAction>(null)
 const requestError = ref<string | null>(null)
 const successMessage = ref<string | null>(null)
