@@ -154,7 +154,7 @@ const probing = ref(false)
 const verifyingStreamId = ref<string | null>(null)
 
 // Live Streaming state (Powered by LiveCameraTile, same engine as LiveView)
-const previewPlaying = ref(true)
+const previewPlaying = ref(false)
 
 function startPreview(): void {
   if (!props.camera.enabled) return
@@ -1128,42 +1128,54 @@ onBeforeUnmount(() => {
             type="button"
             class="preview-toggle-btn"
             :class="{ 'preview-toggle-btn--active': previewPlaying }"
-            :title="previewPlaying ? '暂停实时画面以节省带宽' : '恢复实时画面'"
+            :title="previewPlaying ? '暂停实时画面以节省带宽' : '播放实时画面'"
             @click="previewPlaying = !previewPlaying"
           >
             <span class="live-dot" :class="{ 'animate-pulse': previewPlaying, 'live-dot--paused': !previewPlaying }"></span>
-            <span>{{ previewPlaying ? '正在直播' : '已暂停' }}</span>
+            <span>{{ previewPlaying ? '正在直播' : '未播放' }}</span>
           </button>
         </div>
       </div>
 
       <div class="preview-stage-box" :class="{ 'preview-stage-box--idle': !previewPlaying }">
-        <LiveCameraTile
-          v-if="camera.enabled && previewPlaying"
-          :camera="detail || camera"
-          quality="low"
-          :allow-high-quality="true"
-          :playback-enabled="true"
-          :audio-enabled="false"
-          @playback-change="(_id, enabled) => previewPlaying = enabled"
-        />
+        <template v-if="camera.enabled">
+          <LiveCameraTile
+            v-if="previewPlaying"
+            :camera="detail || camera"
+            quality="low"
+            :allow-high-quality="true"
+            :playback-enabled="true"
+            :audio-enabled="false"
+            @playback-change="(_id, enabled) => previewPlaying = enabled"
+          />
 
-        <div v-else-if="!camera.enabled" class="preview-empty-state">
+          <!-- Center Play/Pause Overlay Button -->
+          <div
+            class="preview-center-overlay"
+            :class="{ 'preview-center-overlay--active': !previewPlaying }"
+            @click="!previewPlaying && startPreview()"
+          >
+            <button
+              type="button"
+              class="preview-center-btn"
+              :class="{ 'preview-center-btn--pause': previewPlaying }"
+              :title="previewPlaying ? '暂停实时画面' : '播放实时画面'"
+              @click.stop="previewPlaying = !previewPlaying"
+            >
+              <span class="preview-center-icon">{{ previewPlaying ? '⏸' : '▶' }}</span>
+            </button>
+            <div class="preview-center-label">
+              <strong>{{ previewPlaying ? '暂停实时画面' : '播放实时画面' }}</strong>
+              <small>{{ previewPlaying ? '点击暂停以节省网络带宽' : '基于 WebRTC (WHEP) / HLS 极速拉流' }}</small>
+            </div>
+          </div>
+        </template>
+
+        <div v-else class="preview-empty-state">
           <UiIcon name="camera" :size="32" class="text-gray-500 mb-2" />
           <strong>摄像机已禁用</strong>
           <span>启用设备后才能拉取实时画面</span>
         </div>
-
-        <button
-          v-else
-          type="button"
-          class="preview-play-btn"
-          @click="startPreview"
-        >
-          <span class="preview-play-icon">▶</span>
-          <strong>播放实时画面</strong>
-          <small>点击连接实时码流 (WebRTC WHEP / HLS)</small>
-        </button>
       </div>
     </section>
 
@@ -2363,10 +2375,116 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
+.preview-stage-box--idle {
+  background: radial-gradient(circle at center, #141824 0%, #06070a 100%);
+}
+
 .preview-stage-box :deep(.live-tile) {
   width: 100%;
   height: 100%;
   border: none;
+}
+
+/* Center Play/Pause Overlay */
+.preview-center-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 10;
+  transition: all 0.2s ease;
+  pointer-events: none;
+}
+
+/* Idle (not playing): overlay is always active and intercepts clicks */
+.preview-stage-box--idle .preview-center-overlay {
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Playing: hidden by default, smoothly revealed on hover */
+.preview-stage-box:not(.preview-stage-box--idle) .preview-center-overlay {
+  opacity: 0;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.preview-stage-box:not(.preview-stage-box--idle):hover .preview-center-overlay {
+  opacity: 1;
+}
+
+.preview-center-btn {
+  pointer-events: auto;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: 2px solid var(--uf-accent);
+  background: var(--uf-accent-soft);
+  color: var(--uf-accent);
+  display: grid;
+  place-items: center;
+  font-size: 20px;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.preview-center-btn:hover {
+  transform: scale(1.1);
+  background: var(--uf-accent);
+  color: #ffffff;
+  box-shadow: 0 0 20px var(--uf-accent-glow);
+}
+
+.preview-center-btn--pause {
+  border-color: rgba(255, 255, 255, 0.5);
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+}
+
+.preview-center-btn--pause:hover {
+  border-color: #ef4444;
+  background: #ef4444;
+  color: #ffffff;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+}
+
+.preview-center-icon {
+  display: inline-block;
+  line-height: 1;
+  margin-left: 2px;
+}
+
+.preview-center-btn--pause .preview-center-icon {
+  margin-left: 0;
+}
+
+.preview-center-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+  pointer-events: none;
+}
+
+.preview-center-label strong {
+  font-size: 13px;
+  font-weight: 700;
+  color: #ffffff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+}
+
+.preview-center-label small {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.7);
 }
 
 .preview-empty-state {
@@ -2387,55 +2505,6 @@ onBeforeUnmount(() => {
 .preview-empty-state span {
   margin-top: 2px;
   font-size: 11px;
-}
-
-.preview-play-btn {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 100%;
-  height: 100%;
-  border: none;
-  background: transparent;
-  color: var(--uf-text-muted);
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.preview-play-btn:hover {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--uf-text-primary);
-}
-
-.preview-play-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: var(--uf-accent-soft);
-  border: 1px solid var(--uf-accent);
-  color: var(--uf-accent);
-  display: grid;
-  place-items: center;
-  font-size: 15px;
-  padding-left: 3px;
-  margin-bottom: 2px;
-  transition: transform 0.15s ease;
-}
-
-.preview-play-btn:hover .preview-play-icon {
-  transform: scale(1.08);
-}
-
-.preview-play-btn strong {
-  font-size: 12px;
-  color: var(--uf-text-primary);
-}
-
-.preview-play-btn small {
-  font-size: 10px;
-  color: var(--uf-text-muted);
 }
 
 /* Quick Operations Bar */

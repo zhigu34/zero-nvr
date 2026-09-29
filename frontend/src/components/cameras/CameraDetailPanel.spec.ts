@@ -547,4 +547,56 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
 
     expect(apiMocks.updateCamera).toHaveBeenCalledWith(camId, { maintenance: true })
   })
+
+  it("defaults live preview to paused and toggles via center play button", async () => {
+    const wrapper = mount(CameraDetailPanel, {
+      props: {
+        camera: {
+          id: camId,
+          name: "Front Door 4K",
+          enabled: true,
+          maintenance: false,
+          retired_at: null,
+          location: "Entrance",
+          storage_label: "local-fast",
+          adapter_type: "onvif",
+          time_sync_mode: "manage_ntp",
+          ptz_capable: false
+        }
+      },
+      global: {
+        stubs: {
+          LiveCameraTile: {
+            template: `<div class="mock-live-camera-tile">LiveCameraTile</div>`
+          }
+        }
+      }
+    })
+    await flushPromises()
+
+    // Initially preview is NOT playing
+    expect(wrapper.find(".preview-toggle-btn").text()).toContain("未播放")
+    expect(wrapper.find(".mock-live-camera-tile").exists()).toBe(false)
+
+    // Center play button exists
+    const centerBtn = wrapper.find(".preview-center-btn")
+    expect(centerBtn.exists()).toBe(true)
+    expect(centerBtn.classes()).not.toContain("preview-center-btn--pause")
+
+    // Clicking center play button starts stream
+    await centerBtn.trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find(".preview-toggle-btn").text()).toContain("正在直播")
+    expect(wrapper.find(".mock-live-camera-tile").exists()).toBe(true)
+    expect(centerBtn.classes()).toContain("preview-center-btn--pause")
+
+    // Clicking pause button stops stream
+    await centerBtn.trigger("click")
+    await flushPromises()
+
+    expect(wrapper.find(".preview-toggle-btn").text()).toContain("未播放")
+    expect(wrapper.find(".mock-live-camera-tile").exists()).toBe(false)
+  })
 })
+
