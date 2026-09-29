@@ -229,6 +229,7 @@ onBeforeUnmount(() => {
 /* ===== Dock 侧边栏 ===== */
 /* 对应原型: w-14 bg-[#10131b] border-r border-white/5 flex flex-col items-center py-3.5 justify-between */
 .sidebar {
+  position: relative;
   width: 56px;
   min-width: 56px;
   background-color: #10131b;
@@ -405,6 +406,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background-color: var(--surface-base);
   min-width: 0;
+  margin-left: 0 !important;
 }
 
 /* 普通页面的通用标题栏 */
