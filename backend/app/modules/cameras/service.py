@@ -433,6 +433,18 @@ class CameraService:
                     field,
                     changes[field],
                 )
+        if any(f in changes for f in ("manufacturer", "model", "form_factor")):
+            if camera.device_id is not None:
+                device = session.get(Device, camera.device_id)
+                if device is not None:
+                    if "manufacturer" in changes and changes["manufacturer"] is not None:
+                        device.manufacturer = str(changes["manufacturer"])
+                    if "model" in changes and changes["model"] is not None:
+                        device.model = str(changes["model"])
+                    if "form_factor" in changes and changes["form_factor"] is not None:
+                        caps = dict(device.capabilities_json or {})
+                        caps["form_factor"] = str(changes["form_factor"])
+                        device.capabilities_json = caps
         if runtime_changed:
             CameraService.bump_config_revision(
                 camera

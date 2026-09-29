@@ -12,6 +12,12 @@ vi.mock("vue-i18n", () => ({
   })
 }))
 
+vi.mock("vue-router", () => ({
+  useRouter: () => ({
+    push: vi.fn()
+  })
+}))
+
 vi.mock("../../stores/auth", () => ({
   useAuthStore: () => ({
     hasPermission: () => true
@@ -26,6 +32,8 @@ const apiMocks = vi.hoisted(() => ({
   restoreCamera: vi.fn(),
   refreshOnvifCapabilities: vi.fn(),
   replaceCameraBindings: vi.fn(),
+  probeCamera: vi.fn(),
+  verifyCameraStream: vi.fn(),
   getRecordingPolicy: vi.fn(),
   putRecordingPolicy: vi.fn(),
   listRecordingTriggers: vi.fn(),
@@ -42,7 +50,9 @@ vi.mock("../../api/cameras", () => ({
   retireCamera: apiMocks.retireCamera,
   restoreCamera: apiMocks.restoreCamera,
   refreshOnvifCapabilities: apiMocks.refreshOnvifCapabilities,
-  replaceCameraBindings: apiMocks.replaceCameraBindings
+  replaceCameraBindings: apiMocks.replaceCameraBindings,
+  probeCamera: apiMocks.probeCamera,
+  verifyCameraStream: apiMocks.verifyCameraStream
 }))
 
 vi.mock("../../api/recordings", () => ({
@@ -318,6 +328,167 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
         pre_roll_seconds: 10,
         post_roll_seconds: 15,
         segment_target_seconds: 300
+      })
+    )
+  })
+
+  it("renders hero card, fast navigation between cameras, and triggers probe", async () => {
+    apiMocks.probeCamera.mockResolvedValue({
+      id: camId,
+      name: "Front Door 4K",
+      manufacturer: "Hikvision",
+      model: "DS-2CD2T87G2-L",
+      form_factor: "bullet",
+      video_codec: "h265",
+      width: 3840,
+      height: 2160,
+      fps: 25,
+      audio_codec: "aac",
+      connectivity_status: "online",
+      last_probe_at: "2026-09-29T11:00:00Z",
+      streams: [],
+      bindings: []
+    })
+
+    const wrapper = mount(CameraDetailPanel, {
+      props: {
+        camera: {
+          id: camId,
+          name: "Front Door 4K",
+          enabled: true,
+          maintenance: false,
+          retired_at: null,
+          location: "Entrance",
+          storage_label: "local-fast",
+          adapter_type: "onvif",
+          time_sync_mode: "manage_ntp",
+          ptz_capable: false
+        },
+        cameras: [
+          {
+            id: camId,
+            name: "Front Door 4K",
+            enabled: true,
+            maintenance: false,
+            retired_at: null,
+            location: "Entrance",
+            storage_label: "local-fast",
+            adapter_type: "onvif",
+            time_sync_mode: "manage_ntp",
+            ptz_capable: false
+          },
+          {
+            id: "00000000-0000-0000-0000-000000000002",
+            name: "Backyard PTZ",
+            enabled: true,
+            maintenance: false,
+            retired_at: null,
+            location: "Backyard",
+            storage_label: null,
+            adapter_type: "onvif",
+            time_sync_mode: "monitor",
+            ptz_capable: true
+          }
+        ]
+      }
+    })
+
+    await flushPromises()
+
+    // Hero card renders
+    expect(wrapper.find(".device-hero-card").exists()).toBe(true)
+
+    // Fast navigation buttons
+    const navStepBtns = wrapper.findAll(".nav-step-btn")
+    expect(navStepBtns.length).toBe(2)
+    // First button (prev) is disabled because index is 0
+    expect(navStepBtns[0].attributes("disabled")).toBeDefined()
+    // Second button (next) is enabled
+    expect(navStepBtns[1].attributes("disabled")).toBeUndefined()
+
+    await navStepBtns[1].trigger("click")
+    expect(wrapper.emitted("navigate")).toBeTruthy()
+    expect(wrapper.emitted("navigate")![0][0]).toEqual(
+      expect.objectContaining({ name: "Backyard PTZ" })
+    )
+
+    // Probe button trigger
+    const probeBtn = wrapper.find(".quick-action-btn")
+    expect(probeBtn.text()).toContain("连接检测")
+    await probeBtn.trigger("click")
+    await flushPromises()
+
+    expect(apiMocks.probeCamera).toHaveBeenCalledWith(camId)
+  })
+
+  it("verifies stream profile and saves general form with manufacturer & form_factor", async () => {
+    apiMocks.updateCamera.mockResolvedValue({
+      id: camId,
+      name: "Front Door 4K Pro",
+      manufacturer: "Hikvision",
+      model: "DS-2CD2T87G2-L",
+      form_factor: "bullet",
+      location: "East Gate",
+      storage_label: "pool-nvme",
+      enabled: true,
+      maintenance: false,
+      retired_at: null,
+      adapter_type: "onvif",
+      time_sync_mode: "manage_ntp",
+      ptz_capable: false,
+      streams: [],
+      bindings: []
+    })
+
+    const wrapper = mount(CameraDetailPanel, {
+      props: {
+        camera: {
+          id: camId,
+          name: "Front Door 4K",
+          enabled: true,
+          maintenance: false,
+          retired_at: null,
+          location: "Entrance",
+          storage_label: "local-fast",
+          adapter_type: "onvif",
+          time_sync_mode: "manage_ntp",
+          ptz_capable: false
+        }
+      }
+    })
+
+    await flushPromises()
+
+    // Test stream verify in streams tab
+    const tabs = wrapper.findAll(".camera-detail-tabs button")
+    await tabs[1].trigger("click") // streams tab
+    await flushPromises()
+
+    const verifyBtn = wrapper.find(".stream-actions button")
+    expect(verifyBtn.exists()).toBe(true)
+    await verifyBtn.trigger("click")
+    await flushPromises()
+
+    expect(apiMocks.verifyCameraStream).toHaveBeenCalledWith(camId, "str-1")
+
+    // Test saving general form
+    await tabs[0].trigger("click") // general tab
+    await flushPromises()
+
+    const brandPills = wrapper.findAll(".brand-pill")
+    expect(brandPills.length).toBeGreaterThan(0)
+    // Click first brand pill (Hikvision)
+    await brandPills[0].trigger("click")
+    await flushPromises()
+
+    const form = wrapper.find(".camera-detail-form")
+    await form.trigger("submit")
+    await flushPromises()
+
+    expect(apiMocks.updateCamera).toHaveBeenCalledWith(
+      camId,
+      expect.objectContaining({
+        manufacturer: expect.stringContaining("海康威视")
       })
     )
   })

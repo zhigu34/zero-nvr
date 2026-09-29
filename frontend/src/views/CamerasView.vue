@@ -24,7 +24,7 @@
  *    - 速度调节滑块 (1-10 档平滑调速) 与预置位扩展槽位。
  */
 
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
@@ -33,14 +33,17 @@ import {
   getCameraClock,
   listCameras,
   moveCameraPtz,
+  probeCamera,
   stopCameraPtz,
   updateCamera,
   type CameraClockProjection,
   type CameraDetail,
+  type CameraFormFactor,
   type CameraSummary
 } from "../api/cameras"
 import { errorMessage } from "../api/client"
 import CameraDetailPanel from "../components/cameras/CameraDetailPanel.vue"
+import CameraDeviceGlyph from "../components/cameras/CameraDeviceGlyph.vue"
 import CameraGroupsPanel from "../components/cameras/CameraGroupsPanel.vue"
 import CameraOnboardingPanel from "../components/cameras/CameraOnboardingPanel.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
@@ -56,6 +59,13 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 
+// Search & Sort state
+const searchQuery = ref("")
+const sortKey = ref<"attention" | "name" | "ip" | "status">("attention")
+const batchProbeRunning = ref(false)
+const batchProbeProgress = reactive({ current: 0, total: 0, success: 0, failed: 0 })
+const singleProbingId = ref<string | null>(null)
+
 // Auxiliary data maps (100% genuine backend data)
 const cameraDetailsMap = ref<Map<string, CameraDetail>>(new Map())
 const cameraClocksMap = ref<Map<string, CameraClockProjection>>(new Map())
@@ -65,7 +75,7 @@ const showOnboarding = ref(false)
 const onboardingMode = ref<"onvif" | "rtsp" | "batch_file">("onvif")
 const selectedCamera = ref<CameraSummary | null>(null)
 const workspace = ref<"cameras" | "groups">("cameras")
-const activeFilter = ref<"all" | "online" | "maintenance" | "disabled" | "retired">("all")
+const activeFilter = ref<"all" | "online" | "issue" | "maintenance" | "disabled" | "retired">("all")
 
 // PTZ Modal State
 const ptzModalOpen = ref(false)
@@ -90,14 +100,135 @@ const retiredCameras = computed(() => cameras.value.filter((c) => Boolean(c.reti
 const onlineCameras = computed(() => activeCameras.value.filter((c) => c.enabled && !c.maintenance))
 const maintenanceCameras = computed(() => activeCameras.value.filter((c) => c.maintenance))
 const disabledCameras = computed(() => activeCameras.value.filter((c) => !c.enabled))
+const issueCameras = computed(() =>
+  activeCameras.value.filter((c) => c.enabled && (c.connectivity_status === "offline" || !c.video_codec || !c.last_probe_at))
+)
+
+const batchProbeLabel = computed(() =>
+  batchProbeRunning.value
+    ? `检测中 ${batchProbeProgress.current}/${batchProbeProgress.total}`
+    : `异常设备检测 (${issueCameras.value.length} 台)`
+)
+
+function compareCameraNames(left: CameraSummary, right: CameraSummary) {
+  return left.name.localeCompare(right.name, "zh-CN", { numeric: true, sensitivity: "base" }) || left.id.localeCompare(right.id)
+}
+
+function ipParts(camera: CameraSummary) {
+  if (!camera.ip) return []
+  return camera.ip.split(".").map((part) => {
+    const value = Number(part)
+    return Number.isInteger(value) && value >= 0 && value <= 255 ? value : null
+  })
+}
+
+function compareCameraIps(left: CameraSummary, right: CameraSummary) {
+  const leftParts = ipParts(left)
+  const rightParts = ipParts(right)
+  if (leftParts.length === 4 && rightParts.length === 4 && leftParts.every((part) => part !== null) && rightParts.every((part) => part !== null)) {
+    for (let index = 0; index < 4; index += 1) {
+      const difference = (leftParts[index] as number) - (rightParts[index] as number)
+      if (difference !== 0) return difference
+    }
+  } else {
+    const textDifference = (left.ip || "").localeCompare(right.ip || "", undefined, { numeric: true, sensitivity: "base" })
+    if (textDifference !== 0) return textDifference
+  }
+  return (left.port || 554) - (right.port || 554) || compareCameraNames(left, right)
+}
+
+function attentionRank(camera: CameraSummary) {
+  if (!camera.enabled) return 5
+  if (camera.connectivity_status === "offline") return 0
+  if (!camera.last_probe_at || !camera.video_codec) return 1
+  if (camera.maintenance) return 2
+  return 3
+}
+
+function compareCameras(left: CameraSummary, right: CameraSummary) {
+  if (sortKey.value === "name") return compareCameraNames(left, right)
+  if (sortKey.value === "ip") return compareCameraIps(left, right)
+  if (sortKey.value === "status") {
+    const lRank = left.enabled ? (left.maintenance ? 1 : 0) : 2
+    const rRank = right.enabled ? (right.maintenance ? 1 : 0) : 2
+    return lRank - rRank || compareCameraNames(left, right)
+  }
+  return attentionRank(left) - attentionRank(right) || compareCameraNames(left, right)
+}
 
 const filteredCameras = computed(() => {
-  if (activeFilter.value === "retired") return retiredCameras.value
-  if (activeFilter.value === "online") return onlineCameras.value
-  if (activeFilter.value === "maintenance") return maintenanceCameras.value
-  if (activeFilter.value === "disabled") return disabledCameras.value
-  return activeCameras.value
+  let list: CameraSummary[] = []
+  if (activeFilter.value === "retired") list = retiredCameras.value
+  else if (activeFilter.value === "online") list = onlineCameras.value
+  else if (activeFilter.value === "issue") list = issueCameras.value
+  else if (activeFilter.value === "maintenance") list = maintenanceCameras.value
+  else if (activeFilter.value === "disabled") list = disabledCameras.value
+  else list = activeCameras.value
+
+  const needle = searchQuery.value.trim().toLowerCase()
+  if (needle) {
+    list = list.filter((c) => {
+      const texts = [c.name, c.manufacturer || "", c.model || "", c.location || "", c.ip || "", c.adapter_type || "", c.storage_label || ""]
+      return texts.some((t) => t.toLowerCase().includes(needle))
+    })
+  }
+
+  return [...list].sort(compareCameras)
 })
+
+async function runQuickProbe(camera: CameraSummary): Promise<void> {
+  if (singleProbingId.value || batchProbeRunning.value) return
+  singleProbingId.value = camera.id
+  try {
+    const updated = await probeCamera(camera.id)
+    cameraDetailsMap.value.set(camera.id, updated)
+    const idx = cameras.value.findIndex((c) => c.id === camera.id)
+    if (idx >= 0) {
+      cameras.value[idx] = {
+        ...cameras.value[idx],
+        video_codec: updated.video_codec,
+        width: updated.width,
+        height: updated.height,
+        fps: updated.fps,
+        audio_codec: updated.audio_codec,
+        connectivity_status: updated.connectivity_status,
+        last_probe_at: updated.last_probe_at,
+        last_online_at: updated.last_online_at
+      }
+    }
+    const fpsStr = updated.fps ? ` · ${Math.round(updated.fps)} FPS` : ""
+    showToast(`🔍 ${camera.name} 连接检测完成：${updated.video_codec?.toUpperCase() || 'H.264'} ${updated.width && updated.height ? `${updated.width}×${updated.height}` : ''}${fpsStr}`)
+  } catch (caught) {
+    showToast(`❌ ${camera.name} 连接检测失败: ${errorMessage(caught)}`)
+  } finally {
+    singleProbingId.value = null
+  }
+}
+
+async function runBatchProbe(): Promise<void> {
+  if (batchProbeRunning.value || singleProbingId.value) return
+  const targets = [...issueCameras.value]
+  if (!targets.length) {
+    showToast("当前没有需要检测的异常设备")
+    return
+  }
+  batchProbeRunning.value = true
+  Object.assign(batchProbeProgress, { current: 0, total: targets.length, success: 0, failed: 0 })
+  for (const camera of targets) {
+    try {
+      const updated = await probeCamera(camera.id)
+      cameraDetailsMap.value.set(camera.id, updated)
+      batchProbeProgress.success += 1
+    } catch {
+      batchProbeProgress.failed += 1
+    } finally {
+      batchProbeProgress.current += 1
+    }
+  }
+  batchProbeRunning.value = false
+  await refresh()
+  showToast(`异常设备批量检测完成：成功 ${batchProbeProgress.success} 台，失败 ${batchProbeProgress.failed} 台`)
+}
 
 function adapterLabel(value: string | null): string {
   const normalized = value?.toLowerCase() || "manual_rtsp"
@@ -468,6 +599,16 @@ onBeforeUnmount(() => {
       </button>
 
       <button
+        v-if="issueCameras.length"
+        type="button"
+        class="chip-btn chip-btn--issue"
+        :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'issue' }"
+        @click="workspace = 'cameras'; activeFilter = 'issue'"
+      >
+        ⚠️ 异常 / 需检测 ({{ issueCameras.length }})
+      </button>
+
+      <button
         v-if="disabledCameras.length"
         type="button"
         class="chip-btn"
@@ -496,6 +637,56 @@ onBeforeUnmount(() => {
       >
         📦 退役归档 ({{ retiredCameras.length }})
       </button>
+    </div>
+
+    <!-- Search & Sort Toolbar -->
+    <div v-if="workspace === 'cameras'" class="devices-toolbar">
+      <div class="search-box-wrap">
+        <UiIcon name="search" :size="14" class="search-box-icon" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="搜索机位名称、厂商、型号、IP 地址或位置..."
+          class="devices-search-input"
+        />
+        <button
+          v-if="searchQuery"
+          type="button"
+          class="search-clear-btn"
+          title="清空搜索"
+          @click="searchQuery = ''"
+        >
+          <UiIcon name="close" :size="12" />
+        </button>
+      </div>
+
+      <div class="toolbar-right-actions">
+        <div class="sort-select-wrap">
+          <span class="sort-label">排序:</span>
+          <select v-model="sortKey" class="devices-sort-select">
+            <option value="attention">异常优先</option>
+            <option value="name">按机位名称</option>
+            <option value="ip">按 IP 地址</option>
+            <option value="status">按运行状态</option>
+          </select>
+        </div>
+
+        <button
+          v-if="issueCameras.length || batchProbeRunning"
+          type="button"
+          class="batch-probe-btn"
+          :disabled="batchProbeRunning"
+          title="一键探测所有异常与未检测机位的 RTSP 连通性并拉取分辨率"
+          @click="runBatchProbe"
+        >
+          <UiIcon name="search" :size="13" :class="{ 'animate-spin': batchProbeRunning }" />
+          <span>{{ batchProbeLabel }}</span>
+        </button>
+
+        <span class="result-count-label">
+          显示 {{ filteredCameras.length }} / {{ cameras.length }} 台
+        </span>
+      </div>
     </div>
 
     <!-- Sub-panel: Onboarding -->
@@ -534,7 +725,7 @@ onBeforeUnmount(() => {
               <th>多码流角色绑定 (Stream Profiles)</th>
               <th>时钟同步与漂移 (Clock Drift)</th>
               <th>PTZ 云台</th>
-              <th>状态</th>
+              <th>状态与检测</th>
               <th class="text-right">操作</th>
             </tr>
           </thead>
@@ -545,13 +736,28 @@ onBeforeUnmount(() => {
               class="devices-row"
               @click="openCamera(camera)"
             >
-              <!-- Name & Location -->
+              <!-- Name & Location & Glyph -->
               <td>
-                <div class="cam-name">{{ camera.name }}</div>
-                <div class="cam-sub">
-                  <span>{{ camera.location || '默认位置' }}</span>
-                  <span class="dot-sep">·</span>
-                  <span class="font-mono text-gray-400">{{ adapterLabel(camera.adapter_type) }}</span>
+                <div class="cam-name-cell">
+                  <div
+                    class="cam-glyph-box"
+                    :class="camera.enabled ? (camera.maintenance ? 'cam-glyph-box--maintenance' : 'cam-glyph-box--online') : 'cam-glyph-box--disabled'"
+                    :title="camera.form_factor || '未知机型'"
+                  >
+                    <CameraDeviceGlyph :form-factor="camera.form_factor || 'unknown'" />
+                  </div>
+                  <div class="cam-info-block">
+                    <div class="cam-name">{{ camera.name }}</div>
+                    <div class="cam-sub">
+                      <span v-if="camera.manufacturer || camera.model" class="font-medium text-gray-300">
+                        {{ [camera.manufacturer, camera.model].filter(Boolean).join(' ') }}
+                      </span>
+                      <span v-if="camera.manufacturer || camera.model" class="dot-sep">·</span>
+                      <span>{{ camera.location || '默认位置' }}</span>
+                      <span class="dot-sep">·</span>
+                      <span class="font-mono text-gray-400">{{ adapterLabel(camera.adapter_type) }}</span>
+                    </div>
+                  </div>
                 </div>
               </td>
 
@@ -602,20 +808,37 @@ onBeforeUnmount(() => {
                 <span v-else class="text-gray-500 text-[11px]">固定视角</span>
               </td>
 
-              <!-- Status Badge -->
+              <!-- Status Badge & Inline Probe -->
               <td>
-                <span v-if="camera.retired_at" class="status-pill status-pill--retired">
-                  📦 已退役
-                </span>
-                <span v-else-if="camera.maintenance" class="status-pill status-pill--maintenance">
-                  🔧 维护中
-                </span>
-                <span v-else-if="!camera.enabled" class="status-pill status-pill--disabled">
-                  🔴 已禁用
-                </span>
-                <span v-else class="status-pill status-pill--online">
-                  🟢 在线正常
-                </span>
+                <div class="status-cell-wrap">
+                  <span v-if="camera.retired_at" class="status-pill status-pill--retired">
+                    📦 已退役
+                  </span>
+                  <span v-else-if="camera.maintenance" class="status-pill status-pill--maintenance">
+                    🔧 维护中
+                  </span>
+                  <span v-else-if="!camera.enabled" class="status-pill status-pill--disabled">
+                    🔴 已禁用
+                  </span>
+                  <span v-else-if="camera.connectivity_status === 'offline'" class="status-pill status-pill--offline">
+                    ⚠️ 离线
+                  </span>
+                  <span v-else class="status-pill status-pill--online">
+                    🟢 在线正常
+                  </span>
+
+                  <button
+                    v-if="camera.enabled"
+                    type="button"
+                    class="quick-probe-btn"
+                    :disabled="singleProbingId === camera.id || batchProbeRunning"
+                    title="立即探测该机位码流参数"
+                    @click.stop="runQuickProbe(camera)"
+                  >
+                    <UiIcon name="search" :size="11" :class="{ 'animate-spin': singleProbingId === camera.id }" />
+                    <span>{{ singleProbingId === camera.id ? '检测中' : '检测' }}</span>
+                  </button>
+                </div>
               </td>
 
               <!-- Actions (Right Aligned) -->
@@ -658,8 +881,10 @@ onBeforeUnmount(() => {
     <CameraDetailPanel
       v-if="selectedCamera"
       :camera="selectedCamera"
+      :cameras="filteredCameras"
       @close="selectedCamera = null"
       @changed="handleCameraChanged"
+      @navigate="openCamera"
     />
 
     <!-- Interactive PTZ Modal (专业云台极速控制台) -->
@@ -1039,6 +1264,211 @@ onBeforeUnmount(() => {
   color: #ffffff;
   border-color: var(--uf-accent);
   box-shadow: 0 2px 8px var(--uf-accent-glow);
+}
+
+.chip-btn--issue {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+}
+
+.chip-btn--issue.chip-btn--active {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+}
+
+/* Devices Toolbar */
+.devices-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.search-box-wrap {
+  position: relative;
+  flex: 1;
+  min-width: 240px;
+  max-width: 480px;
+}
+
+.search-box-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--uf-text-muted);
+  pointer-events: none;
+}
+
+.devices-search-input {
+  width: 100%;
+  height: 34px;
+  padding: 0 28px 0 32px;
+  border: 1px solid var(--uf-border);
+  border-radius: 8px;
+  background: var(--uf-bg-card);
+  color: var(--uf-text-primary);
+  font-size: 11px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.devices-search-input:focus {
+  border-color: var(--uf-accent);
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--uf-text-muted);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+}
+
+.search-clear-btn:hover {
+  color: var(--uf-text-primary);
+}
+
+.toolbar-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.sort-select-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--uf-text-muted);
+}
+
+.devices-sort-select {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--uf-bg-card);
+  border: 1px solid var(--uf-border);
+  color: var(--uf-text-primary);
+  font-size: 11px;
+  outline: none;
+  cursor: pointer;
+}
+
+.batch-probe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.batch-probe-btn:hover:not(:disabled) {
+  background: rgba(245, 158, 11, 0.25);
+  border-color: #f59e0b;
+}
+
+.batch-probe-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.result-count-label {
+  font-size: 11px;
+  color: var(--uf-text-muted);
+  white-space: nowrap;
+}
+
+.cam-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cam-glyph-box {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--uf-bg-card-sub);
+  border: 1px solid var(--uf-border);
+  color: var(--uf-text-primary);
+  transition: border-color 0.15s ease;
+}
+
+.cam-glyph-box--online {
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #10b981;
+}
+
+.cam-glyph-box--maintenance {
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #f59e0b;
+}
+
+.cam-glyph-box--disabled {
+  border-color: var(--uf-border);
+  color: var(--uf-text-muted);
+  opacity: 0.5;
+}
+
+.cam-info-block {
+  min-width: 0;
+}
+
+.status-cell-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quick-probe-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--uf-bg-card-sub);
+  border: 1px solid var(--uf-border);
+  color: var(--uf-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.quick-probe-btn:hover:not(:disabled) {
+  border-color: var(--uf-accent);
+  color: var(--uf-accent);
+}
+
+.quick-probe-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.status-pill--offline {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
 }
 
 /* Devices Table Card */

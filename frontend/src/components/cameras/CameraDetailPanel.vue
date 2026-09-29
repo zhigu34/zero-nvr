@@ -8,16 +8,20 @@ import {
   watch
 } from "vue"
 import { useI18n } from "vue-i18n"
+import { useRouter } from "vue-router"
 
 import {
   getCamera,
+  probeCamera,
   refreshOnvifCapabilities,
   replaceCameraBindings,
   retireCamera,
   restoreCamera,
   setCameraEnabled,
   updateCamera,
+  verifyCameraStream,
   type CameraDetail,
+  type CameraFormFactor,
   type CameraStreamBinding,
   type CameraStreamProfile,
   type CameraSummary
@@ -43,6 +47,7 @@ import {
   type RetentionPolicy,
   type StorageTarget
 } from "../../api/storage"
+import CameraDeviceGlyph from "./CameraDeviceGlyph.vue"
 import UiIcon from "../ui/UiIcon.vue"
 import { useAuthStore } from "../../stores/auth"
 
@@ -51,15 +56,45 @@ type RecordingMode = "continuous" | "schedule" | "events" | "off"
 
 const props = defineProps<{
   camera: CameraSummary
+  cameras?: CameraSummary[]
 }>()
 
 const emit = defineEmits<{
   close: []
   changed: []
+  navigate: [camera: CameraSummary]
 }>()
 
+const router = useRouter()
 const auth = useAuthStore()
 const { t, te } = useI18n({ useScope: "global" })
+
+const formFactorOptions: Array<{ value: CameraFormFactor; label: string }> = [
+  { value: "unknown", label: "未指定 (Default)" },
+  { value: "bullet", label: "枪机 (Bullet)" },
+  { value: "dome", label: "半球 (Dome)" },
+  { value: "turret", label: "海螺 / 炮塔 (Turret)" },
+  { value: "ptz", label: "云台 (PTZ)" },
+  { value: "doorbell", label: "门铃 (Doorbell)" },
+  { value: "indoor", label: "室内桌面机 (Indoor)" },
+  { value: "panoramic", label: "全景 / 鱼眼 (Panoramic)" },
+]
+
+function formFactorLabel(val?: CameraFormFactor | string | null): string {
+  return formFactorOptions.find((o) => o.value === val)?.label || "未指定"
+}
+
+const POPULAR_MANUFACTURERS = [
+  "海康威视 Hikvision",
+  "大华 Dahua",
+  "宇视 Uniview",
+  "TP-LINK",
+  "华为 Huawei",
+  "小米/米家",
+  "雄迈/XM",
+  "安讯士 Axis"
+]
+
 const tab = ref<DetailTab>("general")
 const detail = ref<CameraDetail | null>(null)
 const policy = ref<RecordingPolicy | null>(null)
@@ -74,10 +109,153 @@ const retirementSaving = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
+// Navigation across cameras
+const navigationCameras = computed(() =>
+  props.cameras && props.cameras.length > 1 ? props.cameras : [props.camera]
+)
+const selectedNavigationIndex = computed(() =>
+  navigationCameras.value.findIndex((c) => c.id === props.camera.id)
+)
+const previousCamera = computed(() =>
+  selectedNavigationIndex.value > 0 ? navigationCameras.value[selectedNavigationIndex.value - 1] : null
+)
+const nextCamera = computed(() =>
+  selectedNavigationIndex.value >= 0 && selectedNavigationIndex.value < navigationCameras.value.length - 1
+    ? navigationCameras.value[selectedNavigationIndex.value + 1]
+    : null
+)
+
+function navigateTo(target: CameraSummary | null): void {
+  if (!target || probing.value) return
+  emit("navigate", target)
+}
+
+function handleKeyboardNav(event: KeyboardEvent): void {
+  const target = event.target as HTMLElement | null
+  if (target?.closest("input, textarea, select, button, [contenteditable='true']")) return
+  if (event.key === "ArrowLeft" && previousCamera.value) {
+    event.preventDefault()
+    navigateTo(previousCamera.value)
+  } else if (event.key === "ArrowRight" && nextCamera.value) {
+    event.preventDefault()
+    navigateTo(nextCamera.value)
+  }
+}
+
+// Probe & Stream verify state
+const probing = ref(false)
+const verifyingStreamId = ref<string | null>(null)
+
+// On-demand Live Preview state
+const previewPlaying = ref(false)
+const previewLoading = ref(false)
+const previewFailed = ref(false)
+const previewNonce = ref(Date.now())
+let previewInterval: number | null = null
+
+const previewSrc = computed(() => {
+  if (!previewPlaying.value || !props.camera?.id) return ""
+  return `/api/v1/cameras/${encodeURIComponent(props.camera.id)}/snapshot?_=${previewNonce.value}`
+})
+
+function startPreview(): void {
+  if (!props.camera.enabled) return
+  previewPlaying.value = true
+  previewLoading.value = true
+  previewFailed.value = false
+  previewNonce.value = Date.now()
+  if (previewInterval !== null) {
+    window.clearInterval(previewInterval)
+  }
+  previewInterval = window.setInterval(() => {
+    if (previewPlaying.value && !previewFailed.value) {
+      previewNonce.value = Date.now()
+    }
+  }, 3000)
+}
+
+function stopPreview(): void {
+  previewPlaying.value = false
+  previewLoading.value = false
+  if (previewInterval !== null) {
+    window.clearInterval(previewInterval)
+    previewInterval = null
+  }
+}
+
+function refreshPreview(): void {
+  previewLoading.value = true
+  previewFailed.value = false
+  previewNonce.value = Date.now()
+}
+
+function handlePreviewLoad(): void {
+  previewLoading.value = false
+  previewFailed.value = false
+}
+
+function handlePreviewError(): void {
+  previewLoading.value = false
+  previewFailed.value = true
+}
+
+function formatTime(val?: string | null): string {
+  if (!val) return "-"
+  const d = new Date(val)
+  return Number.isNaN(d.getTime()) ? val : d.toLocaleString()
+}
+
+const videoSummary = computed(() => {
+  const codec = detail.value?.video_codec || props.camera.video_codec
+  const width = detail.value?.width || props.camera.width
+  const height = detail.value?.height || props.camera.height
+  const fps = detail.value?.fps || props.camera.fps
+
+  const parts: string[] = []
+  if (codec) parts.push(codec.toUpperCase())
+  if (width && height) {
+    let res = `${width}×${height}`
+    if (width >= 3840) res = "4K (" + res + ")"
+    else if (width >= 2560) res = "2K (" + res + ")"
+    else if (width >= 1920) res = "1080P (" + res + ")"
+    else if (width >= 1280) res = "720P (" + res + ")"
+    parts.push(res)
+  }
+  if (fps) parts.push(`${Math.round(fps)} FPS`)
+  return parts.length ? parts.join(" · ") : "尚未获取视频规格"
+})
+
+const heroHealthClass = computed(() => {
+  if (!detail.value?.enabled) return "disabled"
+  if (detail.value?.maintenance) return "maintenance"
+  if (detail.value?.connectivity_status === "offline") return "offline"
+  if (detail.value?.connectivity_status === "online") return "online"
+  return "unknown"
+})
+
+const isRecording = computed(() => {
+  return Boolean(
+    activeManualTrigger.value ||
+    (policy.value?.runtime?.recording)
+  )
+})
+
+function jumpToLive(): void {
+  void router.push({ path: "/live", query: { camera: props.camera.id } })
+}
+
+function jumpToPlayback(): void {
+  void router.push({ path: "/playback", query: { camera: props.camera.id } })
+}
+
 const generalForm = reactive({
   name: "",
   location: "",
-  storageLabel: ""
+  storageLabel: "",
+  manufacturer: "",
+  model: "",
+  formFactor: "unknown" as CameraFormFactor,
+  timeSyncMode: "manage_ntp" as CameraSummary["time_sync_mode"]
 })
 
 const purposes: CameraStreamBinding["purpose"][] = [
@@ -216,6 +394,10 @@ function resetGeneral(value: CameraDetail): void {
   generalForm.name = value.name
   generalForm.location = value.location ?? ""
   generalForm.storageLabel = value.storage_label ?? ""
+  generalForm.manufacturer = value.manufacturer ?? ""
+  generalForm.model = value.model ?? ""
+  generalForm.formFactor = value.form_factor ?? "unknown"
+  generalForm.timeSyncMode = value.time_sync_mode ?? "manage_ntp"
 }
 
 function resetBindings(value: CameraDetail): void {
@@ -348,7 +530,11 @@ async function saveGeneral(): Promise<void> {
     const updated = await updateCamera(detail.value.id, {
       name: generalForm.name.trim(),
       location: generalForm.location.trim() || null,
-      storage_label: generalForm.storageLabel.trim() || null
+      storage_label: generalForm.storageLabel.trim() || null,
+      manufacturer: generalForm.manufacturer.trim() || null,
+      model: generalForm.model.trim() || null,
+      form_factor: generalForm.formFactor,
+      time_sync_mode: generalForm.timeSyncMode
     })
     detail.value = updated
     resetGeneral(updated)
@@ -781,9 +967,47 @@ function getConfidenceAdvice(val: number): { label: string; class: string } {
   return { label: `${pct}% · 高置信度 (仅在极明确目标时触发)`, class: "text-blue-400" }
 }
 
+async function handleProbeCamera(): Promise<void> {
+  if (!props.camera?.id || probing.value) return
+  probing.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const updated = await probeCamera(props.camera.id)
+    detail.value = updated
+    resetGeneral(updated)
+    resetBindings(updated)
+    const fpsStr = updated.fps ? ` · ${Math.round(updated.fps)} FPS` : ""
+    notice.value = `🔍 连接检测完成：${updated.video_codec?.toUpperCase() || 'H.264'} ${updated.width && updated.height ? `${updated.width}×${updated.height}` : ''}${fpsStr}`
+    emit("changed")
+  } catch (caught) {
+    error.value = `连接检测失败: ${errorMessage(caught)}`
+  } finally {
+    probing.value = false
+  }
+}
+
+async function handleVerifyStream(profileId: string): Promise<void> {
+  if (!props.camera?.id || verifyingStreamId.value) return
+  verifyingStreamId.value = profileId
+  error.value = null
+  notice.value = null
+  try {
+    await verifyCameraStream(props.camera.id, profileId)
+    notice.value = "码流检测已执行，已更新最新状态与分辨率"
+    await load()
+    emit("changed")
+  } catch (caught) {
+    error.value = `码流检测失败: ${errorMessage(caught)}`
+  } finally {
+    verifyingStreamId.value = null
+  }
+}
+
 watch(
   () => props.camera.id,
   () => {
+    stopPreview()
     void load()
     void loadManualTrigger()
   }
@@ -808,10 +1032,13 @@ watch(
 )
 
 onMounted(() => {
+  window.addEventListener("keydown", handleKeyboardNav)
   void load()
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener("keydown", handleKeyboardNav)
+  stopPreview()
   if (manualTimer !== null) {
     window.clearInterval(manualTimer)
     manualTimer = null
@@ -821,6 +1048,32 @@ onBeforeUnmount(() => {
 
 <template>
   <aside class="camera-detail-drawer">
+    <!-- Fast navigation between cameras -->
+    <nav v-if="navigationCameras.length > 1" class="drawer-device-nav" aria-label="摄像机切换">
+      <button
+        type="button"
+        class="nav-step-btn"
+        :disabled="!previousCamera || probing"
+        :title="previousCamera ? `上一台：${previousCamera.name}` : '已经是第一台'"
+        @click="navigateTo(previousCamera)"
+      >
+        ← 上一台
+      </button>
+      <div class="nav-position-info">
+        <strong>{{ selectedNavigationIndex + 1 }} / {{ navigationCameras.length }}</strong>
+        <span>快捷键 ← →</span>
+      </div>
+      <button
+        type="button"
+        class="nav-step-btn"
+        :disabled="!nextCamera || probing"
+        :title="nextCamera ? `下一台：${nextCamera.name}` : '已经是最后一台'"
+        @click="navigateTo(nextCamera)"
+      >
+        下一台 →
+      </button>
+    </nav>
+
     <header class="camera-detail-header">
       <div>
         <strong>{{ detail?.name || camera.name }}</strong>
@@ -836,6 +1089,173 @@ onBeforeUnmount(() => {
         <UiIcon name="close" :size="16" />
       </button>
     </header>
+
+    <!-- Device Overview Hero Card -->
+    <section class="device-hero-card">
+      <div class="device-hero-visual" :class="heroHealthClass">
+        <CameraDeviceGlyph :form-factor="detail?.form_factor || camera.form_factor || 'unknown'" />
+      </div>
+      <div class="device-hero-body">
+        <div class="device-hero-top">
+          <div>
+            <h3 class="device-hero-title">
+              {{ detail?.manufacturer || camera.manufacturer || '通用 RTSP 摄像机' }}
+            </h3>
+            <div class="device-hero-sub">
+              {{ detail?.model || camera.model || formFactorLabel(detail?.form_factor || camera.form_factor) }} · #{{ camera.id.slice(0, 8) }}
+            </div>
+          </div>
+          <span class="device-form-factor-badge">
+            {{ formFactorLabel(detail?.form_factor || camera.form_factor) }}
+          </span>
+        </div>
+        <dl class="device-hero-specs">
+          <div>
+            <dt>IP 地址</dt>
+            <dd class="font-mono">{{ detail?.ip || camera.ip || 'DHCP/自动' }}:{{ detail?.port || camera.port || 554 }}</dd>
+          </div>
+          <div>
+            <dt>视频规格</dt>
+            <dd>{{ videoSummary }}</dd>
+          </div>
+          <div>
+            <dt>最近在线</dt>
+            <dd>{{ formatTime(detail?.last_online_at || camera.last_online_at) }}</dd>
+          </div>
+          <div>
+            <dt>录像状态</dt>
+            <dd :class="isRecording ? 'text-red-400 font-semibold' : 'text-gray-400'">
+              {{ isRecording ? '⏺️ 正在录像' : '空闲待命' }}
+            </dd>
+          </div>
+        </dl>
+      </div>
+    </section>
+
+    <!-- On-demand Live Preview Stage -->
+    <section class="preview-stage-card">
+      <div class="preview-stage-header">
+        <div>
+          <strong>实时画面预览</strong>
+          <span>按需拉流，打开抽屉不会占用背景网络带宽</span>
+        </div>
+        <div v-if="previewPlaying" class="preview-live-indicator">
+          <span class="live-dot animate-pulse"></span>
+          <span>正在预览</span>
+        </div>
+      </div>
+
+      <div class="preview-stage-box" :class="{ 'preview-stage-box--idle': !previewPlaying }">
+        <img
+          v-if="camera.enabled && previewPlaying && !previewFailed"
+          :key="previewNonce"
+          :src="previewSrc"
+          class="preview-img"
+          alt="实时画面"
+          @load="handlePreviewLoad"
+          @error="handlePreviewError"
+        />
+
+        <div v-else-if="!camera.enabled" class="preview-empty-state">
+          <UiIcon name="camera" :size="32" class="text-gray-600 mb-2" />
+          <strong>摄像机已禁用</strong>
+          <span>启用设备后才能拉取实时画面</span>
+        </div>
+
+        <div v-else-if="previewFailed" class="preview-empty-state">
+          <UiIcon name="warning" :size="32" class="text-amber-500 mb-2" />
+          <strong>实时画面暂不可用</strong>
+          <span>码流连接超时或暂未就绪，可执行连接检测</span>
+          <button type="button" class="button button--ghost button--compact mt-2" @click="refreshPreview">
+            重新尝试
+          </button>
+        </div>
+
+        <button
+          v-else
+          type="button"
+          class="preview-play-btn"
+          @click="startPreview"
+        >
+          <span class="preview-play-icon">▶</span>
+          <strong>播放实时画面</strong>
+          <small>点击按需获取最新快照与码流状态</small>
+        </button>
+
+        <div v-if="previewPlaying && !previewFailed" class="preview-stage-overlay">
+          <div class="preview-overlay-info">
+            <span class="preview-pill font-mono">
+              {{ videoSummary }}
+            </span>
+          </div>
+          <div class="preview-overlay-actions">
+            <button type="button" class="preview-overlay-btn" @click="refreshPreview">
+              ⟳ 刷新
+            </button>
+            <button type="button" class="preview-overlay-btn preview-overlay-btn--stop" @click="stopPreview">
+              ⏹️ 停止
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Quick Operations Action Bar -->
+    <section class="quick-actions-bar">
+      <button
+        type="button"
+        class="quick-action-btn"
+        :disabled="probing"
+        title="测试探测机位 RTSP 码流参数并回填分辨率与编码"
+        @click="handleProbeCamera"
+      >
+        <UiIcon name="search" :size="13" :class="{ 'animate-spin': probing }" />
+        <span>{{ probing ? '检测中...' : '连接检测 (Probe)' }}</span>
+      </button>
+
+      <button
+        v-if="!isRecording"
+        type="button"
+        class="quick-action-btn quick-action-btn--record"
+        :disabled="!canConfigure || manualRecordingBusy"
+        title="立即发起保全录像"
+        @click="handleStartManual"
+      >
+        <UiIcon name="play" :size="13" />
+        <span>启动录像</span>
+      </button>
+      <button
+        v-else
+        type="button"
+        class="quick-action-btn quick-action-btn--stop"
+        :disabled="!canConfigure || manualRecordingBusy"
+        title="停止当前录像并归档"
+        @click="handleStopManual"
+      >
+        <UiIcon name="pause" :size="13" />
+        <span>停止录像</span>
+      </button>
+
+      <button
+        type="button"
+        class="quick-action-btn"
+        title="直达多画面实时监控"
+        @click="jumpToLive"
+      >
+        <UiIcon name="activity" :size="13" />
+        <span>实时监控</span>
+      </button>
+
+      <button
+        type="button"
+        class="quick-action-btn"
+        title="直达该机位时光回放 (Time-Lapse)"
+        @click="jumpToPlayback"
+      >
+        <UiIcon name="refresh" :size="13" />
+        <span>时光回放</span>
+      </button>
+    </section>
 
     <div class="camera-detail-status">
       <span
@@ -906,14 +1326,71 @@ onBeforeUnmount(() => {
           <span>{{ t("cameras.name") }}</span>
           <input v-model="generalForm.name" required maxlength="128" />
         </label>
+
+        <label>
+          <span>设备厂商 (Manufacturer)</span>
+          <input
+            v-model="generalForm.manufacturer"
+            maxlength="128"
+            placeholder="例如: Hikvision, Dahua, Uniview, TP-LINK..."
+          />
+          <div class="manufacturer-pills">
+            <button
+              v-for="brand in POPULAR_MANUFACTURERS"
+              :key="brand"
+              type="button"
+              class="brand-pill"
+              @click="generalForm.manufacturer = brand.split(' ')[0]"
+            >
+              {{ brand }}
+            </button>
+          </div>
+        </label>
+
+        <div class="form-row-two">
+          <label>
+            <span>设备型号 (Model)</span>
+            <input
+              v-model="generalForm.model"
+              maxlength="128"
+              placeholder="例如: DS-2CD2T87G2-L"
+            />
+          </label>
+
+          <label>
+            <span>外形类型 (Form Factor)</span>
+            <select v-model="generalForm.formFactor">
+              <option
+                v-for="opt in formFactorOptions"
+                :key="opt.value"
+                :value="opt.value"
+              >
+                {{ opt.label }}
+              </option>
+            </select>
+          </label>
+        </div>
+
         <label>
           <span>{{ t("cameras.location") }}</span>
-          <input v-model="generalForm.location" maxlength="256" />
+          <input v-model="generalForm.location" maxlength="256" placeholder="例如: 园区东门、办公区前台" />
         </label>
-        <label>
-          <span>{{ t("cameras.storageLabel") }}</span>
-          <input v-model="generalForm.storageLabel" maxlength="128" />
-        </label>
+
+        <div class="form-row-two">
+          <label>
+            <span>{{ t("cameras.storageLabel") }}</span>
+            <input v-model="generalForm.storageLabel" maxlength="128" placeholder="例如: local-nvme, pool-1" />
+          </label>
+
+          <label>
+            <span>NTP 时钟同步策略</span>
+            <select v-model="generalForm.timeSyncMode">
+              <option value="manage_ntp">Managed NTP (主动下发校时)</option>
+              <option value="monitor">Monitor (仅监控时钟漂移)</option>
+              <option value="ignore">Ignore (忽略时钟)</option>
+            </select>
+          </label>
+        </div>
 
         <div class="camera-detail-actions">
           <button
@@ -983,9 +1460,22 @@ onBeforeUnmount(() => {
               <strong>{{ stream.name }}</strong>
               <span>{{ streamDescription(stream) }}</span>
             </div>
-            <span class="status-pill">
-              {{ streamStatusLabel(stream.status) }}
-            </span>
+            <div class="stream-actions">
+              <span class="status-pill">
+                {{ streamStatusLabel(stream.status) }}
+              </span>
+              <button
+                v-if="canConfigure"
+                type="button"
+                class="button button--ghost button--compact"
+                :disabled="verifyingStreamId === stream.id"
+                title="通过流媒体引擎测试探测该码流"
+                @click="handleVerifyStream(stream.id)"
+              >
+                <UiIcon name="search" :size="12" :class="{ 'animate-spin': verifyingStreamId === stream.id }" />
+                <span>{{ verifyingStreamId === stream.id ? '检测中...' : '测试检测' }}</span>
+              </button>
+            </div>
           </article>
         </section>
 
@@ -2279,11 +2769,445 @@ onBeforeUnmount(() => {
   gap: 6px;
 }
 
+/* Drawer fast navigation */
+.drawer-device-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 10px;
+}
+
+.nav-step-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  color: var(--text-primary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nav-step-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.nav-step-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nav-position-info {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--text-muted);
+}
+
+.nav-position-info strong {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.nav-position-info span {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+/* Device Hero Card */
+.device-hero-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.device-hero-visual {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+
+.device-hero-visual.online {
+  border-color: rgba(16, 185, 129, 0.4);
+  color: #10b981;
+}
+
+.device-hero-visual.offline {
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
+}
+
+.device-hero-visual.maintenance {
+  border-color: rgba(245, 158, 11, 0.4);
+  color: #f59e0b;
+}
+
+.device-hero-visual.disabled {
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+.device-hero-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.device-hero-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.device-hero-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-hero-sub {
+  margin-top: 1px;
+  font-size: 9px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-form-factor-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 9999px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #60a5fa;
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.device-hero-specs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 8px 0 0;
+}
+
+.device-hero-specs dt {
+  margin: 0;
+  font-size: 8px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.device-hero-specs dd {
+  margin: 1px 0 0;
+  font-size: 10px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* On-demand Live Preview Stage */
+.preview-stage-card {
+  padding: 10px 14px;
+  background: var(--surface-base);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.preview-stage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.preview-stage-header strong {
+  display: block;
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.preview-stage-header span {
+  display: block;
+  font-size: 8px;
+  color: var(--text-muted);
+}
+
+.preview-live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9px;
+  color: #10b981;
+  font-weight: 600;
+}
+
+.live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10b981;
+}
+
+.preview-stage-box {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--radius-sm);
+  background: #090d14;
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+}
+
+.preview-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.preview-empty-state strong {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.preview-empty-state span {
+  margin-top: 2px;
+  font-size: 9px;
+}
+
+.preview-play-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.preview-play-btn:hover {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-primary);
+}
+
+.preview-play-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #60a5fa;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  padding-left: 2px;
+  margin-bottom: 2px;
+}
+
+.preview-play-btn strong {
+  font-size: 11px;
+  color: var(--text-primary);
+}
+
+.preview-play-btn small {
+  font-size: 9px;
+  color: var(--text-muted);
+}
+
+.preview-stage-overlay {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 10px 6px;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+}
+
+.preview-pill {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+.preview-overlay-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.preview-overlay-btn {
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.6);
+  color: #e5e7eb;
+  font-size: 9px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preview-overlay-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.preview-overlay-btn--stop:hover {
+  background: rgba(239, 68, 68, 0.4);
+  border-color: #ef4444;
+}
+
+/* Quick Operations Bar */
+.quick-actions-bar {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.quick-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.quick-action-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-action-btn--record {
+  border-color: rgba(16, 185, 129, 0.3);
+  color: #10b981;
+}
+
+.quick-action-btn--record:hover:not(:disabled) {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: #10b981;
+  color: #10b981;
+}
+
+.quick-action-btn--stop {
+  border-color: rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+}
+
+.quick-action-btn--stop:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* Manufacturer Pills */
+.manufacturer-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.brand-pill {
+  padding: 2px 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9999px;
+  background: var(--surface-base);
+  color: var(--text-muted);
+  font-size: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.brand-pill:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.form-row-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.stream-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 @media (max-width: 540px) {
   .recording-mode-grid,
   .camera-recording-number-grid,
   .camera-recording-number-grid--two,
-  .smart-tags-grid {
+  .smart-tags-grid,
+  .form-row-two,
+  .quick-actions-bar {
     grid-template-columns: 1fr;
   }
 

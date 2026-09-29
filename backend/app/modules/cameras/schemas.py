@@ -21,16 +21,31 @@ class CameraCreate(BaseModel):
     secondary_stream: ManualRtspStreamInput | None = None
 
 
+CameraFormFactor = Literal[
+    "unknown",
+    "bullet",
+    "dome",
+    "turret",
+    "ptz",
+    "doorbell",
+    "indoor",
+    "panoramic",
+]
+
+
 class CameraUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
     location: str | None = Field(default=None, max_length=256)
     storage_label: str | None = Field(default=None, max_length=128)
-    maintenance: bool = False
+    maintenance: bool | None = None
     time_sync_mode: Literal[
         "monitor",
         "manage_ntp",
         "ignore",
     ] | None = None
+    manufacturer: str | None = None
+    model: str | None = None
+    form_factor: CameraFormFactor | None = None
 
 
 class CameraClockProjectionView(BaseModel):
@@ -103,6 +118,21 @@ class CameraSummary(BaseModel):
         "ignore",
     ]
     ptz_capable: bool = False
+    manufacturer: str | None = None
+    model: str | None = None
+    form_factor: CameraFormFactor = "unknown"
+    ip: str | None = None
+    port: int | None = None
+    rtsp_path: str | None = None
+    sub_rtsp_path: str | None = None
+    video_codec: str | None = None
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    audio_codec: str | None = None
+    connectivity_status: str = "online"
+    last_probe_at: datetime | None = None
+    last_online_at: datetime | None = None
 
 
 class CameraGroupCreate(BaseModel):

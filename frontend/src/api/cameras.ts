@@ -1,5 +1,15 @@
 import { apiRequest } from "./client"
 
+export type CameraFormFactor =
+  | "unknown"
+  | "bullet"
+  | "dome"
+  | "turret"
+  | "ptz"
+  | "doorbell"
+  | "indoor"
+  | "panoramic"
+
 export interface CameraSummary {
   id: string
   name: string
@@ -11,6 +21,21 @@ export interface CameraSummary {
   adapter_type: string | null
   time_sync_mode: "monitor" | "manage_ntp" | "ignore"
   ptz_capable: boolean
+  manufacturer?: string | null
+  model?: string | null
+  form_factor?: CameraFormFactor
+  ip?: string | null
+  port?: number | null
+  rtsp_path?: string | null
+  sub_rtsp_path?: string | null
+  video_codec?: string | null
+  width?: number | null
+  height?: number | null
+  fps?: number | null
+  audio_codec?: string | null
+  connectivity_status?: "online" | "offline" | "disabled" | "unknown"
+  last_probe_at?: string | null
+  last_online_at?: string | null
 }
 
 export interface CameraProbeTrack {
@@ -293,6 +318,13 @@ export function getCameraClock(
   )
 }
 
+export function probeCamera(cameraId: string): Promise<CameraDetail> {
+  return apiRequest<CameraDetail>(
+    `/cameras/${encodeURIComponent(cameraId)}/probe`,
+    { method: "POST" }
+  )
+}
+
 export function updateCamera(
   cameraId: string,
   changes: {
@@ -301,6 +333,9 @@ export function updateCamera(
     storage_label?: string | null
     maintenance?: boolean
     time_sync_mode?: "monitor" | "manage_ntp" | "ignore"
+    manufacturer?: string | null
+    model?: string | null
+    form_factor?: CameraFormFactor
   }
 ): Promise<CameraDetail> {
   return apiRequest<CameraDetail>(

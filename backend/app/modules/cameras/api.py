@@ -235,10 +235,30 @@ def _discovery_session_view(
 def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
     adapter_type = None
     ptz_capable = False
+    manufacturer = None
+    model = None
+    form_factor = "unknown"
+    ip = None
+    port = None
+    rtsp_path = None
+    sub_rtsp_path = None
+    video_codec = None
+    width = None
+    height = None
+    fps = None
+    audio_codec = None
+    last_probe_at = None
+    last_online_at = None
+
     if camera.device_id is not None:
         device = session.get(Device, camera.device_id)
         if device is not None:
             adapter_type = device.adapter_type
+            manufacturer = device.manufacturer
+            model = device.model
+            caps = device.capabilities_json or {}
+            form_factor = caps.get("form_factor", "unknown")
+            last_online_at = device.capabilities_updated_at
             ptz_capable = (
                 camera.retired_at is None
                 and CameraPtzService.is_capable(
@@ -246,6 +266,47 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
                     camera,
                 )
             )
+            if ptz_capable and form_factor == "unknown":
+                form_factor = "ptz"
+
+            for endpoint in sorted(device.endpoints, key=lambda e: e.priority):
+                if endpoint.enabled:
+                    if ip is None:
+                        ip = endpoint.host
+                        port = endpoint.port or 554
+                    if endpoint.path:
+                        if rtsp_path is None:
+                            rtsp_path = endpoint.path
+                        elif sub_rtsp_path is None and endpoint.path != rtsp_path:
+                            sub_rtsp_path = endpoint.path
+                    if endpoint.last_verified_at:
+                        if not last_probe_at or endpoint.last_verified_at > last_probe_at:
+                            last_probe_at = endpoint.last_verified_at
+                        if not last_online_at or endpoint.last_verified_at > last_online_at:
+                            last_online_at = endpoint.last_verified_at
+
+    for profile in camera.stream_profiles:
+        if profile.codec and not video_codec:
+            video_codec = profile.codec
+            width = profile.width
+            height = profile.height
+            fps = profile.fps
+        if profile.audio_codec and not audio_codec:
+            audio_codec = profile.audio_codec
+        if profile.last_verified_at:
+            if not last_probe_at or profile.last_verified_at > last_probe_at:
+                last_probe_at = profile.last_verified_at
+            if not last_online_at or profile.last_verified_at > last_online_at:
+                last_online_at = profile.last_verified_at
+
+    if not camera.enabled:
+        connectivity_status = "disabled"
+    elif any(p.status == "unavailable" for p in camera.stream_profiles if p.status):
+        connectivity_status = "offline"
+    elif any(p.status == "available" for p in camera.stream_profiles):
+        connectivity_status = "online"
+    else:
+        connectivity_status = "online" if (adapter_type or ip) else "unknown"
 
     return CameraSummary(
         id=camera.id,
@@ -256,10 +317,23 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
         location=camera.location,
         storage_label=camera.storage_label,
         adapter_type=adapter_type,
-        time_sync_mode=(
-            camera.time_sync_mode
-        ),
+        time_sync_mode=camera.time_sync_mode,
         ptz_capable=ptz_capable,
+        manufacturer=manufacturer,
+        model=model,
+        form_factor=form_factor,
+        ip=ip,
+        port=port,
+        rtsp_path=rtsp_path,
+        sub_rtsp_path=sub_rtsp_path,
+        video_codec=video_codec,
+        width=width,
+        height=height,
+        fps=fps,
+        audio_codec=audio_codec,
+        connectivity_status=connectivity_status,
+        last_probe_at=last_probe_at,
+        last_online_at=last_online_at,
     )
 
 
@@ -1681,6 +1755,69 @@ def restore_camera(
         context=context,
         session=session,
     )
+
+
+@router.post(
+    "/cameras/{camera_id}/probe",
+    response_model=CameraDetail,
+)
+def probe_camera(
+    camera_id: uuid.UUID,
+    request: Request,
+    context: AuthContext = Depends(
+        require_camera_permission("camera.configure")
+    ),
+    session: Session = Depends(get_db_session),
+) -> CameraDetail:
+    camera = CameraService.get_camera(session, camera_id)
+    if not camera.enabled:
+        raise ApiError(
+            status_code=400,
+            code="camera_disabled",
+            message="Camera is disabled.",
+        )
+
+    settings = request.app.state.settings
+    runtime_service = CameraMediaRuntimeService(settings)
+    verified_at = utc_now()
+
+    with ZlmAdapter(settings) as zlm:
+        for profile in camera.stream_profiles:
+            try:
+                source_url = runtime_service.resolve_stream_uri(
+                    session,
+                    profile,
+                )
+                probe = zlm.probe_rtsp_source(source_url)
+                if probe.video is not None:
+                    if probe.video.codec is not None:
+                        profile.codec = probe.video.codec
+                    if probe.video.width is not None:
+                        profile.width = probe.video.width
+                    if probe.video.height is not None:
+                        profile.height = probe.video.height
+                    if probe.video.fps is not None:
+                        profile.fps = probe.video.fps
+                    if probe.video.gop_seconds is not None:
+                        profile.gop_seconds = probe.video.gop_seconds
+                if probe.audio is not None and probe.audio.ready:
+                    profile.has_audio = True
+                    profile.audio_codec = probe.audio.codec
+                profile.status = "available"
+                profile.last_verified_at = verified_at
+            except Exception:
+                profile.status = "unavailable"
+
+    if camera.device_id is not None:
+        device = session.get(Device, camera.device_id)
+        if device is not None:
+            device.capabilities_updated_at = verified_at
+            for ep in device.endpoints:
+                if ep.enabled:
+                    ep.last_verified_at = verified_at
+
+    session.commit()
+    return _camera_detail(session, camera)
 
 
 @router.get(

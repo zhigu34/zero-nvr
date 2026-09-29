@@ -650,3 +650,58 @@ def test_camera_retire_restore_preserves_history_identity(
         )
     assert "camera.retire" in actions
     assert "camera.restore" in actions
+
+
+def test_camera_probe_and_parameter_update(tmp_path: Path) -> None:
+    app = make_app(tmp_path)
+
+    with TestClient(app) as client:
+        setup = client.post(
+            "/api/v1/setup/administrator",
+            json={
+                "username": "admin",
+                "display_name": "Administrator",
+                "password": ADMIN_PASSWORD,
+            },
+        )
+        assert setup.status_code == 201
+        login(client, "admin", ADMIN_PASSWORD)
+
+        res = create_camera(
+            client,
+            name="Front Gate",
+            host="192.168.1.108",
+            with_secondary=True,
+        )
+        cam = res.json()
+        cam_id = cam["id"]
+        assert cam["ip"] == "192.168.1.108"
+        assert cam["port"] == 8554
+        assert cam["form_factor"] == "unknown"
+
+        # Update manufacturer, model and form_factor
+        patched = client.patch(
+            f"/api/v1/cameras/{cam_id}",
+            json={
+                "manufacturer": "Hikvision",
+                "model": "DS-2CD2T47G2",
+                "form_factor": "bullet",
+            },
+        )
+        assert patched.status_code == 200
+        patched_cam = patched.json()
+        assert patched_cam["manufacturer"] == "Hikvision"
+        assert patched_cam["model"] == "DS-2CD2T47G2"
+        assert patched_cam["form_factor"] == "bullet"
+
+        # Verify summary reflects the new parameters
+        summaries = client.get("/api/v1/cameras")
+        assert summaries.status_code == 200
+        found = next(c for c in summaries.json() if c["id"] == cam_id)
+        assert found["manufacturer"] == "Hikvision"
+        assert found["form_factor"] == "bullet"
+
+        # Probe camera
+        probed = client.post(f"/api/v1/cameras/{cam_id}/probe")
+        assert probed.status_code == 200
+

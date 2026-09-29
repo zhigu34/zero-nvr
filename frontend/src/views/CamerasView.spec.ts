@@ -35,7 +35,8 @@ const apiMocks = vi.hoisted(() => ({
   getCameraClock: vi.fn(),
   updateCamera: vi.fn(),
   moveCameraPtz: vi.fn(),
-  stopCameraPtz: vi.fn()
+  stopCameraPtz: vi.fn(),
+  probeCamera: vi.fn()
 }))
 
 vi.mock("../api/cameras", () => ({
@@ -44,7 +45,8 @@ vi.mock("../api/cameras", () => ({
   getCameraClock: apiMocks.getCameraClock,
   updateCamera: apiMocks.updateCamera,
   moveCameraPtz: apiMocks.moveCameraPtz,
-  stopCameraPtz: apiMocks.stopCameraPtz
+  stopCameraPtz: apiMocks.stopCameraPtz,
+  probeCamera: apiMocks.probeCamera
 }))
 
 describe("CamerasView - Devices & Discovery Center", () => {
@@ -269,5 +271,58 @@ describe("CamerasView - Devices & Discovery Center", () => {
       path: "/playback",
       query: { camera: cam1Id }
     })
+  })
+
+  it("filters and sorts cameras with toolbar and triggers inline probe", async () => {
+    apiMocks.probeCamera.mockResolvedValue({
+      id: cam1Id,
+      name: "Lobby Front Door",
+      video_codec: "h265",
+      width: 3840,
+      height: 2160,
+      fps: 25,
+      audio_codec: "aac",
+      connectivity_status: "online",
+      last_probe_at: "2026-09-29T11:00:00Z",
+      streams: [],
+      bindings: []
+    })
+
+    const wrapper = mount(CamerasView, {
+      global: {
+        stubs: {
+          UiIcon: true,
+          CameraDetailPanel: true,
+          CameraGroupsPanel: true,
+          CameraOnboardingPanel: true,
+          CameraDeviceGlyph: true
+        }
+      }
+    })
+    await flushPromises()
+
+    // Test search filter
+    const searchInput = wrapper.find(".devices-search-input")
+    expect(searchInput.exists()).toBe(true)
+    await searchInput.setValue("Perimeter")
+    await flushPromises()
+
+    let rows = wrapper.findAll(".devices-row")
+    expect(rows.length).toBe(1)
+    expect(rows[0].text()).toContain("Perimeter East")
+
+    // Clear search
+    await searchInput.setValue("")
+    await flushPromises()
+    rows = wrapper.findAll(".devices-row")
+    expect(rows.length).toBe(2)
+
+    // Trigger quick probe on first camera
+    const probeBtns = wrapper.findAll(".quick-probe-btn")
+    expect(probeBtns.length).toBeGreaterThan(0)
+    await probeBtns[0].trigger("click")
+    await flushPromises()
+
+    expect(apiMocks.probeCamera).toHaveBeenCalledWith(cam1Id)
   })
 })
