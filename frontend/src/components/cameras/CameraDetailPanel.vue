@@ -2,6 +2,7 @@
 import {
   computed,
   onMounted,
+  onBeforeUnmount,
   reactive,
   ref,
   watch
@@ -26,11 +27,15 @@ import {
   errorMessage
 } from "../../api/client"
 import {
+  createRecordingTrigger,
   getRecordingPolicy,
+  listRecordingTriggers,
   putRecordingPolicy,
+  stopRecordingTrigger,
   type RecordingPolicy,
   type RecordingPolicyPut,
-  type RecordingScheduleWindow
+  type RecordingScheduleWindow,
+  type RecordingTrigger
 } from "../../api/recordings"
 import {
   listRetentionPolicies,
@@ -107,6 +112,30 @@ const recordingForm = reactive({
   minConfidence: 0.6,
   weekly: [] as RecordingScheduleWindow[]
 })
+
+// Manual Recording state
+const activeManualTrigger = ref<RecordingTrigger | null>(null)
+const manualRecordingBusy = ref(false)
+const manualReason = ref("")
+const manualElapsedSeconds = ref(0)
+let manualTimer: number | null = null
+
+// Smart Tags configuration
+export interface SmartTag {
+  key: string
+  label: string
+  emoji: string
+  aliases: string[]
+}
+
+const SMART_TAGS: SmartTag[] = [
+  { key: "person", label: "人体 / 访客", emoji: "🚶", aliases: ["person"] },
+  { key: "vehicle", label: "机动车", emoji: "🚗", aliases: ["vehicle", "car"] },
+  { key: "bicycle", label: "两轮车", emoji: "🛵", aliases: ["bicycle", "motorcycle"] },
+  { key: "pet", label: "宠物动物", emoji: "🐕", aliases: ["pet", "dog", "cat", "animal"] },
+  { key: "package", label: "快递包裹", emoji: "📦", aliases: ["package"] },
+  { key: "motion", label: "画面动态", emoji: "🏃", aliases: ["motion"] }
+]
 
 const canConfigure = computed(() =>
   auth.hasPermission("camera.configure")
@@ -302,6 +331,7 @@ async function load(): Promise<void> {
       }
     }
     resetPolicy(policy.value)
+    void loadManualTrigger()
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -575,12 +605,195 @@ function toggleDay(window: RecordingScheduleWindow, day: number): void {
   }
 }
 
+// Manual recording methods
+async function loadManualTrigger(): Promise<void> {
+  if (!props.camera?.id) return
+  try {
+    const triggers = await listRecordingTriggers(props.camera.id)
+    const active = triggers.find(
+      (t) => t.type.toUpperCase() === "MANUAL" && t.state === "ACTIVE" && !t.planned_end_at
+    )
+    activeManualTrigger.value = active ?? null
+    startManualTimer()
+  } catch {
+    activeManualTrigger.value = null
+  }
+}
+
+function startManualTimer(): void {
+  if (manualTimer !== null) {
+    window.clearInterval(manualTimer)
+    manualTimer = null
+  }
+  if (!activeManualTrigger.value) {
+    manualElapsedSeconds.value = 0
+    return
+  }
+  const startMs = new Date(activeManualTrigger.value.requested_at).getTime()
+  const tick = () => {
+    manualElapsedSeconds.value = Math.max(0, Math.floor((Date.now() - startMs) / 1000))
+  }
+  tick()
+  manualTimer = window.setInterval(tick, 1000)
+}
+
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60)
+  const s = seconds % 60
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+}
+
+async function handleStartManual(): Promise<void> {
+  if (!canConfigure.value || manualRecordingBusy.value) return
+  manualRecordingBusy.value = true
+  error.value = null
+  notice.value = null
+  try {
+    const trigger = await createRecordingTrigger(
+      props.camera.id,
+      manualReason.value.trim() || "配置中心手动触发保全录像"
+    )
+    activeManualTrigger.value = trigger
+    startManualTimer()
+    notice.value = "⏺️ 手动录像已启动，已提升 10 秒前置预录并写入保全存储区"
+    manualReason.value = ""
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    manualRecordingBusy.value = false
+  }
+}
+
+async function handleStopManual(): Promise<void> {
+  if (!canConfigure.value || manualRecordingBusy.value || !activeManualTrigger.value) return
+  manualRecordingBusy.value = true
+  error.value = null
+  notice.value = null
+  try {
+    await stopRecordingTrigger(activeManualTrigger.value.id)
+    activeManualTrigger.value = null
+    startManualTimer()
+    notice.value = "⏹️ 手动录像已停止，录像切片已归档入库"
+  } catch (caught) {
+    error.value = errorMessage(caught)
+  } finally {
+    manualRecordingBusy.value = false
+  }
+}
+
+// Schedule presets & matrix helpers
+function applySchedulePreset(preset: "24x7" | "workdays" | "night" | "weekend"): void {
+  if (preset === "24x7") {
+    recordingForm.weekly = [
+      { days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "23:59" }
+    ]
+  } else if (preset === "workdays") {
+    recordingForm.weekly = [
+      { days: [0, 1, 2, 3, 4], start: "08:30", end: "18:00" }
+    ]
+  } else if (preset === "night") {
+    recordingForm.weekly = [
+      { days: [0, 1, 2, 3, 4, 5, 6], start: "19:00", end: "23:59" },
+      { days: [0, 1, 2, 3, 4, 5, 6], start: "00:00", end: "07:00" }
+    ]
+  } else if (preset === "weekend") {
+    recordingForm.weekly = [
+      { days: [5, 6], start: "00:00", end: "23:59" }
+    ]
+  }
+}
+
+function copyWindowToAllDays(window: RecordingScheduleWindow): void {
+  window.days = [0, 1, 2, 3, 4, 5, 6]
+}
+
+function copyWindowToWorkdays(window: RecordingScheduleWindow): void {
+  window.days = [0, 1, 2, 3, 4]
+}
+
+function getDayCoverageSegments(dayIndex: number): Array<{ left: number; width: number }> {
+  const segments: Array<{ left: number; width: number }> = []
+  for (const win of recordingForm.weekly) {
+    if (!win.days.includes(dayIndex)) continue
+    const [sh, sm] = win.start.split(":").map(Number)
+    const [eh, em] = win.end.split(":").map(Number)
+    if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) continue
+    const startHour = sh + sm / 60
+    const endHour = Math.min(24, eh + em / 60)
+    if (endHour <= startHour) continue
+    const left = (startHour / 24) * 100
+    const width = Math.min(100 - left, ((endHour - startHour) / 24) * 100)
+    segments.push({ left, width })
+  }
+  return segments
+}
+
+function getDayCoverageHours(dayIndex: number): string {
+  let totalHours = 0
+  for (const win of recordingForm.weekly) {
+    if (!win.days.includes(dayIndex)) continue
+    const [sh, sm] = win.start.split(":").map(Number)
+    const [eh, em] = win.end.split(":").map(Number)
+    if (isNaN(sh) || isNaN(sm) || isNaN(eh) || isNaN(em)) continue
+    const startHour = sh + sm / 60
+    const endHour = eh + em / 60
+    if (endHour > startHour) {
+      totalHours += Math.min(24, endHour) - startHour
+    }
+  }
+  if (totalHours >= 23.9) return "全天 24H"
+  if (totalHours <= 0) return "无录像"
+  return `${totalHours.toFixed(1)} 小时`
+}
+
+// Smart tag selection helpers
+function isSmartTagSelected(tag: SmartTag): boolean {
+  const currentLabels = recordingForm.labels
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+  return tag.aliases.some((alias) => currentLabels.includes(alias))
+}
+
+function toggleSmartTag(tag: SmartTag): void {
+  const currentLabels = recordingForm.labels
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean)
+
+  if (isSmartTagSelected(tag)) {
+    const updated = currentLabels.filter((l) => !tag.aliases.includes(l))
+    recordingForm.labels = updated.join(", ")
+  } else {
+    currentLabels.push(tag.key)
+    recordingForm.labels = Array.from(new Set(currentLabels)).join(", ")
+  }
+}
+
+function getConfidenceAdvice(val: number): { label: string; class: string } {
+  const pct = Math.round(val * 100)
+  if (pct < 50) {
+    return { label: `${pct}% · 高灵敏度 (微弱变化即触发，可能有风吹草动)`, class: "text-amber-400" }
+  }
+  if (pct <= 75) {
+    return { label: `${pct}% · 官方标准推荐 (平衡误报与漏报)`, class: "text-emerald-400" }
+  }
+  return { label: `${pct}% · 高置信度 (仅在极明确目标时触发)`, class: "text-blue-400" }
+}
+
 watch(
   () => props.camera.id,
   () => {
     void load()
+    void loadManualTrigger()
   }
 )
+
+watch(tab, (newTab) => {
+  if (newTab === "recording") {
+    void loadManualTrigger()
+  }
+})
 
 watch(
   () => recordingForm.mode,
@@ -596,6 +809,13 @@ watch(
 
 onMounted(() => {
   void load()
+})
+
+onBeforeUnmount(() => {
+  if (manualTimer !== null) {
+    window.clearInterval(manualTimer)
+    manualTimer = null
+  }
 })
 </script>
 
@@ -814,55 +1034,186 @@ onMounted(() => {
         class="camera-recording-editor"
         @submit.prevent="saveRecording"
       >
+        <!-- Module 1: 即时手动录制控制台 (Manual Recording Dashboard) -->
+        <section class="camera-detail-section manual-recording-section">
+          <div class="camera-detail-section__heading camera-detail-section__heading--actions">
+            <div>
+              <div class="manual-heading-row">
+                <strong class="text-white text-xs">即时手动录制 (Manual Recording)</strong>
+                <span
+                  v-if="activeManualTrigger"
+                  class="manual-badge manual-badge--active animate-pulse"
+                >
+                  <span class="manual-dot bg-red-500"></span>
+                  正在录制 · {{ formatElapsed(manualElapsedSeconds) }}
+                </span>
+                <span v-else class="manual-badge manual-badge--idle">
+                  <span class="manual-dot bg-gray-500"></span>
+                  空闲待命
+                </span>
+              </div>
+              <span class="text-[10px] text-gray-400 mt-0.5 block">
+                遇到突发安防事件可即时开启录像；系统将自动调取前置 10 秒内存预录并写入保全存储区，不会被循环清理覆盖。
+              </span>
+            </div>
+          </div>
+
+          <div class="manual-recording-box">
+            <template v-if="activeManualTrigger">
+              <div class="manual-active-details">
+                <div class="text-[11px] text-gray-300">
+                  <span class="text-gray-400">录制备忘: </span>
+                  <strong class="text-white font-medium">{{ activeManualTrigger.reason || '人工即时触发录制' }}</strong>
+                  <span class="ml-2 font-mono text-[10px] text-gray-400">
+                    ({{ new Date(activeManualTrigger.requested_at).toLocaleTimeString() }} 开启)
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                class="button button--danger manual-action-btn"
+                :disabled="manualRecordingBusy || !canConfigure"
+                @click="handleStopManual"
+              >
+                <UiIcon name="pause" :size="13" />
+                <span>{{ manualRecordingBusy ? '正在停止...' : '⏹️ 停止手动录制并归档' }}</span>
+              </button>
+            </template>
+
+            <template v-else>
+              <div class="manual-start-row">
+                <input
+                  v-model="manualReason"
+                  type="text"
+                  placeholder="输入手动录像备忘原因 (如：夜巡异常、重点嫌疑排查...)"
+                  class="manual-reason-input"
+                  :disabled="manualRecordingBusy || !canConfigure"
+                />
+                <button
+                  type="button"
+                  class="button button--primary manual-action-btn"
+                  :disabled="manualRecordingBusy || !canConfigure"
+                  @click="handleStartManual"
+                >
+                  <UiIcon name="play" :size="13" />
+                  <span>{{ manualRecordingBusy ? '启动中...' : '⏺️ 立即发起手动录制' }}</span>
+                </button>
+              </div>
+            </template>
+          </div>
+        </section>
+
+        <!-- Module 2: 顶层录制模式选择 (Top-level Mode Cards) -->
         <section class="camera-detail-section">
           <div class="camera-detail-section__heading">
-            <strong>{{ t("cameras.detail.recordingMode") }}</strong>
-            <span>{{ t("cameras.detail.recordingModeHint") }}</span>
+            <strong>录制策略基线模式 (Recording Mode Baseline)</strong>
+            <span>选择该机位的底模录制方式，可随时配合 AI 目标打标或计划时间表联动生效</span>
           </div>
 
           <div class="recording-mode-grid">
             <label
-              v-for="item in recordingModes"
-              :key="item.value"
               class="recording-mode-card"
-              :class="{
-                'recording-mode-card--active':
-                  recordingForm.mode === item.value
-              }"
+              :class="{ 'recording-mode-card--active': recordingForm.mode === 'continuous' }"
             >
               <input
                 v-model="recordingForm.mode"
                 type="radio"
                 name="recording-mode"
-                :value="item.value"
+                value="continuous"
                 :disabled="!canConfigure"
               />
-              <strong>{{ item.label }}</strong>
-              <span>{{ item.description }}</span>
+              <div class="recording-mode-card__header">
+                <span class="text-emerald-400 font-bold">🟢 全天候连续录制</span>
+                <span class="mode-tag bg-emerald-500/20 text-emerald-400">推荐</span>
+              </div>
+              <span>24/7 底层不间断连续写盘；配合 AI 目标识别可在回放时间轴上精确标红事件。</span>
+            </label>
+
+            <label
+              class="recording-mode-card"
+              :class="{ 'recording-mode-card--active': recordingForm.mode === 'schedule' }"
+            >
+              <input
+                v-model="recordingForm.mode"
+                type="radio"
+                name="recording-mode"
+                value="schedule"
+                :disabled="!canConfigure"
+              />
+              <div class="recording-mode-card__header">
+                <span class="text-purple-400 font-bold">🟣 计划排程定时录制</span>
+                <span class="mode-tag bg-purple-500/20 text-purple-400">定时</span>
+              </div>
+              <span>仅在周一至周日指定的时间段内录制（如营业时段、夜间安防），时段外停止写盘。</span>
+            </label>
+
+            <label
+              class="recording-mode-card"
+              :class="{ 'recording-mode-card--active': recordingForm.mode === 'events' }"
+            >
+              <input
+                v-model="recordingForm.mode"
+                type="radio"
+                name="recording-mode"
+                value="events"
+                :disabled="!canConfigure"
+              />
+              <div class="recording-mode-card__header">
+                <span class="text-amber-400 font-bold">🟡 仅事件触发录制</span>
+                <span class="mode-tag bg-amber-500/20 text-amber-400">省盘</span>
+              </div>
+              <span>平常不写盘（常驻 10 秒内存预录），仅在检测到人/车或动态时即时唤醒写盘，大幅节省磁盘。</span>
+            </label>
+
+            <label
+              class="recording-mode-card"
+              :class="{ 'recording-mode-card--active': recordingForm.mode === 'off' }"
+            >
+              <input
+                v-model="recordingForm.mode"
+                type="radio"
+                name="recording-mode"
+                value="off"
+                :disabled="!canConfigure"
+              />
+              <div class="recording-mode-card__header">
+                <span class="text-gray-400 font-bold">⚪ 完全停用录制</span>
+                <span class="mode-tag bg-white/10 text-gray-400">停用</span>
+              </div>
+              <span>停止所有自动与事件录像写盘，该机位仅供实时监控多画面预览使用。</span>
             </label>
           </div>
 
-          <label
+          <!-- Event Recording Toggle for Continuous / Scheduled -->
+          <div
             v-if="recordingForm.mode === 'continuous' || recordingForm.mode === 'schedule'"
-            class="storage-check"
+            class="event-toggle-card"
           >
-            <input
-              v-model="recordingForm.eventRecording"
-              type="checkbox"
-              :disabled="!canConfigure"
-            />
-            <span>{{ t("cameras.detail.preserveEvents") }}</span>
-          </label>
+            <label class="storage-check">
+              <input
+                v-model="recordingForm.eventRecording"
+                type="checkbox"
+                :disabled="!canConfigure"
+              />
+              <div>
+                <strong class="text-white text-xs block">启用 AI 智能目标识别与事件打标 (Event Markers & Promotion)</strong>
+                <span class="text-[10px] text-gray-400 block mt-0.5">
+                  开启后，人/车等关键活动将在时间轴上高亮展示并提升保全等级，回放时支持智能快进与事件跳转。
+                </span>
+              </div>
+            </label>
+          </div>
         </section>
 
+        <!-- Module 3: 可视化 7×24 小时定时排程器 (Weekly Schedule Matrix) -->
         <section
           v-if="recordingForm.mode === 'schedule'"
-          class="camera-detail-section"
+          class="camera-detail-section schedule-section"
         >
           <div class="camera-detail-section__heading camera-detail-section__heading--actions">
             <div>
-              <strong>{{ t("cameras.detail.weeklySchedule") }}</strong>
-              <span>{{ t("cameras.detail.weekdayHint") }}</span>
+              <strong>7×24 小时周计划排程总览 (Weekly Schedule Matrix)</strong>
+              <span>蓝色高亮代表排程内录像时段，深色代表无录像停机；可一键套用常用模版</span>
             </div>
             <button
               class="button button--ghost button--compact"
@@ -871,21 +1222,87 @@ onMounted(() => {
               @click="addWindow"
             >
               <UiIcon name="plus" :size="13" />
-              {{ t("cameras.detail.addWindow") }}
+              <span>添加时段</span>
             </button>
           </div>
 
-          <label class="camera-detail-field">
+          <!-- Quick Presets -->
+          <div class="schedule-presets-bar">
+            <span class="text-[10px] text-gray-400 uppercase font-mono">快捷模版:</span>
+            <button
+              type="button"
+              class="preset-chip"
+              :disabled="!canConfigure"
+              @click="applySchedulePreset('24x7')"
+            >
+              24×7 全天候
+            </button>
+            <button
+              type="button"
+              class="preset-chip"
+              :disabled="!canConfigure"
+              @click="applySchedulePreset('workdays')"
+            >
+              工作日营业 (08:30~18:00)
+            </button>
+            <button
+              type="button"
+              class="preset-chip"
+              :disabled="!canConfigure"
+              @click="applySchedulePreset('night')"
+            >
+              夜间安防 (19:00~07:00)
+            </button>
+            <button
+              type="button"
+              class="preset-chip"
+              :disabled="!canConfigure"
+              @click="applySchedulePreset('weekend')"
+            >
+              周末全天
+            </button>
+          </div>
+
+          <!-- 7-Day Visual Matrix Preview -->
+          <div class="schedule-matrix-box">
+            <div class="schedule-scale">
+              <span>00:00</span>
+              <span>06:00</span>
+              <span>12:00</span>
+              <span>18:00</span>
+              <span>24:00</span>
+            </div>
+
+            <div
+              v-for="(day, dIndex) in weekdays"
+              :key="day"
+              class="schedule-matrix-row"
+            >
+              <span class="schedule-matrix-day">{{ day }}</span>
+              <div class="schedule-matrix-track">
+                <div
+                  v-for="(seg, sIdx) in getDayCoverageSegments(dIndex)"
+                  :key="sIdx"
+                  class="schedule-matrix-bar"
+                  :style="{ left: `${seg.left}%`, width: `${seg.width}%` }"
+                ></div>
+              </div>
+              <span class="schedule-matrix-hours font-mono">{{ getDayCoverageHours(dIndex) }}</span>
+            </div>
+          </div>
+
+          <!-- Timezone & Windows Editor -->
+          <label class="camera-detail-field mt-3">
             <span>{{ t("cameras.detail.timezone") }}</span>
             <input
               v-model="recordingForm.timezone"
               :disabled="!canConfigure"
               required
-              placeholder="America/Los_Angeles"
+              placeholder="Asia/Shanghai 或 America/Los_Angeles"
             />
           </label>
 
-          <div class="recording-window-list">
+          <div class="recording-window-list mt-2">
             <article
               v-for="(window, index) in recordingForm.weekly"
               :key="index"
@@ -903,6 +1320,7 @@ onMounted(() => {
                   {{ day }}
                 </button>
               </div>
+
               <div class="recording-window__time">
                 <input
                   v-model="window.start"
@@ -910,38 +1328,187 @@ onMounted(() => {
                   :disabled="!canConfigure"
                   required
                 />
-                <span>{{ t("cameras.detail.to") }}</span>
+                <span class="text-gray-400 text-xs">至</span>
                 <input
                   v-model="window.end"
                   type="time"
                   :disabled="!canConfigure"
                   required
                 />
-                <button
-                  class="icon-button icon-button--danger"
-                  type="button"
-                  :disabled="!canConfigure || recordingForm.weekly.length <= 1"
-                  @click="removeWindow(index)"
-                >
-                  <UiIcon name="trash" :size="14" />
-                </button>
+                <div class="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    class="window-quick-btn"
+                    title="将本时段应用到整周 7 天"
+                    :disabled="!canConfigure"
+                    @click="copyWindowToAllDays(window)"
+                  >
+                    全周
+                  </button>
+                  <button
+                    type="button"
+                    class="window-quick-btn"
+                    title="将本时段应用到周一至周五工作日"
+                    :disabled="!canConfigure"
+                    @click="copyWindowToWorkdays(window)"
+                  >
+                    工作日
+                  </button>
+                  <button
+                    class="icon-button icon-button--danger"
+                    type="button"
+                    title="删除该时间段"
+                    :disabled="!canConfigure || recordingForm.weekly.length <= 1"
+                    @click="removeWindow(index)"
+                  >
+                    <UiIcon name="trash" :size="13" />
+                  </button>
+                </div>
               </div>
             </article>
           </div>
         </section>
 
+        <!-- Module 4: AI 智能事件录制与动态捕捉 (Smart Event Studio) -->
+        <section
+          v-if="recordingForm.mode === 'events' || recordingForm.eventRecording"
+          class="camera-detail-section event-studio-section"
+        >
+          <div class="camera-detail-section__heading">
+            <strong>AI 智能目标检测与事件保全 (Smart Object & Event Studio)</strong>
+            <span>通过边缘/服务端 AI 模型筛选检测目标，并运用环形预录缓冲还原完整因果</span>
+          </div>
+
+          <!-- Smart Tag Chips Selector -->
+          <div class="smart-tags-block">
+            <span class="text-[10px] text-gray-400 uppercase font-mono block mb-1.5">
+              目标类型多选 (点击切换选中状态):
+            </span>
+            <div class="smart-tags-grid">
+              <button
+                v-for="tag in SMART_TAGS"
+                :key="tag.key"
+                type="button"
+                class="smart-tag-chip"
+                :class="{ 'smart-tag-chip--active': isSmartTagSelected(tag) }"
+                :disabled="!canConfigure"
+                @click="toggleSmartTag(tag)"
+              >
+                <span class="tag-emoji">{{ tag.emoji }}</span>
+                <span class="tag-label">{{ tag.label }}</span>
+                <span class="tag-key font-mono text-[9px]">({{ tag.key }})</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Visual Pre-roll & Post-roll Graphic Timeline -->
+          <div class="timeline-diagram-card">
+            <div class="text-[10px] text-gray-300 font-semibold mb-2">
+              ⏱️ 智能事件前后缓冲时间轴模型 (Pre-roll & Post-roll Buffer)
+            </div>
+            <div class="timeline-diagram-flow">
+              <div class="timeline-diagram-block timeline-diagram-block--pre">
+                <span class="block-title">⏪ 预录内存环存</span>
+                <span class="block-desc">内存常驻缓存事件前动作，确保起因不漏截</span>
+                <span class="block-val font-mono">{{ recordingForm.preRoll }}s</span>
+              </div>
+              <div class="timeline-diagram-arrow">➔</div>
+              <div class="timeline-diagram-block timeline-diagram-block--event">
+                <span class="block-title">🎯 目标侦测触发中</span>
+                <span class="block-desc">人/车/包裹进入画面持续录像</span>
+                <span class="block-val font-mono">持续中</span>
+              </div>
+              <div class="timeline-diagram-arrow">➔</div>
+              <div class="timeline-diagram-block timeline-diagram-block--post">
+                <span class="block-title">⏩ 延录缓冲保护</span>
+                <span class="block-desc">目标离开画面后继续延录防漏尾</span>
+                <span class="block-val font-mono">{{ recordingForm.postRoll }}s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Pre-roll / Post-roll number inputs -->
+          <div class="camera-recording-number-grid camera-recording-number-grid--two">
+            <label>
+              <span>前置预录缓冲时长 (Pre-roll 秒数)</span>
+              <input
+                v-model.number="recordingForm.preRoll"
+                type="number"
+                :disabled="!canConfigure"
+                min="0"
+                max="60"
+              />
+            </label>
+            <label>
+              <span>后置延录缓冲时长 (Post-roll 秒数)</span>
+              <input
+                v-model.number="recordingForm.postRoll"
+                type="number"
+                :disabled="!canConfigure"
+                min="0"
+                max="120"
+              />
+            </label>
+          </div>
+
+          <!-- Sensitivity / Confidence Slider -->
+          <div class="confidence-slider-block">
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] text-gray-400 uppercase font-mono font-semibold">
+                AI 目标置信度阈值 (Confidence Threshold)
+              </span>
+              <span
+                class="text-[11px] font-mono font-semibold"
+                :class="getConfidenceAdvice(recordingForm.minConfidence).class"
+              >
+                {{ getConfidenceAdvice(recordingForm.minConfidence).label }}
+              </span>
+            </div>
+            <input
+              v-model.number="recordingForm.minConfidence"
+              type="range"
+              :disabled="!canConfigure"
+              min="0.1"
+              max="1.0"
+              step="0.05"
+              class="confidence-slider"
+            />
+          </div>
+
+          <!-- Advanced Custom Labels & Zones (Foldable/Compact) -->
+          <div class="advanced-filter-fields">
+            <label class="camera-detail-field">
+              <span>自定义补充标签 (英文逗号分隔)</span>
+              <input
+                v-model="recordingForm.labels"
+                :disabled="!canConfigure"
+                placeholder="例如: person, vehicle, dog, cat"
+              />
+            </label>
+            <label class="camera-detail-field">
+              <span>限定侦测区域 (Zones，留空为全画幅)</span>
+              <input
+                v-model="recordingForm.zones"
+                :disabled="!canConfigure"
+                placeholder="例如: front_door, driveway"
+              />
+            </label>
+          </div>
+        </section>
+
+        <!-- Module 5: 录像存储切片与保留轮转策略 -->
         <section
           v-if="recordingForm.mode !== 'off'"
           class="camera-detail-section"
         >
           <div class="camera-detail-section__heading">
-            <strong>{{ t("cameras.detail.recordingParameters") }}</strong>
-            <span>{{ t("cameras.detail.recordingParametersHint") }}</span>
+            <strong>存储分段与数据生命周期 (Storage & Retention)</strong>
+            <span>控制文件切片大小、落盘节点以及自动轮转淘汰留存策略</span>
           </div>
 
           <div class="camera-recording-number-grid">
             <label>
-              <span>{{ t("cameras.detail.segmentSeconds") }}</span>
+              <span>单个切片目标时长 (秒)</span>
               <input
                 v-model.number="recordingForm.segmentSeconds"
                 type="number"
@@ -950,29 +1517,6 @@ onMounted(() => {
                 max="3600"
               />
             </label>
-            <label>
-              <span>{{ t("cameras.detail.preRollSeconds") }}</span>
-              <input
-                v-model.number="recordingForm.preRoll"
-                type="number"
-                :disabled="!canConfigure"
-                min="0"
-                max="600"
-              />
-            </label>
-            <label>
-              <span>{{ t("cameras.detail.postRollSeconds") }}</span>
-              <input
-                v-model.number="recordingForm.postRoll"
-                type="number"
-                :disabled="!canConfigure"
-                min="0"
-                max="600"
-              />
-            </label>
-          </div>
-
-          <div class="camera-recording-number-grid camera-recording-number-grid--two">
             <label>
               <span>{{ t("cameras.detail.localStorageTarget") }}</span>
               <select
@@ -1008,44 +1552,7 @@ onMounted(() => {
           </div>
         </section>
 
-        <section
-          v-if="recordingForm.mode === 'events' || recordingForm.eventRecording"
-          class="camera-detail-section"
-        >
-          <div class="camera-detail-section__heading">
-            <strong>{{ t("cameras.detail.eventFilter") }}</strong>
-            <span>{{ t("cameras.detail.eventFilterHint") }}</span>
-          </div>
-
-          <label class="camera-detail-field">
-            <span>{{ t("cameras.detail.labels") }}</span>
-            <input
-              v-model="recordingForm.labels"
-              :disabled="!canConfigure"
-              placeholder="person, car, dog"
-            />
-          </label>
-          <label class="camera-detail-field">
-            <span>{{ t("cameras.detail.zones") }}</span>
-            <input
-              v-model="recordingForm.zones"
-              :disabled="!canConfigure"
-              placeholder="front_yard, driveway"
-            />
-          </label>
-          <label class="camera-detail-field">
-            <span>{{ t("cameras.detail.minConfidence", { value: Math.round(recordingForm.minConfidence * 100) }) }}</span>
-            <input
-              v-model.number="recordingForm.minConfidence"
-              type="range"
-              :disabled="!canConfigure"
-              min="0"
-              max="1"
-              step="0.05"
-            />
-          </label>
-        </section>
-
+        <!-- Sticky Actions Bar -->
         <div class="camera-detail-actions camera-detail-actions--sticky">
           <button
             class="button button--primary"
@@ -1430,10 +1937,352 @@ onMounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* Manual Recording Section */
+.manual-recording-section {
+  background: rgba(239, 68, 68, 0.04);
+  border-left: 3px solid #ef4444;
+}
+
+.manual-heading-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.manual-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 9999px;
+  font-size: 10px;
+  font-weight: 600;
+  font-family: monospace;
+}
+
+.manual-badge--active {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.manual-badge--idle {
+  background: rgba(255, 255, 255, 0.05);
+  color: #9ca3af;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.manual-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 5px;
+}
+
+.manual-recording-box {
+  margin-top: 8px;
+}
+
+.manual-active-details {
+  margin-bottom: 8px;
+  padding: 6px 9px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.manual-start-row {
+  display: flex;
+  gap: 7px;
+  align-items: center;
+}
+
+.manual-reason-input {
+  flex: 1;
+  min-height: 32px;
+  padding: 0 9px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.manual-action-btn {
+  min-height: 32px;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Mode Cards Header */
+.recording-mode-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.mode-tag {
+  font-size: 8px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-weight: 600;
+}
+
+.event-toggle-card {
+  margin-top: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-base);
+}
+
+/* Schedule Presets & Matrix */
+.schedule-presets-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 7px 9px;
+  background: var(--surface-base);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.preset-chip {
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preset-chip:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.schedule-matrix-box {
+  margin-top: 8px;
+  padding: 9px 11px;
+  background: #0d1017;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-sm);
+}
+
+.schedule-scale {
+  display: flex;
+  justify-content: space-between;
+  padding-left: 28px;
+  padding-right: 56px;
+  color: #6b7280;
+  font-family: monospace;
+  font-size: 8px;
+  margin-bottom: 4px;
+}
+
+.schedule-matrix-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.schedule-matrix-row:last-child {
+  margin-bottom: 0;
+}
+
+.schedule-matrix-day {
+  width: 20px;
+  color: #9ca3af;
+  font-size: 9px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.schedule-matrix-track {
+  flex: 1;
+  position: relative;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.schedule-matrix-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: #3b82f6;
+  border-radius: 2px;
+  box-shadow: 0 0 4px rgba(59, 130, 246, 0.5);
+}
+
+.schedule-matrix-hours {
+  width: 52px;
+  text-align: right;
+  font-size: 9px;
+  color: #93c5fd;
+}
+
+.window-quick-btn {
+  padding: 3px 6px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  color: #d1d5db;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.window-quick-btn:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Smart Tags Chips */
+.smart-tags-block {
+  margin-bottom: 8px;
+}
+
+.smart-tags-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+
+.smart-tag-chip {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.smart-tag-chip:hover {
+  border-color: rgba(59, 130, 246, 0.5);
+}
+
+.smart-tag-chip--active {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: #3b82f6;
+  color: #93c5fd;
+  font-weight: 600;
+}
+
+.tag-emoji {
+  font-size: 13px;
+}
+
+.tag-label {
+  flex: 1;
+}
+
+.tag-key {
+  color: #6b7280;
+}
+
+/* Visual Timeline Diagram */
+.timeline-diagram-card {
+  margin: 10px 0;
+  padding: 9px 12px;
+  background: #0e121a;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.timeline-diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-diagram-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 6px 8px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.timeline-diagram-block--pre {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+
+.timeline-diagram-block--event {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.timeline-diagram-block--post {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.timeline-diagram-arrow {
+  color: #6b7280;
+  font-weight: bold;
+}
+
+.block-title {
+  font-size: 9px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.block-desc {
+  font-size: 7px;
+  color: #9ca3af;
+  margin: 2px 0;
+  line-height: 1.2;
+}
+
+.block-val {
+  font-size: 10px;
+  font-weight: bold;
+  color: #f3f4f6;
+}
+
+/* Confidence Slider Block */
+.confidence-slider-block {
+  margin: 8px 0;
+  padding: 8px 10px;
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+}
+
+.confidence-slider {
+  width: 100%;
+  margin-top: 6px;
+}
+
+.advanced-filter-fields {
+  margin-top: 6px;
+  display: grid;
+  gap: 6px;
+}
+
 @media (max-width: 540px) {
   .recording-mode-grid,
   .camera-recording-number-grid,
-  .camera-recording-number-grid--two {
+  .camera-recording-number-grid--two,
+  .smart-tags-grid {
     grid-template-columns: 1fr;
   }
 
