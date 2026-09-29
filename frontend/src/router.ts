@@ -48,7 +48,8 @@ const routes: RouteRecordRaw[] = [
         name: "live",
         component: LiveView,
         meta: {
-          titleKey: "route.live"
+          titleKey: "route.live",
+          layout: "immersive"
         }
       },
       {
@@ -56,7 +57,8 @@ const routes: RouteRecordRaw[] = [
         name: "playback",
         component: PlaybackView,
         meta: {
-          titleKey: "route.playback"
+          titleKey: "route.playback",
+          layout: "immersive"
         }
       },
       {
@@ -64,7 +66,8 @@ const routes: RouteRecordRaw[] = [
         name: "files",
         component: FilesView,
         meta: {
-          titleKey: "route.files"
+          titleKey: "route.files",
+          layout: "immersive"
         }
       },
       {

@@ -41,6 +41,8 @@ const pageTitle = computed(() => {
   return typeof key === "string" ? t(key) : "zero-nvr"
 })
 
+const isImmersive = computed(() => route.meta.layout === "immersive")
+
 const userInitial = computed(() => {
   const source = auth.user?.display_name || auth.user?.username || "Z"
   return source.trim().charAt(0).toUpperCase()
@@ -133,12 +135,12 @@ onBeforeUnmount(() => {
 
     <!-- Main Workspace -->
     <div class="shell-main">
-      <!-- Placeholder Topbar for views that don't have their own header yet -->
-      <header class="placeholder-topbar">
+      <!-- Placeholder Topbar: only shown for non-immersive pages (Dashboard, System, etc.) -->
+      <header v-if="!isImmersive" class="placeholder-topbar">
         <strong class="placeholder-topbar__title">{{ pageTitle }}</strong>
       </header>
 
-      <main class="page-surface" :class="{ 'page-surface--media': route.name === 'live' || route.name === 'playback' }">
+      <main class="page-surface" :class="{ 'page-surface--immersive': isImmersive }">
         <RouterView />
       </main>
     </div>
@@ -308,7 +310,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-.page-surface--media {
+.page-surface--immersive {
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 </style>
