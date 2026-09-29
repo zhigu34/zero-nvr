@@ -6,6 +6,7 @@ from pathlib import Path
 from app.core.config import Settings
 from app.core.db import Base, Database
 from app.core.errors import ApiError
+from app.modules.auth.models import SecretRecord  # noqa: F401
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.runtime import (

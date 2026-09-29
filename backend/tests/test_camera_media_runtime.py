@@ -11,6 +11,7 @@ from app.integrations.zlm import (
     ZlmMediaProbe,
     ZlmTrackProbe,
 )
+from app.modules.auth.models import SecretRecord  # noqa: F401
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.service import CameraService
 
@@ -155,8 +156,8 @@ def test_desired_streams_deduplicate_bindings_and_hide_source_uri_in_repr(
             item.source_uri: item
             for item in desired
         }
-        assert by_source[PRIMARY_URL].auto_close is True
-        assert by_source[SECONDARY_URL].auto_close is True
+        assert by_source[PRIMARY_URL].auto_close is False
+        assert by_source[SECONDARY_URL].auto_close is False
 
         rendered = repr(desired)
         assert "primary-password" not in rendered
@@ -230,7 +231,7 @@ def test_desired_stream_resolves_only_selected_profile(
         assert desired.stream == (
             f"profile-{selected.id.hex}"
         )
-        assert desired.auto_close is True
+        assert desired.auto_close is False
     finally:
         database.close()
 
@@ -294,7 +295,7 @@ def test_ensure_and_stop_streams_are_idempotent_against_zlm_state(
         assert add_call["enable_mp4"] is False
         assert add_call["enable_hls"] is True
         assert add_call["retry_count"] == -1
-        assert add_call["auto_close"] is True
+        assert add_call["auto_close"] is False
         assert add_call["mp4_as_player"] is True
         assert ensure_zlm.wait_calls == [
             {
