@@ -362,21 +362,10 @@ onBeforeUnmount(() => {
 
 /* ===== 底部工具按钮（主题/语言）===== */
 .sidebar-util-btn {
-  color: #6b7280;
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.15s, background 0.15s;
-}
-
-.sidebar-util-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
 }
 
 /* ===== 用户头像 ===== */
@@ -441,5 +430,52 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .sidebar {
+  background-color: var(--uf-bg-dock, #ffffff);
+  border-right-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .dock-icon {
+  color: #64748b;
+}
+
+:global([data-theme="light"]) .dock-icon:hover {
+  color: #0f172a;
+  background-color: #f1f5f9;
+}
+
+:global([data-theme="light"]) .dock-icon.active {
+  color: #ffffff;
+  background-color: #2563eb;
+  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+}
+
+:global([data-theme="light"]) .dock-tooltip {
+  background-color: #0f172a;
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+}
+
+:global([data-theme="light"]) .webrtc-status-dot {
+  background-color: #cbd5e1;
+}
+
+:global([data-theme="light"]) .user-avatar-btn {
+  background-color: rgba(37, 99, 235, 0.1);
+  border-color: rgba(37, 99, 235, 0.25);
+  color: #2563eb;
+}
+
+:global([data-theme="light"]) .placeholder-topbar {
+  background-color: var(--uf-bg-header, #ffffff);
+  border-bottom: 1px solid var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .placeholder-topbar__title {
+  color: var(--uf-text-primary, #0f172a);
 }
 </style>

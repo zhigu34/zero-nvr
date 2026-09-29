@@ -39,7 +39,7 @@ function oidcLogin(provider: OidcPublicProvider): void {
     route.query.redirect.startsWith("/") &&
     !route.query.redirect.startsWith("//")
       ? route.query.redirect
-      : "/dashboard"
+      : "/live"
   window.location.assign(
     `/api/v1/auth/oidc/${encodeURIComponent(provider.key)}/login?next=${encodeURIComponent(redirect)}`
   )
@@ -77,7 +77,7 @@ async function submit(): Promise<void> {
       typeof route.query.redirect === "string" &&
       route.query.redirect.startsWith("/")
         ? route.query.redirect
-        : "/dashboard"
+        : "/live"
     await router.replace(redirect)
   } catch (caught) {
     error.value = errorMessage(caught)

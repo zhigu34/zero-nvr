@@ -3834,13 +3834,14 @@ onBeforeUnmount(() => {
 }
 
 .playback-action-panel > header strong {
-  font-size: 11px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .playback-action-panel > header span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .playback-action-form {
@@ -3857,31 +3858,30 @@ onBeforeUnmount(() => {
 
 .playback-action-form label > span {
   color: var(--text-muted);
-  font-size: 8px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 
 .playback-action-form label > small {
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
   line-height: 1.35;
 }
 
 .playback-action-form input,
 .playback-action-form select {
   width: 100%;
-  min-height: 34px;
-  padding: 0 8px;
+  min-height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   outline: 0;
   background: var(--surface-base);
   color: var(--text-primary);
-  color-scheme: dark;
   font: inherit;
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .playback-action-form input:focus,
@@ -3904,9 +3904,10 @@ onBeforeUnmount(() => {
 .playback-action-history h3 {
   margin: 0 0 7px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  font-weight: 600;
 }
 
 .playback-action-history article {
@@ -3934,7 +3935,8 @@ onBeforeUnmount(() => {
 
 .playback-action-history strong {
   overflow: hidden;
-  font-size: 9px;
+  font-size: 12px;
+  font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3942,14 +3944,14 @@ onBeforeUnmount(() => {
 .playback-action-history div > span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .playback-share-editor {
   display: grid;
   gap: 10px;
   margin: 0 12px 12px;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--surface-base);
@@ -3968,13 +3970,14 @@ onBeforeUnmount(() => {
 }
 
 .playback-share-editor > header strong {
-  font-size: 9px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .playback-share-editor > header span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .playback-share-editor form {
@@ -3989,29 +3992,29 @@ onBeforeUnmount(() => {
 
 .playback-share-editor form label > span {
   color: var(--text-muted);
-  font-size: 7px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 .playback-share-editor input,
 .playback-share-editor select {
   width: 100%;
-  min-height: 32px;
-  padding: 0 7px;
+  min-height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   outline: 0;
   background: var(--surface-raised);
   color: var(--text-primary);
   font: inherit;
-  font-size: 8px;
+  font-size: 13px;
 }
 
 .playback-share-created {
   display: grid;
   gap: 5px;
-  padding: 8px;
+  padding: 10px;
   border: 1px solid rgba(70, 170, 112, 0.2);
   border-radius: var(--radius-sm);
   background: var(--success-soft);
@@ -4024,12 +4027,13 @@ onBeforeUnmount(() => {
 
 .playback-share-created > strong {
   color: var(--success);
-  font-size: 8px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .playback-share-created > span {
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .playback-share-created > div {
@@ -4046,7 +4050,8 @@ onBeforeUnmount(() => {
 .playback-share-list h4 {
   margin: 0 0 2px;
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
@@ -4070,13 +4075,14 @@ onBeforeUnmount(() => {
 }
 
 .playback-share-list strong {
-  font-size: 8px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .playback-share-list article div > span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 /* ===== UniFi Protect Top Time-Lapse Control Header ===== */
@@ -4504,4 +4510,100 @@ onBeforeUnmount(() => {
   border-color: #006fff;
 }
 
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .playback-unifi-topbar {
+  background-color: var(--uf-bg-header, #ffffff);
+  border-bottom-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .topbar-title-tag {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .topbar-divider {
+  background: #e2e8f0;
+}
+
+:global([data-theme="light"]) .topbar-pill-btn {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .topbar-pill-btn:hover {
+  background: var(--uf-bg-hover, #f1f5f9);
+  border-color: #2563eb;
+}
+
+:global([data-theme="light"]) .topbar-icon-btn {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .topbar-icon-btn:hover {
+  background: var(--uf-bg-hover, #f1f5f9);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .date-nav-btn {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+:global([data-theme="light"]) .date-nav-btn:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .sync-mode-pill {
+  background: var(--uf-bg-card-sub, #f1f5f9);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .sync-btn {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .sync-btn:hover {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .sync-btn--active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+:global([data-theme="light"]) .action-pill-btn {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .action-pill-btn:hover {
+  background: var(--uf-bg-hover, #f1f5f9);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .popover-panel {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .camera-option-btn {
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .camera-option-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .native-date-input {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
 </style>

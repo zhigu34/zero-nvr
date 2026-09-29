@@ -346,20 +346,21 @@ onMounted(() => {
 }
 
 .account-panel__identity strong {
-  font-size: 11px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .account-panel__identity div > span {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .account-panel__message {
   margin: 10px 12px 0;
-  padding: 8px 9px;
+  padding: 8px 12px;
   border-radius: var(--radius-sm);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .account-panel__message--error {
@@ -373,12 +374,12 @@ onMounted(() => {
 }
 
 .account-panel__section {
-  padding: 14px;
+  padding: 16px 14px;
   border-bottom: 1px solid var(--border-subtle);
 }
 
 .account-panel__section-heading {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 
 .account-panel__section-heading--row {
@@ -394,20 +395,21 @@ onMounted(() => {
 }
 
 .account-panel__section-heading strong {
-  font-size: 10px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .account-panel__section-heading span {
   max-width: 310px;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
 .account-password-form {
   display: grid;
-  gap: 9px;
+  gap: 10px;
 }
 
 .account-password-form label {
@@ -417,22 +419,22 @@ onMounted(() => {
 
 .account-password-form label > span {
   color: var(--text-muted);
-  font-size: 8px;
-  font-weight: 650;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 .account-password-form input {
   width: 100%;
-  min-height: 34px;
-  padding: 0 8px;
+  min-height: 36px;
+  padding: 0 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   outline: 0;
   background: var(--surface-base);
   color: var(--text-primary);
   font: inherit;
-  font-size: 9px;
+  font-size: 13px;
 }
 
 .account-password-form input:focus {
@@ -456,7 +458,7 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   min-height: 66px;
-  padding: 7px 8px;
+  padding: 8px 10px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
   background: var(--surface-base);
@@ -493,25 +495,26 @@ onMounted(() => {
 }
 
 .account-session__main strong {
-  font-size: 9px;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .account-session__main > span {
   margin-top: 3px;
   color: var(--text-secondary);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .account-session__main small {
   margin-top: 2px;
   color: var(--text-muted);
-  font-size: 7px;
+  font-size: 10px;
 }
 
 .account-sessions-empty,
 .account-panel__hint {
   color: var(--text-muted);
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .account-sessions-empty {

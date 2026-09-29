@@ -2677,4 +2677,104 @@ onMounted(async () => {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .files-view {
+  background-color: var(--uf-bg-canvas, #f8fafc);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .files-header {
+  background-color: var(--uf-bg-header, #ffffff);
+  border-bottom-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .files-title-tag {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .topbar-divider {
+  background: #e2e8f0;
+}
+
+:global([data-theme="light"]) .field-label {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .header-select,
+:global([data-theme="light"]) .header-date-input,
+:global([data-theme="light"]) .header-filter-select {
+  background: var(--uf-bg-input, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .btn-icon-subtle {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .btn-icon-subtle:hover {
+  background: var(--uf-bg-hover, #f1f5f9);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .heat-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+:global([data-theme="light"]) .heat-axis-hour {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .heat-cell-btn {
+  border-color: var(--uf-border-subtle, #f1f5f9);
+}
+
+:global([data-theme="light"]) .heat-cell-btn--empty {
+  background: #e2e8f0;
+}
+
+:global([data-theme="light"]) .file-list-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+:global([data-theme="light"]) .files-table thead th {
+  color: var(--uf-text-muted, #64748b);
+  background: var(--uf-bg-card-sub, #f8fafc);
+  border-bottom-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .files-table tbody td {
+  color: var(--uf-text-primary, #0f172a);
+  border-bottom-color: var(--uf-border-subtle, #f1f5f9);
+}
+
+:global([data-theme="light"]) .files-row:hover {
+  background-color: var(--uf-bg-hover, #f8fafc);
+}
+
+:global([data-theme="light"]) .month-calendar-drawer {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .calendar-day-cell {
+  background: var(--uf-bg-card-sub, #f8fafc);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .toast-notification {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+}
 </style>

@@ -36,12 +36,10 @@ const routes: RouteRecordRaw[] = [
     path: "/",
     component: AppShell,
     children: [
-      { path: "", redirect: "/dashboard" },
+      { path: "", redirect: "/live" },
       {
         path: "dashboard",
-        name: "dashboard",
-        component: DashboardView,
-        meta: { titleKey: "route.dashboard" }
+        redirect: "/live"
       },
       {
         path: "live",
@@ -81,11 +79,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: "alerts",
-        name: "alerts",
-        component: AlertsView,
-        meta: {
-          titleKey: "route.alerts"
-        }
+        redirect: "/events"
       },
       {
         path: "cameras",
@@ -116,7 +110,7 @@ const routes: RouteRecordRaw[] = [
       }
     ]
   },
-  { path: "/:pathMatch(.*)*", redirect: "/dashboard" }
+  { path: "/:pathMatch(.*)*", redirect: "/live" }
 ]
 
 export const router = createRouter({

@@ -1508,4 +1508,135 @@ onBeforeUnmount(() => {
   background: #2563eb;
   color: #ffffff;
 }
+
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .devices-view {
+  background-color: var(--uf-bg-canvas, #f8fafc);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .devices-title {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .devices-subtitle {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .btn-action {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .btn-action:hover {
+  background: var(--uf-bg-hover, #f1f5f9);
+}
+
+:global([data-theme="light"]) .btn-action--primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+:global([data-theme="light"]) .chip-btn {
+  background: var(--uf-bg-card, #ffffff);
+  color: var(--uf-text-secondary, #475569);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .chip-btn:hover {
+  color: var(--uf-text-primary, #0f172a);
+  border-color: var(--uf-border-strong, #cbd5e1);
+}
+
+:global([data-theme="light"]) .chip-btn--active {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+:global([data-theme="light"]) .devices-table-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+:global([data-theme="light"]) .devices-table thead th {
+  color: var(--uf-text-muted, #64748b);
+  border-bottom-color: var(--uf-border, #e2e8f0);
+  background: var(--uf-bg-card-sub, #f8fafc);
+}
+
+:global([data-theme="light"]) .devices-table tbody td {
+  border-bottom-color: var(--uf-border-subtle, #f1f5f9);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .devices-row:hover {
+  background-color: var(--uf-bg-hover, #f8fafc);
+}
+
+:global([data-theme="light"]) .cam-name {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .cam-sub {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .dot-sep {
+  color: #cbd5e1;
+}
+
+:global([data-theme="light"]) .stream-tag--preview {
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #e2e8f0;
+}
+
+:global([data-theme="light"]) .action-btn-sm {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .action-btn-sm:hover {
+  background: #e2e8f0;
+}
+
+:global([data-theme="light"]) .ptz-modal-dialog {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .ptz-modal-header {
+  border-bottom-color: #e2e8f0;
+}
+
+:global([data-theme="light"]) .ptz-modal-title {
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .ptz-close-btn {
+  background: #f1f5f9;
+  color: #64748b;
+}
+
+:global([data-theme="light"]) .ptz-close-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .ptz-dpad-grid {
+  background: #f8fafc;
+  border-color: #e2e8f0;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+:global([data-theme="light"]) .dpad-btn {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+}
 </style>

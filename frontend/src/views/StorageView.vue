@@ -2538,4 +2538,123 @@ onBeforeUnmount(() => {
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .unifi-storage-workspace {
+  background: var(--uf-bg-canvas, #f8fafc);
+  color: var(--uf-text-secondary, #475569);
+}
+
+:global([data-theme="light"]) .unifi-storage-title {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .unifi-storage-subtitle {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .unifi-subtabs-pill {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .unifi-subtab-btn {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .unifi-subtab-btn:hover {
+  color: var(--uf-text-primary, #0f172a);
+  background: var(--uf-bg-hover, #f1f5f9);
+}
+
+:global([data-theme="light"]) .unifi-metric-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+:global([data-theme="light"]) .unifi-metric-num {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .unifi-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
+}
+
+:global([data-theme="light"]) .unifi-card-title {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .unifi-card-subtitle {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .storage-tier-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .storage-tier-card strong {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .storage-tier-card span {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .target-config-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .target-config-card strong {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .unifi-table thead th {
+  color: var(--uf-text-muted, #64748b);
+  background: var(--uf-bg-card-sub, #f8fafc);
+  border-bottom-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .unifi-table tbody td {
+  color: var(--uf-text-primary, #0f172a);
+  border-bottom-color: var(--uf-border-subtle, #f1f5f9);
+}
+
+:global([data-theme="light"]) .unifi-modal {
+  background: #ffffff;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .unifi-modal-header {
+  border-bottom-color: #e2e8f0;
+}
+
+:global([data-theme="light"]) .unifi-modal-header h3 {
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .unifi-modal-footer {
+  border-top-color: #e2e8f0;
+}
+
+:global([data-theme="light"]) .unifi-input,
+:global([data-theme="light"]) .unifi-select {
+  background: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .unifi-input:focus,
+:global([data-theme="light"]) .unifi-select:focus {
+  border-color: #2563eb;
+}
+
+:global([data-theme="light"]) .unifi-switch-summary strong {
+  color: #0f172a;
+}
 </style>

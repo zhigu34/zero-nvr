@@ -42,6 +42,29 @@
   --sidebar-width: 56px;
   --sidebar-collapsed-width: 56px;
   --topbar-height: 52px;
+
+  /* UniFi Protect Design Tokens - Light Mode */
+  --uf-bg-canvas: #f8fafc;
+  --uf-bg-dock: #ffffff;
+  --uf-bg-header: #ffffff;
+  --uf-bg-card: #ffffff;
+  --uf-bg-card-sub: #f1f5f9;
+  --uf-bg-input: #ffffff;
+  --uf-bg-hover: rgba(0, 0, 0, 0.04);
+  --uf-bg-active: rgba(0, 0, 0, 0.08);
+  --uf-border: #e2e8f0;
+  --uf-border-strong: #cbd5e1;
+  --uf-border-subtle: #f1f5f9;
+  --uf-text-primary: #0f172a;
+  --uf-text-secondary: #475569;
+  --uf-text-muted: #64748b;
+  --uf-accent: #2563eb;
+  --uf-accent-hover: #1d4ed8;
+  --uf-accent-soft: rgba(37, 99, 235, 0.1);
+  --uf-accent-glow: rgba(37, 99, 235, 0.12);
+  --uf-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+  --uf-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --uf-shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
 }
 
 :root[data-theme="dark"] {
@@ -75,6 +98,29 @@
   --danger-soft: rgba(224, 106, 119, 0.12);
 
   --shadow-menu: 0 12px 34px rgba(0, 0, 0, 0.36);
+
+  /* UniFi Protect Design Tokens - Dark Mode */
+  --uf-bg-canvas: #0c0e14;
+  --uf-bg-dock: #10131b;
+  --uf-bg-header: #10131c;
+  --uf-bg-card: #141722;
+  --uf-bg-card-sub: #0d1017;
+  --uf-bg-input: #181d2a;
+  --uf-bg-hover: rgba(255, 255, 255, 0.05);
+  --uf-bg-active: rgba(255, 255, 255, 0.1);
+  --uf-border: rgba(255, 255, 255, 0.08);
+  --uf-border-strong: rgba(255, 255, 255, 0.15);
+  --uf-border-subtle: rgba(255, 255, 255, 0.04);
+  --uf-text-primary: #ffffff;
+  --uf-text-secondary: #d1d5db;
+  --uf-text-muted: #9ca3af;
+  --uf-accent: #2563eb;
+  --uf-accent-hover: #3b82f6;
+  --uf-accent-soft: rgba(37, 99, 235, 0.2);
+  --uf-accent-glow: rgba(37, 99, 235, 0.25);
+  --uf-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --uf-shadow-md: 0 4px 14px rgba(0, 0, 0, 0.4);
+  --uf-shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.6);
 }
 
 * {
@@ -5156,3 +5202,154 @@ strong {
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
+
+/* ===== UniFi Protect Light Mode Theme Overrides for System Workspace ===== */
+:root[data-theme="light"] .system-workspace {
+  background: var(--uf-bg-canvas);
+}
+
+:root[data-theme="light"] .system-nav {
+  background: var(--uf-bg-header);
+  border-right-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .system-nav__title {
+  border-bottom-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .system-nav__title strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .system-nav button {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-nav button:hover {
+  color: var(--uf-text-primary);
+  background: var(--uf-bg-hover);
+}
+
+:root[data-theme="light"] .system-nav__footer {
+  border-top-color: var(--uf-border);
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-content {
+  background: var(--uf-bg-canvas);
+}
+
+:root[data-theme="light"] .system-page-header > div:first-child > strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .system-page-header > div:first-child > span {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-overview-card {
+  background: var(--uf-bg-card);
+  border-color: var(--uf-border);
+  box-shadow: var(--uf-shadow-sm);
+}
+
+:root[data-theme="light"] .system-overview-card > span,
+:root[data-theme="light"] .system-overview-card > div > span {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-overview-card > strong,
+:root[data-theme="light"] .system-overview-card > div > strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .system-overview-card small {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-section {
+  background: var(--uf-bg-card);
+  border-color: var(--uf-border);
+  box-shadow: var(--uf-shadow-sm);
+}
+
+:root[data-theme="light"] .system-section__heading strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .system-section__heading span {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .health-component {
+  background: var(--uf-bg-card-sub);
+  border-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .health-component__title strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .health-component p {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .storage-health-row__main strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .storage-health-row__main span,
+:root[data-theme="light"] .storage-health-row small {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .system-form-card {
+  background: var(--uf-bg-card);
+  border-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .time-ntp-list {
+  background: var(--uf-bg-card-sub);
+  border-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .time-ntp-list__heading strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .time-ntp-list__heading span {
+  color: var(--uf-text-muted);
+}
+
+:root[data-theme="light"] .time-policy-note {
+  background: var(--uf-bg-card-sub);
+  border-color: var(--uf-border);
+  color: var(--uf-text-secondary);
+}
+
+:root[data-theme="light"] .time-policy-note strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .host-clock-health {
+  background: var(--uf-bg-card);
+  border-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .host-clock-health__main strong {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .host-clock-health dl > div {
+  background: var(--uf-bg-card-sub);
+  border-color: var(--uf-border);
+}
+
+:root[data-theme="light"] .host-clock-health dd {
+  color: var(--uf-text-primary);
+}
+
+:root[data-theme="light"] .host-clock-health dt {
+  color: var(--uf-text-muted);
+}
+

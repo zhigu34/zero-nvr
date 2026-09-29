@@ -3481,4 +3481,54 @@ onBeforeUnmount(() => {
     grid-column: 1 / -1;
   }
 }
+
+/* ===== Light Mode Theme Overrides ===== */
+:global([data-theme="light"]) .audit-toolbar {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .audit-filter > span {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .audit-filter input,
+:global([data-theme="light"]) .audit-filter select {
+  background: var(--uf-bg-input, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .audit-load-more {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .audit-load-more:hover:not(:disabled) {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+:global([data-theme="light"]) .backup-recovery-card {
+  background: var(--uf-bg-card, #ffffff);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .backup-recovery-card__heading strong {
+  color: var(--uf-text-primary, #0f172a);
+}
+
+:global([data-theme="light"]) .backup-recovery-card__heading div > span {
+  color: var(--uf-text-muted, #64748b);
+}
+
+:global([data-theme="light"]) .backup-recovery-commands > div {
+  background: var(--uf-bg-card-sub, #f8fafc);
+  border-color: var(--uf-border, #e2e8f0);
+}
+
+:global([data-theme="light"]) .backup-recovery-commands span {
+  color: var(--uf-text-primary, #0f172a);
+}
 </style>
