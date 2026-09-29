@@ -232,8 +232,8 @@ onBeforeUnmount(() => {
   position: relative;
   width: 56px;
   min-width: 56px;
-  background-color: #10131b;
-  border-right: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: var(--uf-bg-dock);
+  border-right: 1px solid var(--uf-border);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -242,6 +242,7 @@ onBeforeUnmount(() => {
   z-index: 40;
   user-select: none;
   flex-shrink: 0;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
 .sidebar-top,
@@ -285,7 +286,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #6b7280;   /* text-gray-400 */
+  color: var(--uf-text-muted);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
   cursor: pointer;
@@ -294,15 +295,15 @@ onBeforeUnmount(() => {
 }
 
 .dock-icon:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.08);
+  color: var(--uf-text-primary);
+  background: var(--uf-bg-hover);
 }
 
 /* 激活状态 — 对应原型: background: var(--uf-blue); box-shadow: 0 0 16px var(--uf-blue-glow) */
 .dock-icon.active {
   color: #ffffff;
-  background: #006fff;
-  box-shadow: 0 0 16px rgba(0, 111, 255, 0.28);
+  background: var(--uf-accent);
+  box-shadow: 0 0 16px var(--uf-accent-glow);
 }
 
 /* 激活指示条 — 对应原型 .dock-icon.active::before */
@@ -322,18 +323,18 @@ onBeforeUnmount(() => {
 .dock-tooltip {
   position: absolute;
   left: 52px;
-  background-color: #1c212e;
-  color: #ffffff;
+  background-color: var(--uf-text-primary);
+  color: var(--uf-bg-card);
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 12px;
   white-space: nowrap;
   pointer-events: none;
   opacity: 0;
-  border: 1px solid rgba(255, 255, 255, 0.10);
+  border: 1px solid var(--uf-border);
   transition: opacity 0.15s ease;
   z-index: 50;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--uf-shadow-md);
 }
 
 .dock-icon:hover .dock-tooltip,
@@ -342,23 +343,14 @@ onBeforeUnmount(() => {
 }
 
 /* ===== WebRTC 状态指示点 ===== */
-/* 对应原型 L248: w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-live
-   当前占位显示为灰色静态点，待接入真实 WebRTC 状态后改为绿色 + 动画
-   TODO(phase-telemetry): 接入 WebRTC 状态后启用 .webrtc-status-dot--connected 类 */
 .webrtc-status-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background-color: #374151;  /* 灰色占位 */
+  background-color: var(--uf-border-strong);
   cursor: pointer;
   flex-shrink: 0;
 }
-
-/* 已连接状态样式（待启用） */
-/* .webrtc-status-dot--connected {
-  background-color: #10b981;
-  animation: uf-pulse 1.8s ease-in-out infinite;
-} */
 
 /* ===== 底部工具按钮（主题/语言）===== */
 .sidebar-util-btn {
@@ -369,14 +361,13 @@ onBeforeUnmount(() => {
 }
 
 /* ===== 用户头像 ===== */
-/* 对应原型 L261: w-7 h-7 rounded-full bg-blue-600/30 border border-blue-500/50 */
 .user-avatar-btn {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background-color: rgba(37, 99, 235, 0.3);
-  border: 1px solid rgba(59, 130, 246, 0.5);
-  color: #60a5fa;
+  background-color: var(--uf-accent-soft);
+  border: 1px solid var(--uf-accent);
+  color: var(--uf-accent);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -385,6 +376,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
+  transition: all 0.18s ease;
 }
 
 /* ===== 主内容区 ===== */
@@ -404,15 +396,15 @@ onBeforeUnmount(() => {
   align-items: center;
   height: 48px;
   padding: 0 20px;
-  background-color: #10131b;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background-color: var(--uf-bg-header);
+  border-bottom: 1px solid var(--uf-border);
   flex-shrink: 0;
 }
 
 .placeholder-topbar__title {
   font-size: 14px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--uf-text-primary);
 }
 
 /* 内容页面 */
@@ -430,52 +422,5 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
-}
-
-/* ===== Light Mode Theme Overrides ===== */
-:global([data-theme="light"]) .sidebar {
-  background-color: var(--uf-bg-dock, #ffffff);
-  border-right-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .dock-icon {
-  color: #64748b;
-}
-
-:global([data-theme="light"]) .dock-icon:hover {
-  color: #0f172a;
-  background-color: #f1f5f9;
-}
-
-:global([data-theme="light"]) .dock-icon.active {
-  color: #ffffff;
-  background-color: #2563eb;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-:global([data-theme="light"]) .dock-tooltip {
-  background-color: #0f172a;
-  color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-}
-
-:global([data-theme="light"]) .webrtc-status-dot {
-  background-color: #cbd5e1;
-}
-
-:global([data-theme="light"]) .user-avatar-btn {
-  background-color: rgba(37, 99, 235, 0.1);
-  border-color: rgba(37, 99, 235, 0.25);
-  color: #2563eb;
-}
-
-:global([data-theme="light"]) .placeholder-topbar {
-  background-color: var(--uf-bg-header, #ffffff);
-  border-bottom: 1px solid var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .placeholder-topbar__title {
-  color: var(--uf-text-primary, #0f172a);
 }
 </style>

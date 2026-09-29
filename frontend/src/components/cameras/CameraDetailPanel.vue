@@ -1967,9 +1967,9 @@ onBeforeUnmount(() => {
 }
 
 .manual-badge--idle {
-  background: rgba(255, 255, 255, 0.05);
-  color: #9ca3af;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-base);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
 }
 
 .manual-dot {
@@ -1986,9 +1986,9 @@ onBeforeUnmount(() => {
 .manual-active-details {
   margin-bottom: 8px;
   padding: 6px 9px;
-  background: rgba(0, 0, 0, 0.3);
+  background: var(--surface-base);
   border-radius: var(--radius-sm);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-subtle);
 }
 
 .manual-start-row {
@@ -2052,8 +2052,8 @@ onBeforeUnmount(() => {
 
 .preset-chip {
   padding: 3px 8px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text-primary);
   font-size: 10px;
@@ -2070,8 +2070,8 @@ onBeforeUnmount(() => {
 .schedule-matrix-box {
   margin-top: 8px;
   padding: 9px 11px;
-  background: #0d1017;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-sm);
 }
 
@@ -2080,8 +2080,8 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   padding-left: 28px;
   padding-right: 56px;
-  color: #6b7280;
-  font-family: monospace;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
   font-size: 8px;
   margin-bottom: 4px;
 }
@@ -2099,7 +2099,7 @@ onBeforeUnmount(() => {
 
 .schedule-matrix-day {
   width: 20px;
-  color: #9ca3af;
+  color: var(--text-muted);
   font-size: 9px;
   font-weight: 600;
   text-align: center;
@@ -2109,7 +2109,7 @@ onBeforeUnmount(() => {
   flex: 1;
   position: relative;
   height: 14px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--border-subtle);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -2118,24 +2118,25 @@ onBeforeUnmount(() => {
   position: absolute;
   top: 0;
   bottom: 0;
-  background: #3b82f6;
+  background: var(--accent);
   border-radius: 2px;
-  box-shadow: 0 0 4px rgba(59, 130, 246, 0.5);
+  box-shadow: 0 0 4px var(--accent-soft);
 }
 
 .schedule-matrix-hours {
   width: 52px;
   text-align: right;
   font-size: 9px;
-  color: #93c5fd;
+  color: var(--accent);
+  font-family: var(--font-mono);
 }
 
 .window-quick-btn {
   padding: 3px 6px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--surface-base);
+  border: 1px solid var(--border-subtle);
   border-radius: 3px;
-  color: #d1d5db;
+  color: var(--text-secondary);
   font-size: 9px;
   cursor: pointer;
 }

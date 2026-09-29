@@ -1742,8 +1742,8 @@ onBeforeUnmount(() => {
   gap: 16px;
   padding: 24px;
   min-height: 100%;
-  background: #0c0e14;
-  color: #f3f4f6;
+  background: var(--uf-bg-canvas);
+  color: var(--uf-text-secondary);
 }
 
 /* Header */
@@ -1762,14 +1762,14 @@ onBeforeUnmount(() => {
 .unifi-storage-title {
   font-size: 20px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--uf-text-primary);
   letter-spacing: -0.01em;
   margin: 0;
 }
 
 .unifi-storage-subtitle {
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   margin: 4px 0 0;
   line-height: 1.4;
 }
@@ -1784,8 +1784,8 @@ onBeforeUnmount(() => {
 .unifi-subtabs-pill {
   display: inline-flex;
   padding: 3px;
-  background: #141722;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--uf-bg-card);
+  border: 1px solid var(--uf-border);
   border-radius: 10px;
   gap: 4px;
 }
@@ -1798,17 +1798,17 @@ onBeforeUnmount(() => {
   border: 0;
   cursor: pointer;
   background: transparent;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   transition: all 0.15s ease;
 }
 
 .unifi-subtab-btn:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.05);
+  color: var(--uf-text-primary);
+  background: var(--uf-bg-hover);
 }
 
 .unifi-subtab-btn--active {
-  background: #2563eb !important;
+  background: var(--uf-accent) !important;
   color: #ffffff !important;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.4);
 }
@@ -1825,9 +1825,10 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
-  background: #141722;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--uf-bg-card);
+  border: 1px solid var(--uf-border);
   border-radius: 14px;
+  box-shadow: var(--uf-shadow-sm);
 }
 
 .unifi-metric-icon-wrap {
@@ -1841,30 +1842,30 @@ onBeforeUnmount(() => {
 
 .unifi-metric-icon--blue {
   background: rgba(37, 99, 235, 0.15);
-  color: #60a5fa;
+  color: #2563eb;
 }
 
 .unifi-metric-icon--cyan {
   background: rgba(6, 182, 212, 0.15);
-  color: #22d3ee;
+  color: #0891b2;
 }
 
 .unifi-metric-icon--emerald {
   background: rgba(16, 185, 129, 0.15);
-  color: #34d399;
+  color: #059669;
 }
 
 .unifi-metric-label {
   display: block;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
 }
 
 .unifi-metric-value {
   display: block;
   font-size: 20px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--uf-text-primary);
   margin-top: 1px;
 }
 
@@ -1879,15 +1880,15 @@ onBeforeUnmount(() => {
 }
 
 .unifi-banner--danger {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #ef4444;
 }
 
 .unifi-banner--success {
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #34d399;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  color: #10b981;
 }
 
 /* Section Bar */
@@ -1904,13 +1905,13 @@ onBeforeUnmount(() => {
   display: block;
   font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--uf-text-primary);
 }
 
 .unifi-section-desc {
   display: block;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -1931,10 +1932,11 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: #141722;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--uf-bg-card);
+  border: 1px solid var(--uf-border);
   border-radius: 16px;
   padding: 20px;
+  box-shadow: var(--uf-shadow-sm);
 }
 
 /* Card Header */
@@ -1962,7 +1964,7 @@ onBeforeUnmount(() => {
 .unifi-card-title {
   font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--uf-text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1976,13 +1978,13 @@ onBeforeUnmount(() => {
 }
 
 .unifi-badge-pill--blue {
-  background: rgba(37, 99, 235, 0.2);
-  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--uf-accent);
 }
 
 .unifi-badge-pill--cyan {
-  background: rgba(6, 182, 212, 0.2);
-  color: #67e8f9;
+  background: rgba(6, 182, 212, 0.12);
+  color: #0891b2;
 }
 
 .unifi-status-pill {
@@ -1990,37 +1992,37 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   font-size: 11px;
   font-weight: 700;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 .status-badge--normal {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
 }
 
 .status-badge--warning {
-  background: rgba(245, 158, 11, 0.2);
-  color: #fbbf24;
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
 }
 
 .status-badge--high {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-}
-
-.status-badge--critical {
-  background: rgba(220, 38, 38, 0.35);
+  background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
 
+.status-badge--critical {
+  background: rgba(220, 38, 38, 0.25);
+  color: #dc2626;
+}
+
 .status-badge--cyan {
-  background: rgba(6, 182, 212, 0.2);
-  color: #22d3ee;
+  background: rgba(6, 182, 212, 0.15);
+  color: #06b6d4;
 }
 
 .status-badge--disabled {
-  background: rgba(255, 255, 255, 0.08);
-  color: #9ca3af;
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-muted);
 }
 
 /* Watermark Progress Bar */
@@ -2034,7 +2036,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   height: 12px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--uf-bg-active);
   border-radius: 9999px;
   overflow: hidden;
 }
@@ -2054,11 +2056,11 @@ onBeforeUnmount(() => {
 }
 
 .unifi-watermark-marker--warning {
-  background: #fbbf24;
+  background: #f59e0b;
 }
 
 .unifi-watermark-marker--high {
-  background: #f87171;
+  background: #ef4444;
 }
 
 .unifi-watermark-marker--critical {
@@ -2074,10 +2076,10 @@ onBeforeUnmount(() => {
 
 /* Watermark Controls Box */
 .unifi-watermarks-box {
-  background: #0f121a;
+  background: var(--uf-bg-card-sub);
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--uf-border);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2086,7 +2088,7 @@ onBeforeUnmount(() => {
 .unifi-watermarks-box__title {
   font-size: 11px;
   font-weight: 700;
-  color: #d1d5db;
+  color: var(--uf-text-secondary);
 }
 
 .unifi-watermarks-box__grid {
@@ -2096,15 +2098,29 @@ onBeforeUnmount(() => {
 }
 
 .unifi-watermark-metric-cell {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--uf-bg-card);
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 11px;
+  border: 1px solid var(--uf-border-subtle);
+}
+
+.unifi-watermark-metric-cell span {
+  display: block;
+  font-size: 10px;
+  color: var(--uf-text-muted);
+}
+
+.unifi-watermark-metric-cell strong {
+  display: block;
+  font-size: 13px;
+  color: var(--uf-text-primary);
+  margin-top: 2px;
 }
 
 .unifi-watermark-metric-desc {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -2114,17 +2130,17 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: #d1d5db;
+  color: var(--uf-text-secondary);
 }
 
 .unifi-callout-box {
   font-size: 11px;
   line-height: 1.5;
-  color: #93c5fd;
-  background: rgba(37, 99, 235, 0.1);
+  color: var(--uf-accent);
+  background: var(--uf-accent-soft);
   padding: 12px;
   border-radius: 12px;
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  border: 1px solid var(--uf-accent-glow);
 }
 
 .unifi-card-test-result {
@@ -2132,8 +2148,8 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   font-size: 11px;
-  color: #60a5fa;
-  background: rgba(37, 99, 235, 0.08);
+  color: var(--uf-accent);
+  background: var(--uf-accent-soft);
   padding: 6px 10px;
   border-radius: 8px;
 }
@@ -2144,7 +2160,7 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--uf-border);
   font-size: 12px;
   flex-wrap: wrap;
   gap: 8px;
@@ -2152,7 +2168,7 @@ onBeforeUnmount(() => {
 
 .unifi-protect-status-text {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
 }
 
 .unifi-card-footer__buttons {
@@ -2163,32 +2179,33 @@ onBeforeUnmount(() => {
 
 /* Subtab 2: Retention Policies Table Card */
 .unifi-retention-container {
-  background: #141722;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--uf-bg-card);
+  border: 1px solid var(--uf-border);
   border-radius: 16px;
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  box-shadow: var(--uf-shadow-sm);
 }
 
 .unifi-retention-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--uf-border);
   padding-bottom: 14px;
 }
 
 .unifi-retention-title {
   font-size: 14px;
   font-weight: 700;
-  color: #ffffff;
+  color: var(--uf-text-primary);
 }
 
 .unifi-retention-subtitle {
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -2206,43 +2223,45 @@ onBeforeUnmount(() => {
 
 .unifi-retention-table th {
   padding: 10px 12px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   font-size: 10px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   text-transform: uppercase;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--uf-bg-card-sub);
+  border-bottom: 1px solid var(--uf-border);
 }
 
 .unifi-retention-table td {
   padding: 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  color: var(--uf-text-primary);
+  border-bottom: 1px solid var(--uf-border-subtle);
 }
 
 .unifi-retention-table tr:hover td {
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--uf-bg-hover);
 }
 
 .unifi-scope-pill {
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 10px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   font-weight: 700;
 }
 
 .unifi-scope-pill--blue {
-  background: rgba(37, 99, 235, 0.2);
-  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--uf-accent);
 }
 
 .unifi-scope-pill--purple {
-  background: rgba(168, 85, 247, 0.2);
-  color: #d8b4fe;
+  background: rgba(168, 85, 247, 0.12);
+  color: #9333ea;
 }
 
 .unifi-scope-pill--indigo {
-  background: rgba(99, 102, 241, 0.2);
-  color: #c7d2fe;
+  background: rgba(99, 102, 241, 0.12);
+  color: #4f46e5;
 }
 
 .unifi-status-badge {
@@ -2253,13 +2272,13 @@ onBeforeUnmount(() => {
 }
 
 .unifi-status-badge--normal {
-  background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
 }
 
 .unifi-status-badge--disabled {
-  background: rgba(255, 255, 255, 0.08);
-  color: #9ca3af;
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-muted);
 }
 
 /* Empty State Box */
@@ -2270,14 +2289,14 @@ onBeforeUnmount(() => {
   justify-content: center;
   gap: 8px;
   padding: 48px 24px;
-  background: #141722;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  background: var(--uf-bg-card);
+  border: 1px dashed var(--uf-border-strong);
   border-radius: 16px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
 }
 
 .unifi-empty-box strong {
-  color: #ffffff;
+  color: var(--uf-text-primary);
   font-size: 14px;
 }
 
@@ -2305,23 +2324,23 @@ onBeforeUnmount(() => {
 }
 
 .unifi-btn--primary {
-  background: #2563eb;
+  background: var(--uf-accent);
   color: #ffffff;
 }
 
 .unifi-btn--primary:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--uf-accent-hover);
 }
 
 .unifi-btn--ghost {
-  background: rgba(255, 255, 255, 0.06);
-  color: #e5e7eb;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--uf-bg-card-sub);
+  color: var(--uf-text-primary);
+  border: 1px solid var(--uf-border);
 }
 
 .unifi-btn--ghost:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-primary);
 }
 
 .unifi-btn--compact {
@@ -2336,20 +2355,20 @@ onBeforeUnmount(() => {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 0;
-  background: rgba(255, 255, 255, 0.06);
-  color: #9ca3af;
+  border: 1px solid var(--uf-border);
+  background: var(--uf-bg-card-sub);
+  color: var(--uf-text-muted);
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .unifi-icon-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
-  color: #ffffff;
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-primary);
 }
 
 .unifi-icon-btn--danger:hover {
-  background: rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
 }
 
@@ -2358,7 +2377,7 @@ onBeforeUnmount(() => {
   position: fixed;
   inset: 0;
   z-index: 60;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   display: flex;
   justify-content: flex-end;
@@ -2368,9 +2387,9 @@ onBeforeUnmount(() => {
   width: 420px;
   max-width: 90vw;
   height: 100%;
-  background: #141722;
-  border-left: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.6);
+  background: var(--uf-bg-card);
+  border-left: 1px solid var(--uf-border);
+  box-shadow: var(--uf-shadow-lg);
   display: flex;
   flex-direction: column;
   animation: slideDrawer 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2390,19 +2409,19 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--uf-border);
 }
 
 .unifi-drawer__header strong {
   display: block;
   font-size: 14px;
-  color: #ffffff;
+  color: var(--uf-text-primary);
 }
 
 .unifi-drawer__header span {
   display: block;
   font-size: 11px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -2424,7 +2443,7 @@ onBeforeUnmount(() => {
 .unifi-form-group span {
   font-size: 11px;
   font-weight: 600;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
 }
@@ -2435,9 +2454,9 @@ onBeforeUnmount(() => {
   width: 100%;
   padding: 8px 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: #0d1017;
-  color: #ffffff;
+  border: 1px solid var(--uf-border-strong);
+  background: var(--uf-bg-input);
+  color: var(--uf-text-primary);
   font-size: 12px;
   outline: none;
   transition: border-color 0.15s ease;
@@ -2446,14 +2465,14 @@ onBeforeUnmount(() => {
 .unifi-form-group input:focus,
 .unifi-form-group select:focus,
 .unifi-form-group textarea:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+  border-color: var(--uf-accent);
+  box-shadow: 0 0 0 2px var(--uf-accent-soft);
 }
 
 .unifi-form-group small,
 .unifi-form-hint {
   font-size: 10px;
-  color: #6b7280;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -2469,7 +2488,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   font-size: 12px;
-  color: #e5e7eb;
+  color: var(--uf-text-primary);
   cursor: pointer;
   margin-top: 4px;
 }
@@ -2477,7 +2496,7 @@ onBeforeUnmount(() => {
 .unifi-checkbox-row input {
   width: 16px;
   height: 16px;
-  accent-color: #2563eb;
+  accent-color: var(--uf-accent);
 }
 
 .unifi-drawer__actions {
@@ -2491,30 +2510,30 @@ onBeforeUnmount(() => {
 
 /* Switch Summary */
 .unifi-switch-summary {
-  background: #0d1017;
+  background: var(--uf-bg-card-sub);
   padding: 12px;
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--uf-border);
 }
 
 .unifi-switch-summary span {
   display: block;
   font-size: 10px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   text-transform: uppercase;
 }
 
 .unifi-switch-summary strong {
   display: block;
   font-size: 13px;
-  color: #ffffff;
+  color: var(--uf-text-primary);
   margin-top: 2px;
 }
 
 .unifi-switch-summary small {
   display: block;
   font-size: 11px;
-  color: #6b7280;
+  color: var(--uf-text-muted);
   margin-top: 2px;
 }
 
@@ -2522,11 +2541,11 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  background: rgba(37, 99, 235, 0.1);
-  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: var(--uf-accent-soft);
+  border: 1px solid var(--uf-accent-glow);
   border-radius: 8px;
   font-size: 11px;
-  color: #93c5fd;
+  color: var(--uf-accent);
   line-height: 1.4;
 }
 
@@ -2537,124 +2556,5 @@ onBeforeUnmount(() => {
   .unifi-targets-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* ===== Light Mode Theme Overrides ===== */
-:global([data-theme="light"]) .unifi-storage-workspace {
-  background: var(--uf-bg-canvas, #f8fafc);
-  color: var(--uf-text-secondary, #475569);
-}
-
-:global([data-theme="light"]) .unifi-storage-title {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .unifi-storage-subtitle {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .unifi-subtabs-pill {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .unifi-subtab-btn {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .unifi-subtab-btn:hover {
-  color: var(--uf-text-primary, #0f172a);
-  background: var(--uf-bg-hover, #f1f5f9);
-}
-
-:global([data-theme="light"]) .unifi-metric-card {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
-}
-
-:global([data-theme="light"]) .unifi-metric-num {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .unifi-card {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-  box-shadow: var(--uf-shadow-sm, 0 1px 3px rgba(0, 0, 0, 0.05));
-}
-
-:global([data-theme="light"]) .unifi-card-title {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .unifi-card-subtitle {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .storage-tier-card {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .storage-tier-card strong {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .storage-tier-card span {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .target-config-card {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .target-config-card strong {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .unifi-table thead th {
-  color: var(--uf-text-muted, #64748b);
-  background: var(--uf-bg-card-sub, #f8fafc);
-  border-bottom-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .unifi-table tbody td {
-  color: var(--uf-text-primary, #0f172a);
-  border-bottom-color: var(--uf-border-subtle, #f1f5f9);
-}
-
-:global([data-theme="light"]) .unifi-modal {
-  background: #ffffff;
-  border-color: #e2e8f0;
-  color: #0f172a;
-}
-
-:global([data-theme="light"]) .unifi-modal-header {
-  border-bottom-color: #e2e8f0;
-}
-
-:global([data-theme="light"]) .unifi-modal-header h3 {
-  color: #0f172a;
-}
-
-:global([data-theme="light"]) .unifi-modal-footer {
-  border-top-color: #e2e8f0;
-}
-
-:global([data-theme="light"]) .unifi-input,
-:global([data-theme="light"]) .unifi-select {
-  background: #ffffff;
-  border-color: #cbd5e1;
-  color: #0f172a;
-}
-
-:global([data-theme="light"]) .unifi-input:focus,
-:global([data-theme="light"]) .unifi-select:focus {
-  border-color: #2563eb;
-}
-
-:global([data-theme="light"]) .unifi-switch-summary strong {
-  color: #0f172a;
 }
 </style>

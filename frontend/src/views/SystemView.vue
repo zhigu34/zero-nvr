@@ -3323,9 +3323,9 @@ onBeforeUnmount(() => {
   align-items: end;
   margin-bottom: 14px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--uf-border);
   border-radius: 14px;
-  background: #141722;
+  background: var(--uf-bg-card);
 }
 
 .audit-filter {
@@ -3335,7 +3335,7 @@ onBeforeUnmount(() => {
 }
 
 .audit-filter > span {
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -3346,19 +3346,19 @@ onBeforeUnmount(() => {
   width: 100%;
   min-height: 36px;
   padding: 0 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--uf-border-strong);
   border-radius: 8px;
   outline: 0;
-  background: #181d2a;
-  color: #ffffff;
+  background: var(--uf-bg-input);
+  color: var(--uf-text-primary);
   font: inherit;
   font-size: 12px;
 }
 
 .audit-filter input:focus,
 .audit-filter select:focus {
-  border-color: #2563eb;
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
+  border-color: var(--uf-accent);
+  box-shadow: 0 0 0 3px var(--uf-accent-glow);
 }
 
 .audit-toolbar__actions {
@@ -3369,7 +3369,7 @@ onBeforeUnmount(() => {
 
 .audit-empty {
   padding: 36px 16px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   font-size: 13px;
   text-align: center;
 }
@@ -3378,10 +3378,10 @@ onBeforeUnmount(() => {
   width: 100%;
   margin-top: 12px;
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--uf-border);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #d1d5db;
+  background: var(--uf-bg-card-sub);
+  color: var(--uf-text-primary);
   font: inherit;
   font-size: 12px;
   font-weight: 500;
@@ -3390,8 +3390,8 @@ onBeforeUnmount(() => {
 }
 
 .audit-load-more:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ffffff;
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-primary);
 }
 
 @media (max-width: 980px) {
@@ -3409,9 +3409,9 @@ onBeforeUnmount(() => {
   gap: 12px;
   margin-bottom: 14px;
   padding: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--uf-border);
   border-radius: 14px;
-  background: #141722;
+  background: var(--uf-bg-card);
 }
 
 .backup-recovery-card__heading {
@@ -3429,13 +3429,13 @@ onBeforeUnmount(() => {
 .backup-recovery-card__heading strong {
   font-size: 13px;
   font-weight: 600;
-  color: #ffffff;
+  color: var(--uf-text-primary);
 }
 
 .backup-recovery-card__heading div > span {
   max-width: 680px;
   margin-top: 2px;
-  color: #9ca3af;
+  color: var(--uf-text-muted);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -3454,21 +3454,21 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--uf-border-subtle);
   border-radius: 8px;
-  background: #0d1017;
+  background: var(--uf-bg-card-sub);
 }
 
 .backup-recovery-commands span {
-  color: #d1d5db;
+  color: var(--uf-text-primary);
   font-size: 11px;
 }
 
 .backup-recovery-commands code {
   overflow-x: auto;
-  color: #60a5fa;
+  color: var(--uf-accent);
   font-size: 11px;
-  font-family: monospace;
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
@@ -3480,55 +3480,5 @@ onBeforeUnmount(() => {
   .backup-recovery-commands span {
     grid-column: 1 / -1;
   }
-}
-
-/* ===== Light Mode Theme Overrides ===== */
-:global([data-theme="light"]) .audit-toolbar {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .audit-filter > span {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .audit-filter input,
-:global([data-theme="light"]) .audit-filter select {
-  background: var(--uf-bg-input, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .audit-load-more {
-  background: #f1f5f9;
-  border-color: #e2e8f0;
-  color: #0f172a;
-}
-
-:global([data-theme="light"]) .audit-load-more:hover:not(:disabled) {
-  background: #e2e8f0;
-  color: #0f172a;
-}
-
-:global([data-theme="light"]) .backup-recovery-card {
-  background: var(--uf-bg-card, #ffffff);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .backup-recovery-card__heading strong {
-  color: var(--uf-text-primary, #0f172a);
-}
-
-:global([data-theme="light"]) .backup-recovery-card__heading div > span {
-  color: var(--uf-text-muted, #64748b);
-}
-
-:global([data-theme="light"]) .backup-recovery-commands > div {
-  background: var(--uf-bg-card-sub, #f8fafc);
-  border-color: var(--uf-border, #e2e8f0);
-}
-
-:global([data-theme="light"]) .backup-recovery-commands span {
-  color: var(--uf-text-primary, #0f172a);
 }
 </style>
