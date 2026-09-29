@@ -192,22 +192,60 @@ function isDayActiveInSchedule(camera: CameraSummary, dayIndex: number): boolean
 
 function getRuntimeStateInfo(camera: CameraSummary): { label: string; tone: "ok" | "standby" | "off" | "warn" } {
   if (!camera.enabled) return { label: "机位已禁用", tone: "off" }
-  if (camera.connectivity_status === "offline") return { label: "机位离线", tone: "warn" }
+  if (camera.connectivity_status === "offline") return { label: "机位离线 (等待连接)", tone: "warn" }
   const p = getCameraPolicy(camera.id)
   if (!p || !p.enabled) return { label: "仅手动录像", tone: "off" }
+
+  // 1. Explicitly confirmed recording
   if (p.runtime?.recording) {
     return { label: "正在录制", tone: "ok" }
   }
-  if (p.baseline_mode === "schedule") {
-    return { label: "计划时段外待机", tone: "standby" }
-  }
+
+  // 2. 24x7 Continuous mode
   if (p.baseline_mode === "continuous") {
-    return { label: "待命中", tone: "standby" }
+    if (camera.connectivity_status === "online") {
+      return { label: "全天录制中", tone: "ok" }
+    }
+    return { label: "等待机位上线", tone: "standby" }
   }
+
+  // 3. Weekly Schedule mode (calculate active window)
+  if (p.baseline_mode === "schedule") {
+    const now = new Date()
+    const currentDay = (now.getDay() + 6) % 7 // 0=Mon, ..., 6=Sun
+    const currentMinutes = now.getHours() * 60 + now.getMinutes()
+    const windows = p.schedule?.weekly || []
+
+    const inWindow = windows.some((w) => {
+      if (!normalizedDays(w.days).includes(currentDay)) return false
+      const [sh, sm] = w.start.split(":").map(Number)
+      const [eh, em] = w.end.split(":").map(Number)
+      if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false
+      const s = sh * 60 + sm
+      const e = eh * 60 + em
+      if (s <= e) {
+        return currentMinutes >= s && currentMinutes < e
+      } else {
+        // Crosses midnight
+        return currentMinutes >= s || currentMinutes < e
+      }
+    })
+
+    if (inWindow) {
+      if (camera.connectivity_status === "online") {
+        return { label: "时段内录制中", tone: "ok" }
+      }
+      return { label: "时段内等待上线", tone: "standby" }
+    }
+    return { label: "时段外待机", tone: "standby" }
+  }
+
+  // 4. Motion / Event only
   if (p.event_recording_enabled) {
-    return { label: "动检监听中", tone: "standby" }
+    return { label: "动检监听待命中", tone: "standby" }
   }
-  return { label: "待命", tone: "standby" }
+
+  return { label: "未启用", tone: "off" }
 }
 
 function getStorageTargetLabel(targetId: string | null | undefined): string {
