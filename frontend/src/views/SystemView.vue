@@ -1435,8 +1435,8 @@ onBeforeUnmount(() => {
   <section class="system-workspace">
     <aside class="system-nav">
       <div class="system-nav__title">
-        <strong>{{ t("system.main.title") }}</strong>
-        <span>{{ info?.version || "zero-nvr" }}</span>
+        <span class="blue-dot" />
+        <strong>{{ t("system.main.title") }} (Settings)</strong>
       </div>
       <nav>
         <button
@@ -1450,6 +1450,10 @@ onBeforeUnmount(() => {
           <span>{{ item.label }}</span>
         </button>
       </nav>
+      <div class="system-nav__footer">
+        <div>zero-nvr Core {{ info?.version || "v1.4.2" }}</div>
+        <div class="text-emerald">● 生产就绪 (Production)</div>
+      </div>
     </aside>
 
     <div class="system-content">

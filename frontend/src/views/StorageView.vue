@@ -669,9 +669,9 @@ onBeforeUnmount(() => {
   <section class="storage-workspace">
     <header class="storage-header">
       <div>
-        <strong>{{ t("storage.title") }}</strong>
+        <strong>{{ t("storage.title") }} · Storage & WebDAV Tiering</strong>
         <span>
-          {{ t("storage.description") }}
+          本地 NVMe 高速写入池 ➔ WebDAV 自动归档 ➔ 80%/85%/95% 高水位自动清理 ➔ 前端统一直连秒开
         </span>
       </div>
 
@@ -732,14 +732,14 @@ onBeforeUnmount(() => {
         :class="{ 'storage-tab--active': tab === 'targets' }"
         @click="tab = 'targets'"
       >
-        {{ t("storage.storageTargets") }}
+        {{ t("storage.storageTargets") }} (Targets)
       </button>
       <button
         type="button"
         :class="{ 'storage-tab--active': tab === 'retention' }"
         @click="tab = 'retention'"
       >
-        {{ t("storage.retention") }}
+        {{ t("storage.retention") }} (Retention)
       </button>
     </div>
 

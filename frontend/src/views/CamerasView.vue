@@ -107,14 +107,31 @@ onBeforeUnmount(() => {
   <div class="page">
     <div class="page-header">
       <div>
-        <p class="eyebrow">{{ t("cameras.deviceCenter") }}</p>
+        <p class="eyebrow">{{ t("cameras.deviceCenter") }} · Devices & Discovery</p>
         <h1>{{ t("cameras.title") }}</h1>
         <p class="page-subtitle">
-          {{ t("cameras.description") }}
+          ONVIF WS-Discovery 自动探测、RTSP 批量接入与 CSV 导入
         </p>
       </div>
 
       <div class="page-actions">
+        <!--
+          TODO(phase-4): ONVIF WS-Discovery 局域网机位探测
+          后端 API: /api/v1/cameras/discovery/ws-discovery (待规划)
+          原型位置: protect-devices L1613-1616
+          实现说明: 发送 WS-Discovery UDP 组播探测局域网内的摄像机并列出，点击后自动填入 IP 与端口快速纳管
+        -->
+        <button
+          v-if="auth.hasPermission('camera.configure')"
+          class="button button--secondary"
+          type="button"
+          title="自动探测局域网中的 ONVIF 机位 (开发中)"
+          @click="error = 'ONVIF WS-Discovery 自动探测开发中，可通过上方“添加摄像机”或 CSV 批量导入'"
+        >
+          <UiIcon name="search" :size="14" />
+          <span>发现新摄像机 (ONVIF WS-Discovery)</span>
+        </button>
+
         <button
           class="button button--secondary"
           :disabled="loading"

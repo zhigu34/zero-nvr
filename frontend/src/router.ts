@@ -91,14 +91,18 @@ const routes: RouteRecordRaw[] = [
         path: "cameras",
         name: "cameras",
         component: CamerasView,
-        meta: { titleKey: "route.cameras" }
+        meta: {
+          titleKey: "route.cameras",
+          layout: "immersive"
+        }
       },
       {
         path: "storage",
         name: "storage",
         component: StorageView,
         meta: {
-          titleKey: "route.storage"
+          titleKey: "route.storage",
+          layout: "immersive"
         }
       },
       {
@@ -106,7 +110,8 @@ const routes: RouteRecordRaw[] = [
         name: "system",
         component: SystemView,
         meta: {
-          titleKey: "route.system"
+          titleKey: "route.system",
+          layout: "immersive"
         }
       }
     ]
