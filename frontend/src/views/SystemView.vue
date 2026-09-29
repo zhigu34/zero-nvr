@@ -203,71 +203,82 @@ const cameraClockHealth = ref<CameraClockHealth | null>(null)
 const cameraClockLoading = ref(false)
 
 const navigation = computed(() => {
+  const isZh = locale.value?.startsWith("zh")
   const items: Array<{
     id: SystemTab
     label: string
     icon: string
     visible: boolean
   }> = [
-    { id: "overview", label: t("system.main.navOverview"), icon: "dashboard", visible: true },
+    {
+      id: "overview",
+      label: isZh ? "系统概览与资源" : t("system.main.navOverview"),
+      icon: "dashboard",
+      visible: true
+    },
     {
       id: "validation",
-      label: t("system.main.navValidation"),
+      label: isZh ? "生产就绪度预检" : t("system.main.navValidation"),
       icon: "activity",
       visible: auth.hasPermission("system.view")
     },
-    { id: "general", label: t("system.main.general"), icon: "system", visible: true },
+    {
+      id: "general",
+      label: isZh ? "基础参数与网络" : t("system.main.general"),
+      icon: "system",
+      visible: true
+    },
     {
       id: "time",
-      label: t("system.main.time"),
+      label: isZh ? "时钟与 NTP 策略" : t("system.main.time"),
       icon: "calendar",
       visible: auth.hasPermission("system.view")
     },
     {
       id: "users",
-      label: t("system.main.navUsers"),
+      label: isZh ? "用户权限 (RBAC)" : t("system.main.navUsers"),
       icon: "users",
       visible: auth.hasPermission("user.manage")
     },
     {
       id: "tokens",
-      label: t("system.main.navApiTokens"),
+      label: isZh ? "API 服务令牌" : t("system.main.navApiTokens"),
       icon: "shield",
       visible: true
     },
     {
       id: "oidc",
-      label: t("system.main.navOidc"),
+      label: isZh ? "单点登录 (OIDC / SSO)" : t("system.main.navOidc"),
       icon: "users",
       visible: auth.hasPermission("user.manage")
     },
     {
       id: "notifications",
-      label: t("system.main.notifications"),
+      label: isZh ? "通知渠道 (Apprise)" : t("system.main.notifications"),
       icon: "bell",
       visible: auth.hasPermission("notification.view")
     },
     {
       id: "alerts",
-      label: t("system.main.navAlertRules"),
+      label: isZh ? "告警规则与防风暴" : t("system.main.navAlertRules"),
       icon: "bell",
       visible: auth.hasPermission("alert.manage")
     },
     {
       id: "ai",
-      label: t("system.main.aiFrigate"),
+      label: isZh ? "Frigate AI 引擎配置" : t("system.main.aiFrigate"),
       icon: "brain",
       visible: auth.hasPermission("integration.manage")
     },
     {
       id: "backup",
-      label: t("system.main.backup"),
+      label: isZh ? "备份与 RecoveryKit" : t("system.main.backup"),
       icon: "backup",
       visible: auth.hasPermission("system.view")
     },
     {
       id: "audit",
-      label: t("system.main.audit"),
+      label: isZh ? "安全审计日志" : t("system.main.audit"),
       icon: "audit",
       visible: auth.hasPermission("audit.view")
     }
@@ -484,8 +495,9 @@ function stateLabel(value: string): string {
   return te(key) ? t(key) : value
 }
 
-function pretty(value: string): string {
-  return value
+function pretty(value?: string | null): string {
+  if (!value) return "—"
+  return String(value)
     .replaceAll("_", " ")
     .replaceAll(".", " · ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
@@ -550,7 +562,7 @@ interface StorageHealthTarget {
 function storageHealthTargets(
   component: HealthComponent
 ): StorageHealthTarget[] {
-  const value = component.details.target_details
+  const value = component.details?.target_details
   if (!Array.isArray(value)) return []
   return value.filter(
     (item): item is StorageHealthTarget =>
@@ -820,6 +832,7 @@ function resetAuditFilters(): void {
 
 async function loadTab(value: SystemTab): Promise<void> {
   notice.value = null
+  if (value === "time") await checkCameraClocks()
   if (value === "notifications") await loadNotifications()
   if (value === "ai") await loadFrigate()
   if (value === "backup") await loadBackups()
@@ -1432,11 +1445,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="system-workspace">
+  <div class="system-workspace">
     <aside class="system-nav">
       <div class="system-nav__title">
         <span class="blue-dot" />
-        <strong>{{ t("system.main.title") }} (Settings)</strong>
+        <strong>系统与运维设置 (Settings)</strong>
       </div>
       <nav>
         <button
@@ -1446,17 +1459,17 @@ onBeforeUnmount(() => {
           :class="{ 'system-nav__active': tab === item.id }"
           @click="tab = item.id"
         >
-          <UiIcon :name="item.icon" :size="15" />
+          <UiIcon :name="item.icon" :size="16" />
           <span>{{ item.label }}</span>
         </button>
       </nav>
       <div class="system-nav__footer">
-        <div>zero-nvr Core {{ info?.version || "v1.4.2" }}</div>
+        <div>zero-nvr Core {{ info?.version ? (info.version.startsWith('v') ? info.version : `v${info.version}`) : "v1.4.2" }}</div>
         <div class="text-emerald">● 生产就绪 (Production)</div>
       </div>
     </aside>
 
-    <div class="system-content">
+    <main class="system-content">
       <div v-if="error" class="events-error">
         <UiIcon name="warning" :size="16" />
         <span>{{ error }}</span>
@@ -3292,8 +3305,8 @@ onBeforeUnmount(() => {
           }}
         </button>
       </template>
-    </div>
-  </section>
+    </main>
+  </div>
 </template>
 
 
@@ -3301,82 +3314,84 @@ onBeforeUnmount(() => {
 .audit-toolbar {
   display: grid;
   grid-template-columns:
-    minmax(110px, 0.7fr)
+    minmax(120px, 0.7fr)
+    minmax(160px, 1fr)
     minmax(150px, 1fr)
-    minmax(140px, 1fr)
-    minmax(120px, 0.8fr)
+    minmax(130px, 0.8fr)
     auto;
-  gap: 7px;
+  gap: 10px;
   align-items: end;
-  margin-bottom: 10px;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: #141722;
 }
 
 .audit-filter {
   display: grid;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
 .audit-filter > span {
-  color: var(--text-muted);
-  font-size: 7px;
-  font-weight: 650;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 600;
   text-transform: uppercase;
 }
 
 .audit-filter input,
 .audit-filter select {
   width: 100%;
-  min-height: 30px;
-  padding: 0 7px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
   outline: 0;
-  background: var(--surface-base);
-  color: var(--text-primary);
+  background: #181d2a;
+  color: #ffffff;
   font: inherit;
-  font-size: 8px;
+  font-size: 12px;
 }
 
 .audit-filter input:focus,
 .audit-filter select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.25);
 }
 
 .audit-toolbar__actions {
   display: flex;
-  gap: 5px;
+  gap: 8px;
   justify-content: flex-end;
 }
 
 .audit-empty {
-  padding: 28px 12px;
-  color: var(--text-muted);
-  font-size: 9px;
+  padding: 36px 16px;
+  color: #9ca3af;
+  font-size: 13px;
   text-align: center;
 }
 
 .audit-load-more {
   width: 100%;
-  margin-top: 8px;
-  padding: 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-secondary);
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d1d5db;
   font: inherit;
-  font-size: 8px;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .audit-load-more:hover:not(:disabled) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
 }
 
 @media (max-width: 980px) {
@@ -3388,25 +3403,22 @@ onBeforeUnmount(() => {
     grid-column: 1 / -1;
   }
 }
-</style>
 
-
-<style scoped>
 .backup-recovery-card {
   display: grid;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 11px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  background: var(--surface-raised);
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: #141722;
 }
 
 .backup-recovery-card__heading {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 14px;
 }
 
 .backup-recovery-card__heading strong,
@@ -3415,20 +3427,22 @@ onBeforeUnmount(() => {
 }
 
 .backup-recovery-card__heading strong {
-  font-size: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #ffffff;
 }
 
 .backup-recovery-card__heading div > span {
   max-width: 680px;
   margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 8px;
-  line-height: 1.45;
+  color: #9ca3af;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .backup-recovery-commands {
   display: grid;
-  gap: 5px;
+  gap: 8px;
 }
 
 .backup-recovery-commands > div {
@@ -3438,22 +3452,23 @@ onBeforeUnmount(() => {
     minmax(260px, 1.4fr)
     auto;
   align-items: center;
-  gap: 8px;
-  padding: 6px 7px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--surface-base);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: #0d1017;
 }
 
 .backup-recovery-commands span {
-  color: var(--text-secondary);
-  font-size: 8px;
+  color: #d1d5db;
+  font-size: 11px;
 }
 
 .backup-recovery-commands code {
   overflow-x: auto;
-  color: var(--text-primary);
-  font-size: 8px;
+  color: #60a5fa;
+  font-size: 11px;
+  font-family: monospace;
   white-space: nowrap;
 }
 
