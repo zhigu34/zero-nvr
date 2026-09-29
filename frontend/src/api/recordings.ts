@@ -55,6 +55,10 @@ export interface RecordingPolicyPut {
   enabled: boolean
 }
 
+export function listRecordingPolicies(): Promise<RecordingPolicy[]> {
+  return apiRequest<RecordingPolicy[]>("/recording-policies")
+}
+
 export function getRecordingPolicy(
   cameraId: string
 ): Promise<RecordingPolicy> {

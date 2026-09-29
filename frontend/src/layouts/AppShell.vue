@@ -26,6 +26,7 @@ const navigation = [
   { to: "/files",    labelKey: "nav.files",    label: "录像文件管理 (Files)" },
   { to: "/events",   labelKey: "nav.events",   label: "事件与告警中心 (Alerts & AI)" },
   { to: "/cameras",  labelKey: "nav.cameras",  label: "机位设备管理 (ONVIF & CSV)" },
+  { to: "/recording-schedules", labelKey: "nav.schedules", label: "录像录制计划 (Schedule)" },
   { to: "/storage",  labelKey: "nav.storage",  label: "存储与云归档 (Storage & Cloud)" },
   { to: "/system",   labelKey: "nav.system",   label: "系统运维 & 灾备 (Operations)", bottomGroup: true }
 ]
@@ -146,6 +147,19 @@ onBeforeUnmount(() => {
               <circle cx="12" cy="13" r="4"/>
             </svg>
             <span class="dock-tooltip">机位设备管理 (ONVIF & CSV)</span>
+          </RouterLink>
+
+          <!-- Recording Schedules (录像录制计划) -->
+          <RouterLink to="/recording-schedules" class="dock-icon" :class="{ active: isActive('/recording-schedules') }"
+                      :title="t('nav.schedules')">
+            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+              <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>
+            </svg>
+            <span class="dock-tooltip">录像录制计划 (Schedule)</span>
           </RouterLink>
 
           <!-- Storage & Cloud Archive -->

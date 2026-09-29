@@ -23,6 +23,7 @@ const messages = {
       events: "Events",
       alerts: "Alerts",
       cameras: "Cameras",
+      schedules: "Schedules",
       storage: "Storage",
       system: "System"
     },
@@ -36,6 +37,7 @@ const messages = {
       events: "Events",
       alerts: "Alerts",
       cameras: "Cameras",
+      schedules: "Recording Schedules",
       storage: "Storage",
       system: "System"
     },
@@ -1626,6 +1628,7 @@ const messages = {
       events: "事件",
       alerts: "告警",
       cameras: "摄像机",
+      schedules: "录制计划",
       storage: "存储",
       system: "系统"
     },
@@ -1639,6 +1642,7 @@ const messages = {
       events: "事件",
       alerts: "告警",
       cameras: "摄像机",
+      schedules: "录像录制计划",
       storage: "存储",
       system: "系统"
     },

@@ -335,6 +335,25 @@ def _runtime_signature(
 
 
 @router.get(
+    "/recording-policies",
+    response_model=list[RecordingPolicyView],
+)
+def list_recording_policies(
+    context: AuthContext = Depends(require_permission("camera.view")),
+    session: Session = Depends(get_db_session),
+) -> list[RecordingPolicyView]:
+    scope = get_effective_camera_scope(context, session)
+    allowed = None if scope.all_cameras else scope.camera_ids
+    if allowed is not None and len(allowed) == 0:
+        return []
+    policies = RecordingPolicyService.list(
+        session,
+        camera_ids=list(allowed) if allowed is not None else None,
+    )
+    return [_policy_view(p) for p in policies]
+
+
+@router.get(
     "/cameras/{camera_id}/recording-policy",
     response_model=RecordingPolicyView,
 )

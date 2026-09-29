@@ -13,6 +13,7 @@ import LoginView from "./views/LoginView.vue"
 import FilesView from "./views/FilesView.vue"
 import LiveView from "./views/LiveView.vue"
 import PlaybackView from "./views/PlaybackView.vue"
+import RecordingScheduleView from "./views/RecordingScheduleView.vue"
 import SetupView from "./views/SetupView.vue"
 import StorageView from "./views/StorageView.vue"
 import SystemView from "./views/SystemView.vue"
@@ -89,6 +90,23 @@ const routes: RouteRecordRaw[] = [
           titleKey: "route.cameras",
           layout: "immersive"
         }
+      },
+      {
+        path: "recording-schedules",
+        name: "recording-schedules",
+        component: RecordingScheduleView,
+        meta: {
+          titleKey: "route.schedules",
+          layout: "immersive"
+        }
+      },
+      {
+        path: "schedules",
+        redirect: "/recording-schedules"
+      },
+      {
+        path: "schedule",
+        redirect: "/recording-schedules"
       },
       {
         path: "storage",

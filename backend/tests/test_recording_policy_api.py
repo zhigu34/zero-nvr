@@ -512,3 +512,32 @@ def test_policy_put_when_stream_is_offline_succeeds_with_offline_runtime(
             "assumed_existing_mode": False,
         }
 
+
+def test_list_recording_policies(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        # Before putting policy, list is empty
+        res = client.get("/api/v1/recording-policies")
+        assert res.status_code == 200
+        assert res.json() == []
+
+        # Put a policy
+        put_res = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert put_res.status_code == 200
+
+        # Now list contains the policy
+        res2 = client.get("/api/v1/recording-policies")
+        assert res2.status_code == 200
+        items = res2.json()
+        assert len(items) == 1
+        assert items[0]["camera_id"] == str(camera_id)
+        assert items[0]["baseline_mode"] == "continuous"
+
+

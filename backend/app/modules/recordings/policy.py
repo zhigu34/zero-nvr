@@ -38,6 +38,17 @@ class RecordingPolicyService:
         )
 
     @staticmethod
+    def list(
+        session: Session,
+        *,
+        camera_ids: list[uuid.UUID] | None = None,
+    ) -> list[RecordingPolicy]:
+        stmt = select(RecordingPolicy)
+        if camera_ids is not None:
+            stmt = stmt.where(RecordingPolicy.camera_id.in_(camera_ids))
+        return list(session.scalars(stmt).all())
+
+    @staticmethod
     def validate_schedule(
         *,
         baseline_mode: str,
