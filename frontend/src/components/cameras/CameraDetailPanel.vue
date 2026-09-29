@@ -48,6 +48,7 @@ import {
   type StorageTarget
 } from "../../api/storage"
 import CameraDeviceGlyph from "./CameraDeviceGlyph.vue"
+import LiveCameraTile from "../live/LiveCameraTile.vue"
 import UiIcon from "../ui/UiIcon.vue"
 import { useAuthStore } from "../../stores/auth"
 
@@ -152,57 +153,16 @@ function handleKeyboardNav(event: KeyboardEvent): void {
 const probing = ref(false)
 const verifyingStreamId = ref<string | null>(null)
 
-// On-demand Live Preview state
-const previewPlaying = ref(false)
-const previewLoading = ref(false)
-const previewFailed = ref(false)
-const previewNonce = ref(Date.now())
-let previewInterval: number | null = null
-
-const previewSrc = computed(() => {
-  if (!previewPlaying.value || !props.camera?.id) return ""
-  return `/api/v1/cameras/${encodeURIComponent(props.camera.id)}/snapshot?_=${previewNonce.value}`
-})
+// Live Streaming state (Powered by LiveCameraTile, same engine as LiveView)
+const previewPlaying = ref(true)
 
 function startPreview(): void {
   if (!props.camera.enabled) return
   previewPlaying.value = true
-  previewLoading.value = true
-  previewFailed.value = false
-  previewNonce.value = Date.now()
-  if (previewInterval !== null) {
-    window.clearInterval(previewInterval)
-  }
-  previewInterval = window.setInterval(() => {
-    if (previewPlaying.value && !previewFailed.value) {
-      previewNonce.value = Date.now()
-    }
-  }, 3000)
 }
 
 function stopPreview(): void {
   previewPlaying.value = false
-  previewLoading.value = false
-  if (previewInterval !== null) {
-    window.clearInterval(previewInterval)
-    previewInterval = null
-  }
-}
-
-function refreshPreview(): void {
-  previewLoading.value = true
-  previewFailed.value = false
-  previewNonce.value = Date.now()
-}
-
-function handlePreviewLoad(): void {
-  previewLoading.value = false
-  previewFailed.value = false
-}
-
-function handlePreviewError(): void {
-  previewLoading.value = false
-  previewFailed.value = true
 }
 
 function formatTime(val?: string | null): string {
@@ -1156,43 +1116,42 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <!-- On-demand Live Preview Stage -->
+    <!-- Real-time Live Preview Stage (Same as LiveView / WHEP WebRTC & HLS) -->
     <section class="preview-stage-card">
       <div class="preview-stage-header">
         <div>
           <strong>实时画面预览</strong>
-          <span>按需拉流，打开抽屉不会占用背景网络带宽</span>
+          <span>与实时监控同源，基于 WebRTC (WHEP) 毫秒级低延迟与 HLS 自动回退</span>
         </div>
-        <div v-if="previewPlaying" class="preview-live-indicator">
-          <span class="live-dot animate-pulse"></span>
-          <span>正在预览</span>
+        <div v-if="camera.enabled" class="preview-live-controls">
+          <button
+            type="button"
+            class="preview-toggle-btn"
+            :class="{ 'preview-toggle-btn--active': previewPlaying }"
+            :title="previewPlaying ? '暂停实时画面以节省带宽' : '恢复实时画面'"
+            @click="previewPlaying = !previewPlaying"
+          >
+            <span class="live-dot" :class="{ 'animate-pulse': previewPlaying, 'live-dot--paused': !previewPlaying }"></span>
+            <span>{{ previewPlaying ? '正在直播' : '已暂停' }}</span>
+          </button>
         </div>
       </div>
 
       <div class="preview-stage-box" :class="{ 'preview-stage-box--idle': !previewPlaying }">
-        <img
-          v-if="camera.enabled && previewPlaying && !previewFailed"
-          :key="previewNonce"
-          :src="previewSrc"
-          class="preview-img"
-          alt="实时画面"
-          @load="handlePreviewLoad"
-          @error="handlePreviewError"
+        <LiveCameraTile
+          v-if="camera.enabled && previewPlaying"
+          :camera="detail || camera"
+          quality="low"
+          :allow-high-quality="true"
+          :playback-enabled="true"
+          :audio-enabled="false"
+          @playback-change="(_id, enabled) => previewPlaying = enabled"
         />
 
         <div v-else-if="!camera.enabled" class="preview-empty-state">
-          <UiIcon name="camera" :size="32" class="text-gray-600 mb-2" />
+          <UiIcon name="camera" :size="32" class="text-gray-500 mb-2" />
           <strong>摄像机已禁用</strong>
           <span>启用设备后才能拉取实时画面</span>
-        </div>
-
-        <div v-else-if="previewFailed" class="preview-empty-state">
-          <UiIcon name="warning" :size="32" class="text-amber-500 mb-2" />
-          <strong>实时画面暂不可用</strong>
-          <span>码流连接超时或暂未就绪，可执行连接检测</span>
-          <button type="button" class="button button--ghost button--compact mt-2" @click="refreshPreview">
-            重新尝试
-          </button>
         </div>
 
         <button
@@ -1203,24 +1162,8 @@ onBeforeUnmount(() => {
         >
           <span class="preview-play-icon">▶</span>
           <strong>播放实时画面</strong>
-          <small>点击按需获取最新快照与码流状态</small>
+          <small>点击连接实时码流 (WebRTC WHEP / HLS)</small>
         </button>
-
-        <div v-if="previewPlaying && !previewFailed" class="preview-stage-overlay">
-          <div class="preview-overlay-info">
-            <span class="preview-pill font-mono">
-              {{ videoSummary }}
-            </span>
-          </div>
-          <div class="preview-overlay-actions">
-            <button type="button" class="preview-overlay-btn" @click="refreshPreview">
-              ⟳ 刷新
-            </button>
-            <button type="button" class="preview-overlay-btn preview-overlay-btn--stop" @click="stopPreview">
-              ⏹️ 停止
-            </button>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -2364,13 +2307,36 @@ onBeforeUnmount(() => {
   color: var(--uf-text-muted);
 }
 
-.preview-live-indicator {
+.preview-live-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.preview-toggle-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  color: #10b981;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--uf-bg-card-sub);
+  border: 1px solid var(--uf-border);
+  color: var(--uf-text-muted);
+  font-size: 11px;
   font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.preview-toggle-btn:hover {
+  border-color: var(--uf-accent);
+  color: var(--uf-accent);
+}
+
+.preview-toggle-btn--active {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #10b981;
 }
 
 .live-dot {
@@ -2378,6 +2344,10 @@ onBeforeUnmount(() => {
   height: 6px;
   border-radius: 50%;
   background: #10b981;
+}
+
+.live-dot--paused {
+  background: var(--uf-text-muted);
 }
 
 .preview-stage-box {
@@ -2393,11 +2363,10 @@ onBeforeUnmount(() => {
   justify-content: center;
 }
 
-.preview-img {
+.preview-stage-box :deep(.live-tile) {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  display: block;
+  border: none;
 }
 
 .preview-empty-state {
@@ -2467,56 +2436,6 @@ onBeforeUnmount(() => {
 .preview-play-btn small {
   font-size: 10px;
   color: var(--uf-text-muted);
-}
-
-.preview-stage-overlay {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 24px 12px 8px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
-}
-
-.preview-pill {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  color: #ffffff;
-}
-
-.preview-overlay-actions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.preview-overlay-btn {
-  padding: 3px 8px;
-  border-radius: 4px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
-  color: #f3f4f6;
-  font-size: 10px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.preview-overlay-btn:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-.preview-overlay-btn--stop:hover {
-  background: rgba(239, 68, 68, 0.6);
-  border-color: #ef4444;
 }
 
 /* Quick Operations Bar */

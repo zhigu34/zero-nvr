@@ -71,6 +71,14 @@ vi.mock("../../api/storage", () => ({
 describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    Object.defineProperty(HTMLMediaElement.prototype, "pause", {
+      configurable: true,
+      value: vi.fn()
+    })
+    Object.defineProperty(HTMLMediaElement.prototype, "load", {
+      configurable: true,
+      value: vi.fn()
+    })
 
     apiMocks.getCamera.mockResolvedValue({
       id: camId,
