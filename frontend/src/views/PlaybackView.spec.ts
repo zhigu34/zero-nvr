@@ -30,6 +30,9 @@ vi.mock("vue-router", () => ({
       camera: cameraId,
       at: anchorIso
     }
+  }),
+  useRouter: () => ({
+    push: vi.fn()
   })
 }))
 

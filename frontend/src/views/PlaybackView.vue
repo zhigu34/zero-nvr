@@ -6,7 +6,7 @@ import {
   onMounted,
   ref
 } from "vue"
-import { useRoute } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
 import {
@@ -79,6 +79,43 @@ interface SyncTileState {
 
 const auth = useAuthStore()
 const route = useRoute()
+const router = useRouter()
+const cameraDropdownOpen = ref(false)
+const datePickerPopoverOpen = ref(false)
+
+function togglePlaybackCameraDropdown(): void {
+  cameraDropdownOpen.value = !cameraDropdownOpen.value
+  if (cameraDropdownOpen.value) datePickerPopoverOpen.value = false
+}
+
+function togglePlaybackDatePicker(): void {
+  datePickerPopoverOpen.value = !datePickerPopoverOpen.value
+  if (datePickerPopoverOpen.value) cameraDropdownOpen.value = false
+}
+
+function shiftPlaybackDay(delta: number): void {
+  const current = new Date(`${selectedDate.value}T00:00:00`)
+  if (isNaN(current.getTime())) return
+  current.setDate(current.getDate() + delta)
+  selectedDate.value = formatDateInput(current)
+  handleDateChange()
+}
+
+const isToday = computed(() => {
+  return selectedDate.value === formatDateInput(new Date())
+})
+
+function goToFilesManager(): void {
+  const q = {
+    camera: activeCameraId.value || undefined,
+    date: selectedDate.value || undefined
+  }
+  if (router?.push) {
+    router.push({ path: "/files", query: q })
+  } else {
+    window.location.href = `/files?camera=${q.camera || ""}&date=${q.date || ""}`
+  }
+}
 const { locale, t, te } = useI18n({
   useScope: "global"
 })
@@ -95,7 +132,7 @@ const strictPlaybackRequested = ref(false)
 const syncTileStates = ref<
   Record<string, SyncTileState>
 >({})
-const cameraPanelOpen = ref(true)
+const cameraPanelOpen = ref(false)
 const search = ref("")
 const timeline = ref<PlaybackTimeline | null>(null)
 const alignedTimelineTracks = ref<
@@ -2656,95 +2693,217 @@ onBeforeUnmount(() => {
     </aside>
 
     <div ref="stage" class="playback-stage">
-      <header class="live-toolbar playback-toolbar">
-        <div class="live-toolbar__left">
+            <!-- UniFi Protect Top Time-Lapse Control Header -->
+      <header class="playback-unifi-topbar">
+        <div class="topbar-left">
+          <!-- View Title -->
+          <div class="topbar-title-tag">
+            <span class="blue-dot" />
+            <span>时光回放 (Time-Lapse)</span>
+          </div>
+
+          <div class="topbar-divider" />
+
+          <!-- Camera Selector Dropdown Pill (UniFi 机位选择器) -->
+          <div class="relative-container">
+            <button
+              class="topbar-pill-btn"
+              type="button"
+              title="切换回放摄像机"
+              @click="togglePlaybackCameraDropdown"
+            >
+              <span class="green-live-dot pulse-live" />
+              <span class="pill-camera-name">{{ activeCamera?.name || t("playback.title") }}</span>
+              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Camera Dropdown Menu -->
+            <div v-if="cameraDropdownOpen" class="topbar-popover camera-dropdown-popover">
+              <div class="popover-heading">选择回放机位 (Cameras)</div>
+              <div class="popover-cam-list">
+                <button
+                  v-for="camera in cameras"
+                  :key="camera.id"
+                  class="popover-cam-item"
+                  :class="{ 'popover-cam-item--active': activeCameraId === camera.id }"
+                  type="button"
+                  @click="selectCamera(camera.id); cameraDropdownOpen = false"
+                >
+                  <div class="popover-cam-left">
+                    <span class="cam-status-dot" :class="{ 'cam-status-dot--on': camera.enabled }" />
+                    <span class="cam-name">{{ camera.name }}</span>
+                  </div>
+                  <span class="cam-tag">{{ camera.adapter_type || "RTSP" }}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Multi-camera Sync Panel Drawer Toggle -->
           <button
-            class="media-button"
+            class="topbar-icon-btn"
             type="button"
-            :title="cameraPanelOpen ? t('playback.hideCameras') : t('playback.showCameras')"
+            :class="{ 'topbar-icon-btn--active': cameraPanelOpen }"
+            :title="cameraPanelOpen ? t('playback.hideCameras') : '打开多机位同步面板'"
             @click="cameraPanelOpen = !cameraPanelOpen"
           >
-            <UiIcon name="panel" :size="16" />
+            <UiIcon name="panel" :size="14" />
           </button>
-          <span class="live-toolbar__title">
-            {{ activeCamera?.name || t("playback.title") }}
-          </span>
-          <span
-            v-if="multiCameraMode"
-            class="playback-sync-mode-badge"
-          >
-            {{
-              syncMode === "strict"
-                ? strictBarrierActive
-                  ? t("playback.strictWaiting", { count: strictBlockers.length })
-                  : t("playback.strict")
-                : t("playback.tolerant")
-            }}
-            · {{ t("playback.participantCount", { count: playbackParticipants.length }) }}
-          </span>
-        </div>
 
-        <div class="playback-toolbar__center">
-          <label class="playback-date-control">
-            <UiIcon name="calendar" :size="14" />
-            <input
-              v-model="selectedDate"
-              type="date"
-              :aria-label="t('playback.playbackDate')"
-              @change="handleDateChange"
-            />
-          </label>
-        </div>
+          <div class="topbar-divider" />
 
-        <div class="live-toolbar__actions">
-          <div
-            v-if="multiCameraMode"
-            class="playback-sync-switcher"
-          >
+          <!-- Date Selector Pill (UniFi 日期选择与切换) -->
+          <div class="date-selector-group">
             <button
-              class="media-button media-button--text"
-              :class="{
-                'media-button--active':
-                  syncMode === 'tolerant'
-              }"
+              class="date-nav-btn"
+              type="button"
+              title="前一天"
+              @click="shiftPlaybackDay(-1)"
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
+              </svg>
+            </button>
+
+            <div class="relative-container">
+              <button
+                class="topbar-pill-btn date-pill-btn"
+                type="button"
+                title="点击选择回放日期"
+                @click="togglePlaybackDatePicker"
+              >
+                <UiIcon name="calendar" :size="13" class="text-blue" />
+                <span class="date-label">{{ selectedDate }} {{ isToday ? "(今天)" : "" }}</span>
+                <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+
+              <!-- Datepicker Popover -->
+              <div v-if="datePickerPopoverOpen" class="topbar-popover date-popover">
+                <div class="popover-heading flex-between">
+                  <span>选择回放日期</span>
+                  <div class="quick-date-actions">
+                    <button
+                      type="button"
+                      class="quick-date-btn"
+                      @click="selectedDate = formatDateInput(new Date()); handleDateChange(); datePickerPopoverOpen = false"
+                    >
+                      今天
+                    </button>
+                    <button
+                      type="button"
+                      class="quick-date-btn"
+                      @click="shiftPlaybackDay(-1); datePickerPopoverOpen = false"
+                    >
+                      昨天
+                    </button>
+                    <button type="button" class="popover-close-btn" @click="datePickerPopoverOpen = false">✕</button>
+                  </div>
+                </div>
+                <div class="date-input-wrap">
+                  <input
+                    v-model="selectedDate"
+                    type="date"
+                    class="native-date-input"
+                    @change="handleDateChange(); datePickerPopoverOpen = false"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <button
+              class="date-nav-btn"
+              type="button"
+              :disabled="isToday"
+              title="后一天"
+              @click="shiftPlaybackDay(1)"
+            >
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="topbar-divider" />
+
+          <!-- Sync Mode Switcher (Tolerant vs Strict) -->
+          <div class="sync-mode-pill">
+            <button
+              class="sync-btn"
+              :class="{ 'sync-btn--active': syncMode === 'tolerant' }"
               type="button"
               @click="setSyncMode('tolerant')"
             >
               {{ t("playback.tolerant") }}
             </button>
             <button
-              class="media-button media-button--text"
-              :class="{
-                'media-button--active':
-                  syncMode === 'strict'
-              }"
+              class="sync-btn"
+              :class="{ 'sync-btn--active': syncMode === 'strict' }"
               type="button"
               @click="setSyncMode('strict')"
             >
               {{ t("playback.strict") }}
             </button>
           </div>
+        </div>
 
+        <div class="topbar-right">
+          <!-- Jump to File Manager -->
           <button
-            class="media-button media-button--text"
-            :class="{
-              'media-button--active':
-                skipGaps
-            }"
+            class="action-pill-btn"
             type="button"
-            :aria-pressed="skipGaps"
+            title="在录像文件中心查看与管理当前片段"
+            @click="goToFilesManager"
+          >
+            <UiIcon name="folder" :size="13" class="text-blue" />
+            <span>管理当前文件</span>
+          </button>
+
+          <!-- Recording Protection (加锁保护) -->
+          <button
+            class="action-pill-btn action-pill-btn--amber"
+            type="button"
+            title="对当前时段切片添加锁定保护防自动覆盖清理"
+            @click="openActionPanel('protect')"
+          >
+            <UiIcon name="shield" :size="13" class="text-amber" />
+            <span>加锁保护</span>
+          </button>
+
+          <!-- UniFi Scissors Clip Exporter -->
+          <button
+            class="action-pill-btn action-pill-btn--blue"
+            type="button"
+            title="选定时段导出剪辑"
+            @click="openActionPanel('export')"
+          >
+            <UiIcon name="export" :size="13" />
+            <span>剪辑导出</span>
+          </button>
+
+          <div class="topbar-divider" />
+
+          <!-- Skip Gaps Toggle -->
+          <button
+            class="action-pill-btn"
+            :class="{ 'action-pill-btn--active': skipGaps }"
+            type="button"
             :title="t('playback.skipGapsTitle')"
             @click="skipGaps = !skipGaps"
           >
             {{ t("playback.skipGaps") }}
           </button>
 
-          <div class="playback-zoom-switcher">
+          <!-- Zoom Switcher -->
+          <div class="zoom-pill">
             <button
               v-for="hours in zoomOptions"
               :key="hours"
-              class="media-button media-button--text"
-              :class="{ 'media-button--active': zoomHours === hours }"
+              class="zoom-btn"
+              :class="{ 'zoom-btn--active': zoomHours === hours }"
               type="button"
               @click="setZoom(hours)"
             >
@@ -2752,16 +2911,14 @@ onBeforeUnmount(() => {
             </button>
           </div>
 
+          <!-- Fullscreen Toggle -->
           <button
-            class="media-button"
+            class="topbar-icon-btn"
             type="button"
             :title="fullscreen ? t('playback.exitFullscreen') : t('playback.fullscreenPlayback')"
             @click="toggleFullscreen"
           >
-            <UiIcon
-              :name="fullscreen ? 'minimize' : 'maximize'"
-              :size="16"
-            />
+            <UiIcon :name="fullscreen ? 'minimize' : 'maximize'" :size="14" />
           </button>
         </div>
       </header>
@@ -3921,4 +4078,430 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: 7px;
 }
+
+/* ===== UniFi Protect Top Time-Lapse Control Header ===== */
+.playback-unifi-topbar {
+  height: 48px;
+  min-height: 48px;
+  background-color: #10131c;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  z-index: 30;
+  user-select: none;
+}
+
+.topbar-left,
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-title-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.blue-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #006fff;
+  box-shadow: 0 0 8px rgba(0, 111, 255, 0.8);
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.relative-container {
+  position: relative;
+}
+
+.topbar-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-radius: 10px;
+  background: #171b26;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.topbar-pill-btn:hover {
+  border-color: rgba(0, 111, 255, 0.5);
+  background: #1d2230;
+}
+
+.green-live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+}
+
+.pulse-live {
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+}
+
+.pill-camera-name {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chevron-icon {
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+
+.topbar-icon-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.topbar-icon-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.topbar-icon-btn--active {
+  color: #ffffff;
+  background: #006fff;
+  border-color: #006fff;
+}
+
+.date-selector-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.date-nav-btn {
+  background: rgba(255, 255, 255, 0.05);
+  border: none;
+  color: #d1d5db;
+  padding: 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.date-nav-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.date-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.date-pill-btn {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.sync-mode-pill {
+  display: flex;
+  align-items: center;
+  background: #171b26;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.sync-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.sync-btn:hover {
+  color: #ffffff;
+}
+
+.sync-btn--active {
+  background: #006fff;
+  color: #ffffff;
+}
+
+.action-pill-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.action-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.action-pill-btn--active {
+  background: rgba(0, 111, 255, 0.2);
+  border-color: #006fff;
+  color: #60a5fa;
+}
+
+.action-pill-btn--amber {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: rgba(245, 158, 11, 0.35);
+  color: #fcd34d;
+}
+
+.action-pill-btn--amber:hover {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+}
+
+.action-pill-btn--blue {
+  background: #006fff;
+  border-color: #006fff;
+  color: #ffffff;
+  box-shadow: 0 2px 10px rgba(0, 111, 255, 0.3);
+}
+
+.action-pill-btn--blue:hover {
+  background: #1a7fff;
+}
+
+.zoom-pill {
+  display: flex;
+  align-items: center;
+  background: #171b26;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 2px;
+}
+
+.zoom-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 600;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.zoom-btn:hover {
+  color: #ffffff;
+}
+
+.zoom-btn--active {
+  background: #006fff;
+  color: #ffffff;
+}
+
+.text-blue {
+  color: #60a5fa !important;
+}
+
+.text-amber {
+  color: #f59e0b !important;
+}
+
+/* Popover menus */
+.topbar-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  background: #151822;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
+  padding: 10px;
+  z-index: 50;
+  font-size: 12px;
+}
+
+.camera-dropdown-popover {
+  width: 280px;
+}
+
+.date-popover {
+  width: 280px;
+}
+
+.popover-heading {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  text-transform: uppercase;
+  color: #9ca3af;
+  letter-spacing: 0.05em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.popover-cam-list {
+  max-height: 280px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-cam-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: #d1d5db;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+}
+
+.popover-cam-item:hover {
+  background: rgba(0, 111, 255, 0.15);
+  color: #ffffff;
+}
+
+.popover-cam-item--active {
+  background: rgba(0, 111, 255, 0.25) !important;
+  color: #ffffff !important;
+}
+
+.popover-cam-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cam-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #6b7280;
+  flex-shrink: 0;
+}
+
+.cam-status-dot--on {
+  background-color: #10b981;
+}
+
+.cam-name {
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cam-tag {
+  font-size: 10px;
+  color: #60a5fa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.quick-date-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.quick-date-btn {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: #d1d5db;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.quick-date-btn:hover {
+  background: #006fff;
+  color: #ffffff;
+}
+
+.popover-close-btn {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.popover-close-btn:hover {
+  color: #ffffff;
+}
+
+.date-input-wrap {
+  padding-top: 4px;
+}
+
+.native-date-input {
+  width: 100%;
+  background: #0d0f15;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: #ffffff;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+  outline: none;
+}
+
+.native-date-input:focus {
+  border-color: #006fff;
+}
+
 </style>
