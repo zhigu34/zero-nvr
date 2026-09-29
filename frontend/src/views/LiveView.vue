@@ -63,6 +63,18 @@ const layoutBusy = ref(false)
 const layoutCreateOpen = ref(false)
 const layoutNameDraft = ref("")
 const layoutNotice = ref<string | null>(null)
+const presetsPopoverOpen = ref(false)
+const qualityPopoverOpen = ref(false)
+
+function togglePresetsPopover(): void {
+  presetsPopoverOpen.value = !presetsPopoverOpen.value
+  if (presetsPopoverOpen.value) qualityPopoverOpen.value = false
+}
+
+function toggleQualityPopover(): void {
+  qualityPopoverOpen.value = !qualityPopoverOpen.value
+  if (qualityPopoverOpen.value) presetsPopoverOpen.value = false
+}
 
 let layoutsInitialized = false
 let layoutNoticeTimer: number | null = null
@@ -169,6 +181,13 @@ const activeLayout = computed(() =>
     (layout) => layout.id === activeLayoutId.value
   ) ?? null
 )
+
+const activePresetLabel = computed(() => {
+  if (activeLayout.value) {
+    return activeLayout.value.name
+  }
+  return t("live.viewCount", { count: layoutSlots.value })
+})
 
 function currentLayoutState(): LiveViewLayoutState {
   return {
@@ -893,213 +912,263 @@ onBeforeUnmount(() => {
     </aside>
 
     <div class="live-stage">
-      <header class="live-toolbar">
-        <div class="live-toolbar__left">
-          <button
-            class="media-button"
-            type="button"
-            :title="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
-            :aria-label="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
-            @click="cameraPanelOpen = !cameraPanelOpen"
-          >
-            <UiIcon name="panel" :size="16" />
-          </button>
-
-          <span class="live-toolbar__title">
-            {{ focusedCameraId ? t("live.cameraFocus") : t("live.liveView") }}
-          </span>
-
-          <span class="live-toolbar__status">
-            <i />
-            {{ t("live.liveCount", { count: visibleCameraCount }) }}
-            <template v-if="!focusedCameraId">
-              · {{ t("live.viewCount", { count: layoutSlots }) }}
-            </template>
-          </span>
-
-          <span
-            v-if="selectedCameras.length > layoutSlots && !focusedCameraId"
-            class="live-toolbar__hint"
-          >
-            {{ t("live.hiddenCount", {
-              count: selectedCameras.length - layoutSlots
-            }) }}
-          </span>
-
-          <span
-            v-if="layoutNotice"
-            class="live-toolbar__hint"
-          >
-            {{ layoutNotice }}
-          </span>
-
-          <span
-            v-if="networkConstrained"
-            class="live-toolbar__hint"
-          >
-            {{ t("live.networkSaving") }}
-          </span>
-        </div>
-
-        <div class="live-toolbar__actions">
-          <form
-            v-if="!focusedCameraId && layoutCreateOpen"
-            class="live-layout-create"
-            @submit.prevent="createCurrentLayout"
-          >
-            <input
-              v-model="layoutNameDraft"
-              type="text"
-              maxlength="128"
-              :placeholder="t('live.layoutName')"
-              :aria-label="t('live.layoutName')"
-              autofocus
-            />
+            <!-- UniFi Protect 3-Section Floating Pill HUD -->
+      <div class="live-floating-hud">
+        <!-- Left: Presets Popover, Defaults, New, & Camera Drawer Toggle -->
+        <div class="hud-group">
+          <div class="unifi-pill">
+            <!-- Camera panel toggle -->
             <button
-              class="media-button"
-              type="submit"
-              :title="t('live.saveNewLayout')"
-              :disabled="layoutBusy || !layoutNameDraft.trim()"
-            >
-              <UiIcon name="check" :size="14" />
-            </button>
-            <button
-              class="media-button"
+              class="pill-btn pill-btn--icon"
               type="button"
-              :title="t('live.cancel')"
-              @click="cancelLayoutCreate"
+              :class="{ 'pill-btn--active': cameraPanelOpen }"
+              :title="cameraPanelOpen ? t('live.hideCameras') : t('live.showCameras')"
+              @click="cameraPanelOpen = !cameraPanelOpen"
             >
-              <UiIcon name="close" :size="14" />
+              <UiIcon name="cameras" :size="14" />
             </button>
-          </form>
 
-          <div
-            v-if="!focusedCameraId && !layoutCreateOpen"
-            class="live-saved-layouts"
-          >
-            <select
-              :value="activeLayoutId || ''"
-              :aria-label="t('live.savedLayouts')"
-              @change="handleLayoutSelection"
+            <span class="pill-divider" />
+
+            <!-- Presets dropdown toggle -->
+            <button
+              class="pill-btn pill-btn--dropdown"
+              type="button"
+              @click="togglePresetsPopover"
             >
-              <option value="">{{ t("live.currentView") }}</option>
-              <option
-                v-for="layout in savedLayouts"
-                :key="layout.id"
-                :value="layout.id"
+              <span class="pulse-indicator" />
+              <span class="preset-name">{{ activePresetLabel }}</span>
+              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <!-- Set as Default (if active layout exists) -->
+            <template v-if="activeLayout">
+              <span class="pill-divider" />
+              <button
+                class="pill-btn pill-btn--text"
+                type="button"
+                :disabled="layoutBusy || activeLayout.is_default"
+                :title="activeLayout.is_default ? t('live.defaultLayout') : t('live.setDefaultLayout')"
+                @click="setActiveLayoutDefault"
               >
-                {{ layout.is_default ? "★ " : "" }}{{ layout.name }}
-              </option>
-            </select>
+                {{ activeLayout.is_default ? "★ 默认预案" : "★ 设为默认" }}
+              </button>
+            </template>
+
+            <!-- Save changes (if dirty) -->
             <button
-              v-if="activeLayout"
-              class="media-button"
+              v-if="activeLayout && layoutDirty"
+              class="pill-btn pill-btn--text text-accent"
               type="button"
+              :disabled="layoutBusy"
               :title="t('live.saveChanges')"
-              :disabled="layoutBusy || !layoutDirty"
               @click="saveActiveLayout"
             >
-              <UiIcon name="save" :size="14" />
+              <UiIcon name="save" :size="12" />
+              <span>保存修改</span>
             </button>
+
+            <span class="pill-divider" />
+            <!-- New preset button -->
             <button
-              class="media-button"
+              class="pill-btn pill-btn--text"
               type="button"
-              :title="t('live.saveAsNew')"
               :disabled="layoutBusy"
               @click="beginLayoutCreate"
             >
-              <UiIcon name="plus" :size="14" />
-            </button>
-            <button
-              v-if="activeLayout"
-              class="media-button"
-              :class="{
-                'media-button--active': activeLayout.is_default
-              }"
-              type="button"
-              :title="
-                activeLayout.is_default
-                  ? t('live.defaultLayout')
-                  : t('live.setDefaultLayout')
-              "
-              :disabled="layoutBusy || activeLayout.is_default"
-              @click="setActiveLayoutDefault"
-            >
-              <UiIcon name="star" :size="14" />
-            </button>
-            <button
-              v-if="activeLayout"
-              class="media-button"
-              type="button"
-              :title="t('live.deleteSavedLayout')"
-              :disabled="layoutBusy"
-              @click="deleteActiveLayout"
-            >
-              <UiIcon name="trash" :size="14" />
+              + 新建
             </button>
           </div>
 
+          <!-- Presets Popover Menu -->
+          <div v-if="presetsPopoverOpen" class="hud-popover hud-popover--left">
+            <div class="popover-header">
+              <span>{{ t("live.savedLayouts") }}</span>
+              <button class="popover-close" @click="presetsPopoverOpen = false">✕</button>
+            </div>
+
+            <!-- Create layout inline form -->
+            <form
+              v-if="layoutCreateOpen"
+              class="popover-create-form"
+              @submit.prevent="createCurrentLayout"
+            >
+              <input
+                v-model="layoutNameDraft"
+                type="text"
+                maxlength="128"
+                :placeholder="t('live.layoutName')"
+                autofocus
+              />
+              <div class="popover-create-actions">
+                <button type="submit" class="btn-create-submit" :disabled="layoutBusy || !layoutNameDraft.trim()">
+                  {{ t("live.saveNewLayout") }}
+                </button>
+                <button type="button" class="btn-create-cancel" @click="cancelLayoutCreate">
+                  {{ t("live.cancel") }}
+                </button>
+              </div>
+            </form>
+
+            <div v-else class="popover-list">
+              <button
+                class="popover-item"
+                :class="{ 'popover-item--active': !activeLayoutId }"
+                type="button"
+                @click="activeLayoutId = null; presetsPopoverOpen = false"
+              >
+                <div class="popover-item-left">
+                  <span class="item-dot" />
+                  <span>{{ t("live.currentView") }}</span>
+                </div>
+                <span class="item-badge">{{ layoutSlots }}机位</span>
+              </button>
+
+              <div
+                v-for="layout in savedLayouts"
+                :key="layout.id"
+                class="popover-item-row"
+              >
+                <button
+                  class="popover-item"
+                  :class="{ 'popover-item--active': activeLayoutId === layout.id }"
+                  type="button"
+                  @click="applyLayout(layout); presetsPopoverOpen = false"
+                >
+                  <div class="popover-item-left">
+                    <span class="item-dot" />
+                    <span>{{ layout.name }}</span>
+                  </div>
+                  <span class="item-badge">
+                    {{ layout.is_default ? "★ 默认" : `${layout.layout.slots}机位` }}
+                  </span>
+                </button>
+                <button
+                  class="popover-item-del"
+                  type="button"
+                  :title="t('live.deleteSavedLayout')"
+                  @click.stop="activeLayoutId = layout.id; deleteActiveLayout()"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div v-if="!savedLayouts.length" class="popover-empty">
+                暂无已保存预案，点击上方“+ 新建”保存当前布局
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Center: Grid Layout Switcher & Focus Indicator -->
+        <div class="hud-group">
+          <!-- Exit Focus Button (when focusedCameraId is active) -->
           <button
             v-if="focusedCameraId"
-            class="media-button media-button--text"
+            class="media-button exit-focus-pill"
             type="button"
             @click="focusedCameraId = null"
           >
-            <UiIcon name="grid4" :size="15" />
-            {{ t("live.backToGrid") }}
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+            <span>{{ t("live.backToGrid") }}</span>
           </button>
 
-          <button
-            class="media-button media-button--text"
-            type="button"
-            :disabled="
-              !visibleCameras.length ||
-              visiblePlayingCount === visibleCameras.length
-            "
-            @click="startVisibleCameras"
-          >
-            <UiIcon name="play" :size="14" />
-            {{ t("live.startVisible") }}
-          </button>
-
-          <button
-            class="media-button media-button--text"
-            type="button"
-            :disabled="visiblePlayingCount === 0"
-            @click="stopVisibleCameras"
-          >
-            <UiIcon name="pause" :size="14" />
-            {{ t("live.stopVisible") }}
-          </button>
-
-          <div v-if="!focusedCameraId" class="live-layout-switcher" :aria-label="t('live.gridLayout')">
+          <!-- Grid Selector Pill (1, 4, 9, 16) -->
+          <div v-else class="live-layout-switcher unifi-pill" :aria-label="t('live.gridLayout')">
             <button
               v-for="slots in layoutOptions"
               :key="slots"
-              class="media-button"
+              class="media-button grid-slot-btn"
               :class="{ 'media-button--active': layoutSlots === slots }"
               type="button"
               :title="t('live.cameraLayout', { count: slots })"
               @click="setLayout(slots)"
             >
-              <UiIcon :name="`grid${slots}`" :size="16" />
+              {{ slots }}
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Stream Quality, Play/Pause Visible, & Fullscreen -->
+        <div class="hud-group">
+          <div class="unifi-pill">
+            <!-- Quality & Network indicator -->
+            <button
+              class="pill-btn pill-btn--text quality-indicator-btn"
+              type="button"
+              :title="networkConstrained ? t('live.networkSaving') : '画质策略'"
+              @click="toggleQualityPopover"
+            >
+              <span
+                class="quality-dot"
+                :class="{ 'quality-dot--warn': networkConstrained }"
+              />
+              <span class="quality-label">
+                {{ networkConstrained ? '弱网自适应' : (focusedCameraId || layoutSlots === 1 ? '4K/主码流' : '自动自适应') }}
+              </span>
+            </button>
+
+            <span class="pill-divider" />
+
+            <!-- Batch Start/Stop Visible -->
+            <button
+              class="pill-btn pill-btn--icon"
+              type="button"
+              :disabled="!visibleCameras.length || visiblePlayingCount === visibleCameras.length"
+              :title="t('live.startVisible')"
+              @click="startVisibleCameras"
+            >
+              <UiIcon name="play" :size="13" />
+            </button>
+
+            <button
+              class="pill-btn pill-btn--icon"
+              type="button"
+              :disabled="visiblePlayingCount === 0"
+              :title="t('live.stopVisible')"
+              @click="stopVisibleCameras"
+            >
+              <UiIcon name="pause" :size="13" />
+            </button>
+
+            <span class="pill-divider" />
+
+            <!-- Fullscreen Toggle -->
+            <button
+              class="pill-btn pill-btn--icon"
+              type="button"
+              :title="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
+              @click="toggleFullscreen"
+            >
+              <UiIcon :name="fullscreen ? 'minimize' : 'maximize'" :size="14" />
             </button>
           </div>
 
-          <button
-            class="media-button"
-            type="button"
-            :title="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
-            :aria-label="fullscreen ? t('live.exitFullscreen') : t('live.fullscreenLiveView')"
-            @click="toggleFullscreen"
-          >
-            <UiIcon
-              :name="fullscreen ? 'minimize' : 'maximize'"
-              :size="16"
-            />
-          </button>
+          <!-- Quality Strategy Popover -->
+          <div v-if="qualityPopoverOpen" class="hud-popover hud-popover--right">
+            <div class="popover-header">
+              <span>分屏画质策略 (Quality Strategy)</span>
+              <button class="popover-close" @click="qualityPopoverOpen = false">✕</button>
+            </div>
+            <div class="popover-list">
+              <div class="quality-strategy-card">
+                <div class="quality-card-title">⚡ 智能自适应 (Auto)</div>
+                <div class="quality-card-desc">多路分屏优先子码流保流畅，单机放大自动切 4K/2K 主码流</div>
+                <span class="quality-badge">当前生效中</span>
+              </div>
+            </div>
+          </div>
         </div>
-      </header>
+      </div>
+
+      <!-- Notice Banner (if any) -->
+      <div v-if="layoutNotice" class="hud-notice-banner">
+        {{ layoutNotice }}
+      </div>
 
       <div
         class="live-grid"
@@ -1154,3 +1223,402 @@ onBeforeUnmount(() => {
     </div>
   </section>
 </template>
+
+<style scoped>
+.live-stage {
+  position: relative !important;
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  background: #050607;
+  overflow: hidden;
+}
+
+.live-floating-hud {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 30;
+  pointer-events: none;
+}
+
+.hud-group {
+  position: relative;
+  pointer-events: auto;
+}
+
+.unifi-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: rgba(18, 22, 32, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  color: #ffffff;
+  user-select: none;
+}
+
+.pill-divider {
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 2px;
+}
+
+.pill-btn {
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 6px;
+  border-radius: 6px;
+  transition: all 0.15s ease;
+}
+
+.pill-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.pill-btn--active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.pill-btn--icon {
+  padding: 4px;
+  border-radius: 9999px;
+}
+
+.pulse-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #10b981;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
+}
+
+.preset-name {
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.chevron-icon {
+  color: #9ca3af;
+}
+
+.text-accent {
+  color: #3b82f6 !important;
+}
+
+/* Exit focus pill */
+.exit-focus-pill {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: rgba(18, 22, 32, 0.9);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  border-radius: 9999px;
+  color: #fcd34d;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+  transition: all 0.15s ease;
+}
+
+.exit-focus-pill:hover {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+/* Grid slot buttons */
+.grid-slot-btn {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 9999px;
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.grid-slot-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.grid-slot-btn.media-button--active {
+  background: #006fff !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px rgba(0, 111, 255, 0.4);
+}
+
+/* Quality dot */
+.quality-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background-color: #60a5fa;
+}
+
+.quality-dot--warn {
+  background-color: #f59e0b;
+}
+
+.quality-label {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 10px;
+}
+
+/* Popover menus */
+.hud-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  width: 260px;
+  background: #151822;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.6);
+  padding: 8px;
+  z-index: 50;
+  font-size: 12px;
+}
+
+.hud-popover--left {
+  left: 0;
+}
+
+.hud-popover--right {
+  right: 0;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #9ca3af;
+  font-weight: 600;
+}
+
+.popover-close {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.popover-close:hover {
+  color: #ffffff;
+}
+
+.popover-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.popover-item-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.popover-item {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: #d1d5db;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.12s ease;
+}
+
+.popover-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+}
+
+.popover-item--active {
+  background: rgba(0, 111, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+
+.popover-item-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.item-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background-color: #10b981;
+}
+
+.item-badge {
+  font-size: 10px;
+  color: #60a5fa;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.popover-item-del {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.popover-item-del:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.popover-empty {
+  padding: 12px 8px;
+  text-align: center;
+  font-size: 11px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+
+.popover-create-form {
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popover-create-form input {
+  background: #0d0f15;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 6px 8px;
+  color: #ffffff;
+  font-size: 12px;
+  outline: none;
+}
+
+.popover-create-form input:focus {
+  border-color: #006fff;
+}
+
+.popover-create-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.btn-create-submit {
+  background: #006fff;
+  color: #ffffff;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.btn-create-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-create-cancel {
+  background: transparent;
+  color: #9ca3af;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.quality-strategy-card {
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.quality-card-title {
+  color: #93c5fd;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.quality-card-desc {
+  font-size: 10px;
+  color: #9ca3af;
+  line-height: 1.4;
+}
+
+.quality-badge {
+  align-self: flex-start;
+  margin-top: 4px;
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.hud-notice-banner {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(18, 22, 32, 0.95);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #93c5fd;
+  padding: 6px 14px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  z-index: 40;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+</style>
