@@ -10,6 +10,8 @@ export type CameraFormFactor =
   | "indoor"
   | "panoramic"
 
+export type CameraTimeSyncMode = "monitor" | "manage_ntp" | "ignore"
+
 export interface CameraSummary {
   id: string
   name: string
@@ -19,7 +21,7 @@ export interface CameraSummary {
   location: string | null
   storage_label: string | null
   adapter_type: string | null
-  time_sync_mode: "monitor" | "manage_ntp" | "ignore"
+  time_sync_mode: CameraTimeSyncMode
   ptz_capable: boolean
   manufacturer?: string | null
   model?: string | null
