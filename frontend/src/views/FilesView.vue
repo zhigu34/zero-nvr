@@ -481,11 +481,19 @@ onMounted(async () => {
 <template>
   <div class="files-view">
     <!-- Top Floating Toolbar -->
-    <header class="files-header">
+        <header class="files-header">
       <div class="files-header__left">
+        <!-- View Title -->
+        <div class="files-title-tag">
+          <span class="amber-dot" />
+          <span>录像文件管理中心 (Files & WebDAV)</span>
+        </div>
+
+        <div class="topbar-divider" />
+
         <!-- Camera Selector Pill -->
         <div class="control-pill">
-          <UiIcon name="cameras" :size="16" class="control-pill__icon text-blue-400" />
+          <UiIcon name="cameras" :size="15" class="control-pill__icon text-blue-400" />
           <select
             v-model="selectedCameraId"
             class="control-pill__select"
@@ -527,6 +535,16 @@ onMounted(async () => {
           </button>
         </div>
 
+        <!-- Quick Today button -->
+        <button
+          type="button"
+          class="header-quick-date-btn"
+          title="跳转到今天"
+          @click="selectedDate = getInitialDate()"
+        >
+          今天
+        </button>
+
         <!-- Month Calendar Toggle -->
         <button
           type="button"
@@ -534,8 +552,8 @@ onMounted(async () => {
           :class="{ 'calendar-toggle-btn--active': calendarExpanded }"
           @click="calendarExpanded = !calendarExpanded"
         >
-          <UiIcon name="calendar" :size="15" />
-          <span>{{ calendarExpanded ? "收起月历" : "月度分布" }}</span>
+          <UiIcon name="calendar" :size="14" class="text-blue-400" />
+          <span>{{ calendarExpanded ? "收起月历" : "展开月历" }}</span>
         </button>
       </div>
 
@@ -581,6 +599,17 @@ onMounted(async () => {
           <span>总计: </span>
           <strong>{{ totalSizeFormatted }}</strong>
         </div>
+
+        <!-- Reload List button -->
+        <button
+          type="button"
+          class="header-refresh-btn"
+          :title="loading ? '正在加载' : '刷新录像切片列表'"
+          :disabled="loading"
+          @click="loadSegments"
+        >
+          <UiIcon name="refresh" :size="14" />
+        </button>
       </div>
     </header>
 
@@ -1596,4 +1625,65 @@ onMounted(async () => {
   from { opacity: 0; transform: translateY(10px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+.files-title-tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.amber-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: #f59e0b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+  flex-shrink: 0;
+}
+
+.topbar-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.header-quick-date-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #d1d5db;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.header-quick-date-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.header-refresh-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #9ca3af;
+  padding: 6px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.12s ease;
+}
+
+.header-refresh-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
 </style>
