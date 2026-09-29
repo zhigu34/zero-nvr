@@ -303,7 +303,8 @@ function formatRecordStreamBadge(camera: CameraSummary): string {
   if (!detail || !detail.streams?.length) {
     return "RECORD: 主码流"
   }
-  const s0 = detail.streams[0]
+  const recordBinding = detail.bindings?.find((b) => b.purpose === "RECORD")
+  const s0 = (recordBinding && detail.streams.find((s) => s.id === recordBinding.stream_profile_id)) || detail.streams[0]
   const codec = normalizeCodec(s0.codec)
   if (s0.width && s0.height) {
     let resLabel = `${s0.width}×${s0.height}`
@@ -319,8 +320,10 @@ function formatRecordStreamBadge(camera: CameraSummary): string {
 
 function formatPreviewStreamBadge(camera: CameraSummary): string | null {
   const detail = cameraDetailsMap.value.get(camera.id)
-  if (!detail || detail.streams.length < 2) return null
-  const s1 = detail.streams[1]
+  if (!detail || !detail.streams?.length) return null
+  const previewBinding = detail.bindings?.find((b) => b.purpose === "LIVE_LOW")
+  const s1 = (previewBinding && detail.streams.find((s) => s.id === previewBinding.stream_profile_id)) || (detail.streams.length > 1 ? detail.streams[1] : null)
+  if (!s1) return null
   const codec = normalizeCodec(s1.codec)
   if (s1.width && s1.height) {
     const resLabel = s1.width >= 1280 ? "720P" : `${s1.width}×${s1.height}`
