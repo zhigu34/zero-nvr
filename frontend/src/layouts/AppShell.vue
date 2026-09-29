@@ -23,7 +23,7 @@ const accountOpen = ref(false)
 const navigation = [
   { to: "/live",     labelKey: "nav.live",     label: "实时监控 (Live View)" },
   { to: "/playback", labelKey: "nav.playback", label: "时光回放 (Time-Lapse)" },
-  { to: "/files",    labelKey: "nav.files",    label: "录像文件管理 (Files & WebDAV)" },
+  { to: "/files",    labelKey: "nav.files",    label: "录像文件管理 (Files)" },
   { to: "/events",   labelKey: "nav.events",   label: "事件与告警中心 (Alerts & AI)" },
   { to: "/cameras",  labelKey: "nav.cameras",  label: "机位设备管理 (ONVIF & CSV)" },
   { to: "/storage",  labelKey: "nav.storage",  label: "存储与云归档 (Storage & Cloud)" },
@@ -126,7 +126,7 @@ onBeforeUnmount(() => {
             <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
               <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
             </svg>
-            <span class="dock-tooltip">录像文件管理 (Files & WebDAV)</span>
+            <span class="dock-tooltip">录像文件管理 (Files)</span>
           </RouterLink>
 
           <!-- Detections & Alerts (对应 /events 路由) -->

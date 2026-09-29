@@ -669,9 +669,9 @@ onBeforeUnmount(() => {
   <section class="storage-workspace">
     <header class="storage-header">
       <div>
-        <strong>{{ t("storage.title") }} · Storage & WebDAV Tiering</strong>
+        <strong>{{ t("storage.title") }} · Storage & Tiering</strong>
         <span>
-          本地 NVMe 高速写入池 ➔ WebDAV 自动归档 ➔ 80%/85%/95% 高水位自动清理 ➔ 前端统一直连秒开
+          本地存储池 ➔ 远端归档 ➔ 高水位自动清理 ➔ 前端统一直连秒开
         </span>
       </div>
 

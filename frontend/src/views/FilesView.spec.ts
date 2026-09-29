@@ -39,6 +39,32 @@ vi.mock("../api/cameras", () => ({
         ptz_capable: false
       }
     ])
+  ),
+  getCamera: vi.fn(() =>
+    Promise.resolve({
+      id: cameraId,
+      name: "Lobby Camera",
+      enabled: true,
+      maintenance: false,
+      retired_at: null,
+      location: "Lobby",
+      storage_label: null,
+      adapter_type: "manual_rtsp",
+      time_sync_mode: "monitor",
+      ptz_capable: false,
+      streams: [
+        {
+          id: "stream-1",
+          name: "Main",
+          role: "record",
+          width: 3840,
+          height: 2160,
+          fps: 25,
+          has_audio: true,
+          audio_codec: "aac"
+        }
+      ]
+    })
   )
 }))
 
@@ -101,7 +127,36 @@ vi.mock("../api/recordings", () => ({
       updated_at: "2026-09-28T14:00:00Z"
     })
   ),
-  deleteRecordingProtection: vi.fn(() => Promise.resolve())
+  deleteRecordingProtection: vi.fn(() => Promise.resolve()),
+  listCameraRecordings: vi.fn(() =>
+    Promise.resolve({
+      items: [
+        {
+          id: "seg-101",
+          camera_id: cameraId,
+          start_at: "2026-09-28T14:00:00Z",
+          end_at: "2026-09-28T14:15:00Z",
+          size_bytes: 125829120,
+          availability: "local",
+          storage_target_id: "local-pool",
+          codec: "h264",
+          container: "mp4"
+        },
+        {
+          id: "seg-102",
+          camera_id: cameraId,
+          start_at: "2026-09-28T14:15:00Z",
+          end_at: "2026-09-28T14:30:00Z",
+          size_bytes: 125829120,
+          availability: "remote",
+          storage_target_id: "cloud-pool",
+          codec: "h265",
+          container: "mp4"
+        }
+      ],
+      next_cursor: null
+    })
+  )
 }))
 
 describe("FilesView recording files and 288-cell heatmap", () => {

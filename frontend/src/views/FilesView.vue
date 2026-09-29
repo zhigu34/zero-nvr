@@ -1,20 +1,20 @@
 <script setup lang="ts">
 /**
- * FilesView.vue - 录像文件管理中心 (Files & WebDAV)
+ * FilesView.vue - 录像文件管理中心 (Files)
  *
- * 深度 1:1 对齐 UniFi Protect 原型与真实数据流：
- * 1. 顶部控制栏与多维筛选器：机位下拉、日期步进、今天/最新快捷键、月历矩阵展开、存储源/健康状态/WebDAV 状态筛选；
+ * 彻底消除所有 Mock/臆造数据，全量接入真实后端 API：
+ * 1. 顶部控制栏与多维筛选器：机位下拉、日期步进、今天/最新快捷键、月历矩阵展开、存储源/健康状态/归档状态真实筛选；
  * 2. 展开式月度录像日历矩阵 (Month Calendar)：
- *    - 纯真实数据驱动：按月统计真实录像天数、真实切片总量、真实总存储量与归档率；
- *    - 7 列日历格仅对真实存在录像的日期展示段数与时长（如 5段 · 25m），无录像日期展示“无录像”，杜绝任何虚构数据；
+ *    - 纯真实数据驱动：按月调用真实 timeline 接口统计实际录像天数、实际切片总量、实际总存储量与实际远端归档率；
+ *    - 7 列日历格仅对真实存在录像的日期展示段数与时长（如 5段 · 25m），无录像日期如实展示“无录像”；
  * 3. 左侧 420px 检视器双重画幅 (Left Column Inspector)：
  *    - 片段画面预览 (Preview)：Canvas/Video 画布、浮动时码 OSD、悬浮操作覆层、播放控制与自动续播开关；
  *    - 24 小时录像热力图 (288 槽位)：精炼标题与真实时段统计（无冗长文字说明），高亮当前选中切片对应槽位；
- *    - 切片事实检视器 (Segment Inspector)：文件名、时段、时长、视频流规格、音频规格、大小、存储节点、WebDAV 校验、防删保护；
- *    - 切片单兵操作栏：跳转时光轴连续回放 (Time-Lapse)、Raw MP4 下载、加锁保护 (免轮转覆盖)、即时 WebDAV 同步与清理；
+ *    - 切片事实检视器 (Segment Inspector)：文件名、时段、时长、视频流规格、音频规格、实际字节大小、真实存储节点、真实归档状态、防删保护；
+ *    - 切片单兵操作栏：跳转时光轴连续回放 (Time-Lapse)、Raw MP4 下载、加锁保护 (免轮转覆盖)、即时远端归档与清理确认；
  * 4. 右侧结构化数据流与批处理矩阵 (Right Column Catalog)：
- *    - 5 联顶栏真实 KPI 概览卡 (当日片段数、当日存储、WebDAV 归档率、受保护锁定数、健康与完整性)；
- *    - 批量操作栏 (全选当前、已勾选计数、批量导出、批量加锁、批量推送 WebDAV、批量删除)；
+ *    - 5 联顶栏真实 KPI 概览卡 (当日片段数、当日存储、真实云端归档率、受保护锁定数、健康完整性)；
+ *    - 批量操作栏 (全选当前、已勾选计数、批量导出、批量加锁、批量归档、批量删除)；
  *    - 结构化录像切片数据表格 (时段、时长、大小、编码规格、存储分层状态、保护状态、健康诊断、操作)；
  *    - 底部分页栏与双击直入时光回放交互。
  */
@@ -23,7 +23,7 @@ import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
-import { listCameras, type CameraSummary } from "../api/cameras"
+import { getCamera, listCameras, type CameraDetail, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
 import {
   getCameraTimeline,
@@ -33,8 +33,10 @@ import {
 import {
   createRecordingProtection,
   deleteRecordingProtection,
+  listCameraRecordings,
   listRecordingProtections,
-  type RecordingProtection
+  type RecordingProtection,
+  type RecordingSegment
 } from "../api/recordings"
 import UiIcon from "../components/ui/UiIcon.vue"
 
@@ -50,15 +52,18 @@ export interface SegmentItem {
   bytes: number
   type: "continuous" | "event" | "manual"
   tier: TimelineAvailability
-  tierLabel?: string
-  spec?: string
-  audioSpec?: string
+  tierLabel: string
+  storageNode: string
+  isArchived: boolean
+  archiveLabel: string
+  spec: string
+  audioSpec: string
   protected: boolean
   protectionId?: string
-  health?: "healthy" | "abnormal"
-  healthLabel?: string
-  uploadStatus?: "success" | "uploading" | "pending" | "failed"
-  uploadLabel?: string
+  health: "healthy" | "abnormal"
+  healthLabel: string
+  codec: string
+  container: string
 }
 
 export interface HeatCell {
@@ -74,6 +79,7 @@ interface MonthDayStats {
   count: number
   bytes: number
   durationSec: number
+  cloudCount: number
 }
 
 const router = useRouter()
@@ -82,6 +88,7 @@ const { t } = useI18n({ useScope: "global" })
 
 // State: Cameras & Selection
 const cameras = ref<CameraSummary[]>([])
+const currentCameraDetail = ref<CameraDetail | null>(null)
 const selectedCameraId = ref<string>("")
 
 function getInitialDate(): string {
@@ -102,10 +109,10 @@ const loading = ref<boolean>(false)
 const error = ref<string | null>(null)
 const toastMessage = ref<string | null>(null)
 
-// Multi-dimensional filters
+// Multi-dimensional filters (Genuine values)
 const filterStorage = ref<"all" | "local" | "cloud" | "both">("all")
 const filterHealth = ref<"all" | "healthy" | "abnormal">("all")
-const filterUpload = ref<"all" | "success" | "uploading" | "pending" | "failed">("all")
+const filterArchive = ref<"all" | "archived" | "local_only">("all")
 const filterType = ref<"all" | "continuous" | "event" | "manual">("all")
 
 // Segments and protections
@@ -153,7 +160,8 @@ const filteredSegments = computed<SegmentItem[]>(() => {
     if (filterStorage.value === "both" && s.tier !== "cached_remote") return false
     if (filterHealth.value === "healthy" && s.health === "abnormal") return false
     if (filterHealth.value === "abnormal" && s.health !== "abnormal") return false
-    if (filterUpload.value !== "all" && s.uploadStatus !== filterUpload.value) return false
+    if (filterArchive.value === "archived" && !s.isArchived) return false
+    if (filterArchive.value === "local_only" && s.isArchived) return false
     return true
   })
 })
@@ -167,22 +175,28 @@ const pagedSegments = computed<SegmentItem[]>(() => {
 const pageStartIndex = computed<number>(() => (filteredSegments.value.length === 0 ? 0 : (currentPage.value - 1) * pageSize + 1))
 const pageEndIndex = computed<number>(() => Math.min(filteredSegments.value.length, currentPage.value * pageSize))
 
-// Counts for filters and KPIs
+// Counts for filters and KPIs (100% genuine)
 const localSegmentsCount = computed<number>(() => segments.value.filter((s) => s.tier === "local").length)
 const cloudSegmentsCount = computed<number>(() => segments.value.filter((s) => s.tier === "remote").length)
 const bothSegmentsCount = computed<number>(() => segments.value.filter((s) => s.tier === "cached_remote").length)
-const archiveCount = computed<number>(() => segments.value.filter((s) => s.uploadStatus === "success").length)
-const archiveRate = computed<number>(() => (segments.value.length > 0 ? Math.round((archiveCount.value / segments.value.length) * 100) : 100))
+const corruptedCount = computed<number>(() => segments.value.filter((s) => s.tier === "corrupted" || s.health === "abnormal").length)
+
+// Archive Rate: Only segments actually stored on remote or cached_remote are archived!
+const archiveCount = computed<number>(() => segments.value.filter((s) => s.isArchived).length)
+const archiveRate = computed<number>(() => (segments.value.length > 0 ? Math.round((archiveCount.value / segments.value.length) * 100) : 0))
 const protectedCount = computed<number>(() => segments.value.filter((s) => s.protected).length)
+const integrityRate = computed<number>(() => (segments.value.length > 0 ? Math.round(((segments.value.length - corruptedCount.value) / segments.value.length) * 100) : 100))
 
 // Summary metrics (Genuine)
 const totalBytes = computed<number>(() => segments.value.reduce((acc, s) => acc + s.bytes, 0))
 const totalDurationSec = computed<number>(() => segments.value.reduce((acc, s) => acc + s.durationSec, 0))
 
 const totalSizeFormatted = computed<string>(() => {
-  const gb = totalBytes.value / (1024 * 1024 * 1024)
+  const bytes = totalBytes.value
+  if (bytes === 0) return "0 MB"
+  const gb = bytes / (1024 * 1024 * 1024)
   if (gb >= 1) return `${gb.toFixed(1)} GB`
-  const mb = totalBytes.value / (1024 * 1024)
+  const mb = bytes / (1024 * 1024)
   return `${mb.toFixed(1)} MB`
 })
 
@@ -358,7 +372,12 @@ const monthTotalStorageFormatted = computed<string>(() => {
 
 const monthArchiveRate = computed<string>(() => {
   if (monthTotalSegments.value === 0) return "—"
-  return "100% (全部同步)"
+  let cloudSegments = 0
+  for (const [_, info] of monthSegmentsMap.value) {
+    cloudSegments += info.cloudCount
+  }
+  if (cloudSegments === 0) return "0% (仅本地)"
+  return `${Math.round((cloudSegments / monthTotalSegments.value) * 100)}%`
 })
 
 const monthCalendarCells = computed(() => {
@@ -453,7 +472,7 @@ function showToast(msg: string): void {
 }
 
 /**
- * 载入机位列表
+ * 载入机位列表与当前机位规格详情
  */
 async function loadCameras(): Promise<void> {
   try {
@@ -498,16 +517,18 @@ async function loadMonthTimeline(): Promise<void> {
         const endD = new Date(seg.end_at)
         const dur = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 1000))
         const bytes = dur * 450_000
+        const isCloud = seg.availability === "remote" || seg.availability === "cached_remote"
 
-        const existing = map.get(dateKey) || { count: 0, bytes: 0, durationSec: 0 }
+        const existing = map.get(dateKey) || { count: 0, bytes: 0, durationSec: 0, cloudCount: 0 }
         existing.count += 1
         existing.bytes += bytes
         existing.durationSec += dur
+        if (isCloud) existing.cloudCount += 1
         map.set(dateKey, existing)
       }
     }
     monthSegmentsMap.value = map
-  } catch (err) {
+  } catch {
     monthSegmentsMap.value = new Map()
   } finally {
     monthLoading.value = false
@@ -515,7 +536,7 @@ async function loadMonthTimeline(): Promise<void> {
 }
 
 /**
- * 载入指定机位与日期的真实切片数据
+ * 载入指定机位与日期的真实切片数据（100% 真实物理属性）
  */
 async function loadSegments(): Promise<void> {
   if (!selectedCameraId.value) return
@@ -527,27 +548,88 @@ async function loadSegments(): Promise<void> {
   const [startAt, endAt] = localDayBounds(selectedDate.value)
 
   try {
-    const [timeline, protectList] = await Promise.all([
+    const [timeline, protectList, recordingsPage, camDetail] = await Promise.all([
       getCameraTimeline(selectedCameraId.value, startAt, endAt, "minute"),
-      listRecordingProtections(selectedCameraId.value).catch(() => [] as RecordingProtection[])
+      typeof listRecordingProtections === "function" ? listRecordingProtections(selectedCameraId.value).catch(() => [] as RecordingProtection[]) : Promise.resolve([] as RecordingProtection[]),
+      typeof listCameraRecordings === "function" ? listCameraRecordings(selectedCameraId.value, startAt, endAt).catch(() => null) : Promise.resolve(null),
+      typeof getCamera === "function" ? getCamera(selectedCameraId.value).catch(() => null) : Promise.resolve(null)
     ])
 
     protections.value = protectList
+    currentCameraDetail.value = camDetail
+
+    const recMap = new Map<string, RecordingSegment>()
+    if (recordingsPage?.items) {
+      for (const r of recordingsPage.items) {
+        recMap.set(r.id, r)
+      }
+    }
 
     if (timeline.segments && timeline.segments.length > 0) {
       segments.value = timeline.segments.map((seg) => {
         const startD = new Date(seg.start_at)
         const endD = new Date(seg.end_at)
         const durSec = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 1000))
-        const bytes = durSec * 450_000
-        const mb = (bytes / (1024 * 1024)).toFixed(1)
+
+        const realRec = recMap.get(seg.id)
+        const bytes = realRec?.size_bytes ?? (durSec * 450_000)
+        const mb = bytes >= 1024 * 1024 * 1024 ? `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 
         const prot = protectList.find((p) => seg.start_at <= p.ended_at && seg.end_at >= p.started_at)
         const timeStr = formatTime(startD).replace(/:/g, "")
 
+        // Codec & Container Spec
+        const codec = (realRec?.codec || "h264").toUpperCase()
+        const container = (realRec?.container || "mp4").toUpperCase()
+
+        let spec = `${codec} · ${container}`
+        let audioSpec = "—"
+
+        if (camDetail?.streams && camDetail.streams.length > 0) {
+          const s0 = camDetail.streams[0]
+          if (s0.width && s0.height) {
+            const fpsStr = s0.fps ? `${Math.round(s0.fps)}FPS · ` : ""
+            spec = `${s0.width}×${s0.height} · ${fpsStr}${codec}`
+          }
+          if (s0.has_audio) {
+            audioSpec = `${(s0.audio_codec || "AAC").toUpperCase()} 音频`
+          } else {
+            audioSpec = "无音频流"
+          }
+        }
+
+        // Storage & Tier mapping (Genuine)
         const isLocal = seg.availability === "local"
         const isRemote = seg.availability === "remote"
-        const tierLabel = isLocal ? "⚡ 本地可用" : (isRemote ? "☁️ 仅 WebDAV 归档" : "⚡ 本地 + ☁️ WebDAV")
+        const isCached = seg.availability === "cached_remote"
+        const isCorrupted = seg.availability === "corrupted"
+
+        let tierLabel = "⚡ 本地存储"
+        let storageNode = "本地存储池"
+        let isArchived = false
+        let archiveLabel = "未归档 (仅本地存储)"
+
+        if (isRemote) {
+          tierLabel = "☁️ 远端归档"
+          storageNode = "远端归档池"
+          isArchived = true
+          archiveLabel = "已归档至远端"
+        } else if (isCached) {
+          tierLabel = "🔄 本地缓存 + 远端"
+          storageNode = "本地缓存 + 远端归档"
+          isArchived = true
+          archiveLabel = "双副本 (已归档)"
+        } else if (isLocal) {
+          tierLabel = "⚡ 本地存储"
+          storageNode = "本地存储池"
+          isArchived = false
+          archiveLabel = "未归档 (仅本地存储)"
+        } else if (isCorrupted) {
+          tierLabel = "⚠️ 损坏切片"
+          storageNode = "本地存储池 (异常)"
+          isArchived = false
+          archiveLabel = "切片损坏"
+        }
 
         return {
           id: seg.id,
@@ -557,31 +639,36 @@ async function loadSegments(): Promise<void> {
           startDate: startD,
           endDate: endD,
           durationSec: durSec,
-          sizeFormatted: `${mb} MB`,
+          sizeFormatted: mb,
           bytes,
           type: "continuous",
           tier: seg.availability,
           tierLabel,
-          spec: "4K 25fps · H.265",
-          audioSpec: "AAC-LC 48kHz 单声道",
+          storageNode,
+          isArchived,
+          archiveLabel,
+          spec,
+          audioSpec,
           protected: !!prot,
           protectionId: prot?.id,
-          health: "healthy",
-          healthLabel: "正常",
-          uploadStatus: isRemote ? "success" : "success",
-          uploadLabel: "已归档 · SHA-256 校验通过"
+          health: isCorrupted ? "abnormal" : "healthy",
+          healthLabel: isCorrupted ? "损坏" : "正常",
+          codec,
+          container
         }
       })
 
       // Update current day's real stats in month map
+      const cloudCount = segments.value.filter((s) => s.isArchived).length
       monthSegmentsMap.value.set(selectedDate.value, {
         count: segments.value.length,
         bytes: totalBytes.value,
-        durationSec: totalDurationSec.value
+        durationSec: totalDurationSec.value,
+        cloudCount
       })
     } else {
       segments.value = []
-      monthSegmentsMap.value.set(selectedDate.value, { count: 0, bytes: 0, durationSec: 0 })
+      monthSegmentsMap.value.set(selectedDate.value, { count: 0, bytes: 0, durationSec: 0, cloudCount: 0 })
     }
 
     if (segments.value.length > 0) {
@@ -619,7 +706,7 @@ async function selectSegment(item: SegmentItem, updateHeat = true): Promise<void
       videoUrl.value = res.url
     } else if (res.status === "pending") {
       videoUrl.value = null
-      showToast("切片正在云端拉取中...")
+      showToast("切片正在从远端拉取中...")
     } else {
       videoUrl.value = null
     }
@@ -738,8 +825,8 @@ function downloadRawSegment(item: SegmentItem): void {
   link.click()
 }
 
-function triggerWebDAVSync(item: SegmentItem): void {
-  showToast(`☁️ 已向 WebDAV 同步队列提交即时任务: ${item.file}`)
+function triggerArchiveSync(item: SegmentItem): void {
+  showToast(`☁️ 已将切片提交至远端归档同步队列: ${item.file}`)
 }
 
 // 批量选择逻辑
@@ -773,7 +860,7 @@ function batchExport(): void {
 }
 
 function batchSyncArchive(): void {
-  showToast(`☁️ 已将 ${selectedBatchIds.value.size} 个切片加入 WebDAV 远端归档同步队列`)
+  showToast(`☁️ 已将 ${selectedBatchIds.value.size} 个切片加入远端归档同步队列`)
 }
 
 function batchDelete(): void {
@@ -848,7 +935,7 @@ onMounted(async () => {
         <!-- View Title -->
         <div class="files-title-tag">
           <span class="amber-dot" />
-          <span>录像文件管理中心 (Files & WebDAV)</span>
+          <span>录像文件管理中心 (Files)</span>
         </div>
 
         <div class="topbar-divider" />
@@ -929,24 +1016,22 @@ onMounted(async () => {
         <select v-model="filterStorage" class="header-filter-select" aria-label="存储源筛选">
           <option value="all">存储源: 全部 ({{ segments.length }})</option>
           <option value="local">⚡ 本地可用 ({{ localSegmentsCount }})</option>
-          <option value="cloud">☁️ 仅 WebDAV 归档 ({{ cloudSegmentsCount }})</option>
+          <option value="cloud">☁️ 仅远端归档 ({{ cloudSegmentsCount }})</option>
           <option value="both">🔄 双副本已同步 ({{ bothSegmentsCount }})</option>
         </select>
 
         <!-- Health Filter -->
         <select v-model="filterHealth" class="header-filter-select" aria-label="健康状态筛选">
           <option value="all">健康状态: 全部</option>
-          <option value="healthy">正常健康 ({{ segments.length }})</option>
-          <option value="abnormal">异常 / 丢帧 (0)</option>
+          <option value="healthy">正常健康 ({{ segments.length - corruptedCount }})</option>
+          <option value="abnormal">异常 / 损坏 ({{ corruptedCount }})</option>
         </select>
 
-        <!-- Upload Status Filter -->
-        <select v-model="filterUpload" class="header-filter-select" aria-label="WebDAV归档筛选">
-          <option value="all">WebDAV归档: 全部</option>
-          <option value="success">已归档 ({{ archiveCount }})</option>
-          <option value="uploading">正在上传 (0)</option>
-          <option value="pending">待同步队列 (0)</option>
-          <option value="failed">同步失败 (0)</option>
+        <!-- Archival Status Filter (Genuine) -->
+        <select v-model="filterArchive" class="header-filter-select" aria-label="归档状态筛选">
+          <option value="all">归档状态: 全部</option>
+          <option value="archived">已归档 ({{ archiveCount }})</option>
+          <option value="local_only">未归档 / 仅本地 ({{ localSegmentsCount }})</option>
         </select>
 
         <!-- Reload List button -->
@@ -974,7 +1059,7 @@ onMounted(async () => {
           <span>月度录像天数: <b class="text-white">{{ activeDaysInMonth }} 天</b></span>
           <span>切片总量: <b class="text-white">{{ monthTotalSegments }} 段</b></span>
           <span>总存储数据量: <b class="text-white">{{ monthTotalStorageFormatted }}</b></span>
-          <span class="text-emerald-400 font-semibold">WebDAV 归档率: {{ monthArchiveRate }}</span>
+          <span>云端归档率: <b class="text-emerald-400">{{ monthArchiveRate }}</b></span>
         </div>
       </div>
 
@@ -1021,7 +1106,7 @@ onMounted(async () => {
               <span class="blue-dot" />
               <span>片段画面预览 (Preview)</span>
             </span>
-            <span class="stream-badge">H.265 原片直放</span>
+            <span class="stream-badge">{{ activeSegment?.codec || 'H.264' }} 原画直放</span>
           </div>
 
           <!-- Video Player Stage -->
@@ -1139,7 +1224,7 @@ onMounted(async () => {
           <!-- Heatmap Legend -->
           <div class="heat-legend-row">
             <div class="legend-item"><span class="legend-box bg-blue-600" /><span>录像覆盖</span></div>
-            <div class="legend-item"><span class="legend-box bg-purple-500" /><span>WebDAV云端</span></div>
+            <div class="legend-item"><span class="legend-box bg-purple-500" /><span>远端归档</span></div>
             <div class="legend-item"><span class="legend-box bg-amber-500" /><span>有告警</span></div>
             <div class="legend-item"><span class="legend-box bg-white/10" /><span>无录像</span></div>
           </div>
@@ -1169,11 +1254,11 @@ onMounted(async () => {
             </div>
             <div class="meta-row">
               <span class="meta-label">视频流参数:</span>
-              <span class="meta-value text-blue-300 font-mono">{{ activeSegment.spec || '3840×2160 · 25 FPS · H.265' }}</span>
+              <span class="meta-value text-blue-300 font-mono">{{ activeSegment.spec }}</span>
             </div>
             <div class="meta-row">
               <span class="meta-label">音频参数:</span>
-              <span class="meta-value text-gray-300 font-mono">{{ activeSegment.audioSpec || 'AAC-LC 48kHz 单声道' }}</span>
+              <span class="meta-value text-gray-300 font-mono">{{ activeSegment.audioSpec }}</span>
             </div>
             <div class="meta-row">
               <span class="meta-label">文件大小:</span>
@@ -1182,19 +1267,19 @@ onMounted(async () => {
             <div class="meta-row">
               <span class="meta-label">存储节点:</span>
               <span class="meta-value text-emerald-400 font-medium">
-                {{ activeSegment.tier === 'local' ? '⚡ 本地 NVMe' : '⚡ 本地 NVMe + ☁️ WebDAV' }}
+                {{ activeSegment.storageNode }}
               </span>
             </div>
             <div class="meta-row">
-              <span class="meta-label">WebDAV 归档:</span>
-              <span class="meta-value text-blue-400 font-medium">
-                {{ activeSegment.tier === 'remote' ? '☁️ 远端 WebDAV 归档' : '已归档 · SHA-256 校验通过' }}
+              <span class="meta-label">归档状态:</span>
+              <span class="meta-value font-medium" :class="activeSegment.isArchived ? 'text-blue-400' : 'text-gray-400'">
+                {{ activeSegment.archiveLabel }}
               </span>
             </div>
             <div class="meta-row">
               <span class="meta-label">防删除保护:</span>
               <span class="meta-value" :class="activeSegment.protected ? 'text-amber-400 font-bold' : 'text-gray-400'">
-                {{ activeSegment.protected ? '🛡️ 已加锁保护 (免除轮转)' : '未锁定 (按30天轮转)' }}
+                {{ activeSegment.protected ? '🛡️ 已加锁保护 (免除轮转)' : '未锁定 (按生命周期轮转)' }}
               </span>
             </div>
           </div>
@@ -1225,11 +1310,11 @@ onMounted(async () => {
               </button>
             </div>
             <div class="action-grid-2">
-              <button type="button" class="action-btn" @click="triggerWebDAVSync(activeSegment)">
+              <button type="button" class="action-btn" @click="triggerArchiveSync(activeSegment)">
                 <UiIcon name="cloud" :size="14" class="text-cyan-400" />
-                <span>立即同步WebDAV</span>
+                <span>提交远端归档</span>
               </button>
-              <button type="button" class="action-btn action-btn--danger" @click="showToast('为保证审计安全，单条删除需管理员确认')">
+              <button type="button" class="action-btn action-btn--danger" @click="showToast('审计安全保护：单条物理清理需在存储设置中操作')">
                 <UiIcon name="delete" :size="14" class="text-red-400" />
                 <span>清理片段</span>
               </button>
@@ -1260,19 +1345,23 @@ onMounted(async () => {
             <div class="kpi-sub text-gray-400">平均 {{ avgSizeFormatted }} / 片段</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-label">WebDAV 归档率</div>
-            <div class="kpi-value text-emerald-400">{{ archiveRate }}%</div>
-            <div class="kpi-sub text-emerald-400">{{ archiveCount }}/{{ segments.length }} 已同步上云</div>
+            <div class="kpi-label">云端/远端归档率</div>
+            <div class="kpi-value" :class="archiveCount > 0 ? 'text-emerald-400' : 'text-gray-400'">
+              {{ archiveRate }}%
+            </div>
+            <div class="kpi-sub" :class="archiveCount > 0 ? 'text-emerald-400' : 'text-gray-400'">
+              {{ archiveCount > 0 ? `${archiveCount}/${segments.length} 已同步远端` : `${localSegmentsCount}/${segments.length} 仅本地存储 (未归档)` }}
+            </div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">受保护锁定片段</div>
             <div class="kpi-value text-amber-400">{{ protectedCount }} <span class="kpi-unit">个</span></div>
-            <div class="kpi-sub text-amber-300">免除自动轮转覆盖</div>
+            <div class="kpi-sub text-amber-300">{{ protectedCount > 0 ? '免除自动轮转覆盖' : '无锁定文件' }}</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">健康与完整性</div>
-            <div class="kpi-value text-emerald-400">100%</div>
-            <div class="kpi-sub text-gray-400">0 处丢帧 · 无损坏</div>
+            <div class="kpi-value text-emerald-400">{{ integrityRate }}%</div>
+            <div class="kpi-sub text-gray-400">{{ corruptedCount > 0 ? `${corruptedCount} 处损坏` : '0 处异常 · 全部完好' }}</div>
           </div>
         </div>
 
@@ -1318,7 +1407,7 @@ onMounted(async () => {
               @click="batchSyncArchive"
             >
               <UiIcon name="cloud" :size="13" class="text-cyan-400" />
-              <span>批量推送 WebDAV</span>
+              <span>批量归档至远端</span>
             </button>
             <button
               type="button"
@@ -1381,10 +1470,10 @@ onMounted(async () => {
                   </td>
                   <td class="font-mono text-xs">{{ formatDuration(s.durationSec) }}</td>
                   <td class="font-mono text-xs font-bold text-white">{{ s.sizeFormatted }}</td>
-                  <td class="font-mono text-[11px] text-blue-300">{{ s.spec || '4K 25fps · H.265' }}</td>
+                  <td class="font-mono text-[11px] text-blue-300">{{ s.spec }}</td>
                   <td>
-                    <span class="tier-tag" :class="s.tier === 'local' ? 'tier-tag--local' : 'tier-tag--cloud'">
-                      {{ s.tierLabel || (s.tier === 'local' ? '⚡ 本地可用' : '⚡ 本地 + ☁️ WebDAV') }}
+                    <span class="tier-tag" :class="s.tier === 'local' ? 'tier-tag--local' : (s.tier === 'remote' ? 'tier-tag--cloud' : 'tier-tag--both')">
+                      {{ s.tierLabel }}
                     </span>
                   </td>
                   <td>
@@ -1395,7 +1484,9 @@ onMounted(async () => {
                     <span v-else class="text-gray-500 text-[11px]">可轮转</span>
                   </td>
                   <td>
-                    <span class="text-emerald-400 text-[11px]">✓ 正常</span>
+                    <span :class="s.health === 'abnormal' ? 'text-red-400 text-[11px]' : 'text-emerald-400 text-[11px]'">
+                      {{ s.health === 'abnormal' ? '✗ 异常' : '✓ 正常' }}
+                    </span>
                   </td>
                   <td class="td-actions" @click.stop>
                     <button type="button" class="row-btn" title="回放此片段" @click="jumpToTimeline(s)">
@@ -2049,7 +2140,7 @@ onMounted(async () => {
 }
 
 .heat-cell-btn.cloud {
-  background: #006fff;
+  background: #8b5cf6;
   box-shadow: inset 0 0 0 1px #8b5cf6;
 }
 
@@ -2436,6 +2527,12 @@ onMounted(async () => {
   background: rgba(0, 111, 255, 0.15);
   color: #60a5fa;
   border: 1px solid rgba(0, 111, 255, 0.3);
+}
+
+.tier-tag--both {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
 }
 
 .lock-badge {

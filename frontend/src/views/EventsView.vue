@@ -438,10 +438,8 @@ onBeforeUnmount(() => {
             TODO(phase-tpu): 接入本地/边缘 Frigate Coral TPU 识别状态
             后端 API: /api/v1/system/ai/metrics
             原型位置: protect-detections L1293
+            未部署 TPU 硬件时不显示虚假推理耗时
           -->
-          <span class="kpi-tpu-tag">
-            AI 推理引擎: <span class="text-emerald">Coral TPU · 12ms</span>
-          </span>
         </div>
       </div>
 

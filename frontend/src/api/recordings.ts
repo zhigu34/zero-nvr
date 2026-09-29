@@ -190,3 +190,41 @@ export function stopRecordingTrigger(
     { method: "POST" }
   )
 }
+
+export interface RecordingSegment {
+  id: string
+  camera_id: string
+  stream_profile_id: string | null
+  start_at: string
+  end_at: string
+  duration_ms: number
+  timing_status: string
+  timing_source: string
+  recording_reasons: string[]
+  size_bytes: number
+  codec: string
+  container: string
+  integrity_status: string
+  completion_reason: string
+  created_at: string
+}
+
+export interface RecordingSegmentPage {
+  items: RecordingSegment[]
+  next_cursor: string | null
+}
+
+export function listCameraRecordings(
+  cameraId: string,
+  from?: Date,
+  to?: Date,
+  limit: number = 200
+): Promise<RecordingSegmentPage> {
+  const params = new URLSearchParams()
+  if (from) params.set("from", from.toISOString())
+  if (to) params.set("to", to.toISOString())
+  params.set("limit", String(limit))
+  return apiRequest<RecordingSegmentPage>(
+    `/cameras/${encodeURIComponent(cameraId)}/recordings?${params}`
+  )
+}
