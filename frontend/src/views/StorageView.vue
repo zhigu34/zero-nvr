@@ -26,7 +26,8 @@ import {
   updateStorageTarget,
   type RetentionPolicy,
   type RetentionPolicyCreate,
-  type StorageTarget
+  type StorageTarget,
+  type StorageTargetTest
 } from "../api/storage"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
@@ -52,6 +53,7 @@ const targetSaving = ref(false)
 const policySaving = ref(false)
 const testingTargetId = ref<string | null>(null)
 const testResults = ref<Record<string, string>>({})
+const targetMetrics = ref<Record<string, StorageTargetTest>>({})
 
 const switchSource = ref<StorageTarget | null>(null)
 const switchDestinationId = ref("")
@@ -107,7 +109,6 @@ const enabledPolicyCount = computed(() =>
   policies.value.filter((item) => item.enabled).length
 )
 
-
 const switchDestinations = computed(() =>
   localTargets.value.filter(
     (item) =>
@@ -116,8 +117,8 @@ const switchDestinations = computed(() =>
   )
 )
 
-function formatBytes(value: number | null): string {
-  if (value === null || !Number.isFinite(value)) return "—"
+function formatBytes(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—"
   const units = ["B", "KB", "MB", "GB", "TB", "PB"]
   let index = 0
   let amount = value
@@ -145,21 +146,61 @@ function targetDetail(target: StorageTarget): string {
   return `${remoteText}${baseText}`
 }
 
-function targetWatermarks(target: StorageTarget): string | null {
-  if (target.type !== "local") return null
-  const warning =
-    typeof target.config.warning_used_percent === "number"
+function getWatermarkPercent(target: StorageTarget, type: "warning" | "high" | "critical"): number {
+  if (target.type !== "local") {
+    return type === "warning" ? 80 : type === "high" ? 85 : 95
+  }
+  if (type === "warning") {
+    return typeof target.config.warning_used_percent === "number"
       ? target.config.warning_used_percent
       : 80
-  const high =
-    typeof target.config.high_used_percent === "number"
+  }
+  if (type === "high") {
+    return typeof target.config.high_used_percent === "number"
       ? target.config.high_used_percent
       : 85
-  const critical =
-    typeof target.config.critical_used_percent === "number"
-      ? target.config.critical_used_percent
-      : 95
+  }
+  return typeof target.config.critical_used_percent === "number"
+    ? target.config.critical_used_percent
+    : 95
+}
+
+function targetWatermarks(target: StorageTarget): string | null {
+  if (target.type !== "local") return null
+  const warning = getWatermarkPercent(target, "warning")
+  const high = getWatermarkPercent(target, "high")
+  const critical = getWatermarkPercent(target, "critical")
   return t("storage.watermarks", { warning, high, critical })
+}
+
+function getLocalTargetStatusBadge(target: StorageTarget): { text: string; badgeClass: string } {
+  if (!target.enabled) {
+    return { text: t("storage.disabled"), badgeClass: "status-badge--disabled" }
+  }
+  const metric = targetMetrics.value[target.id]
+  if (!metric || metric.used_percent === null || metric.used_percent === undefined) {
+    return { text: "在线就绪", badgeClass: "status-badge--normal" }
+  }
+  const percent = metric.used_percent.toFixed(0)
+  if (metric.capacity_level === "critical") {
+    return { text: `极值熔断 · ${percent}% 负载`, badgeClass: "status-badge--critical" }
+  }
+  if (metric.capacity_level === "high") {
+    return { text: `高位清理 · ${percent}% 负载`, badgeClass: "status-badge--high" }
+  }
+  if (metric.capacity_level === "warning") {
+    return { text: `警戒水位 · ${percent}% 负载`, badgeClass: "status-badge--warning" }
+  }
+  return { text: `健康 · ${percent}% 负载`, badgeClass: "status-badge--normal" }
+}
+
+function getLocalTargetBarColor(target: StorageTarget): string {
+  const metric = targetMetrics.value[target.id]
+  if (!metric) return "#2563eb"
+  if (metric.capacity_level === "critical") return "#dc2626"
+  if (metric.capacity_level === "high") return "#f87171"
+  if (metric.capacity_level === "warning") return "#fbbf24"
+  return "#2563eb"
 }
 
 function capacityLevelLabel(value: string): string {
@@ -202,6 +243,17 @@ async function refresh(): Promise<void> {
     targets.value = targetItems
     policies.value = retentionItems
     cameras.value = cameraItems
+
+    // Background probe for target metrics so the progress bars and health badges show live real data
+    targetItems.forEach((target) => {
+      void testStorageTarget(target.id)
+        .then((res) => {
+          targetMetrics.value[target.id] = res
+        })
+        .catch(() => {
+          // ignore background probe failures
+        })
+    })
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -498,10 +550,12 @@ async function runTargetTest(target: StorageTarget): Promise<void> {
   error.value = null
   try {
     const result = await testStorageTarget(target.id)
+    targetMetrics.value[target.id] = result
     testResults.value = {
       ...testResults.value,
       [target.id]:
         result.used_percent !== null &&
+        result.used_percent !== undefined &&
         result.capacity_level
           ? t("storage.testCapacity", {
               level: capacityLevelLabel(result.capacity_level),
@@ -666,316 +720,541 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="storage-workspace">
-    <header class="storage-header">
-      <div>
-        <strong>{{ t("storage.title") }} · Storage & Tiering</strong>
-        <span>
-          本地存储池 ➔ 远端归档 ➔ 高水位自动清理 ➔ 前端统一直连秒开
-        </span>
+  <div class="unifi-storage-workspace">
+    <!-- Top Header matching UniFi Protect Prototype #protect-storage -->
+    <header class="unifi-storage-header">
+      <div class="unifi-storage-header__title-group">
+        <h2 class="unifi-storage-title">
+          {{ t("storage.title") }} & WebDAV Tiering (存储分层、WebDAV 与自动留存)
+        </h2>
+        <p class="unifi-storage-subtitle">
+          本地 NVMe 高速写入池 ➔ WebDAV 自动归档 ➔ 80%/85%/95% 高水位自动清理 ➔ 前端统一直连秒开
+        </p>
       </div>
 
-      <button
-        class="button button--ghost"
-        type="button"
-        :disabled="loading"
-        @click="refresh"
-      >
-        <UiIcon name="refresh" :size="15" />
-        {{ t("storage.refresh") }}
-      </button>
+      <div class="unifi-storage-header__actions">
+        <!-- Subtab Switcher -->
+        <div class="unifi-subtabs-pill">
+          <button
+            type="button"
+            class="unifi-subtab-btn"
+            :class="{ 'unifi-subtab-btn--active': tab === 'targets' }"
+            @click="tab = 'targets'"
+          >
+            {{ t("storage.storageTargets") }} (Targets)
+          </button>
+          <button
+            type="button"
+            class="unifi-subtab-btn"
+            :class="{ 'unifi-subtab-btn--active': tab === 'retention' }"
+            @click="tab = 'retention'"
+          >
+            {{ t("storage.retention") }} (Retention)
+          </button>
+        </div>
+
+        <button
+          class="unifi-btn unifi-btn--ghost"
+          type="button"
+          :disabled="loading"
+          @click="refresh"
+        >
+          <UiIcon name="refresh" :size="14" />
+          <span>{{ t("storage.refresh") }}</span>
+        </button>
+      </div>
     </header>
 
-    <div class="storage-summary">
-      <article>
-        <UiIcon name="drive" :size="19" />
+    <!-- Top 3 Metrics Summary Cards -->
+    <div class="unifi-metrics-summary">
+      <article class="unifi-metric-card">
+        <div class="unifi-metric-icon-wrap unifi-metric-icon--blue">
+          <UiIcon name="drive" :size="18" />
+        </div>
         <div>
-          <span>{{ t("storage.recordingTargets") }}</span>
-          <strong>{{ localTargets.length }}</strong>
+          <span class="unifi-metric-label">{{ t("storage.recordingTargets") }}</span>
+          <strong class="unifi-metric-value">{{ localTargets.length }}</strong>
         </div>
       </article>
-      <article>
-        <UiIcon name="cloud" :size="19" />
+
+      <article class="unifi-metric-card">
+        <div class="unifi-metric-icon-wrap unifi-metric-icon--cyan">
+          <UiIcon name="cloud" :size="18" />
+        </div>
         <div>
-          <span>{{ t("storage.archiveTargets") }}</span>
-          <strong>{{ archiveTargets.length }}</strong>
+          <span class="unifi-metric-label">{{ t("storage.archiveTargets") }}</span>
+          <strong class="unifi-metric-value">{{ archiveTargets.length }}</strong>
         </div>
       </article>
-      <article>
-        <UiIcon name="shield" :size="19" />
+
+      <article class="unifi-metric-card">
+        <div class="unifi-metric-icon-wrap unifi-metric-icon--emerald">
+          <UiIcon name="shield" :size="18" />
+        </div>
         <div>
-          <span>{{ t("storage.activeRetentionPolicies") }}</span>
-          <strong>{{ enabledPolicyCount }}</strong>
+          <span class="unifi-metric-label">{{ t("storage.activeRetentionPolicies") }}</span>
+          <strong class="unifi-metric-value">{{ enabledPolicyCount }}</strong>
         </div>
       </article>
     </div>
 
-    <div
-      v-if="error"
-      class="events-error"
-    >
+    <!-- Error Notice Banner -->
+    <div v-if="error" class="unifi-banner unifi-banner--danger">
       <UiIcon name="warning" :size="16" />
       <span>{{ error }}</span>
     </div>
 
-    <div
-      v-if="notice"
-      class="storage-notice"
-    >
+    <!-- Success Notice Banner -->
+    <div v-if="notice" class="unifi-banner unifi-banner--success">
       <UiIcon name="check" :size="15" />
       <span>{{ notice }}</span>
     </div>
 
-    <div class="storage-tabs">
-      <button
-        type="button"
-        :class="{ 'storage-tab--active': tab === 'targets' }"
-        @click="tab = 'targets'"
-      >
-        {{ t("storage.storageTargets") }} (Targets)
-      </button>
-      <button
-        type="button"
-        :class="{ 'storage-tab--active': tab === 'retention' }"
-        @click="tab = 'retention'"
-      >
-        {{ t("storage.retention") }} (Retention)
-      </button>
+    <!-- Subtab 1: Storage Targets -->
+    <div v-if="tab === 'targets'" class="unifi-tab-content">
+      <div class="unifi-section-bar">
+        <div>
+          <strong class="unifi-section-title">{{ t("storage.storageTargets") }}</strong>
+          <span class="unifi-section-desc">{{ t("storage.targetsDescription") }}</span>
+        </div>
+        <div class="unifi-section-actions">
+          <button
+            class="unifi-btn unifi-btn--ghost"
+            type="button"
+            @click="openTargetPanel('rclone')"
+          >
+            <UiIcon name="cloud" :size="14" />
+            <span>{{ t("storage.addArchive") }}</span>
+          </button>
+          <button
+            class="unifi-btn unifi-btn--primary"
+            type="button"
+            @click="openTargetPanel('local')"
+          >
+            <UiIcon name="plus" :size="14" />
+            <span>{{ t("storage.addLocal") }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Empty State -->
+      <div v-if="!targets.length && !loading" class="unifi-empty-box">
+        <UiIcon name="storage" :size="32" />
+        <strong>{{ t("storage.noStorageTargets") }}</strong>
+        <span>{{ t("storage.noStorageTargetsHint") }}</span>
+      </div>
+
+      <!-- Targets 2-Column Grid -->
+      <div v-else class="unifi-targets-grid">
+        <!-- 1. Local NVMe Recording Targets -->
+        <article
+          v-for="target in localTargets"
+          :key="target.id"
+          class="unifi-target-card"
+        >
+          <!-- Card Header -->
+          <div class="unifi-card-header">
+            <div class="unifi-card-title-group">
+              <span
+                class="unifi-status-dot"
+                :class="target.enabled ? 'bg-emerald-400' : 'bg-gray-500'"
+              />
+              <span class="unifi-card-title">
+                本地高速录像缓存池 ({{ target.name }})
+              </span>
+              <span
+                v-if="targetIsDefault(target)"
+                class="unifi-badge-pill unifi-badge-pill--blue"
+              >
+                {{ t("storage.default") }}
+              </span>
+            </div>
+
+            <!-- Health Status Badge -->
+            <span
+              class="unifi-status-pill"
+              :class="getLocalTargetStatusBadge(target).badgeClass"
+            >
+              {{ getLocalTargetStatusBadge(target).text }}
+            </span>
+          </div>
+
+          <!-- Capacity Bar with 80% / 85% / 95% Watermark lines -->
+          <div class="unifi-watermark-wrapper">
+            <div class="unifi-watermark-bar-track">
+              <!-- Used Bar -->
+              <div
+                class="unifi-watermark-bar-fill"
+                :style="{
+                  width: `${Math.min(100, Math.max(0, targetMetrics[target.id]?.used_percent ?? 0))}%`,
+                  backgroundColor: getLocalTargetBarColor(target)
+                }"
+              />
+              <!-- Watermark Vertical Markers -->
+              <div
+                class="unifi-watermark-marker unifi-watermark-marker--warning"
+                :style="{ left: `${getWatermarkPercent(target, 'warning')}%` }"
+                :title="`${getWatermarkPercent(target, 'warning')}% 警戒水位 (通知告警)`"
+              />
+              <div
+                class="unifi-watermark-marker unifi-watermark-marker--high"
+                :style="{ left: `${getWatermarkPercent(target, 'high')}%` }"
+                :title="`${getWatermarkPercent(target, 'high')}% 高水位清理 (自动释放已归档切片)`"
+              />
+              <div
+                class="unifi-watermark-marker unifi-watermark-marker--critical"
+                :style="{ left: `${getWatermarkPercent(target, 'critical')}%` }"
+                :title="`${getWatermarkPercent(target, 'critical')}% 极值水位 (紧急熔断降频)`"
+              />
+            </div>
+
+            <div class="unifi-watermark-legend font-mono">
+              <span class="text-gray-300">
+                路径: {{ target.config.path || '/recordings' }} (NVMe SSD)
+              </span>
+              <span v-if="targetMetrics[target.id]?.total_bytes" class="text-gray-400">
+                已用 {{ formatBytes(targetMetrics[target.id]?.used_bytes) }} / 总量 {{ formatBytes(targetMetrics[target.id]?.total_bytes) }} (剩余 {{ formatBytes(targetMetrics[target.id]?.free_bytes) }})
+              </span>
+              <span v-else class="text-gray-500">
+                {{ targetWatermarks(target) || '等待测速诊断获取实时容量' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Watermarks Control Box (3 Columns) -->
+          <div class="unifi-watermarks-box">
+            <div class="unifi-watermarks-box__title">
+              自动清理水位阈值设定 (Watermarks):
+            </div>
+            <div class="unifi-watermarks-box__grid font-mono">
+              <div class="unifi-watermark-metric-cell">
+                <span class="text-amber-400">警戒水位: {{ getWatermarkPercent(target, 'warning') }}%</span>
+                <div class="unifi-watermark-metric-desc">开始通知告警</div>
+              </div>
+              <div class="unifi-watermark-metric-cell">
+                <span class="text-red-400">高水位: {{ getWatermarkPercent(target, 'high') }}%</span>
+                <div class="unifi-watermark-metric-desc">自动释放已归档切片</div>
+              </div>
+              <div class="unifi-watermark-metric-cell">
+                <span class="text-red-500">极值水位: {{ getWatermarkPercent(target, 'critical') }}%</span>
+                <div class="unifi-watermark-metric-desc">紧急熔断降频</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Test Result or Note -->
+          <div v-if="testResults[target.id]" class="unifi-card-test-result font-mono">
+            <UiIcon name="activity" :size="13" />
+            <span>{{ testResults[target.id] }}</span>
+          </div>
+
+          <!-- Card Actions Footer -->
+          <div class="unifi-card-footer">
+            <span class="unifi-protect-status-text">
+              写入保护状态：<span class="text-emerald-400 font-bold">加锁保护文件永久豁免清理</span>
+            </span>
+
+            <div class="unifi-card-footer__buttons">
+              <!-- Diagnostics Button -->
+              <button
+                class="unifi-btn unifi-btn--compact unifi-btn--ghost"
+                type="button"
+                :disabled="testingTargetId === target.id"
+                @click="runTargetTest(target)"
+              >
+                <UiIcon name="activity" :size="13" />
+                <span>{{ testingTargetId === target.id ? t("storage.testing") : "诊断容量与健康" }}</span>
+              </button>
+
+              <!-- Switch Disk Button -->
+              <button
+                v-if="localTargets.some((item) => item.enabled && item.id !== target.id)"
+                class="unifi-btn unifi-btn--compact unifi-btn--ghost"
+                type="button"
+                :title="t('storage.switchWritesTitle')"
+                @click="openSwitchPanel(target)"
+              >
+                <UiIcon name="next" :size="13" />
+                <span>更换本地磁盘</span>
+              </button>
+
+              <!-- Edit Target -->
+              <button
+                class="unifi-icon-btn"
+                type="button"
+                :title="t('storage.editTarget')"
+                @click="openEditTarget(target)"
+              >
+                <UiIcon name="settings" :size="14" />
+              </button>
+
+              <!-- Enable/Disable -->
+              <button
+                class="unifi-icon-btn"
+                type="button"
+                :title="target.enabled ? t('storage.disable') : t('storage.enable')"
+                @click="toggleTarget(target)"
+              >
+                <UiIcon :name="target.enabled ? 'pause' : 'play'" :size="14" />
+              </button>
+
+              <!-- Delete -->
+              <button
+                class="unifi-icon-btn unifi-icon-btn--danger"
+                type="button"
+                :title="t('storage.deleteTarget')"
+                @click="removeTarget(target)"
+              >
+                <UiIcon name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <!-- 2. WebDAV / Rclone Archive Targets -->
+        <article
+          v-for="target in archiveTargets"
+          :key="target.id"
+          class="unifi-target-card"
+        >
+          <!-- Card Header -->
+          <div class="unifi-card-header">
+            <div class="unifi-card-title-group">
+              <span
+                class="unifi-status-dot"
+                :class="target.enabled ? 'bg-blue-400' : 'bg-gray-500'"
+              />
+              <span class="unifi-card-title">
+                WebDAV 在线存储池 ({{ target.name }})
+              </span>
+              <span
+                v-if="targetIsDefault(target)"
+                class="unifi-badge-pill unifi-badge-pill--cyan"
+              >
+                {{ t("storage.default") }}
+              </span>
+            </div>
+
+            <!-- Health Status Badge -->
+            <span
+              class="unifi-status-pill"
+              :class="target.enabled ? 'status-badge--cyan' : 'status-badge--disabled'"
+            >
+              {{ target.enabled ? '在线热播 · 正常' : t("storage.disabled") }}
+            </span>
+          </div>
+
+          <!-- Metadata Lines -->
+          <div class="unifi-archive-meta font-mono">
+            <div>
+              服务协议:
+              <span class="text-white">
+                {{ target.config.provider === 'openlist_webdav' ? 'WebDAV (OpenList / Alist / NAS)' : '通用 Rclone 远端' }}
+              </span>
+            </div>
+            <div>
+              远端地址:
+              <span class="text-blue-300">
+                {{ targetDetail(target) }}
+              </span>
+            </div>
+            <div>
+              状态凭据:
+              <span :class="target.credentials_configured ? 'text-emerald-400' : 'text-amber-400'">
+                {{ target.credentials_configured ? '✓ 凭据已就绪 (SHA-256 校验完毕)' : '⚠ 未配置访问凭据' }}
+              </span>
+            </div>
+          </div>
+
+          <!-- UniFi Highlight Feature Callout -->
+          <div class="unifi-callout-box">
+            ✨ <b>前端无感等同于本地：</b>WebDAV 录像与本地录像汇聚在同一条连续时间轴上，拖拽洗带时由后端智能流式拉取（Byte Range），不需要手动“恢复/解冻”，体验与本地完全一致。
+          </div>
+
+          <!-- Test Result or Note -->
+          <div v-if="testResults[target.id]" class="unifi-card-test-result font-mono">
+            <UiIcon name="activity" :size="13" />
+            <span>{{ testResults[target.id] }}</span>
+          </div>
+
+          <!-- Card Actions Footer -->
+          <div class="unifi-card-footer">
+            <div class="flex items-center space-x-2">
+              <button
+                class="unifi-btn unifi-btn--primary unifi-btn--compact"
+                type="button"
+                :disabled="testingTargetId === target.id"
+                @click="runTargetTest(target)"
+              >
+                <UiIcon name="activity" :size="13" />
+                <span>{{ testingTargetId === target.id ? t("storage.testing") : "测速与健康诊断" }}</span>
+              </button>
+            </div>
+
+            <div class="unifi-card-footer__buttons">
+              <!-- Edit Target -->
+              <button
+                class="unifi-btn unifi-btn--compact unifi-btn--ghost"
+                type="button"
+                @click="openEditTarget(target)"
+              >
+                <UiIcon name="settings" :size="13" />
+                <span>配置参数</span>
+              </button>
+
+              <!-- Enable/Disable -->
+              <button
+                class="unifi-icon-btn"
+                type="button"
+                :title="target.enabled ? t('storage.disable') : t('storage.enable')"
+                @click="toggleTarget(target)"
+              >
+                <UiIcon :name="target.enabled ? 'pause' : 'play'" :size="14" />
+              </button>
+
+              <!-- Delete -->
+              <button
+                class="unifi-icon-btn unifi-icon-btn--danger"
+                type="button"
+                :title="t('storage.deleteTarget')"
+                @click="removeTarget(target)"
+              >
+                <UiIcon name="trash" :size="14" />
+              </button>
+            </div>
+          </div>
+        </article>
+      </div>
     </div>
 
-    <div class="storage-layout">
-      <div class="storage-main">
-        <template v-if="tab === 'targets'">
-          <div class="storage-section-header">
-            <div>
-              <strong>{{ t("storage.storageTargets") }}</strong>
-              <span>
-                {{ t("storage.targetsDescription") }}
-              </span>
+    <!-- Subtab 2: Retention Policies -->
+    <div v-else class="unifi-tab-content">
+      <div class="unifi-retention-container">
+        <div class="unifi-retention-header">
+          <div>
+            <div class="unifi-retention-title">
+              {{ t("storage.retentionPolicies") }} (Retention Policies)
             </div>
-            <div class="storage-section-actions">
-              <button
-                class="button button--ghost"
-                type="button"
-                @click="openTargetPanel('rclone')"
-              >
-                <UiIcon name="cloud" :size="14" />
-                {{ t("storage.addArchive") }}
-              </button>
-              <button
-                class="button button--primary"
-                type="button"
-                @click="openTargetPanel('local')"
-              >
-                <UiIcon name="plus" :size="14" />
-                {{ t("storage.addLocal") }}
-              </button>
+            <div class="unifi-retention-subtitle">
+              按常规/事件/手动分类定义过期时间，必须在 WebDAV 备份成功后才允许物理清理
             </div>
           </div>
+          <button
+            class="unifi-btn unifi-btn--primary"
+            type="button"
+            @click="openPolicyPanel"
+          >
+            <UiIcon name="plus" :size="14" />
+            <span>{{ t("storage.addPolicy") }}</span>
+          </button>
+        </div>
 
-          <div v-if="!targets.length && !loading" class="storage-empty">
-            <UiIcon name="storage" :size="28" />
-            <strong>{{ t("storage.noStorageTargets") }}</strong>
-            <span>{{ t("storage.noStorageTargetsHint") }}</span>
-          </div>
+        <!-- Empty State -->
+        <div v-if="!policies.length && !loading" class="unifi-empty-box">
+          <UiIcon name="shield" :size="32" />
+          <strong>{{ t("storage.noRetentionPolicies") }}</strong>
+          <span>{{ t("storage.noRetentionPoliciesHint") }}</span>
+        </div>
 
-          <div v-else class="storage-target-list">
-            <article
-              v-for="target in targets"
-              :key="target.id"
-              class="storage-target-card"
-            >
-              <div class="storage-target-card__icon">
-                <UiIcon
-                  :name="target.type === 'local' ? 'drive' : 'cloud'"
-                  :size="20"
-                />
-              </div>
+        <!-- Structured Retention Table matching Prototype #protect-storage -->
+        <div v-else class="unifi-table-responsive">
+          <table class="unifi-retention-table">
+            <thead>
+              <tr>
+                <th>{{ t("storage.policy") }}</th>
+                <th>{{ t("storage.scope") }}</th>
+                <th>{{ t("storage.ordinary") }}</th>
+                <th>{{ t("storage.event") }}</th>
+                <th>{{ t("storage.manual") }}</th>
+                <th>{{ t("storage.mode") || "清理模式" }}</th>
+                <th>WebDAV 强制前置</th>
+                <th>{{ t("storage.status") }}</th>
+                <th class="text-right">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="policy in policies" :key="policy.id">
+                <!-- Name -->
+                <td class="font-sans font-bold text-white">
+                  <div>{{ policy.name }}</div>
+                  <div class="text-[10px] text-gray-400 font-normal">
+                    {{ policy.mode === "HARD" ? t("storage.hardLimit") : t("storage.bestEffort") }}
+                  </div>
+                </td>
 
-              <div class="storage-target-card__main">
-                <div class="storage-target-card__title">
-                  <strong>{{ target.name }}</strong>
+                <!-- Scope -->
+                <td>
                   <span
-                    class="status-pill"
-                    :class="{
-                      'status-pill--ok': target.enabled,
-                      'status-pill--muted': !target.enabled
-                    }"
+                    class="unifi-scope-pill"
+                    :class="
+                      policy.scope_type === 'GLOBAL'
+                        ? 'unifi-scope-pill--blue'
+                        : policy.scope_type === 'CAMERA'
+                          ? 'unifi-scope-pill--purple'
+                          : 'unifi-scope-pill--indigo'
+                    "
                   >
-                    {{ target.enabled ? t("storage.enabled") : t("storage.disabled") }}
+                    {{ scopeLabel(policy) }}
                   </span>
+                </td>
+
+                <!-- Ordinary Keep Days -->
+                <td class="font-mono text-white">
+                  {{ t("storage.days", { count: policy.ordinary_keep_days }) }}
+                </td>
+
+                <!-- Event Keep Days -->
+                <td class="font-mono text-white">
+                  {{ t("storage.days", { count: policy.event_keep_days }) }}
+                </td>
+
+                <!-- Manual Keep Days -->
+                <td class="font-mono text-white">
+                  {{ t("storage.days", { count: policy.manual_keep_days }) }}
+                </td>
+
+                <!-- Mode -->
+                <td class="font-sans">
                   <span
-                    v-if="targetIsDefault(target)"
-                    class="status-pill"
+                    :class="
+                      policy.mode === 'HARD'
+                        ? 'text-amber-400 font-medium'
+                        : 'text-emerald-400 font-medium'
+                    "
                   >
-                    {{ t("storage.default") }}
-                  </span>
-                </div>
-                <span class="storage-target-card__path">
-                  {{ targetDetail(target) }}
-                </span>
-                <span
-                  v-if="targetWatermarks(target)"
-                  class="storage-target-card__test"
-                >
-                  {{ targetWatermarks(target) }}
-                </span>
-                <span
-                  v-if="testResults[target.id]"
-                  class="storage-target-card__test"
-                >
-                  {{ testResults[target.id] }}
-                </span>
-                <span
-                  v-else-if="target.type === 'rclone'"
-                  class="storage-target-card__test"
-                >
-                  {{
-                    target.credentials_configured
-                      ? t("storage.credentialsConfigured")
-                      : t("storage.credentialsMissing")
-                  }}
-                </span>
-              </div>
-
-              <div class="storage-target-card__actions">
-                <button
-                  class="button button--ghost button--compact"
-                  type="button"
-                  :disabled="testingTargetId === target.id"
-                  @click="runTargetTest(target)"
-                >
-                  <UiIcon name="activity" :size="14" />
-                  {{
-                    testingTargetId === target.id
-                      ? t("storage.testing")
-                      : t("storage.test")
-                  }}
-                </button>
-                <button
-                  v-if="
-                    target.type === 'local' &&
-                    target.role === 'recording'
-                  "
-                  class="button button--ghost button--compact"
-                  type="button"
-                  :disabled="
-                    !localTargets.some(
-                      (item) =>
-                        item.enabled &&
-                        item.id !== target.id
-                    )
-                  "
-                  :title="t('storage.switchWritesTitle')"
-                  @click="openSwitchPanel(target)"
-                >
-                  <UiIcon name="next" :size="14" />
-                  {{ t("storage.switchWrites") }}
-                </button>
-                <button
-                  class="icon-button"
-                  type="button"
-                  :title="t('storage.editTarget')"
-                  @click="openEditTarget(target)"
-                >
-                  <UiIcon name="settings" :size="15" />
-                </button>
-                <button
-                  class="icon-button"
-                  type="button"
-                  :title="target.enabled ? t('storage.disable') : t('storage.enable')"
-                  @click="toggleTarget(target)"
-                >
-                  <UiIcon
-                    :name="target.enabled ? 'pause' : 'play'"
-                    :size="15"
-                  />
-                </button>
-                <button
-                  class="icon-button icon-button--danger"
-                  type="button"
-                  :title="t('storage.deleteTarget')"
-                  @click="removeTarget(target)"
-                >
-                  <UiIcon name="trash" :size="15" />
-                </button>
-              </div>
-            </article>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="storage-section-header">
-            <div>
-              <strong>{{ t("storage.retentionPolicies") }}</strong>
-              <span>
-                {{ t("storage.retentionDescription") }}
-              </span>
-            </div>
-            <button
-              class="button button--primary"
-              type="button"
-              @click="openPolicyPanel"
-            >
-              <UiIcon name="plus" :size="14" />
-              {{ t("storage.addPolicy") }}
-            </button>
-          </div>
-
-          <div v-if="!policies.length && !loading" class="storage-empty">
-            <UiIcon name="shield" :size="28" />
-            <strong>{{ t("storage.noRetentionPolicies") }}</strong>
-            <span>{{ t("storage.noRetentionPoliciesHint") }}</span>
-          </div>
-
-          <div v-else class="retention-table-wrap">
-            <table class="retention-table">
-              <thead>
-                <tr>
-                  <th>{{ t("storage.policy") }}</th>
-                  <th>{{ t("storage.scope") }}</th>
-                  <th>{{ t("storage.ordinary") }}</th>
-                  <th>{{ t("storage.event") }}</th>
-                  <th>{{ t("storage.manual") }}</th>
-                  <th>{{ t("storage.archive") }}</th>
-                  <th>{{ t("storage.status") }}</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="policy in policies"
-                  :key="policy.id"
-                >
-                  <td>
-                    <strong>{{ policy.name }}</strong>
-                    <small>{{ policy.mode === "HARD" ? t("storage.hardLimit") : t("storage.bestEffort") }}</small>
-                  </td>
-                  <td>{{ scopeLabel(policy) }}</td>
-                  <td>{{ t("storage.days", { count: policy.ordinary_keep_days }) }}</td>
-                  <td>{{ t("storage.days", { count: policy.event_keep_days }) }}</td>
-                  <td>{{ t("storage.days", { count: policy.manual_keep_days }) }}</td>
-                  <td>
                     {{
-                      policy.require_archive_before_delete
-                        ? t("storage.required")
-                        : t("storage.optional")
+                      policy.mode === "HARD"
+                        ? "HARD (严格按天强制清除)"
+                        : "BEST_EFFORT (水位超限时清理)"
                     }}
-                  </td>
-                  <td>
-                    <span
-                      class="status-pill"
-                      :class="{
-                        'status-pill--ok': policy.enabled,
-                        'status-pill--muted': !policy.enabled
-                      }"
-                    >
-                      {{ policy.enabled ? t("storage.enabled") : t("storage.disabled") }}
-                    </span>
-                  </td>
-                  <td class="retention-table__actions">
+                  </span>
+                </td>
+
+                <!-- Require Archive -->
+                <td class="font-sans">
+                  <span v-if="policy.require_archive_before_delete" class="text-emerald-400 font-medium">
+                    ✓ 强制 (必须归档完才删)
+                  </span>
+                  <span v-else class="text-gray-400">
+                    - 可选 (允许直删)
+                  </span>
+                </td>
+
+                <!-- Status -->
+                <td>
+                  <span
+                    class="unifi-status-badge"
+                    :class="policy.enabled ? 'unifi-status-badge--normal' : 'unifi-status-badge--disabled'"
+                  >
+                    {{ policy.enabled ? t("storage.enabled") : t("storage.disabled") }}
+                  </span>
+                </td>
+
+                <!-- Actions -->
+                <td class="text-right">
+                  <div class="flex items-center justify-end space-x-1">
                     <button
-                      class="icon-button"
+                      class="unifi-icon-btn"
                       type="button"
                       :title="t('storage.editPolicy')"
                       @click="openEditPolicy(policy)"
@@ -983,43 +1262,42 @@ onBeforeUnmount(() => {
                       <UiIcon name="settings" :size="14" />
                     </button>
                     <button
-                      class="icon-button"
+                      class="unifi-icon-btn"
                       type="button"
                       :title="policy.enabled ? t('storage.disable') : t('storage.enable')"
                       @click="togglePolicy(policy)"
                     >
-                      <UiIcon
-                        :name="policy.enabled ? 'pause' : 'play'"
-                        :size="14"
-                      />
+                      <UiIcon :name="policy.enabled ? 'pause' : 'play'" :size="14" />
                     </button>
                     <button
-                      class="icon-button icon-button--danger"
+                      class="unifi-icon-btn unifi-icon-btn--danger"
                       type="button"
                       :title="t('storage.deletePolicy')"
                       @click="removePolicy(policy)"
                     >
                       <UiIcon name="trash" :size="14" />
                     </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </template>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
+    </div>
 
-      <aside
-        v-if="switchSource"
-        class="storage-editor"
-      >
-        <header class="storage-editor__header">
+    <!-- ================= MODALS / DRAWERS ================= -->
+
+    <!-- 1. Switch Recording Target Drawer -->
+    <div v-if="switchSource" class="unifi-drawer-backdrop" @click.self="switchSource = null; switchDestinationId = ''">
+      <aside class="unifi-drawer">
+        <header class="unifi-drawer__header">
           <div>
             <strong>{{ t("storage.switchRecordingWrites") }}</strong>
             <span>{{ t("storage.safeRoutingChange") }}</span>
           </div>
           <button
-            class="icon-button"
+            class="unifi-icon-btn"
             type="button"
             :title="t('storage.close')"
             @click="switchSource = null; switchDestinationId = ''"
@@ -1028,69 +1306,58 @@ onBeforeUnmount(() => {
           </button>
         </header>
 
-        <form
-          class="storage-editor__form"
-          @submit.prevent="runRecordingTargetSwitch"
-        >
-          <div class="storage-switch-summary">
+        <form class="unifi-drawer__form" @submit.prevent="runRecordingTargetSwitch">
+          <div class="unifi-switch-summary">
             <span>{{ t("storage.currentTarget") }}</span>
             <strong>{{ switchSource.name }}</strong>
             <small>{{ targetDetail(switchSource) }}</small>
           </div>
 
-          <label>
+          <label class="unifi-form-group">
             <span>{{ t("storage.newRecordingTarget") }}</span>
-            <select
-              v-model="switchDestinationId"
-              required
-            >
+            <select v-model="switchDestinationId" required>
               <option value="" disabled>
                 {{ t("storage.selectLocalTarget") }}
               </option>
               <option
-                v-for="target in switchDestinations"
-                :key="target.id"
-                :value="target.id"
+                v-for="targetItem in switchDestinations"
+                :key="targetItem.id"
+                :value="targetItem.id"
               >
-                {{ target.name }} · {{ targetDetail(target) }}
+                {{ targetItem.name }} · {{ targetDetail(targetItem) }}
               </option>
             </select>
           </label>
 
-          <div class="storage-switch-note">
+          <div class="unifi-switch-note">
             <UiIcon name="shield" :size="15" />
-            <span>
-              {{ t("storage.switchNote") }}
-            </span>
+            <span>{{ t("storage.switchNote") }}</span>
           </div>
 
-          <div class="storage-editor__actions">
+          <div class="unifi-drawer__actions">
             <button
-              class="button button--ghost"
+              class="unifi-btn unifi-btn--ghost"
               type="button"
               @click="switchSource = null; switchDestinationId = ''"
             >
               {{ t("storage.cancel") }}
             </button>
             <button
-              class="button button--primary"
+              class="unifi-btn unifi-btn--primary"
               type="submit"
-              :disabled="
-                switchSaving ||
-                !switchDestinationId
-              "
+              :disabled="switchSaving || !switchDestinationId"
             >
               {{ switchSaving ? t("storage.switching") : t("storage.switchWrites") }}
             </button>
           </div>
         </form>
       </aside>
+    </div>
 
-      <aside
-        v-if="targetPanelOpen"
-        class="storage-editor"
-      >
-        <header class="storage-editor__header">
+    <!-- 2. Target Editor Drawer (Create / Edit) -->
+    <div v-if="targetPanelOpen" class="unifi-drawer-backdrop" @click.self="targetPanelOpen = false; editingTarget = null">
+      <aside class="unifi-drawer">
+        <header class="unifi-drawer__header">
           <div>
             <strong>
               {{
@@ -1112,7 +1379,7 @@ onBeforeUnmount(() => {
             </span>
           </div>
           <button
-            class="icon-button"
+            class="unifi-icon-btn"
             type="button"
             :title="t('storage.close')"
             @click="targetPanelOpen = false; editingTarget = null"
@@ -1121,8 +1388,8 @@ onBeforeUnmount(() => {
           </button>
         </header>
 
-        <form class="storage-editor__form" @submit.prevent="saveTarget">
-          <label>
+        <form class="unifi-drawer__form" @submit.prevent="saveTarget">
+          <label class="unifi-form-group">
             <span>{{ t("storage.name") }}</span>
             <input
               v-model="targetForm.name"
@@ -1133,7 +1400,7 @@ onBeforeUnmount(() => {
           </label>
 
           <template v-if="targetForm.type === 'local'">
-            <label>
+            <label class="unifi-form-group">
               <span>{{ t("storage.containerPath") }}</span>
               <input
                 v-model="targetForm.path"
@@ -1145,8 +1412,9 @@ onBeforeUnmount(() => {
                 {{ t("storage.recordingRootHint") }}
               </small>
             </label>
-            <div class="storage-watermarks-grid">
-              <label>
+
+            <div class="unifi-watermark-inputs-grid">
+              <label class="unifi-form-group">
                 <span>{{ t("storage.warningPercent") }}</span>
                 <input
                   v-model.number="targetForm.warningPercent"
@@ -1156,7 +1424,7 @@ onBeforeUnmount(() => {
                   required
                 />
               </label>
-              <label>
+              <label class="unifi-form-group">
                 <span>{{ t("storage.highPercent") }}</span>
                 <input
                   v-model.number="targetForm.highPercent"
@@ -1166,7 +1434,7 @@ onBeforeUnmount(() => {
                   required
                 />
               </label>
-              <label>
+              <label class="unifi-form-group">
                 <span>{{ t("storage.criticalPercent") }}</span>
                 <input
                   v-model.number="targetForm.criticalPercent"
@@ -1177,10 +1445,11 @@ onBeforeUnmount(() => {
                 />
               </label>
             </div>
-            <small>
+            <small class="unifi-form-hint">
               {{ t("storage.pressureRetentionHint") }}
             </small>
-            <label class="storage-check">
+
+            <label class="unifi-checkbox-row">
               <input
                 v-model="targetForm.defaultRecording"
                 type="checkbox"
@@ -1190,7 +1459,7 @@ onBeforeUnmount(() => {
           </template>
 
           <template v-else>
-            <label>
+            <label class="unifi-form-group">
               <span>{{ t("storage.archiveProvider") }}</span>
               <select
                 v-model="targetForm.archiveProvider"
@@ -1208,33 +1477,30 @@ onBeforeUnmount(() => {
                 {{ t("storage.providerFixedHint") }}
               </small>
             </label>
-            <label>
+
+            <label class="unifi-form-group">
               <span>{{ t("storage.rcloneRemoteName") }}</span>
               <input
                 v-model="targetForm.remote"
                 required
                 :readonly="
                   Boolean(editingTarget) &&
-                  targetForm.archiveProvider ===
-                    'openlist_webdav'
+                  targetForm.archiveProvider === 'openlist_webdav'
                 "
                 placeholder="archive"
               />
             </label>
-            <label>
+
+            <label class="unifi-form-group">
               <span>{{ t("storage.basePath") }}</span>
               <input
                 v-model="targetForm.basePath"
                 placeholder="zero-nvr"
               />
             </label>
-            <template
-              v-if="
-                targetForm.archiveProvider ===
-                'openlist_webdav'
-              "
-            >
-              <label>
+
+            <template v-if="targetForm.archiveProvider === 'openlist_webdav'">
+              <label class="unifi-form-group">
                 <span>{{ t("storage.openlistWebdavUrl") }}</span>
                 <input
                   v-model="targetForm.openlistUrl"
@@ -1246,7 +1512,8 @@ onBeforeUnmount(() => {
                   {{ t("storage.openlistEndpointHint") }}
                 </small>
               </label>
-              <label>
+
+              <label class="unifi-form-group">
                 <span>{{ t("storage.openlistUsername") }}</span>
                 <input
                   v-model="targetForm.openlistUsername"
@@ -1254,7 +1521,8 @@ onBeforeUnmount(() => {
                   autocomplete="off"
                 />
               </label>
-              <label>
+
+              <label class="unifi-form-group">
                 <span>{{ t("storage.openlistPassword") }}</span>
                 <input
                   v-model="targetForm.openlistPassword"
@@ -1271,7 +1539,8 @@ onBeforeUnmount(() => {
                 </small>
               </label>
             </template>
-            <label v-else>
+
+            <label v-else class="unifi-form-group">
               <span>{{ t("storage.rcloneConfig") }}</span>
               <textarea
                 v-model="targetForm.rcloneConfig"
@@ -1288,7 +1557,8 @@ onBeforeUnmount(() => {
                 }}
               </small>
             </label>
-            <label class="storage-check">
+
+            <label class="unifi-checkbox-row">
               <input
                 v-model="targetForm.defaultArchive"
                 type="checkbox"
@@ -1297,16 +1567,16 @@ onBeforeUnmount(() => {
             </label>
           </template>
 
-          <div class="storage-editor__actions">
+          <div class="unifi-drawer__actions">
             <button
-              class="button button--ghost"
+              class="unifi-btn unifi-btn--ghost"
               type="button"
               @click="targetPanelOpen = false; editingTarget = null"
             >
               {{ t("storage.cancel") }}
             </button>
             <button
-              class="button button--primary"
+              class="unifi-btn unifi-btn--primary"
               type="submit"
               :disabled="targetSaving"
             >
@@ -1321,12 +1591,12 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </aside>
+    </div>
 
-      <aside
-        v-if="policyPanelOpen"
-        class="storage-editor"
-      >
-        <header class="storage-editor__header">
+    <!-- 3. Policy Editor Drawer (Create / Edit) -->
+    <div v-if="policyPanelOpen" class="unifi-drawer-backdrop" @click.self="policyPanelOpen = false; editingPolicy = null">
+      <aside class="unifi-drawer">
+        <header class="unifi-drawer__header">
           <div>
             <strong>
               {{
@@ -1338,7 +1608,7 @@ onBeforeUnmount(() => {
             <span>{{ t("storage.recordingLifecycleRules") }}</span>
           </div>
           <button
-            class="icon-button"
+            class="unifi-icon-btn"
             type="button"
             :title="t('storage.close')"
             @click="policyPanelOpen = false; editingPolicy = null"
@@ -1347,8 +1617,8 @@ onBeforeUnmount(() => {
           </button>
         </header>
 
-        <form class="storage-editor__form" @submit.prevent="savePolicy">
-          <label>
+        <form class="unifi-drawer__form" @submit.prevent="savePolicy">
+          <label class="unifi-form-group">
             <span>{{ t("storage.name") }}</span>
             <input
               v-model="policyForm.name"
@@ -1357,15 +1627,13 @@ onBeforeUnmount(() => {
             />
           </label>
 
-          <label>
+          <label class="unifi-form-group">
             <span>{{ t("storage.scope") }}</span>
             <select v-model="policyForm.scopeType">
               <option value="GLOBAL">{{ t("storage.allCameras") }}</option>
               <option value="CAMERA">{{ t("storage.singleCamera") }}</option>
               <option
-                v-if="
-                  editingPolicy?.scope_type === 'CAMERA_GROUP'
-                "
+                v-if="editingPolicy?.scope_type === 'CAMERA_GROUP'"
                 value="CAMERA_GROUP"
               >
                 {{ t("storage.existingCameraGroup") }}
@@ -1373,7 +1641,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
 
-          <label v-if="policyForm.scopeType === 'CAMERA'">
+          <label v-if="policyForm.scopeType === 'CAMERA'" class="unifi-form-group">
             <span>{{ t("storage.camera") }}</span>
             <select v-model="policyForm.scopeId" required>
               <option value="" disabled>{{ t("storage.selectCamera") }}</option>
@@ -1387,21 +1655,14 @@ onBeforeUnmount(() => {
             </select>
           </label>
 
-          <label
-            v-if="policyForm.scopeType === 'CAMERA_GROUP'"
-          >
+          <label v-if="policyForm.scopeType === 'CAMERA_GROUP'" class="unifi-form-group">
             <span>{{ t("storage.cameraGroup") }}</span>
-            <input
-              :value="policyForm.scopeId"
-              readonly
-            />
-            <small>
-              {{ t("storage.cameraGroupHint") }}
-            </small>
+            <input :value="policyForm.scopeId" readonly />
+            <small>{{ t("storage.cameraGroupHint") }}</small>
           </label>
 
-          <div class="retention-days-grid">
-            <label>
+          <div class="unifi-retention-days-grid">
+            <label class="unifi-form-group">
               <span>{{ t("storage.ordinaryDays") }}</span>
               <input
                 v-model.number="policyForm.ordinaryDays"
@@ -1410,7 +1671,7 @@ onBeforeUnmount(() => {
                 max="36500"
               />
             </label>
-            <label>
+            <label class="unifi-form-group">
               <span>{{ t("storage.eventDays") }}</span>
               <input
                 v-model.number="policyForm.eventDays"
@@ -1419,7 +1680,7 @@ onBeforeUnmount(() => {
                 max="36500"
               />
             </label>
-            <label>
+            <label class="unifi-form-group">
               <span>{{ t("storage.manualDays") }}</span>
               <input
                 v-model.number="policyForm.manualDays"
@@ -1430,7 +1691,7 @@ onBeforeUnmount(() => {
             </label>
           </div>
 
-          <label>
+          <label class="unifi-form-group">
             <span>{{ t("storage.policyMode") }}</span>
             <select v-model="policyForm.mode">
               <option value="BEST_EFFORT">{{ t("storage.bestEffort") }}</option>
@@ -1438,7 +1699,7 @@ onBeforeUnmount(() => {
             </select>
           </label>
 
-          <label class="storage-check">
+          <label class="unifi-checkbox-row">
             <input
               v-model="policyForm.requireArchive"
               type="checkbox"
@@ -1446,16 +1707,16 @@ onBeforeUnmount(() => {
             <span>{{ t("storage.requireArchiveBeforeDeletion") }}</span>
           </label>
 
-          <div class="storage-editor__actions">
+          <div class="unifi-drawer__actions">
             <button
-              class="button button--ghost"
+              class="unifi-btn unifi-btn--ghost"
               type="button"
               @click="policyPanelOpen = false; editingPolicy = null"
             >
               {{ t("storage.cancel") }}
             </button>
             <button
-              class="button button--primary"
+              class="unifi-btn unifi-btn--primary"
               type="submit"
               :disabled="policySaving"
             >
@@ -1471,5 +1732,810 @@ onBeforeUnmount(() => {
         </form>
       </aside>
     </div>
-  </section>
+  </div>
 </template>
+
+<style scoped>
+.unifi-storage-workspace {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px;
+  min-height: 100%;
+  background: #0c0e14;
+  color: #f3f4f6;
+}
+
+/* Header */
+.unifi-storage-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.unifi-storage-header__title-group {
+  min-width: 0;
+}
+
+.unifi-storage-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+.unifi-storage-subtitle {
+  font-size: 12px;
+  color: #9ca3af;
+  margin: 4px 0 0;
+  line-height: 1.4;
+}
+
+.unifi-storage-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Subtabs Pill */
+.unifi-subtabs-pill {
+  display: inline-flex;
+  padding: 3px;
+  background: #141722;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  gap: 4px;
+}
+
+.unifi-subtab-btn {
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  background: transparent;
+  color: #9ca3af;
+  transition: all 0.15s ease;
+}
+
+.unifi-subtab-btn:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.unifi-subtab-btn--active {
+  background: #2563eb !important;
+  color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.4);
+}
+
+/* Top 3 Metric Summary Cards */
+.unifi-metrics-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.unifi-metric-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  background: #141722;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+}
+
+.unifi-metric-icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
+.unifi-metric-icon--blue {
+  background: rgba(37, 99, 235, 0.15);
+  color: #60a5fa;
+}
+
+.unifi-metric-icon--cyan {
+  background: rgba(6, 182, 212, 0.15);
+  color: #22d3ee;
+}
+
+.unifi-metric-icon--emerald {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.unifi-metric-label {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.unifi-metric-value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-top: 1px;
+}
+
+/* Banners */
+.unifi-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.unifi-banner--danger {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+}
+
+.unifi-banner--success {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+}
+
+/* Section Bar */
+.unifi-section-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.unifi-section-title {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.unifi-section-desc {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.unifi-section-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Targets 2-Column Grid */
+.unifi-targets-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  gap: 16px;
+}
+
+.unifi-target-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: #141722;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+/* Card Header */
+.unifi-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.unifi-card-title-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.unifi-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.unifi-card-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unifi-badge-pill {
+  padding: 1px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.unifi-badge-pill--blue {
+  background: rgba(37, 99, 235, 0.2);
+  color: #93c5fd;
+}
+
+.unifi-badge-pill--cyan {
+  background: rgba(6, 182, 212, 0.2);
+  color: #67e8f9;
+}
+
+.unifi-status-pill {
+  padding: 3px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  font-family: monospace;
+}
+
+.status-badge--normal {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.status-badge--warning {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.status-badge--high {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.status-badge--critical {
+  background: rgba(220, 38, 38, 0.35);
+  color: #ef4444;
+}
+
+.status-badge--cyan {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+}
+
+.status-badge--disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: #9ca3af;
+}
+
+/* Watermark Progress Bar */
+.unifi-watermark-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.unifi-watermark-bar-track {
+  position: relative;
+  width: 100%;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.unifi-watermark-bar-fill {
+  height: 100%;
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.unifi-watermark-marker {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 5;
+}
+
+.unifi-watermark-marker--warning {
+  background: #fbbf24;
+}
+
+.unifi-watermark-marker--high {
+  background: #f87171;
+}
+
+.unifi-watermark-marker--critical {
+  background: #dc2626;
+}
+
+.unifi-watermark-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+}
+
+/* Watermark Controls Box */
+.unifi-watermarks-box {
+  background: #0f121a;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.unifi-watermarks-box__title {
+  font-size: 11px;
+  font-weight: 700;
+  color: #d1d5db;
+}
+
+.unifi-watermarks-box__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.unifi-watermark-metric-cell {
+  background: rgba(255, 255, 255, 0.04);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.unifi-watermark-metric-desc {
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+/* WebDAV Archive Meta */
+.unifi-archive-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #d1d5db;
+}
+
+.unifi-callout-box {
+  font-size: 11px;
+  line-height: 1.5;
+  color: #93c5fd;
+  background: rgba(37, 99, 235, 0.1);
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(37, 99, 235, 0.2);
+}
+
+.unifi-card-test-result {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #60a5fa;
+  background: rgba(37, 99, 235, 0.08);
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+/* Card Footer */
+.unifi-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.unifi-protect-status-text {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.unifi-card-footer__buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Subtab 2: Retention Policies Table Card */
+.unifi-retention-container {
+  background: #141722;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.unifi-retention-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 14px;
+}
+
+.unifi-retention-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #ffffff;
+}
+
+.unifi-retention-subtitle {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.unifi-table-responsive {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.unifi-retention-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 12px;
+}
+
+.unifi-retention-table th {
+  padding: 10px 12px;
+  color: #9ca3af;
+  font-size: 10px;
+  font-family: monospace;
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.unifi-retention-table td {
+  padding: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.unifi-retention-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.unifi-scope-pill {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+}
+
+.unifi-scope-pill--blue {
+  background: rgba(37, 99, 235, 0.2);
+  color: #93c5fd;
+}
+
+.unifi-scope-pill--purple {
+  background: rgba(168, 85, 247, 0.2);
+  color: #d8b4fe;
+}
+
+.unifi-scope-pill--indigo {
+  background: rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
+}
+
+.unifi-status-badge {
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.unifi-status-badge--normal {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.unifi-status-badge--disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: #9ca3af;
+}
+
+/* Empty State Box */
+.unifi-empty-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 48px 24px;
+  background: #141722;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border-radius: 16px;
+  color: #9ca3af;
+}
+
+.unifi-empty-box strong {
+  color: #ffffff;
+  font-size: 14px;
+}
+
+.unifi-empty-box span {
+  font-size: 12px;
+}
+
+/* Buttons */
+.unifi-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.unifi-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.unifi-btn--primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.unifi-btn--primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.unifi-btn--ghost {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e5e7eb;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.unifi-btn--ghost:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.unifi-btn--compact {
+  padding: 5px 10px;
+  font-size: 11px;
+}
+
+.unifi-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 0;
+  background: rgba(255, 255, 255, 0.06);
+  color: #9ca3af;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.unifi-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.unifi-icon-btn--danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+}
+
+/* Drawers & Modals */
+.unifi-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.unifi-drawer {
+  width: 420px;
+  max-width: 90vw;
+  height: 100%;
+  background: #141722;
+  border-left: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: -8px 0 32px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  animation: slideDrawer 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes slideDrawer {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.unifi-drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.unifi-drawer__header strong {
+  display: block;
+  font-size: 14px;
+  color: #ffffff;
+}
+
+.unifi-drawer__header span {
+  display: block;
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.unifi-drawer__form {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.unifi-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.unifi-form-group span {
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.unifi-form-group input:not([type="checkbox"]),
+.unifi-form-group select,
+.unifi-form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: #0d1017;
+  color: #ffffff;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.unifi-form-group input:focus,
+.unifi-form-group select:focus,
+.unifi-form-group textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+}
+
+.unifi-form-group small,
+.unifi-form-hint {
+  font-size: 10px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.unifi-watermark-inputs-grid,
+.unifi-retention-days-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.unifi-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #e5e7eb;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.unifi-checkbox-row input {
+  width: 16px;
+  height: 16px;
+  accent-color: #2563eb;
+}
+
+.unifi-drawer__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 10px;
+  margin-top: auto;
+}
+
+/* Switch Summary */
+.unifi-switch-summary {
+  background: #0d1017;
+  padding: 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.unifi-switch-summary span {
+  display: block;
+  font-size: 10px;
+  color: #9ca3af;
+  text-transform: uppercase;
+}
+
+.unifi-switch-summary strong {
+  display: block;
+  font-size: 13px;
+  color: #ffffff;
+  margin-top: 2px;
+}
+
+.unifi-switch-summary small {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.unifi-switch-note {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  border-radius: 8px;
+  font-size: 11px;
+  color: #93c5fd;
+  line-height: 1.4;
+}
+
+@media (max-width: 768px) {
+  .unifi-metrics-summary {
+    grid-template-columns: 1fr;
+  }
+  .unifi-targets-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -48,7 +48,7 @@ const selectedIds = ref<string[]>([])
 const playingIds = ref<string[]>([])
 const layoutSlots = ref<LiveLayoutSlots>(4)
 const focusedCameraId = ref<string | null>(null)
-const cameraPanelOpen = ref(true)
+const cameraPanelOpen = ref(false)
 const search = ref("")
 const cameraFilter = ref<"all" | "selected">("all")
 const draggingCameraId = ref<string | null>(null)
@@ -786,16 +786,27 @@ onBeforeUnmount(() => {
             }) }}
           </span>
         </div>
-        <button
-          class="icon-button topbar-icon-button"
-          type="button"
-          :title="t('live.refreshCameras')"
-          :aria-label="t('live.refreshCameras')"
-          :disabled="loading"
-          @click="refresh"
-        >
-          <UiIcon name="refresh" :size="16" />
-        </button>
+        <div class="flex items-center gap-1">
+          <button
+            class="icon-button topbar-icon-button"
+            type="button"
+            :title="t('live.refreshCameras')"
+            :aria-label="t('live.refreshCameras')"
+            :disabled="loading"
+            @click="refresh"
+          >
+            <UiIcon name="refresh" :size="16" />
+          </button>
+          <button
+            class="icon-button topbar-icon-button"
+            type="button"
+            :title="t('live.hideCameras')"
+            :aria-label="t('live.hideCameras')"
+            @click="cameraPanelOpen = false"
+          >
+            <UiIcon name="close" :size="16" />
+          </button>
+        </div>
       </div>
 
       <label class="live-search">
