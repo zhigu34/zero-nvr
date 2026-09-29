@@ -4,15 +4,22 @@ import type { CameraFormFactor } from "../../api/cameras"
 withDefaults(
   defineProps<{
     formFactor?: CameraFormFactor
+    size?: number
   }>(),
   {
-    formFactor: "unknown"
+    formFactor: "unknown",
+    size: undefined
   }
 )
 </script>
 
 <template>
-  <svg class="camera-device-glyph" viewBox="0 0 64 64" aria-hidden="true">
+  <svg
+    class="camera-device-glyph"
+    :style="size ? { width: `${size}px`, height: `${size}px`, flexShrink: '0' } : undefined"
+    viewBox="0 0 64 64"
+    aria-hidden="true"
+  >
     <g v-if="formFactor === 'bullet'">
       <path d="M12 30h8l4-7h21l7 6v9l-7 6H24l-4-7h-8z" />
       <circle cx="43" cy="33.5" r="5.5" />

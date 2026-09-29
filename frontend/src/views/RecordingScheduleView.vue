@@ -203,10 +203,7 @@ function getRuntimeStateInfo(camera: CameraSummary): { label: string; tone: "ok"
 
   // 2. 24x7 Continuous mode
   if (p.baseline_mode === "continuous") {
-    if (camera.connectivity_status === "online") {
-      return { label: "全天录制中", tone: "ok" }
-    }
-    return { label: "等待机位上线", tone: "standby" }
+    return { label: "全天录像中", tone: "ok" }
   }
 
   // 3. Weekly Schedule mode (calculate active window)
@@ -232,12 +229,9 @@ function getRuntimeStateInfo(camera: CameraSummary): { label: string; tone: "ok"
     })
 
     if (inWindow) {
-      if (camera.connectivity_status === "online") {
-        return { label: "时段内录制中", tone: "ok" }
-      }
-      return { label: "时段内等待上线", tone: "standby" }
+      return { label: "时段内录像中", tone: "ok" }
     }
-    return { label: "时段外待机", tone: "standby" }
+    return { label: "计划时段外待机", tone: "standby" }
   }
 
   // 4. Motion / Event only
@@ -767,11 +761,12 @@ onMounted(() => {
             <!-- Camera Info -->
             <td class="col-camera">
               <div class="camera-info-cell">
-                <CameraDeviceGlyph
-                  :form-factor="camera.form_factor || 'unknown'"
-                  :size="30"
-                  class="camera-icon-glyph"
-                />
+                <div class="cam-glyph-box" :title="camera.form_factor || '未知机型'">
+                  <CameraDeviceGlyph
+                    :form-factor="camera.form_factor || 'unknown'"
+                    :size="22"
+                  />
+                </div>
                 <div class="camera-texts">
                   <div class="camera-name font-medium">
                     {{ camera.name }}
@@ -1610,7 +1605,20 @@ onMounted(() => {
 .camera-info-cell {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+}
+
+.cam-glyph-box {
+  flex: 0 0 34px;
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--uf-bg-card-sub);
+  border: 1px solid var(--uf-border);
+  color: var(--uf-text-primary);
+  flex-shrink: 0;
 }
 
 .camera-texts {
