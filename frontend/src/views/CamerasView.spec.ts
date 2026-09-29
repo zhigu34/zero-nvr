@@ -157,7 +157,7 @@ describe("CamerasView - Devices & Discovery Center", () => {
     expect(wrapper.find(".devices-title").text()).toContain("Devices & Discovery")
     expect(wrapper.text()).toContain("发现新摄像机")
     expect(wrapper.text()).toContain("CSV 批量导入")
-    expect(wrapper.text()).toContain("导出 CSV")
+    expect(wrapper.text()).not.toContain("导出 CSV")
 
     const chips = wrapper.findAll(".chip-btn")
     expect(chips.length).toBeGreaterThanOrEqual(4)
@@ -182,19 +182,18 @@ describe("CamerasView - Devices & Discovery Center", () => {
     const rows = wrapper.findAll(".devices-row")
     expect(rows.length).toBe(2)
 
-    // First camera: PTZ capable, 4K H.265
+    // First camera: Lobby Front Door
     expect(rows[0].text()).toContain("Lobby Front Door")
     expect(rows[0].text()).toContain("ONVIF")
     expect(rows[0].text()).toContain("4K H.265")
-    expect(rows[0].text()).toContain("🕹️ PTZ 摇杆控制")
+    expect(rows[0].text()).toContain("在线正常")
 
     // Second camera: Perimeter East, in maintenance
     expect(rows[1].text()).toContain("Perimeter East")
     expect(rows[1].text()).toContain("维护中")
-    expect(rows[1].text()).toContain("固定视角")
   })
 
-  it("allows toggling camera maintenance mode", async () => {
+  it("opens camera detail drawer when clicking a table row", async () => {
     const wrapper = mount(CamerasView, {
       global: {
         stubs: {
@@ -208,15 +207,15 @@ describe("CamerasView - Devices & Discovery Center", () => {
     await flushPromises()
 
     const rows = wrapper.findAll(".devices-row")
-    // Click maintenance toggle on camera 1
-    const maintBtn = rows[0].findAll(".action-btn-sm").find((b) => b.text() === "维护")
-    expect(maintBtn?.exists()).toBe(true)
+    await rows[0].trigger("click")
+    await flushPromises()
 
-    await maintBtn!.trigger("click")
-    expect(apiMocks.updateCamera).toHaveBeenCalledWith(cam1Id, { maintenance: true })
+    const panel = wrapper.findComponent({ name: "CameraDetailPanel" })
+    expect(panel.exists()).toBe(true)
+    expect(panel.props("camera").id).toBe(cam1Id)
   })
 
-  it("opens PTZ modal and triggers velocity moves and stop", async () => {
+  it("opens PTZ modal via drawer and triggers velocity moves and stop", async () => {
     const wrapper = mount(CamerasView, {
       global: {
         stubs: {
@@ -229,9 +228,15 @@ describe("CamerasView - Devices & Discovery Center", () => {
     })
     await flushPromises()
 
-    const ptzBtn = wrapper.find(".ptz-trigger-btn")
-    expect(ptzBtn.exists()).toBe(true)
-    await ptzBtn.trigger("click")
+    // Click row 0 to open drawer
+    const rows = wrapper.findAll(".devices-row")
+    await rows[0].trigger("click")
+    await flushPromises()
+
+    // Emit open-ptz from drawer
+    const panel = wrapper.findComponent({ name: "CameraDetailPanel" })
+    expect(panel.exists()).toBe(true)
+    panel.vm.$emit("openPtz", panel.props("camera"))
     await flushPromises()
 
     // PTZ Modal should be visible
@@ -250,7 +255,21 @@ describe("CamerasView - Devices & Discovery Center", () => {
     expect(apiMocks.stopCameraPtz).toHaveBeenCalledWith(cam1Id)
   })
 
-  it("jumps to playback when clicking playback action button", async () => {
+  it("triggers batch probe from toolbar for issue cameras", async () => {
+    apiMocks.probeCamera.mockResolvedValue({
+      id: cam2Id,
+      name: "Perimeter East",
+      video_codec: "h264",
+      width: 1920,
+      height: 1080,
+      fps: 25,
+      audio_codec: "aac",
+      connectivity_status: "online",
+      last_probe_at: "2026-09-29T11:00:00Z",
+      streams: [],
+      bindings: []
+    })
+
     const wrapper = mount(CamerasView, {
       global: {
         stubs: {
@@ -263,31 +282,15 @@ describe("CamerasView - Devices & Discovery Center", () => {
     })
     await flushPromises()
 
-    const playbackBtn = wrapper.find(".action-btn-sm--playback")
-    expect(playbackBtn.exists()).toBe(true)
+    const batchProbeBtn = wrapper.find(".batch-probe-btn")
+    expect(batchProbeBtn.exists()).toBe(true)
+    await batchProbeBtn.trigger("click")
+    await flushPromises()
 
-    await playbackBtn.trigger("click")
-    expect(mockRouterPush).toHaveBeenCalledWith({
-      path: "/playback",
-      query: { camera: cam1Id }
-    })
+    expect(apiMocks.probeCamera).toHaveBeenCalled()
   })
 
-  it("filters and sorts cameras with toolbar and triggers inline probe", async () => {
-    apiMocks.probeCamera.mockResolvedValue({
-      id: cam1Id,
-      name: "Lobby Front Door",
-      video_codec: "h265",
-      width: 3840,
-      height: 2160,
-      fps: 25,
-      audio_codec: "aac",
-      connectivity_status: "online",
-      last_probe_at: "2026-09-29T11:00:00Z",
-      streams: [],
-      bindings: []
-    })
-
+  it("filters cameras with search toolbar", async () => {
     const wrapper = mount(CamerasView, {
       global: {
         stubs: {
@@ -316,13 +319,5 @@ describe("CamerasView - Devices & Discovery Center", () => {
     await flushPromises()
     rows = wrapper.findAll(".devices-row")
     expect(rows.length).toBe(2)
-
-    // Trigger quick probe on first camera
-    const probeBtns = wrapper.findAll(".quick-probe-btn")
-    expect(probeBtns.length).toBeGreaterThan(0)
-    await probeBtns[0].trigger("click")
-    await flushPromises()
-
-    expect(apiMocks.probeCamera).toHaveBeenCalledWith(cam1Id)
   })
 })

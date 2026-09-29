@@ -492,4 +492,51 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
       })
     )
   })
+
+  it("emits openPtz when clicking PTZ quick action and toggles maintenance", async () => {
+    apiMocks.updateCamera.mockResolvedValue({
+      id: camId,
+      name: "Front Door 4K",
+      enabled: true,
+      maintenance: true,
+      retired_at: null,
+      location: "Entrance",
+      storage_label: "local-fast",
+      adapter_type: "onvif",
+      time_sync_mode: "manage_ntp",
+      ptz_capable: true
+    })
+
+    const wrapper = mount(CameraDetailPanel, {
+      props: {
+        camera: {
+          id: camId,
+          name: "Front Door 4K",
+          enabled: true,
+          maintenance: false,
+          retired_at: null,
+          location: "Entrance",
+          storage_label: "local-fast",
+          adapter_type: "onvif",
+          time_sync_mode: "manage_ntp",
+          ptz_capable: true
+        }
+      }
+    })
+    await flushPromises()
+
+    // PTZ quick action button
+    const ptzBtn = wrapper.find(".quick-action-btn--ptz")
+    expect(ptzBtn.exists()).toBe(true)
+    await ptzBtn.trigger("click")
+    expect(wrapper.emitted("openPtz")).toBeTruthy()
+
+    // Toggle maintenance in general tab actions
+    const maintBtn = wrapper.findAll(".camera-detail-actions button").find((b) => b.text().includes("进入维护模式"))
+    expect(maintBtn?.exists()).toBe(true)
+    await maintBtn!.trigger("click")
+    await flushPromises()
+
+    expect(apiMocks.updateCamera).toHaveBeenCalledWith(camId, { maintenance: true })
+  })
 })

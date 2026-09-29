@@ -63,6 +63,7 @@ const emit = defineEmits<{
   close: []
   changed: []
   navigate: [camera: CameraSummary]
+  openPtz: [camera: CameraSummary]
 }>()
 
 const router = useRouter()
@@ -595,6 +596,23 @@ async function toggleRetired(): Promise<void> {
     error.value = errorMessage(caught)
   } finally {
     retirementSaving.value = false
+  }
+}
+
+async function toggleMaintenance(): Promise<void> {
+  if (!detail.value || !canConfigure.value) return
+  error.value = null
+  notice.value = null
+  try {
+    const nextState = !detail.value.maintenance
+    const updated = await updateCamera(detail.value.id, { maintenance: nextState })
+    detail.value = updated
+    notice.value = nextState
+      ? `机位 [${detail.value.name}] 已进入维护模式`
+      : `机位 [${detail.value.name}] 已退出维护模式，恢复正常运行`
+    emit("changed")
+  } catch (caught) {
+    error.value = errorMessage(caught)
   }
 }
 
@@ -1203,6 +1221,17 @@ onBeforeUnmount(() => {
     <!-- Quick Operations Action Bar -->
     <section class="quick-actions-bar">
       <button
+        v-if="camera.ptz_capable"
+        type="button"
+        class="quick-action-btn quick-action-btn--ptz"
+        title="打开 PTZ 摇杆控制台"
+        @click="emit('openPtz', camera)"
+      >
+        <UiIcon name="activity" :size="13" />
+        <span>PTZ 控制</span>
+      </button>
+
+      <button
         type="button"
         class="quick-action-btn"
         :disabled="probing"
@@ -1400,6 +1429,14 @@ onBeforeUnmount(() => {
             @click="toggleEnabled"
           >
             {{ detail.enabled ? t("cameras.detail.disableCamera") : t("cameras.detail.enableCamera") }}
+          </button>
+          <button
+            v-if="canConfigure && !detail.retired_at"
+            class="button button--ghost"
+            type="button"
+            @click="toggleMaintenance"
+          >
+            {{ detail.maintenance ? '退出维护模式' : '进入维护模式' }}
           </button>
           <button
             v-if="canConfigure"

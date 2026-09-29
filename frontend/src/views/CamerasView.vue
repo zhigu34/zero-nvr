@@ -530,16 +530,6 @@ onBeforeUnmount(() => {
         </button>
 
         <button
-          type="button"
-          class="btn-action"
-          title="导出当前全部机位配置清单 CSV"
-          @click="exportCamerasCsv"
-        >
-          <UiIcon name="download" :size="14" />
-          <span>导出 CSV</span>
-        </button>
-
-        <button
           v-if="auth.hasPermission('camera.configure')"
           type="button"
           class="btn-action"
@@ -721,12 +711,9 @@ onBeforeUnmount(() => {
           <thead>
             <tr>
               <th>机位名称 & 型号/位置</th>
-              <th>接入协议 & 存储节点</th>
               <th>多码流角色绑定 (Stream Profiles)</th>
               <th>时钟同步与漂移 (Clock Drift)</th>
-              <th>PTZ 云台</th>
-              <th>状态与检测</th>
-              <th class="text-right">操作</th>
+              <th>状态</th>
             </tr>
           </thead>
           <tbody>
@@ -761,14 +748,6 @@ onBeforeUnmount(() => {
                 </div>
               </td>
 
-              <!-- Protocol & Storage -->
-              <td>
-                <div class="font-mono text-white text-xs">{{ adapterLabel(camera.adapter_type) }}</div>
-                <div class="text-[10px] text-gray-500 font-mono">
-                  {{ camera.storage_label ? `节点: ${camera.storage_label}` : '本地存储池' }}
-                </div>
-              </td>
-
               <!-- Stream Profile Badges -->
               <td>
                 <div class="stream-badges">
@@ -794,21 +773,7 @@ onBeforeUnmount(() => {
                 </div>
               </td>
 
-              <!-- PTZ Column -->
-              <td>
-                <button
-                  v-if="camera.ptz_capable"
-                  type="button"
-                  class="ptz-trigger-btn"
-                  title="打开 8 向 PTZ 摇杆控制台"
-                  @click.stop="openPtzModal(camera)"
-                >
-                  🕹️ PTZ 摇杆控制
-                </button>
-                <span v-else class="text-gray-500 text-[11px]">固定视角</span>
-              </td>
-
-              <!-- Status Badge & Inline Probe -->
+              <!-- Status Badge -->
               <td>
                 <div class="status-cell-wrap">
                   <span v-if="camera.retired_at" class="status-pill status-pill--retired">
@@ -826,49 +791,6 @@ onBeforeUnmount(() => {
                   <span v-else class="status-pill status-pill--online">
                     🟢 在线正常
                   </span>
-
-                  <button
-                    v-if="camera.enabled"
-                    type="button"
-                    class="quick-probe-btn"
-                    :disabled="singleProbingId === camera.id || batchProbeRunning"
-                    title="立即探测该机位码流参数"
-                    @click.stop="runQuickProbe(camera)"
-                  >
-                    <UiIcon name="search" :size="11" :class="{ 'animate-spin': singleProbingId === camera.id }" />
-                    <span>{{ singleProbingId === camera.id ? '检测中' : '检测' }}</span>
-                  </button>
-                </div>
-              </td>
-
-              <!-- Actions (Right Aligned) -->
-              <td class="text-right" @click.stop>
-                <div class="row-actions">
-                  <button
-                    type="button"
-                    class="action-btn-sm"
-                    title="查看与修改机位详细参数"
-                    @click="openCamera(camera)"
-                  >
-                    配置
-                  </button>
-                  <button
-                    type="button"
-                    class="action-btn-sm"
-                    :class="camera.maintenance ? 'action-btn-sm--amber' : ''"
-                    :title="camera.maintenance ? '退出维护模式' : '将机位置为维护状态'"
-                    @click="toggleMaintenance(camera)"
-                  >
-                    {{ camera.maintenance ? '恢复' : '维护' }}
-                  </button>
-                  <button
-                    type="button"
-                    class="action-btn-sm action-btn-sm--playback"
-                    title="直达该机位时光回放 (Time-Lapse)"
-                    @click="jumpToPlayback(camera.id)"
-                  >
-                    回放
-                  </button>
                 </div>
               </td>
             </tr>
@@ -885,6 +807,7 @@ onBeforeUnmount(() => {
       @close="selectedCamera = null"
       @changed="handleCameraChanged"
       @navigate="openCamera"
+      @open-ptz="openPtzModal"
     />
 
     <!-- Interactive PTZ Modal (专业云台极速控制台) -->
