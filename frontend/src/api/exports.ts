@@ -1,4 +1,5 @@
 import { apiRequest } from "./client"
+import { generateUUID } from "../utils/uuid"
 
 export interface ExportJob {
   id: string
@@ -38,7 +39,7 @@ export function createExport(body: {
   return apiRequest<ExportJob>("/exports", {
     method: "POST",
     headers: {
-      "Idempotency-Key": crypto.randomUUID()
+      "Idempotency-Key": generateUUID()
     },
     json: body
   })

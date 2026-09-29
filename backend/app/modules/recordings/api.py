@@ -42,7 +42,7 @@ from .playback_cache import PlaybackCacheService
 from .policy import RecordingPolicyService
 from .protection import RecordingProtectionService
 from .query import RecordingCatalogQueryService
-from .runtime import RecordingRuntimeService
+from .runtime import RecorderReconcileResult, RecordingRuntimeService
 from .schemas import (
     PlaybackAlignedTimelineRequest,
     PlaybackAlignedTimelineView,
@@ -493,7 +493,12 @@ def put_recording_policy(
         # No database transaction is held while ZLM performs network/media
         # operations.
         if desired_recorder is not None and desired_recorder.mode != "off":
-            media_runtime.ensure_streams(record_streams)
+            media_runtime.ensure_streams(
+                record_streams,
+                wait_online_seconds=(
+                    media_runtime.live_start_timeout_seconds
+                ),
+            )
         runtime_service = RecordingRuntimeService(
             settings,
             mode_tracker=request.app.state.recorder_modes,
@@ -503,22 +508,46 @@ def put_recording_policy(
             force_reconfigure=force_reconfigure,
         )
     except ApiError as exc:
-        raise ApiError(
-            status_code=exc.status_code,
-            code=exc.code,
-            message=exc.message,
-            details={
-                **exc.details,
-                "policy_persisted": True,
-            },
-        ) from exc
+        if exc.code == "recording_stream_offline":
+            runtime_result = RecorderReconcileResult(
+                desired_mode=(
+                    desired_recorder.mode
+                    if desired_recorder is not None
+                    else "off"
+                ),
+                observed_recording=False,
+                changed=False,
+                assumed_existing_mode=False,
+            )
+        else:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=exc.message,
+                details={
+                    **exc.details,
+                    "policy_persisted": True,
+                },
+            ) from exc
     except ZlmIntegrationError as exc:
-        raise ApiError(
-            status_code=exc.status_code,
-            code=exc.code,
-            message=str(exc),
-            details={"policy_persisted": True},
-        ) from exc
+        if exc.code == "camera_stream_start_timeout":
+            runtime_result = RecorderReconcileResult(
+                desired_mode=(
+                    desired_recorder.mode
+                    if desired_recorder is not None
+                    else "off"
+                ),
+                observed_recording=False,
+                changed=False,
+                assumed_existing_mode=False,
+            )
+        else:
+            raise ApiError(
+                status_code=exc.status_code,
+                code=exc.code,
+                message=str(exc),
+                details={"policy_persisted": True},
+            ) from exc
 
     policy = RecordingPolicyService.get(
         session,

@@ -146,7 +146,7 @@ def seed_camera_and_storage(app) -> uuid.UUID:
 def patch_runtime_success(monkeypatch):
     calls: list[dict[str, object]] = []
 
-    def ensure_streams(self, desired):
+    def ensure_streams(self, desired, *args, **kwargs):
         calls.append(
             {
                 "kind": "media",
@@ -364,7 +364,7 @@ def test_policy_runtime_failure_does_not_roll_back_canonical_policy(
 ) -> None:
     app = make_app(tmp_path)
 
-    def ensure_streams(self, desired):
+    def ensure_streams(self, desired, *args, **kwargs):
         return []
 
     def fail_reconcile(self, desired, *, force_reconfigure=False):
@@ -468,3 +468,47 @@ def test_schedule_policy_put_queues_only_next_boundary(
     )
     assert scheduled["policy_version"]
     assert scheduled["eta"].tzinfo is not None
+
+
+def test_policy_put_when_stream_is_offline_succeeds_with_offline_runtime(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+
+    def offline_reconcile(self, desired, *, force_reconfigure=False):
+        raise ApiError(
+            status_code=503,
+            code="recording_stream_offline",
+            message="Camera recording stream is not available in ZLMediaKit.",
+        )
+
+    monkeypatch.setattr(
+        recording_api.CameraMediaRuntimeService,
+        "ensure_streams",
+        lambda self, desired, *args, **kwargs: [],
+    )
+    monkeypatch.setattr(
+        recording_api.RecordingRuntimeService,
+        "reconcile",
+        offline_reconcile,
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        response = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["baseline_mode"] == "continuous"
+        assert body["runtime"] == {
+            "desired_mode": "persistent",
+            "recording": False,
+            "changed": False,
+            "assumed_existing_mode": False,
+        }
+

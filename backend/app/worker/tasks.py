@@ -531,11 +531,17 @@ def reconcile_camera_runtime(
                 and not targeted_record_streams
             ):
                 media_runtime.ensure_streams(
-                    record_streams
+                    record_streams,
+                    wait_online_seconds=(
+                        media_runtime.live_start_timeout_seconds
+                    ),
                 )
         elif record_streams:
             media_runtime.ensure_streams(
-                record_streams
+                record_streams,
+                wait_online_seconds=(
+                    media_runtime.live_start_timeout_seconds
+                ),
             )
 
         recording_runtime = RecordingRuntimeService(

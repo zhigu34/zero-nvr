@@ -1,4 +1,5 @@
 import { apiRequest } from "./client"
+import { generateUUID } from "../utils/uuid"
 
 export interface RecordingScheduleWindow {
   days: number[]
@@ -175,7 +176,7 @@ export function createRecordingTrigger(
     {
       method: "POST",
       headers: {
-        "Idempotency-Key": crypto.randomUUID()
+        "Idempotency-Key": generateUUID()
       },
       json: { reason }
     }

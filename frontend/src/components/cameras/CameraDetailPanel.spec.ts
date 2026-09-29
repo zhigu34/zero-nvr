@@ -340,6 +340,58 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
     )
   })
 
+  it("shows offline stream notice when recording policy is saved but stream is offline", async () => {
+    apiMocks.putRecordingPolicy.mockResolvedValue({
+      id: "policy-1",
+      camera_id: camId,
+      baseline_mode: "continuous",
+      schedule: {},
+      schedule_timezone: "Asia/Shanghai",
+      event_recording_enabled: false,
+      event_filter: {},
+      segment_target_seconds: 300,
+      pre_roll_seconds: 10,
+      post_roll_seconds: 15,
+      storage_target_id: null,
+      retention_policy_id: null,
+      enabled: true,
+      runtime: {
+        desired_mode: "persistent",
+        recording: false,
+        changed: false,
+        assumed_existing_mode: false
+      }
+    })
+
+    const wrapper = mount(CameraDetailPanel, {
+      props: {
+        camera: {
+          id: camId,
+          name: "Front Door 4K",
+          enabled: true,
+          maintenance: false,
+          retired_at: null,
+          location: "Entrance",
+          storage_label: null,
+          adapter_type: "onvif",
+          time_sync_mode: "manage_ntp",
+          ptz_capable: false
+        }
+      }
+    })
+
+    await flushPromises()
+    const tabs = wrapper.findAll(".camera-detail-tabs button")
+    await tabs[2].trigger("click")
+    await flushPromises()
+
+    const form = wrapper.find(".camera-recording-editor")
+    await form.trigger("submit")
+    await flushPromises()
+
+    expect(wrapper.text()).toContain("录像策略已保存。提示：摄像机当前流未在线，当视频流恢复时系统将自动开始录像。")
+  })
+
   it("renders hero card, fast navigation between cameras, and triggers probe", async () => {
     apiMocks.probeCamera.mockResolvedValue({
       id: camId,

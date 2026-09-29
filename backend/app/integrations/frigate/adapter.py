@@ -68,6 +68,7 @@ class FrigateHttpAdapter:
             auth=auth,
             transport=transport,
             follow_redirects=False,
+            trust_env=False,
         )
 
     def close(self) -> None:

@@ -737,15 +737,32 @@ async function saveRecording(): Promise<void> {
   error.value = null
   notice.value = null
   try {
-    policy.value = await putRecordingPolicy(
+    const res = await putRecordingPolicy(
       detail.value.id,
       buildPolicy()
     )
-    resetPolicy(policy.value)
-    notice.value = t("cameras.detail.policySaved")
+    policy.value = res
+    resetPolicy(res)
+    if (res.runtime && !res.runtime.recording && res.runtime.desired_mode !== "off") {
+      notice.value = "录像策略已保存。提示：摄像机当前流未在线，当视频流恢复时系统将自动开始录像。"
+    } else {
+      notice.value = t("cameras.detail.policySaved")
+    }
     emit("changed")
-  } catch (caught) {
-    error.value = errorMessage(caught)
+  } catch (caught: unknown) {
+    if (caught instanceof ApiClientError && caught.details?.policy_persisted) {
+      try {
+        const fetched = await getRecordingPolicy(detail.value.id)
+        policy.value = fetched
+        resetPolicy(fetched)
+      } catch {
+        // Keep current form values if refetch fails
+      }
+      notice.value = "录像策略已保存。提示：摄像机当前流未在线，当视频流恢复时系统将自动开始录像。"
+      emit("changed")
+    } else {
+      error.value = errorMessage(caught)
+    }
   } finally {
     savingRecording.value = false
   }

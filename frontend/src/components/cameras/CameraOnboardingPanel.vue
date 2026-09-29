@@ -23,7 +23,7 @@ import {
   type ManualCameraInput,
   type OnvifInspection
 } from "../../api/cameras"
-import { errorMessage } from "../../api/client"
+import { ApiClientError, errorMessage } from "../../api/client"
 import {
   putRecordingPolicy,
   type RecordingPolicyPut
@@ -803,7 +803,13 @@ async function applyBatchDefaults(
         time_sync_mode: batchTimeSyncMode.value
       })
     }
-    await putRecordingPolicy(cameraId, batchPolicy())
+    try {
+      await putRecordingPolicy(cameraId, batchPolicy())
+    } catch (err: unknown) {
+      if (!(err instanceof ApiClientError && err.details?.policy_persisted)) {
+        throw err
+      }
+    }
   }
   await applyBatchGroup(cameraIds)
 }

@@ -90,6 +90,7 @@ class ZlmAdapter:
             ),
             transport=transport,
             follow_redirects=False,
+            trust_env=False,
         )
 
     def close(self) -> None:
