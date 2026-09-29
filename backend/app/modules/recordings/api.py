@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from fastapi.responses import FileResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -21,6 +22,7 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.auth.service import AuthContext
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
+from app.modules.cameras.models import CameraStreamBinding
 from app.modules.cameras.service import CameraService
 from app.modules.storage.recording_resolver import RecordingStorageResolver
 from app.modules.system.settings import (
@@ -334,11 +336,52 @@ def _runtime_signature(
     )
 
 
+def _resolve_policy_runtime_map(
+    request: Request,
+    session: Session,
+    policies: list[RecordingPolicy],
+) -> dict[uuid.UUID, RecordingRuntimeView]:
+    tracker = getattr(request.app.state, "recorder_modes", None)
+    if tracker is None or not policies:
+        return {}
+
+    cam_ids = [p.camera_id for p in policies]
+    bindings = list(
+        session.scalars(
+            select(CameraStreamBinding).where(
+                CameraStreamBinding.camera_id.in_(cam_ids),
+                CameraStreamBinding.purpose == "RECORD",
+            )
+        )
+    )
+    result: dict[uuid.UUID, RecordingRuntimeView] = {}
+    for b in bindings:
+        ref = CameraMediaRuntimeService.reference_for(
+            camera_id=b.camera_id,
+            profile_id=b.stream_profile_id,
+        )
+        mode = tracker.get(app=ref.app, stream=ref.stream)
+        if mode is None:
+            continue
+        is_recording = mode != "off"
+        desired_mode: Literal["persistent", "prebuffer", "off"] = (
+            mode if mode in ("persistent", "prebuffer") else "off"
+        )
+        result[b.camera_id] = RecordingRuntimeView(
+            desired_mode=desired_mode,
+            recording=is_recording,
+            changed=False,
+            assumed_existing_mode=False,
+        )
+    return result
+
+
 @router.get(
     "/recording-policies",
     response_model=list[RecordingPolicyView],
 )
 def list_recording_policies(
+    request: Request,
     context: AuthContext = Depends(require_permission("camera.view")),
     session: Session = Depends(get_db_session),
 ) -> list[RecordingPolicyView]:
@@ -350,7 +393,8 @@ def list_recording_policies(
         session,
         camera_ids=list(allowed) if allowed is not None else None,
     )
-    return [_policy_view(p) for p in policies]
+    runtime_map = _resolve_policy_runtime_map(request, session, policies)
+    return [_policy_view(p, runtime=runtime_map.get(p.camera_id)) for p in policies]
 
 
 @router.get(
@@ -359,6 +403,7 @@ def list_recording_policies(
 )
 def get_recording_policy(
     camera_id: uuid.UUID,
+    request: Request,
     _context: AuthContext = Depends(
         require_camera_permission("camera.view")
     ),
@@ -374,7 +419,8 @@ def get_recording_policy(
             code="recording_policy_not_configured",
             message="Recording policy is not configured for this camera.",
         )
-    return _policy_view(policy)
+    runtime_map = _resolve_policy_runtime_map(request, session, [policy])
+    return _policy_view(policy, runtime=runtime_map.get(policy.camera_id))
 
 
 @router.put(
@@ -567,6 +613,19 @@ def put_recording_policy(
                 message=str(exc),
                 details={"policy_persisted": True},
             ) from exc
+
+    if (
+        desired_recorder is not None
+        and desired_recorder.mode != "off"
+        and not runtime_result.observed_recording
+    ):
+        try:
+            request.app.state.recording_tasks.reconcile_runtime(
+                camera_id,
+                force_reconfigure=True,
+            )
+        except Exception:
+            pass
 
     policy = RecordingPolicyService.get(
         session,

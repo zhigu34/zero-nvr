@@ -511,6 +511,13 @@ def test_policy_put_when_stream_is_offline_succeeds_with_offline_runtime(
             "changed": False,
             "assumed_existing_mode": False,
         }
+        # Verify background reconciliation task was enqueued
+        assert len(app.state.recording_tasks.runtime_calls) == 1
+        assert app.state.recording_tasks.runtime_calls[0] == (
+            camera_id,
+            False,
+            True,
+        )
 
 
 def test_list_recording_policies(tmp_path: Path, monkeypatch):
@@ -539,5 +546,93 @@ def test_list_recording_policies(tmp_path: Path, monkeypatch):
         assert len(items) == 1
         assert items[0]["camera_id"] == str(camera_id)
         assert items[0]["baseline_mode"] == "continuous"
+
+
+def test_policy_runtime_resolution_when_active(tmp_path: Path, monkeypatch):
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        put_res = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert put_res.status_code == 200
+
+        # Simulate recorder actively running
+        with app.state.database.session() as session:
+            camera = CameraService.get_camera(session, camera_id)
+            record_binding = next(
+                b for b in camera.stream_bindings if b.purpose == "RECORD"
+            )
+            ref = recording_api.CameraMediaRuntimeService.reference_for(
+                camera_id=camera_id,
+                profile_id=record_binding.stream_profile_id,
+            )
+            app.state.recorder_modes.set(
+                app=ref.app,
+                stream=ref.stream,
+                mode="persistent",
+            )
+
+        # GET single policy returns active runtime
+        get_res = client.get(f"/api/v1/cameras/{camera_id}/recording-policy")
+        assert get_res.status_code == 200
+        assert get_res.json()["runtime"] == {
+            "desired_mode": "persistent",
+            "recording": True,
+            "changed": False,
+            "assumed_existing_mode": False,
+        }
+
+        # GET list returns active runtime
+        list_res = client.get("/api/v1/recording-policies")
+        assert list_res.status_code == 200
+        assert list_res.json()[0]["runtime"] == {
+            "desired_mode": "persistent",
+            "recording": True,
+            "changed": False,
+            "assumed_existing_mode": False,
+        }
+
+
+def test_auto_close_resolution_for_background_streams(tmp_path: Path):
+    app = make_app(tmp_path)
+    camera_id = seed_camera_and_storage(app)
+    media_runtime = recording_api.CameraMediaRuntimeService(app.state.settings)
+
+    with app.state.database.session() as session:
+        camera = CameraService.get_camera(session, camera_id)
+        record_binding = next(
+            b for b in camera.stream_bindings if b.purpose == "RECORD"
+        )
+        record_profile = next(
+            p for p in camera.stream_profiles if p.id == record_binding.stream_profile_id
+        )
+        # Background RECORD stream should have auto_close = False
+        desired_record = media_runtime.desired_stream(
+            session,
+            camera=camera,
+            profile=record_profile,
+        )
+        assert desired_record.auto_close is False
+
+        # If we create a temporary profile not in bindings, it should default to True
+        non_background_profile = camera.stream_profiles[0]
+        # Temporarily mock camera with empty stream_bindings
+        from unittest.mock import MagicMock
+        mock_camera = MagicMock()
+        mock_camera.enabled = True
+        mock_camera.id = camera.id
+        mock_camera.stream_bindings = []
+        desired_live_only = media_runtime.desired_stream(
+            session,
+            camera=mock_camera,
+            profile=non_background_profile,
+        )
+        assert desired_live_only.auto_close is True
+
 
 

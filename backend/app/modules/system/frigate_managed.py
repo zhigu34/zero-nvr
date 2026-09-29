@@ -155,6 +155,7 @@ class ManagedFrigateConfigService:
                     session,
                     profile,
                 ),
+                auto_close=False,
             )
 
         return camera_config, desired

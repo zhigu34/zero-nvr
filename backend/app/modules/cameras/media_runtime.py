@@ -61,6 +61,7 @@ class CameraMediaRuntimeService:
 
     app_name = "zero-nvr"
     live_start_timeout_seconds = 3.0
+    worker_start_timeout_seconds = 10.0
 
     def __init__(
         self,
@@ -92,6 +93,7 @@ class CameraMediaRuntimeService:
         *,
         camera: Camera,
         profile: CameraStreamProfile,
+        auto_close: bool | None = None,
     ) -> DesiredZlmStream:
         if not camera.enabled:
             raise ApiError(
@@ -113,6 +115,17 @@ class CameraMediaRuntimeService:
             camera_id=camera.id,
             profile_id=profile.id,
         )
+        if auto_close is None:
+            bindings = getattr(camera, "stream_bindings", None) or []
+            is_background = any(
+                b.stream_profile_id == profile.id
+                and b.purpose in ("RECORD", "AI_DETECT")
+                for b in bindings
+            )
+            resolved_auto_close = not is_background
+        else:
+            resolved_auto_close = auto_close
+
         return DesiredZlmStream(
             camera_id=camera.id,
             profile_id=profile.id,
@@ -122,6 +135,7 @@ class CameraMediaRuntimeService:
                 session,
                 profile,
             ),
+            auto_close=resolved_auto_close,
         )
 
     def desired_streams(

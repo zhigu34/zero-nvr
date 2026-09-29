@@ -33,12 +33,12 @@ frontend/.vite/
 coverage/
 
 # Runtime
-data/
-recordings/
-snapshots/
-cache/
-logs/
-tmp/
+/data/
+/recordings/
+/snapshots/
+/cache/
+/logs/
+/tmp/
 *.db
 *.sqlite
 *.sqlite3

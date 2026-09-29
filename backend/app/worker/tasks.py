@@ -533,14 +533,14 @@ def reconcile_camera_runtime(
                 media_runtime.ensure_streams(
                     record_streams,
                     wait_online_seconds=(
-                        media_runtime.live_start_timeout_seconds
+                        media_runtime.worker_start_timeout_seconds
                     ),
                 )
         elif record_streams:
             media_runtime.ensure_streams(
                 record_streams,
                 wait_online_seconds=(
-                    media_runtime.live_start_timeout_seconds
+                    media_runtime.worker_start_timeout_seconds
                 ),
             )
 
