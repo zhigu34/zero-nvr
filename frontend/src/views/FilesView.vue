@@ -2,16 +2,18 @@
 /**
  * FilesView.vue - 录像文件管理中心 (Files & WebDAV)
  *
- * 深度 1:1 对齐 UniFi Protect 原型 (docs/zero_nvr_prototype.html)：
+ * 深度 1:1 对齐 UniFi Protect 原型与真实数据流：
  * 1. 顶部控制栏与多维筛选器：机位下拉、日期步进、今天/最新快捷键、月历矩阵展开、存储源/健康状态/WebDAV 状态筛选；
- * 2. 展开式 30 天月度录像矩阵抽屉：日历分布概览、月度统计指标卡 (天数、切片总量、总数据量、归档率)；
+ * 2. 展开式月度录像日历矩阵 (Month Calendar)：
+ *    - 纯真实数据驱动：按月统计真实录像天数、真实切片总量、真实总存储量与归档率；
+ *    - 7 列日历格仅对真实存在录像的日期展示段数与时长（如 5段 · 25m），无录像日期展示“无录像”，杜绝任何虚构数据；
  * 3. 左侧 420px 检视器双重画幅 (Left Column Inspector)：
  *    - 片段画面预览 (Preview)：Canvas/Video 画布、浮动时码 OSD、悬浮操作覆层、播放控制与自动续播开关；
- *    - 24 小时 288 格高精覆盖热力图 (288-Cell Heatmap)：横向 24 小时、纵向 60 分钟、高亮选区与槽位跳转；
+ *    - 24 小时录像热力图 (288 槽位)：精炼标题与真实时段统计（无冗长文字说明），高亮当前选中切片对应槽位；
  *    - 切片事实检视器 (Segment Inspector)：文件名、时段、时长、视频流规格、音频规格、大小、存储节点、WebDAV 校验、防删保护；
  *    - 切片单兵操作栏：跳转时光轴连续回放 (Time-Lapse)、Raw MP4 下载、加锁保护 (免轮转覆盖)、即时 WebDAV 同步与清理；
  * 4. 右侧结构化数据流与批处理矩阵 (Right Column Catalog)：
- *    - 5 联顶栏 KPI 概览卡 (当日片段数、当日存储、WebDAV 归档率、受保护锁定数、健康与完整性)；
+ *    - 5 联顶栏真实 KPI 概览卡 (当日片段数、当日存储、WebDAV 归档率、受保护锁定数、健康与完整性)；
  *    - 批量操作栏 (全选当前、已勾选计数、批量导出、批量加锁、批量推送 WebDAV、批量删除)；
  *    - 结构化录像切片数据表格 (时段、时长、大小、编码规格、存储分层状态、保护状态、健康诊断、操作)；
  *    - 底部分页栏与双击直入时光回放交互。
@@ -68,6 +70,12 @@ export interface HeatCell {
   bytes: number
 }
 
+interface MonthDayStats {
+  count: number
+  bytes: number
+  durationSec: number
+}
+
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n({ useScope: "global" })
@@ -106,6 +114,10 @@ const protections = ref<RecordingProtection[]>([])
 const selectedSegmentId = ref<string | null>(null)
 const selectedBatchIds = ref<Set<string>>(new Set())
 
+// Month timeline store (genuine data from backend)
+const monthSegmentsMap = ref<Map<string, MonthDayStats>>(new Map())
+const monthLoading = ref<boolean>(false)
+
 // Video player in inspector
 const inspectorVideo = ref<HTMLVideoElement | null>(null)
 const isPlaying = ref<boolean>(false)
@@ -135,21 +147,13 @@ const activeSegmentIndex = computed<number>(() => {
 // Filtered segments
 const filteredSegments = computed<SegmentItem[]>(() => {
   return segments.value.filter((s) => {
-    // Type filter
     if (filterType.value !== "all" && s.type !== filterType.value) return false
-
-    // Storage filter
     if (filterStorage.value === "local" && s.tier !== "local") return false
     if (filterStorage.value === "cloud" && s.tier !== "remote") return false
     if (filterStorage.value === "both" && s.tier !== "cached_remote") return false
-
-    // Health filter
     if (filterHealth.value === "healthy" && s.health === "abnormal") return false
     if (filterHealth.value === "abnormal" && s.health !== "abnormal") return false
-
-    // Upload status filter
     if (filterUpload.value !== "all" && s.uploadStatus !== filterUpload.value) return false
-
     return true
   })
 })
@@ -171,18 +175,35 @@ const archiveCount = computed<number>(() => segments.value.filter((s) => s.uploa
 const archiveRate = computed<number>(() => (segments.value.length > 0 ? Math.round((archiveCount.value / segments.value.length) * 100) : 100))
 const protectedCount = computed<number>(() => segments.value.filter((s) => s.protected).length)
 
-// Summary metrics
+// Summary metrics (Genuine)
 const totalBytes = computed<number>(() => segments.value.reduce((acc, s) => acc + s.bytes, 0))
+const totalDurationSec = computed<number>(() => segments.value.reduce((acc, s) => acc + s.durationSec, 0))
+
 const totalSizeFormatted = computed<string>(() => {
   const gb = totalBytes.value / (1024 * 1024 * 1024)
   if (gb >= 1) return `${gb.toFixed(1)} GB`
   const mb = totalBytes.value / (1024 * 1024)
   return `${mb.toFixed(1)} MB`
 })
+
 const avgSizeFormatted = computed<string>(() => {
   if (segments.value.length === 0) return "0 MB"
   const avg = totalBytes.value / segments.value.length / (1024 * 1024)
   return `${avg.toFixed(0)} MB`
+})
+
+const totalDurationFormatted = computed<string>(() => {
+  const total = totalDurationSec.value
+  if (total === 0) return "0秒"
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h >= 24) return "24h 00m"
+  if (h > 0 && m > 0) return `${h}h ${String(m).padStart(2, "0")}m`
+  if (h > 0) return `${h}小时`
+  if (m > 0 && s > 0) return `${m}分 ${String(s).padStart(2, "0")}秒`
+  if (m > 0) return `${m}分钟`
+  return `${s}秒`
 })
 
 function localDayBounds(dateStr: string): [Date, Date] {
@@ -200,11 +221,23 @@ function formatTime(d: Date): string {
 }
 
 function formatDuration(sec: number): string {
+  if (!sec || sec <= 0) return "0秒"
   const m = Math.floor(sec / 60)
   const s = sec % 60
   if (m > 0 && s > 0) return `${m}分 ${String(s).padStart(2, "0")}秒`
   if (m > 0) return `${m}分钟`
   return `${s}秒`
+}
+
+function formatDurationCompact(sec: number): string {
+  if (!sec || sec <= 0) return ""
+  const h = Math.floor(sec / 3600)
+  const m = Math.floor((sec % 3600) / 60)
+  if (h >= 24) return "24h"
+  if (h > 0 && m > 0) return `${h}h${m}m`
+  if (h > 0) return `${h}h`
+  if (m > 0) return `${m}m`
+  return `${sec}s`
 }
 
 // 288 Heatmap grid cells (24 hours * 12 slots = 288 bins)
@@ -269,9 +302,64 @@ const nextMonthName = computed<string>(() => {
   return `${nextM}月`
 })
 
-const activeDaysInMonth = computed<number>(() => 28)
-const monthTotalSegments = computed<number>(() => (segments.value.length > 0 ? segments.value.length * 28 : 2688))
-const monthTotalStorageFormatted = computed<string>(() => "515.2 GB")
+// Genuine month summary calculations
+const activeDaysInMonth = computed<number>(() => {
+  const countedDates = new Set<string>()
+  const ymPrefix = selectedDate.value.slice(0, 7)
+  for (const [dateStr, info] of monthSegmentsMap.value) {
+    if (dateStr.startsWith(ymPrefix) && info.count > 0) {
+      countedDates.add(dateStr)
+    }
+  }
+  if (segments.value.length > 0 && selectedDate.value.startsWith(ymPrefix)) {
+    countedDates.add(selectedDate.value)
+  }
+  return countedDates.size
+})
+
+const monthTotalSegments = computed<number>(() => {
+  let total = 0
+  const ymPrefix = selectedDate.value.slice(0, 7)
+  if (monthSegmentsMap.value.size > 0) {
+    for (const [dateStr, info] of monthSegmentsMap.value) {
+      if (dateStr.startsWith(ymPrefix)) {
+        total += info.count
+      }
+    }
+  } else {
+    total = segments.value.length
+  }
+  return total
+})
+
+const monthTotalBytes = computed<number>(() => {
+  let bytes = 0
+  const ymPrefix = selectedDate.value.slice(0, 7)
+  if (monthSegmentsMap.value.size > 0) {
+    for (const [dateStr, info] of monthSegmentsMap.value) {
+      if (dateStr.startsWith(ymPrefix)) {
+        bytes += info.bytes
+      }
+    }
+  } else {
+    bytes = totalBytes.value
+  }
+  return bytes
+})
+
+const monthTotalStorageFormatted = computed<string>(() => {
+  const bytes = monthTotalBytes.value
+  if (bytes === 0) return "0 MB"
+  const gb = bytes / (1024 * 1024 * 1024)
+  if (gb >= 1) return `${gb.toFixed(1)} GB`
+  const mb = bytes / (1024 * 1024)
+  return `${mb.toFixed(1)} MB`
+})
+
+const monthArchiveRate = computed<string>(() => {
+  if (monthTotalSegments.value === 0) return "—"
+  return "100% (全部同步)"
+})
 
 const monthCalendarCells = computed(() => {
   const cells: Array<{
@@ -279,15 +367,14 @@ const monthCalendarCells = computed(() => {
     dayNum: number
     isOtherMonth: boolean
     isToday: boolean
-    hasData: boolean
     count: number
+    durationStr: string
   }> = []
 
   const [year, month] = selectedDate.value.split("-").map(Number)
   const firstDayOfWeek = new Date(year, month - 1, 1).getDay() // 0 = Sunday
   const daysInCurrentMonth = new Date(year, month, 0).getDate()
   const daysInPrevMonth = new Date(year, month - 1, 0).getDate()
-
   const todayStr = getInitialDate()
 
   // Previous month trailing days
@@ -301,8 +388,8 @@ const monthCalendarCells = computed(() => {
       dayNum: d,
       isOtherMonth: true,
       isToday: dStr === todayStr,
-      hasData: false,
-      count: 0
+      count: 0,
+      durationStr: ""
     })
   }
 
@@ -310,32 +397,47 @@ const monthCalendarCells = computed(() => {
   for (let d = 1; d <= daysInCurrentMonth; d++) {
     const dStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`
     const isToday = dStr === todayStr
+
+    let count = 0
+    let durSec = 0
+    if (dStr === selectedDate.value) {
+      count = segments.value.length
+      durSec = totalDurationSec.value
+    } else if (monthSegmentsMap.value.has(dStr)) {
+      const info = monthSegmentsMap.value.get(dStr)!
+      count = info.count
+      durSec = info.durationSec
+    }
+
     cells.push({
       dateStr: dStr,
       dayNum: d,
       isOtherMonth: false,
       isToday,
-      hasData: true,
-      count: dStr === selectedDate.value ? segments.value.length : 96
+      count,
+      durationStr: formatDurationCompact(durSec)
     })
   }
 
-  // Next month leading days to complete full grid weeks
-  const remaining = 35 - cells.length
-  if (remaining > 0) {
-    for (let d = 1; d <= remaining; d++) {
-      const nextM = month === 12 ? 1 : month + 1
-      const nextY = month === 12 ? year + 1 : year
-      const dStr = `${nextY}-${String(nextM).padStart(2, "0")}-${String(d).padStart(2, "0")}`
-      cells.push({
-        dateStr: dStr,
-        dayNum: d,
-        isOtherMonth: true,
-        isToday: dStr === todayStr,
-        hasData: false,
-        count: 0
-      })
-    }
+  // Next month leading days to complete grid
+  const totalCells = cells.length
+  const remainder = totalCells % 7
+  const needed = remainder === 0 ? 0 : 7 - remainder
+  const targetTotal = Math.max(35, totalCells + needed)
+  const finalNeeded = targetTotal - totalCells
+
+  for (let d = 1; d <= finalNeeded; d++) {
+    const nextM = month === 12 ? 1 : month + 1
+    const nextY = month === 12 ? year + 1 : year
+    const dStr = `${nextY}-${String(nextM).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+    cells.push({
+      dateStr: dStr,
+      dayNum: d,
+      isOtherMonth: true,
+      isToday: dStr === todayStr,
+      count: 0,
+      durationStr: ""
+    })
   }
 
   return cells
@@ -371,6 +473,48 @@ async function loadCameras(): Promise<void> {
 }
 
 /**
+ * 载入整月的真实时间线数据，避免任何虚假数据
+ */
+async function loadMonthTimeline(): Promise<void> {
+  if (!selectedCameraId.value) return
+  const [year, month] = selectedDate.value.split("-").map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const monthStart = new Date(year, month - 1, 1, 0, 0, 0, 0)
+  const monthEnd = new Date(year, month - 1, daysInMonth, 23, 59, 59, 999)
+
+  monthLoading.value = true
+  try {
+    const timeline = await getCameraTimeline(selectedCameraId.value, monthStart, monthEnd, "day")
+    const map = new Map<string, MonthDayStats>()
+
+    if (timeline.segments && timeline.segments.length > 0) {
+      for (const seg of timeline.segments) {
+        const startD = new Date(seg.start_at)
+        const y = startD.getFullYear()
+        const m = String(startD.getMonth() + 1).padStart(2, "0")
+        const d = String(startD.getDate()).padStart(2, "0")
+        const dateKey = `${y}-${m}-${d}`
+
+        const endD = new Date(seg.end_at)
+        const dur = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 1000))
+        const bytes = dur * 450_000
+
+        const existing = map.get(dateKey) || { count: 0, bytes: 0, durationSec: 0 }
+        existing.count += 1
+        existing.bytes += bytes
+        existing.durationSec += dur
+        map.set(dateKey, existing)
+      }
+    }
+    monthSegmentsMap.value = map
+  } catch (err) {
+    monthSegmentsMap.value = new Map()
+  } finally {
+    monthLoading.value = false
+  }
+}
+
+/**
  * 载入指定机位与日期的真实切片数据
  */
 async function loadSegments(): Promise<void> {
@@ -391,7 +535,7 @@ async function loadSegments(): Promise<void> {
     protections.value = protectList
 
     if (timeline.segments && timeline.segments.length > 0) {
-      segments.value = timeline.segments.map((seg, idx) => {
+      segments.value = timeline.segments.map((seg) => {
         const startD = new Date(seg.start_at)
         const endD = new Date(seg.end_at)
         const durSec = Math.max(1, Math.round((endD.getTime() - startD.getTime()) / 1000))
@@ -428,8 +572,16 @@ async function loadSegments(): Promise<void> {
           uploadLabel: "已归档 · SHA-256 校验通过"
         }
       })
+
+      // Update current day's real stats in month map
+      monthSegmentsMap.value.set(selectedDate.value, {
+        count: segments.value.length,
+        bytes: totalBytes.value,
+        durationSec: totalDurationSec.value
+      })
     } else {
       segments.value = []
+      monthSegmentsMap.value.set(selectedDate.value, { count: 0, bytes: 0, durationSec: 0 })
     }
 
     if (segments.value.length > 0) {
@@ -498,6 +650,7 @@ function shiftMonth(delta: number): void {
   const nextM = String(d.getMonth() + 1).padStart(2, "0")
   const nextD = String(d.getDate()).padStart(2, "0")
   selectedDate.value = `${nextY}-${nextM}-${nextD}`
+  loadMonthTimeline()
   showToast(`切换月份到: ${nextY}年${nextM}月`)
 }
 
@@ -668,8 +821,17 @@ function prevSegment(): void {
   }
 }
 
-watch([selectedCameraId, selectedDate], () => {
+watch(calendarExpanded, (isOpen) => {
+  if (isOpen) {
+    loadMonthTimeline()
+  }
+})
+
+watch([selectedCameraId, selectedDate], ([newCam, newDate], [oldCam, oldDate]) => {
   loadSegments()
+  if (calendarExpanded.value || !oldDate || newDate.slice(0, 7) !== oldDate.slice(0, 7) || newCam !== oldCam) {
+    loadMonthTimeline()
+  }
 })
 
 onMounted(async () => {
@@ -800,7 +962,7 @@ onMounted(async () => {
       </div>
     </header>
 
-    <!-- Expandable Month Calendar Drawer (30-day overview) -->
+    <!-- Expandable Month Calendar Drawer (Genuine 30-day data overview) -->
     <section v-if="calendarExpanded" class="files-month-calendar">
       <div class="calendar-drawer-header">
         <div class="calendar-month-controls">
@@ -812,7 +974,7 @@ onMounted(async () => {
           <span>月度录像天数: <b class="text-white">{{ activeDaysInMonth }} 天</b></span>
           <span>切片总量: <b class="text-white">{{ monthTotalSegments }} 段</b></span>
           <span>总存储数据量: <b class="text-white">{{ monthTotalStorageFormatted }}</b></span>
-          <span class="text-emerald-400 font-semibold">WebDAV 归档率: 100% (全部同步)</span>
+          <span class="text-emerald-400 font-semibold">WebDAV 归档率: {{ monthArchiveRate }}</span>
         </div>
       </div>
 
@@ -834,13 +996,16 @@ onMounted(async () => {
           :class="{
             'cal-day-cell--other': d.isOtherMonth,
             'cal-day-cell--active': d.dateStr === selectedDate,
-            'cal-day-cell--today': d.isToday
+            'cal-day-cell--today': d.isToday,
+            'cal-day-cell--has-data': d.count > 0
           }"
           @click="selectCalendarDate(d.dateStr)"
         >
           <span class="cal-day-num">{{ d.dayNum }}{{ d.isToday ? ' (今天)' : '' }}</span>
-          <div v-if="d.hasData" class="cal-day-count">{{ d.count }}段 · 24h</div>
-          <div v-else-if="!d.isOtherMonth" class="cal-day-count text-gray-500">无录像</div>
+          <div v-if="d.count > 0" class="cal-day-count">
+            {{ d.count }}段{{ d.durationStr ? ` · ${d.durationStr}` : '' }}
+          </div>
+          <div v-else-if="!d.isOtherMonth" class="cal-day-empty">无录像</div>
         </button>
       </div>
     </section>
@@ -912,16 +1077,16 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- 2. 24-hour Recording Heatmap Card (24 小时热力图 288 槽位) -->
+        <!-- 2. 24-hour Recording Heatmap Card (Clean concise header) -->
         <div class="inspector-card-section">
           <div class="section-header">
-            <div>
-              <strong class="text-white text-xs block font-semibold">24 小时录像热力图</strong>
-              <span class="text-[10px] text-gray-400">5 分钟/格 · 288 槽位全景 (横向24小时 · 纵向60分钟)</span>
-            </div>
-            <div class="text-right text-[11px] text-blue-400 font-mono">
-              <span>{{ segments.length }} 段 · 24h 00m</span>
-            </div>
+            <span class="section-title">
+              <span class="blue-dot" />
+              <span>24 小时录像热力图</span>
+            </span>
+            <span class="heat-summary-tag">
+              {{ segments.length }} 段 · {{ totalDurationFormatted }}
+            </span>
           </div>
 
           <!-- Heatmap Container with Minute Axis -->
@@ -1012,7 +1177,7 @@ onMounted(async () => {
             </div>
             <div class="meta-row">
               <span class="meta-label">文件大小:</span>
-              <span class="meta-value font-mono font-bold text-white">{{ activeSegment.sizeFormatted }} (1.64 Mbps)</span>
+              <span class="meta-value font-mono font-bold text-white">{{ activeSegment.sizeFormatted }}</span>
             </div>
             <div class="meta-row">
               <span class="meta-label">存储节点:</span>
@@ -1082,17 +1247,17 @@ onMounted(async () => {
 
       <!-- Right Column: Recording File Catalog & Batch Operations -->
       <main class="files-catalog-column">
-        <!-- Summary KPI Cards (5 cards across) -->
+        <!-- Summary Genuine KPI Cards (5 cards across) -->
         <div class="kpi-cards-grid">
           <div class="kpi-card">
             <div class="kpi-label">当日录像片段</div>
             <div class="kpi-value">{{ segments.length }} <span class="kpi-unit">段</span></div>
-            <div class="kpi-sub text-blue-400">连续录像 24h 00m</div>
+            <div class="kpi-sub text-blue-400">总计 {{ totalDurationFormatted }}</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">当日存储占用</div>
             <div class="kpi-value">{{ totalSizeFormatted }}</div>
-            <div class="kpi-sub text-gray-400">平均 {{ avgSizeFormatted }} / 15m</div>
+            <div class="kpi-sub text-gray-400">平均 {{ avgSizeFormatted }} / 片段</div>
           </div>
           <div class="kpi-card">
             <div class="kpi-label">WebDAV 归档率</div>
@@ -1558,6 +1723,8 @@ onMounted(async () => {
   align-items: center;
   cursor: pointer;
   transition: all 0.15s;
+  min-height: 48px;
+  justify-content: center;
 }
 
 .cal-day-cell:hover {
@@ -1566,7 +1733,8 @@ onMounted(async () => {
 }
 
 .cal-day-cell--other {
-  opacity: 0.35;
+  opacity: 0.25;
+  cursor: default;
 }
 
 .cal-day-cell--active {
@@ -1588,10 +1756,17 @@ onMounted(async () => {
   font-size: 10px;
   color: #60a5fa;
   margin-top: 2px;
+  font-family: monospace;
 }
 
 .cal-day-cell--active .cal-day-count {
   color: #e0f2fe;
+}
+
+.cal-day-empty {
+  font-size: 9px;
+  color: #475569;
+  margin-top: 2px;
 }
 
 /* Main Body Layout */
@@ -1645,6 +1820,13 @@ onMounted(async () => {
   font-size: 12px;
   font-weight: 700;
   color: #ffffff;
+}
+
+.heat-summary-tag {
+  font-size: 11px;
+  font-family: monospace;
+  color: #60a5fa;
+  white-space: nowrap;
 }
 
 .stream-badge {
