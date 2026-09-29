@@ -65,7 +65,8 @@ vi.mock("../api/cameras", () => ({
         }
       ]
     })
-  )
+  ),
+  verifyCameraStream: vi.fn(() => Promise.resolve({}))
 }))
 
 vi.mock("../api/playback", () => ({

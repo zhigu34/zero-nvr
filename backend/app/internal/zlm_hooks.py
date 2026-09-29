@@ -472,6 +472,35 @@ def zlm_record_mp4(
             )
             return _ack()
 
+        try:
+            profile_id = RecordingCatalogService.profile_id_from_stream(
+                body.stream
+            )
+            profile = session.get(CameraStreamProfile, profile_id)
+            if profile is not None and (profile.codec is None or profile.width is None):
+                from app.integrations.zlm.adapter import ZlmAdapter
+
+                with ZlmAdapter(request.app.state.settings) as zlm:
+                    probe = zlm.media_probe(app=body.app, stream=body.stream)
+                    if probe is not None:
+                        if probe.video is not None:
+                            if probe.video.codec:
+                                profile.codec = probe.video.codec
+                            if probe.video.width:
+                                profile.width = probe.video.width
+                            if probe.video.height:
+                                profile.height = probe.video.height
+                            if probe.video.fps:
+                                profile.fps = probe.video.fps
+                        if probe.audio is not None and probe.audio.ready:
+                            profile.has_audio = True
+                            profile.audio_codec = probe.audio.codec
+                        profile.status = "available"
+                        profile.last_verified_at = utc_now()
+                        session.flush()
+        except Exception:
+            pass
+
         result = RecordingCatalogService.ingest_finalized(
             session,
             evidence=FinalizedRecordingEvidence(

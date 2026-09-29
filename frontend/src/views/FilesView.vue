@@ -23,7 +23,7 @@ import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
-import { getCamera, listCameras, type CameraDetail, type CameraSummary } from "../api/cameras"
+import { getCamera, listCameras, verifyCameraStream, type CameraDetail, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
 import {
   getCameraTimeline,
@@ -558,6 +558,25 @@ async function loadSegments(): Promise<void> {
     protections.value = protectList
     currentCameraDetail.value = camDetail
 
+    // Auto-probe camera stream profile in background if missing resolution/codec facts
+    if (
+      selectedCameraId.value &&
+      camDetail?.streams?.length &&
+      (!camDetail.streams[0].codec || !camDetail.streams[0].width)
+    ) {
+      const s0 = camDetail.streams[0]
+      if (typeof verifyCameraStream === "function") {
+        verifyCameraStream(selectedCameraId.value, s0.id)
+          .then(() => getCamera(selectedCameraId.value))
+          .then((updated) => {
+            if (updated && selectedCameraId.value === updated.id) {
+              currentCameraDetail.value = updated
+            }
+          })
+          .catch(() => {})
+      }
+    }
+
     const recMap = new Map<string, RecordingSegment>()
     if (recordingsPage?.items) {
       for (const r of recordingsPage.items) {
@@ -578,11 +597,13 @@ async function loadSegments(): Promise<void> {
         const prot = protectList.find((p) => seg.start_at <= p.ended_at && seg.end_at >= p.started_at)
         const timeStr = formatTime(startD).replace(/:/g, "")
 
-        // Codec & Container Spec
-        const codec = (realRec?.codec || "h264").toUpperCase()
+        // Codec & Container Spec (Accurate & explainable)
+        const resolvedCodec = realRec?.codec || camDetail?.streams?.[0]?.codec
+        const codec = resolvedCodec ? resolvedCodec.toUpperCase() : "未探测编码"
         const container = (realRec?.container || "mp4").toUpperCase()
+        const containerLabel = container === "FMP4" ? "MP4 (fMP4)" : container
 
-        let spec = `${codec} · ${container}`
+        let spec = `${codec} · ${containerLabel}`
         let audioSpec = "—"
 
         if (camDetail?.streams && camDetail.streams.length > 0) {
@@ -590,11 +611,15 @@ async function loadSegments(): Promise<void> {
           if (s0.width && s0.height) {
             const fpsStr = s0.fps ? `${Math.round(s0.fps)}FPS · ` : ""
             spec = `${s0.width}×${s0.height} · ${fpsStr}${codec}`
+          } else if (resolvedCodec) {
+            spec = `${codec} · ${containerLabel}`
           }
           if (s0.has_audio) {
             audioSpec = `${(s0.audio_codec || "AAC").toUpperCase()} 音频`
+          } else if (s0.last_verified_at) {
+            audioSpec = "无音频流 (流内无音频轨)"
           } else {
-            audioSpec = "无音频流"
+            audioSpec = "待探测 (流特征未验证)"
           }
         }
 
