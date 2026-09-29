@@ -301,10 +301,10 @@ def _camera_summary(session: Session, camera: Camera) -> CameraSummary:
 
     if not camera.enabled:
         connectivity_status = "disabled"
-    elif any(p.status == "unavailable" for p in camera.stream_profiles if p.status):
-        connectivity_status = "offline"
     elif any(p.status == "available" for p in camera.stream_profiles):
         connectivity_status = "online"
+    elif any(p.status == "unavailable" for p in camera.stream_profiles if p.status):
+        connectivity_status = "offline"
     else:
         connectivity_status = "online" if (adapter_type or ip) else "unknown"
 
@@ -1784,11 +1784,35 @@ def probe_camera(
     with ZlmAdapter(settings) as zlm:
         for profile in camera.stream_profiles:
             try:
-                source_url = runtime_service.resolve_stream_uri(
-                    session,
-                    profile,
-                )
-                probe = zlm.probe_rtsp_source(source_url)
+                # 1. First check if this profile is already actively streaming in ZLM!
+                probe = None
+                if hasattr(zlm, "media_probe"):
+                    try:
+                        ref = runtime_service.reference_for(
+                            camera_id=camera.id,
+                            profile_id=profile.id,
+                        )
+                        active_probe = zlm.media_probe(app=ref.app, stream=ref.stream, schema=None)
+                        if (
+                            active_probe is not None
+                            and active_probe.video is not None
+                            and (
+                                active_probe.video.ready
+                                or (active_probe.video.width and active_probe.video.height)
+                                or active_probe.video.codec
+                            )
+                        ):
+                            probe = active_probe
+                    except Exception:
+                        pass
+
+                if probe is None:
+                    source_url = runtime_service.resolve_stream_uri(
+                        session,
+                        profile,
+                    )
+                    probe = zlm.probe_rtsp_source(source_url)
+
                 if probe.video is not None:
                     if probe.video.codec is not None:
                         profile.codec = probe.video.codec
@@ -1805,7 +1829,13 @@ def probe_camera(
                     profile.audio_codec = probe.audio.codec
                 profile.status = "available"
                 profile.last_verified_at = verified_at
-            except Exception:
+            except Exception as exc:
+                request.app.state.logger.warning(
+                    "Camera probe failed for camera %s profile %s: %s",
+                    camera.id,
+                    profile.id,
+                    exc,
+                )
                 profile.status = "unavailable"
 
     if camera.device_id is not None:
@@ -1872,8 +1902,9 @@ def verify_camera_stream(
             message="Camera stream profile was not found.",
         )
 
+    settings = request.app.state.settings
     source_url = CameraService(
-        request.app.state.settings
+        settings
     ).resolve_stream_uri(
         session,
         profile,
@@ -1883,7 +1914,7 @@ def verify_camera_stream(
 
     try:
         with ZlmAdapter(
-            request.app.state.settings
+            settings
         ) as zlm:
             probe = zlm.probe_rtsp_source(
                 source_url

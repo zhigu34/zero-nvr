@@ -500,16 +500,18 @@ class ZlmAdapter:
         *,
         app: str,
         stream: str,
-        schema: str = "rtsp",
+        schema: str | None = "rtsp",
     ) -> bool:
+        params: dict[str, object] = {
+            "vhost": "__defaultVhost__",
+            "app": app,
+            "stream": stream,
+        }
+        if schema:
+            params["schema"] = schema
         payload = self._call(
             "isMediaOnline",
-            params={
-                "schema": schema,
-                "vhost": "__defaultVhost__",
-                "app": app,
-                "stream": stream,
-            },
+            params=params,
         )
         return bool(payload.get("online", False))
 
@@ -696,16 +698,18 @@ class ZlmAdapter:
         *,
         app: str,
         stream: str,
-        schema: str = "rtsp",
+        schema: str | None = "rtsp",
     ) -> list[dict[str, Any]]:
+        params: dict[str, object] = {
+            "vhost": "__defaultVhost__",
+            "app": app,
+            "stream": stream,
+        }
+        if schema:
+            params["schema"] = schema
         payload = self._call(
             "getMediaList",
-            params={
-                "schema": schema,
-                "vhost": "__defaultVhost__",
-                "app": app,
-                "stream": stream,
-            },
+            params=params,
         )
         data = payload.get("data")
         if not isinstance(data, list):
@@ -717,7 +721,7 @@ class ZlmAdapter:
         *,
         app: str,
         stream: str,
-        schema: str = "rtsp",
+        schema: str | None = "rtsp",
     ) -> ZlmMediaProbe | None:
         items = self.get_media_list(
             app=app,
@@ -746,8 +750,14 @@ class ZlmAdapter:
             codec = raw.get("codec_id_name")
             codec_name = str(codec).lower() if codec is not None else None
             ready = bool(raw.get("ready", False))
+            codec_type = raw.get("codec_type")
 
-            if "width" in raw or "height" in raw or "gop_interval_ms" in raw:
+            if (
+                codec_type == 0
+                or "width" in raw
+                or "height" in raw
+                or "gop_interval_ms" in raw
+            ):
                 interval_ms = raw.get("gop_interval_ms")
                 gop_seconds: float | None = None
                 if isinstance(interval_ms, (int, float)) and interval_ms > 0:
@@ -765,7 +775,11 @@ class ZlmAdapter:
                 )
                 continue
 
-            if "sample_rate" in raw or "channels" in raw:
+            if (
+                codec_type == 1
+                or "sample_rate" in raw
+                or "channels" in raw
+            ):
                 audio = ZlmTrackProbe(
                     kind="audio",
                     codec=codec_name,
@@ -802,14 +816,18 @@ class ZlmAdapter:
                 stream=stream,
                 source_url=source_url,
                 enable_mp4=False,
-                retry_count=0,
+                retry_count=2,
             )
 
             while self._monotonic() < deadline:
-                items = self.get_media_list(app=app, stream=stream)
+                items = self.get_media_list(app=app, stream=stream, schema=None)
                 for item in items:
                     probe = self._parse_tracks(item)
-                    if probe.video is not None and probe.video.ready:
+                    if probe.video is not None and (
+                        probe.video.ready
+                        or (probe.video.width and probe.video.height)
+                        or probe.video.codec
+                    ):
                         return probe
                 self._sleep(self._poll_interval_seconds)
 
