@@ -75,7 +75,8 @@ const routes: RouteRecordRaw[] = [
         name: "events",
         component: EventsView,
         meta: {
-          titleKey: "route.events"
+          titleKey: "route.events",
+          layout: "immersive"
         }
       },
       {
