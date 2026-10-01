@@ -38,7 +38,6 @@ A conflict should be fixed rather than left as permanent dual truth.
 - [plans/04-v1-resource-budget.md](plans/04-v1-resource-budget.md) — measurable non-AI Core disk/RAM/cache/log resource budget
 - [poc-results/README.md](poc-results/README.md) — design-freeze POC status matrix and result index
 - [plans/00-bootstrap.md](plans/00-bootstrap.md) — platform bootstrap work
-- [plans/01-zlmediakit-media-plane.md](plans/01-zlmediakit-media-plane.md) — media-plane implementation slice
 
 Current status:
 
@@ -81,7 +80,8 @@ poc/sqlite-load/
 - [ADR 0009](adr/0009-fmp4-default-recording-container.md) — fMP4 is the default managed ZLM recording container
 - [ADR 0010](adr/0010-event-only-rolling-tmpfs-promotion.md)
 - [ADR 0011](adr/0011-zlm-recording-time-normalization.md) — normalize ZLM recording time only within proven continuous media sessions
-- [ADR 0012](adr/0012-v1-architecture-freeze-baseline.md) — V1 frozen ownership/contracts and post-freeze change-control rule — EVENT_ONLY uses one rolling ZLM recorder + bounded tmpfs promotion
+- [ADR 0012](adr/0012-v1-architecture-freeze-baseline.md) — V1 frozen ownership/contracts and post-freeze change-control rule — EVENT_ONLY uses one rolling ZLM recorder + bounded tmpfs promotion; single accepted record of the V1 architecture freeze (consolidates the former duplicate `0011-v1-architecture-freeze.md`)
+- [ADR 0013](adr/0013-frontend-design-language-shadcn-port.md) — frontend adopts the shadcn design language via token remap + shell re-layout; framework stays Vue 3, no Tailwind
 
 ## Core product specs
 
@@ -113,7 +113,7 @@ poc/sqlite-load/
 - [Spec 0019 — Device Runtime Lifecycle](specs/0019-device-runtime-lifecycle-and-reconfiguration.md)
 - [Spec 0020 — Live View / Media Session / Compatibility](specs/0020-live-view-media-session.md)
 - [Spec 0021 — Detection Providers / AI Events / Frigate](specs/0021-detection-providers-ai-events-and-fusion.md)
-- [Home Assistant integration spec](specs/0002-home-assistant-integration.md)
+- [Spec 0022 — Optional Home Assistant Integration](specs/0022-home-assistant-integration.md)
 
 ## Important interpretation rules
 

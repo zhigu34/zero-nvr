@@ -86,7 +86,7 @@ The freeze gate is satisfied. It required:
 5. [V1 Schema Freeze](../plans/02-v1-schema-freeze.md) remains consistent with the measured architecture;
 6. [V1 API / Module Freeze](../plans/03-v1-api-module-freeze.md) remains consistent with the measured architecture.
 
-[ADR 0011](../adr/0011-v1-architecture-freeze.md) records the resulting architecture freeze and post-freeze change-control policy.
+[ADR 0012](../adr/0012-v1-architecture-freeze-baseline.md) records the resulting architecture freeze and post-freeze change-control policy.
 
 ## Current architecture assumptions under test
 

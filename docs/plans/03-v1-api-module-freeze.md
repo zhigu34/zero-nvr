@@ -3,7 +3,7 @@
 Status: **accepted / frozen for V1**
 
 
-Accepted by [ADR 0011 — V1 Architecture Freeze](../adr/0011-v1-architecture-freeze.md). Implementation may refine compatible DTO/internal details; changing the trust/ownership/module boundaries requires an explicit architecture decision.
+Accepted by [ADR 0012 — V1 Architecture Freeze Baseline](../adr/0012-v1-architecture-freeze-baseline.md). Implementation may refine compatible DTO/internal details; changing the trust/ownership/module boundaries requires an explicit architecture decision.
 ## Goal
 
 Freeze the public API surface, internal hook boundary, and modular-monolith ownership before broad feature implementation.

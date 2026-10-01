@@ -2,9 +2,17 @@
 
 Status: **accepted**
 
+> Consolidation note: this is the single accepted record of the V1 architecture freeze. It absorbs
+> the former `0011-v1-architecture-freeze.md`, which recorded the same freeze decision from the
+> initial validation run. Every unique item from that file is preserved below. Two accepted ADRs
+> asserting one freeze would have been permanent dual truth, so they were merged instead.
+
 ## Decision
 
 zero-nvr V1 architecture is frozen.
+
+This freezes architecture ownership, canonical persistence boundaries, deployment/container
+boundaries, recording/storage lifecycle, and public/internal API module boundaries.
 
 The design-freeze runtime matrix has produced accepted evidence for every Core architecture gate. The canonical persistence boundary and public/internal module boundary are also frozen by Plan 02 and Plan 03.
 
@@ -17,6 +25,14 @@ V1 Architecture Frozen
 This freezes **ownership and product contracts**, not every implementation detail or UI pixel.
 
 ## Runtime evidence
+
+Initial freeze validation (the run that first declared the freeze):
+
+~~~text
+GitHub Actions run: 35490737812
+head SHA: 20ae4741b480269bb61b69a8b4b123a46163af02
+workflow conclusion: success
+~~~
 
 Latest clean full runtime matrix:
 
@@ -62,6 +78,16 @@ See [POC result index](../poc-results/README.md).
 | host install/update/profile lifecycle | deploy.sh + Docker Compose |
 | default product database | SQLite + WAL |
 | optional scale-up database | PostgreSQL |
+
+Ownership details:
+
+- StorageTarget is LOCAL or RCLONE for the V1 recording/archive roles; rclone owns remote
+  copy/verify/delete/restore mechanics; remote playback restores to a bounded local cache and then
+  uses ZLM VOD.
+- Huey, Apprise and restic own execution mechanics; zero-nvr owns the product-visible policy,
+  state and orchestration around them.
+- Canonical same-session recording timing uses proven continuity plus actual mux duration or a
+  stronger next boundary; raw ZLM Hook timing remains source evidence.
 
 ## Frozen recording invariants
 
@@ -113,6 +139,16 @@ Core rule:
 
 > Persist durable product facts; derive runtime/projection/cache/task state whenever practical.
 
+[ADR 0008 — Persist Product Facts, Derive Runtime State](0008-persist-product-facts-derive-runtime-state.md)
+remains binding, including its promotion rule for a new canonical table.
+
+Additional frozen persistence details:
+
+- high-frequency telemetry/runtime projections stay out of the business database;
+- the retention-oriented composite indexes measured by POC-09 are part of the V1 schema baseline;
+- EVENT_ONLY has no custom packet ring, RecordingSession, RecordingIntent or PrebufferFragment business table;
+- host/OS manages RAID/ZFS/Btrfs/LVM/mergerfs; zero-nvr has no StoragePool or block manager.
+
 Adding a new canonical table after freeze requires a schema/design review. If it changes ownership or product truth, it also requires an ADR.
 
 ## Frozen API/module boundary
@@ -157,9 +193,59 @@ An explicit ADR plus targeted regression POC is required before changing any of 
 - EVENT_ONLY pre-roll ownership/mechanism;
 - recording-time normalization model;
 - deploy.sh host-mutation authority;
-- canonical persisted-vs-derived boundary.
+- canonical persisted-vs-derived boundary;
+- public trust boundary (frontend -> zero-nvr only);
+- adding a mandatory infrastructure dependency such as Redis/Kafka/RabbitMQ.
+
+Implementation work may refine, without a new ADR:
+
+- internal Python class/function layout;
+- DTO field details that preserve the frozen API semantics;
+- dependency versions;
+- measured performance tuning;
+- UI presentation;
+- adapter internals;
+- non-authoritative caches.
 
 Ordinary implementation details inside those frozen contracts do not require a new ADR.
+
+## Remaining non-architecture release validation
+
+Architecture freeze does **not** waive implementation/release gates. Still required during
+implementation:
+
+- production Core image/static footprint measurement;
+- non-AI idle RAM measurement;
+- 2-camera and 4-camera small-host soak;
+- frontend/browser/player integration testing;
+- optional-feature smoke tests only for optional features declared production-ready;
+- backup/restore/update tests against the actual production implementation;
+- security/auth/RBAC integration tests.
+
+These may reveal implementation bugs or hardware requirements. They do not reopen architecture
+automatically; an architecture change still requires evidence plus an ADR.
+
+## Consequences
+
+Positive:
+
+- broad implementation can begin without continuing to redesign ownership/model boundaries;
+- agents/developers have one canonical architecture truth;
+- POC findings are incorporated into baseline/spec/ADR/schema/API docs;
+- future changes are deliberate instead of accidental architectural drift.
+
+Trade-off:
+
+- some implementation choices may later need an ADR if real production evidence contradicts the
+  frozen design.
+
+## Invariants
+
+1. `PROJECT_BASELINE.md` + accepted ADRs are authoritative after this freeze.
+2. All 10 design-freeze POCs have accepted evidence before declaring Frozen.
+3. Implementation convenience alone does not justify changing ownership or adding infrastructure.
+4. Optional integrations do not become Core dependencies without an ADR/product decision.
+5. Architecture freeze is not feature-complete release status.
 
 ## Implementation phase
 

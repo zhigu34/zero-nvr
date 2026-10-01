@@ -57,7 +57,7 @@ The architecture-freeze gate is complete:
 1. all 10 POCs in [plans/01-design-freeze-poc.md](plans/01-design-freeze-poc.md) have accepted runtime results;
 2. the persistence boundary in [plans/02-v1-schema-freeze.md](plans/02-v1-schema-freeze.md) is frozen;
 3. the public/internal API and module boundary in [plans/03-v1-api-module-freeze.md](plans/03-v1-api-module-freeze.md) is frozen;
-4. [ADR 0011](adr/0011-v1-architecture-freeze.md) records the freeze and change-control rule.
+4. [ADR 0012](adr/0012-v1-architecture-freeze-baseline.md) records the freeze and change-control rule.
 
 POC gates:
 
@@ -603,6 +603,22 @@ Optional/non-blocking operational extensions:
 - [ ] Grafana example dashboards.
 - [ ] Litestream/pgBackRest/PITR integration if later justified.
 - [ ] multi-host media/storage topology evaluation.
+
+## Phase 12 — Deferred frontend experience backlog
+
+Everything here is **non-blocking**: it does not gate the first production release and
+does not change the V1 execution-order guard above. These are the parts of the retired
+`docs/refactor_plan.md` UI vision that are still genuinely absent from `frontend/src`;
+the rest of that plan is already implemented.
+
+- [ ] ONVIF PTZ preset slots — save/call/overwrite named pan-tilt-zoom positions. `GET /api/v1/cameras/{id}/ptz/presets` and `POST /api/v1/cameras/{id}/ptz/presets/{preset}/goto` are listed in the accepted [API module freeze](plans/03-v1-api-module-freeze.md) but are not implemented; the PTZ dialog only renders placeholder preset cards behind a `TODO(phase-ptz-presets)`.
+- [ ] PTZ guard tour / cruise patrol — automatically cycle one camera through its presets with a configurable dwell time; no cruise/guard/patrol code exists in frontend or backend (also tracked as a POST-V1 candidate in Phase 10).
+- [ ] Real batch operations for files and events — batch export, batch protect/lock, batch archive push, and batch delete are frontend toast-only stubs (`FilesView.vue`, `EventsView.vue`) and no backend batch endpoints exist; either add the endpoints or remove the buttons.
+- [ ] Live matrix "1+5" master/slave layout — `LiveLayoutSlots` supports only 1/4/9/16, so the primary-plus-five-thumbnails arrangement is unavailable.
+- [ ] Manual live quality override — the Live View quality popover exposes only the automatic strategy; there is no explicit "force main stream (4K/2K)" or "force sub stream (720p)" switch.
+- [ ] WebDAV archive-target latency/throughput probe — `POST /api/v1/storage/targets/{id}/test` reports reachability and capacity only, with no round-trip latency or streamed bandwidth measurement.
+- [ ] Live → Time-Lapse hand-off — the live tile playback toggle stays inline; it never jumps to the playback view carrying the current camera and timestamp.
+- [ ] Event evidence keyframe loop — the evidence inspector shows a still snapshot with an overlaid detection box; the looping short keyframe video preview is not implemented.
 
 ## Out of current product scope
 

@@ -378,4 +378,4 @@ Persistence boundaries are frozen by Plan 02; public/internal API and module own
 
 After this point, implementation may refine internals, versions, DTO details, UI, and measured performance without reopening architecture. Changes to core ownership, mandatory runtime services/containers, recording/storage lifecycle, default database class, persistence boundary, or frontend trust boundary require an explicit ADR.
 
-See [ADR 0011 — V1 Architecture Freeze](adr/0011-v1-architecture-freeze.md) and [POC result index](poc-results/README.md).
+See [ADR 0012 — V1 Architecture Freeze Baseline](adr/0012-v1-architecture-freeze-baseline.md) and [POC result index](poc-results/README.md).

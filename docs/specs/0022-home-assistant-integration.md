@@ -1,4 +1,4 @@
-# Spec 0002 — Optional Home Assistant Integration
+# Spec 0022 — Optional Home Assistant Integration
 
 Status: **initial optional-feature design**
 
