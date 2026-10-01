@@ -554,13 +554,17 @@ const messages = {
         enough_data: "Enough data"
       },
       reasonMap: {
+        not_scheduled: "Not scheduled",
+        no_event: "No event triggered",
         source_lost: "Source lost",
+        runtime_restart: "Service restart",
         storage_failure: "Storage failure",
         missing_media: "Missing media",
         purged: "Purged",
         outside_retention: "Outside retention",
         no_recording: "No recording",
-        not_recorded: "Not recorded"
+        not_recorded: "Not recorded",
+        unknown: "Unknown reason"
       }
     },
     events: {
@@ -2346,13 +2350,17 @@ lastUsed:"Last used",expires:"Expires",loading:"Loading tokens…",empty:"No per
         enough_data: "数据充足"
       },
       reasonMap: {
+        not_scheduled: "未配置录像计划",
+        no_event: "无事件触发",
         source_lost: "视频源中断",
+        runtime_restart: "服务重启",
         storage_failure: "存储故障",
         missing_media: "媒体文件缺失",
         purged: "已清理",
         outside_retention: "超出保留范围",
         no_recording: "没有录像",
-        not_recorded: "未录像"
+        not_recorded: "未录像",
+        unknown: "原因未知"
       }
     },
     events: {

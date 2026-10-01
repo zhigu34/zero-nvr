@@ -108,6 +108,26 @@ describe("i18n catalogue", () => {
     expect(offenders).toEqual([])
   })
 
+  it("translates every gap reason the backend timeline can emit", () => {
+    // TimelineGapReason in backend/app/modules/recordings/schemas.py. An
+    // unmapped code is not a missing label: PlaybackView falls back to the
+    // raw code, so a Chinese operator reads "not scheduled" in the tooltip.
+    for (const reason of [
+      "not_scheduled",
+      "no_event",
+      "source_lost",
+      "runtime_restart",
+      "storage_failure",
+      "missing_media",
+      "purged",
+      "unknown"
+    ]) {
+      const key = `playback.reasonMap.${reason}`
+      expect(enKeys.has(key), key).toBe(true)
+      expect(zhKeys.has(key), key).toBe(true)
+    }
+  })
+
   it("covers the localised toast messages added for the Chinese-heavy views", () => {
     for (const key of [
       "cameras.toast.probeDone",
