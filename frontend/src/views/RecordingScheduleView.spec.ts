@@ -389,6 +389,15 @@ describe("RecordingScheduleView.vue", () => {
         "视频流未上线 · 未录制"
       ],
       [
+        "no record stream binding",
+        {
+          recording: false,
+          stream_online: false,
+          blockers: ["recording_stream_binding_missing"]
+        },
+        "未绑定录像码流 · 未录制"
+      ],
+      [
         "media runtime unreachable",
         { recording: null, stream_online: null },
         "无法获取录制状态"

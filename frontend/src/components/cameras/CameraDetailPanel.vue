@@ -152,12 +152,28 @@ const heroHealthClass = computed(() => {
 // Recording status is driven exclusively by the global recording schedule
 // (录制计划); the drawer only reports the observed runtime state and never
 // starts or stops recording itself.
+const RUNTIME_BLOCKER_LABELS: Record<string, string> = {
+  recording_stream_binding_missing: "未绑定录像码流",
+  recording_stream_binding_invalid: "录像码流绑定无效",
+  recording_storage_target_missing: "存储池不可用",
+  recording_storage_target_unconfigured: "未配置录像存储池",
+  recording_storage_target_ambiguous: "存在多个默认存储池",
+  recording_storage_target_invalid: "存储池不可用于录像"
+}
+
 const recordingState = computed<{ label: string; className: string }>(() => {
   const runtime = policy.value?.runtime
   if (runtime?.recording === true) {
     return { label: "正在录像", className: "text-red-400 font-semibold" }
   }
   if (runtime?.recording === false) {
+    const blocker = (runtime.blockers || [])
+      .map((code) => RUNTIME_BLOCKER_LABELS[code] || code)
+      .filter((label, index, all) => all.indexOf(label) === index)
+      .join("、")
+    if (blocker) {
+      return { label: `${blocker} · 未录像`, className: "text-amber-400" }
+    }
     return {
       label:
         runtime.stream_online === false

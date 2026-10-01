@@ -149,6 +149,7 @@ class RecordingRuntimeView(BaseModel):
     changed: bool
     assumed_existing_mode: bool
     observed_at: datetime | None = None
+    blockers: list[str] = Field(default_factory=list)
 
 
 class RecordingPolicyView(BaseModel):

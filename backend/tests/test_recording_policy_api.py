@@ -765,3 +765,81 @@ def test_runtime_is_unknown_when_media_runtime_is_unreachable(
         # Unreachable media runtime is not the same as "not recording".
         assert runtime["stream_online"] is None
         assert runtime["recording"] is None
+
+
+def test_plan_saves_without_record_binding_and_reports_the_blocker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """A camera without a RECORD binding must still be configurable.
+
+    Refusing the save leaves the operator unable to record *and* unable to
+    turn recording off, while the only feedback is a raw backend message.
+    The plan is persisted and the reason is reported as a runtime blocker.
+    """
+
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    patch_zlm_observation(monkeypatch, [])
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        with app.state.database.session() as session:
+            camera = CameraService.get_camera(session, camera_id)
+            for binding in list(camera.stream_bindings):
+                if binding.purpose == "RECORD":
+                    session.delete(binding)
+            session.commit()
+
+        response = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["baseline_mode"] == "continuous"
+        assert body["enabled"] is True
+        assert body["runtime"]["blockers"] == [
+            "recording_stream_binding_missing"
+        ]
+        assert body["runtime"]["recording"] is False
+
+        # The plan really is persisted, not just echoed back.
+        fetched = client.get(
+            f"/api/v1/cameras/{camera_id}/recording-policy"
+        )
+        assert fetched.json()["baseline_mode"] == "continuous"
+
+
+def test_plan_saves_without_storage_target_and_reports_the_blocker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    patch_zlm_observation(monkeypatch, [])
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        with app.state.database.session() as session:
+            for target in session.scalars(
+                select(StorageTarget)
+            ).all():
+                session.delete(target)
+            session.commit()
+
+        response = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["enabled"] is True
+        assert (
+            "recording_storage_target_unconfigured"
+            in body["runtime"]["blockers"]
+        )

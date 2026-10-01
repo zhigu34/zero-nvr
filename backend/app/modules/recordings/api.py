@@ -312,6 +312,21 @@ def _trigger_audit_snapshot(
         "correlation_id": trigger.correlation_id,
     }
 
+# Readiness problems that must not discard a saved recording plan. Each
+# code is reported to the client as a runtime blocker so the schedule UI can
+# explain why the plan cannot start recording yet.
+_RUNTIME_BLOCKER_CODES = frozenset(
+    {
+        "recording_stream_binding_missing",
+        "recording_stream_binding_invalid",
+        "recording_storage_target_missing",
+        "recording_storage_target_unconfigured",
+        "recording_storage_target_ambiguous",
+        "recording_storage_target_invalid",
+    }
+)
+
+
 def _runtime_signature(
     snapshot: dict[str, Any] | None,
 ) -> tuple[object, ...] | None:
@@ -502,6 +517,13 @@ def put_recording_policy(
             },
         )
 
+        # A recording plan is a plan. A camera that is not ready to record
+        # yet (no RECORD stream binding, no storage target) must still be
+        # able to store that plan; otherwise the operator cannot even turn
+        # recording off, and the reason for the failure is invisible in the
+        # schedule UI. Readiness problems are reported as runtime blockers
+        # on the response instead of discarding the saved plan.
+        runtime_blockers: list[str] = []
         can_write_media = (
             policy.enabled
             and (
@@ -510,12 +532,17 @@ def put_recording_policy(
             )
         )
         if can_write_media:
-            # This also validates the implicit/default target when the policy
-            # does not pin one explicitly.
-            RecordingStorageResolver.local_target_for_camera(
-                session,
-                camera_id=camera_id,
-            )
+            try:
+                # This also resolves the implicit/default target when the
+                # policy does not pin one explicitly.
+                RecordingStorageResolver.local_target_for_camera(
+                    session,
+                    camera_id=camera_id,
+                )
+            except ApiError as exc:
+                if exc.code not in _RUNTIME_BLOCKER_CODES:
+                    raise
+                runtime_blockers.append(exc.code)
 
         camera = CameraService.get_camera(session, camera_id)
         media_runtime = CameraMediaRuntimeService(settings)
@@ -523,11 +550,17 @@ def put_recording_policy(
             session,
             camera=camera,
         )
-        desired_recorder = RecordingRuntimeService.desired(
-            session,
-            settings=settings,
-            camera_id=camera_id,
-        )
+        try:
+            desired_recorder = RecordingRuntimeService.desired(
+                session,
+                settings=settings,
+                camera_id=camera_id,
+            )
+        except ApiError as exc:
+            if exc.code not in _RUNTIME_BLOCKER_CODES:
+                raise
+            runtime_blockers.append(exc.code)
+            desired_recorder = None
         if desired_recorder is None:
             record_streams = []
         else:
@@ -684,6 +717,7 @@ def put_recording_policy(
             changed=runtime_result.changed,
             assumed_existing_mode=runtime_result.assumed_existing_mode,
             observed_at=datetime.now(UTC),
+            blockers=list(dict.fromkeys(runtime_blockers)),
         ),
     )
 

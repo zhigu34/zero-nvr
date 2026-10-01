@@ -45,6 +45,11 @@ export interface RecordingRuntime {
   changed: boolean
   assumed_existing_mode: boolean
   observed_at?: string | null
+  /**
+   * Backend codes for why the plan cannot start recording yet, e.g. a
+   * missing RECORD stream binding. Empty when nothing blocks the plan.
+   */
+  blockers?: string[]
 }
 
 export interface RecordingPolicyPut {

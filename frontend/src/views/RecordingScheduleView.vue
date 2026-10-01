@@ -220,6 +220,24 @@ function isWithinScheduleWindow(policy: RecordingPolicy): boolean {
   })
 }
 
+const RUNTIME_BLOCKER_LABELS: Record<string, string> = {
+  recording_stream_binding_missing: "未绑定录像码流",
+  recording_stream_binding_invalid: "录像码流绑定无效",
+  recording_storage_target_missing: "存储池不可用",
+  recording_storage_target_unconfigured: "未配置录像存储池",
+  recording_storage_target_ambiguous: "存在多个默认存储池",
+  recording_storage_target_invalid: "存储池不可用于录像"
+}
+
+function runtimeBlockerLabel(camera: CameraSummary): string | null {
+  const blockers = getCameraPolicy(camera.id)?.runtime?.blockers || []
+  if (!blockers.length) return null
+  const labels = blockers
+    .map((code) => RUNTIME_BLOCKER_LABELS[code] || code)
+    .filter((label, index, all) => all.indexOf(label) === index)
+  return labels.join("、")
+}
+
 /**
  * Reflect the observed recorder state, never the policy text.
  *
@@ -235,6 +253,12 @@ function getRuntimeStateInfo(camera: CameraSummary): { label: string; tone: "ok"
   if (!p || !p.enabled) return { label: "未启用录像", tone: "off" }
 
   const runtime = p.runtime
+
+  // 0. A saved plan that cannot start: say exactly what is missing.
+  const blocker = runtimeBlockerLabel(camera)
+  if (blocker) {
+    return { label: `${blocker} · 未录制`, tone: "warn" }
+  }
 
   // 1. Observed: the media runtime confirms an active recorder.
   if (runtime?.recording === true) {
