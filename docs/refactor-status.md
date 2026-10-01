@@ -430,6 +430,10 @@
 
 **3. 验证**：`vitest` **273 passed / 54 files**、`vue-tsc` clean；浏览器实测：中文态三页新标题正常、切英文后标题保持双语且 i18n 部分正常切换；诊断后已清除测试写入的语言偏好。
 
+### 同日第六轮：补退出登录入口（用户反馈）
+
+AppShell 重排时 `logout()` 成了死代码——AccountPanel 只有改密码/会话管理，全站没有退出登录入口。按 shadcn-admin 的 NavUser 模式修复：侧栏底部用户行改为弹出菜单（用户名/用户名头部 + 账户设置 + 退出登录），`useDismissable` 处理点外/Esc 关闭，退出项用 danger 色调；侧栏移除 `overflow: hidden` 使折叠栏下菜单可越出 60px 栏体；新增 `nav.logout`（en "Sign out" / zh "退出登录"）。浏览器实测：菜单渲染正常、Sign out → 会话清除 → 跳转登录页；`vitest` 273 passed、`vue-tsc` clean。
+
 ### 剩余 backlog（按审计顺序，需独立成项）
 
 `cameras/api.py`（3,868 行/40 端点）拆 router、`core/jobs/runner.py`（先统一 5 个 job 引擎的错误字段/终态语义并补 golden 测试）、`system/api.py`/`worker/tasks.py`/`cli.py` 包化、Wave 4 scoped CSS 归位与模板硬编码中文迁移、`RecordingWindowsEditor` 双实现合并（含魔法字符串/星期顺序漂移的产品决策）。

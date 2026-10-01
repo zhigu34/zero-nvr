@@ -7,6 +7,7 @@ import AccountPanel from "../components/account/AccountPanel.vue"
 import ConfirmDialog from "../components/ui/ConfirmDialog.vue"
 import LanguageControl from "../components/ui/LanguageControl.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
+import { useDismissable } from "../composables/useDismissable"
 import { useAuthStore } from "../stores/auth"
 
 const route = useRoute()
@@ -15,6 +16,10 @@ const auth = useAuthStore()
 const { t } = useI18n({ useScope: "global" })
 
 const accountOpen = ref(false)
+const userMenuOpen = ref(false)
+const userMenuRoot = ref<HTMLElement | null>(null)
+
+useDismissable(userMenuOpen, userMenuRoot)
 
 /**
  * 导航顺序沿用原型 Dock（docs/archive/zero_nvr_prototype.html）：业务功能一组、
@@ -101,10 +106,12 @@ function startEventStream(): void {
 }
 
 function toggleAccount(): void {
+  userMenuOpen.value = false
   accountOpen.value = !accountOpen.value
 }
 
 async function logout(): Promise<void> {
+  userMenuOpen.value = false
   accountOpen.value = false
   await auth.logout()
   await router.push({ name: "login" })
@@ -225,18 +232,40 @@ onBeforeUnmount(() => {
           <LanguageControl />
         </template>
 
-        <button type="button" class="sidebar-user" @click="toggleAccount"
-                :title="auth.user?.display_name || auth.user?.username || 'Account'">
-          <span class="sidebar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
-          <span v-if="!sidebarCollapsed" class="sidebar-user__meta">
-            <strong>{{ auth.user?.display_name || auth.user?.username }}</strong>
-            <span>{{ t("nav.accountManage") }}</span>
-          </span>
-          <svg v-if="!sidebarCollapsed" class="sidebar-user__chevron" width="14" height="14" fill="none"
-               stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-            <path d="m9 18 6-6-6-6"/>
-          </svg>
-        </button>
+        <div ref="userMenuRoot" class="sidebar-user-wrap">
+          <button type="button" class="sidebar-user"
+                  :class="{ 'sidebar-user--open': userMenuOpen }"
+                  :aria-expanded="userMenuOpen"
+                  aria-haspopup="menu"
+                  @click="userMenuOpen = !userMenuOpen">
+            <span class="sidebar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
+            <span v-if="!sidebarCollapsed" class="sidebar-user__meta">
+              <strong>{{ auth.user?.display_name || auth.user?.username }}</strong>
+              <span>{{ t("nav.accountManage") }}</span>
+            </span>
+            <svg v-if="!sidebarCollapsed" class="sidebar-user__chevron" width="14" height="14" fill="none"
+                 stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <path d="m9 18 6-6-6-6"/>
+            </svg>
+          </button>
+
+          <!-- shadcn NavUser 式账户菜单：账户入口 + 退出登录 -->
+          <div v-if="userMenuOpen" class="sidebar-user-menu" role="menu">
+            <div class="sidebar-user-menu__header">
+              <strong>{{ auth.user?.display_name || auth.user?.username }}</strong>
+              <span v-if="auth.user?.username">{{ auth.user.username }}</span>
+            </div>
+            <button type="button" class="sidebar-user-menu__item" role="menuitem" @click="toggleAccount">
+              <UiIcon name="users" :size="14" />
+              <span>{{ t("nav.accountManage") }}</span>
+            </button>
+            <button type="button" class="sidebar-user-menu__item sidebar-user-menu__item--danger"
+                    role="menuitem" @click="logout">
+              <UiIcon name="logout" :size="14" />
+              <span>{{ t("nav.logout") }}</span>
+            </button>
+          </div>
+        </div>
       </div>
     </aside>
 
@@ -278,7 +307,6 @@ onBeforeUnmount(() => {
   width: 264px;
   min-width: 264px;
   flex-direction: column;
-  overflow: hidden;
   background-color: var(--uf-bg-dock);
   border-right: 1px solid var(--uf-border);
   transition: width 180ms ease, min-width 180ms ease;
@@ -463,10 +491,15 @@ onBeforeUnmount(() => {
   cursor: default;
 }
 
+.sidebar-user-wrap {
+  position: relative;
+}
+
 .sidebar-user {
   position: relative;
   display: flex;
   min-height: 40px;
+  width: 100%;
   align-items: center;
   gap: 10px;
   padding: 4px 6px;
@@ -479,8 +512,77 @@ onBeforeUnmount(() => {
   transition: background-color 140ms ease;
 }
 
-.sidebar-user:hover {
+.sidebar-user:hover,
+.sidebar-user--open {
   background: var(--uf-bg-hover);
+}
+
+/* 折叠栏下菜单向右越出 60px 栏体，因此侧栏自身不能裁剪溢出 */
+.sidebar-user-menu {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 8px);
+  width: 216px;
+  padding: 6px;
+  border: 1px solid var(--uf-border);
+  border-radius: var(--radius-lg);
+  background: var(--popover);
+  box-shadow: var(--shadow-menu);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 60;
+}
+
+.sidebar-user-menu__header {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 10px 8px;
+  border-bottom: 1px solid var(--uf-border-subtle);
+  margin-bottom: 4px;
+}
+
+.sidebar-user-menu__header strong {
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 570;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-user-menu__header span {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.sidebar-user-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.sidebar-user-menu__item:hover {
+  background: var(--uf-bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-user-menu__item--danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .sidebar-user__avatar {

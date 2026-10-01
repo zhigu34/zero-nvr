@@ -36,7 +36,8 @@ const messages = {
       groupSystem: "System",
       sidebarCollapse: "Toggle sidebar",
       webrtcPlaceholder: "WebRTC connection status (coming soon)",
-      accountManage: "Account"
+      accountManage: "Account",
+      logout: "Sign out"
     },
     route: {
       signIn: "Sign in",
@@ -1688,7 +1689,8 @@ lastUsed:"Last used",expires:"Expires",loading:"Loading tokens…",empty:"No per
       groupSystem: "系统",
       sidebarCollapse: "收起/展开侧栏",
       webrtcPlaceholder: "WebRTC 连接状态（功能开发中）",
-      accountManage: "账户管理"
+      accountManage: "账户管理",
+      logout: "退出登录"
     },
     route: {
       signIn: "登录",
