@@ -11,7 +11,6 @@ from app.core.config import Settings
 from app.modules.alerts.models import AlertPolicy
 from app.modules.auth.camera_scope import CameraScopeService
 from app.modules.auth.models import Role
-from app.modules.auth.oidc import OidcProviderSettingsService
 from app.modules.backups.models import BackupPolicy
 from app.modules.cameras.models import (
     Camera,
@@ -511,40 +510,6 @@ class ConfigurationExportService:
         ]
 
     @staticmethod
-    def _oidc(
-        session: Session,
-    ) -> list[dict[str, object]]:
-        return [
-            {
-                "id": str(item.id),
-                "key": item.key,
-                "name": item.name,
-                "enabled": item.enabled,
-                "issuer": item.issuer,
-                "client_id": item.client_id,
-                "client_secret_configured": (
-                    item.secret_ref
-                    is not None
-                ),
-                "auto_provision": (
-                    item.auto_provision
-                ),
-                "email_linking": (
-                    item.email_linking
-                ),
-                "default_role_ids": [
-                    str(role_id)
-                    for role_id
-                    in item.default_role_ids
-                ],
-            }
-            for item in (
-                OidcProviderSettingsService.list(
-                    session
-                )
-            )
-        ]
-
     @staticmethod
     def _frigate(
         session: Session,
@@ -695,9 +660,6 @@ class ConfigurationExportService:
                 "notification_targets": (
                     cls._notifications(session)
                 ),
-                "oidc_providers": (
-                    cls._oidc(session)
-                ),
                 "frigate": (
                     cls._frigate(session)
                 ),
@@ -711,7 +673,6 @@ class ConfigurationExportService:
                 "user_sessions",
                 "personal_api_tokens",
                 "password_reset_tokens",
-                "external_identities",
                 "audit_events",
                 "events",
                 "alerts",

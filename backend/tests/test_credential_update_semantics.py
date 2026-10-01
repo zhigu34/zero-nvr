@@ -43,69 +43,6 @@ def setup_admin(client: TestClient) -> None:
     assert login.status_code == 200
 
 
-def test_oidc_secret_update_actions(tmp_path: Path) -> None:
-    app = make_app(tmp_path)
-
-    with TestClient(app) as client:
-        setup_admin(client)
-
-        created = client.post(
-            "/api/v1/oidc/providers",
-            json={
-                "key": "example",
-                "name": "Example",
-                "enabled": True,
-                "issuer": "https://id.example.test",
-                "client_id": "zero-nvr",
-                "client_secret": "initial-oidc-secret",
-                "auto_provision": False,
-                "email_linking": False,
-                "default_role_ids": [],
-            },
-        )
-        assert created.status_code == 201
-        assert created.json()["client_secret_configured"] is True
-
-        ambiguous = client.patch(
-            "/api/v1/oidc/providers/example",
-            json={
-                "client_secret": "should-be-rejected",
-            },
-        )
-        assert ambiguous.status_code == 400
-        assert (
-            ambiguous.json()["error"]["code"]
-            == "oidc_client_secret_update_invalid"
-        )
-
-        kept = client.patch(
-            "/api/v1/oidc/providers/example",
-            json={
-                "name": "Example kept",
-                "client_secret_action": "keep",
-            },
-        )
-        assert kept.status_code == 200
-        assert kept.json()["client_secret_configured"] is True
-
-        replaced = client.patch(
-            "/api/v1/oidc/providers/example",
-            json={
-                "client_secret_action": "replace",
-                "client_secret": "replacement-oidc-secret",
-            },
-        )
-        assert replaced.status_code == 200
-        assert replaced.json()["client_secret_configured"] is True
-
-        cleared = client.patch(
-            "/api/v1/oidc/providers/example",
-            json={"client_secret_action": "clear"},
-        )
-        assert cleared.status_code == 200
-        assert cleared.json()["client_secret_configured"] is False
-
-
 def test_notification_url_update_actions(tmp_path: Path) -> None:
     app = make_app(tmp_path)
 

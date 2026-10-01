@@ -65,7 +65,6 @@ import {
 } from "../api/system"
 import SystemAccessControlPanel from "../components/system/SystemAccessControlPanel.vue"
 import SystemApiTokensPanel from "../components/system/SystemApiTokensPanel.vue"
-import SystemOidcPanel from "../components/system/SystemOidcPanel.vue"
 import SystemBackupTab from "../components/system/SystemBackupTab.vue"
 import SystemNotificationsTab from "../components/system/SystemNotificationsTab.vue"
 import SystemTimeTab from "../components/system/SystemTimeTab.vue"
@@ -73,7 +72,6 @@ import SystemAiTab from "../components/system/SystemAiTab.vue"
 import SystemAuditTab from "../components/system/SystemAuditTab.vue"
 import SystemGeneralTab from "../components/system/SystemGeneralTab.vue"
 import SystemOverviewTab from "../components/system/SystemOverviewTab.vue"
-import SystemReleaseValidationPanel from "../components/system/SystemReleaseValidationPanel.vue"
 import SystemRecoveryKitPanel from "../components/system/SystemRecoveryKitPanel.vue"
 import SystemAlertRulesPanel from "../components/system/SystemAlertRulesPanel.vue"
 import StatusPill from "../components/ui/StatusPill.vue"
@@ -94,12 +92,10 @@ const confirmProceed = (message: string) => confirmAction({ message })
 
 type SystemTab =
   | "overview"
-  | "validation"
   | "general"
   | "time"
   | "users"
   | "tokens"
-  | "oidc"
   | "notifications"
   | "alerts"
   | "ai"
@@ -237,12 +233,6 @@ const navigation = computed(() => {
       visible: true
     },
     {
-      id: "validation",
-      label: isZh ? "生产就绪度预检" : t("system.main.navValidation"),
-      icon: "activity",
-      visible: auth.hasPermission("system.view")
-    },
-    {
       id: "general",
       label: isZh ? "基础参数与网络" : t("system.main.general"),
       icon: "system",
@@ -265,12 +255,6 @@ const navigation = computed(() => {
       label: isZh ? "API 服务令牌" : t("system.main.navApiTokens"),
       icon: "shield",
       visible: true
-    },
-    {
-      id: "oidc",
-      label: isZh ? "单点登录 (OIDC / SSO)" : t("system.main.navOidc"),
-      icon: "users",
-      visible: auth.hasPermission("user.manage")
     },
     {
       id: "notifications",
@@ -1284,9 +1268,6 @@ onMounted(() => {
         />
       </template>
 
-      <template v-else-if="tab === 'validation'">
-        <SystemReleaseValidationPanel />
-      </template>
 
       <template v-else-if="tab === 'general'">
         <SystemGeneralTab
@@ -1323,9 +1304,6 @@ onMounted(() => {
         <SystemApiTokensPanel />
       </template>
 
-      <template v-else-if="tab === 'oidc'">
-        <SystemOidcPanel />
-      </template>
 
       <template v-else-if="tab === 'notifications'">
         <SystemNotificationsTab

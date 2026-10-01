@@ -14,7 +14,6 @@ def collect_credential_requirements(
     profiles = parsed.profiles
     storage_targets = parsed.storage_targets
     notification_targets = parsed.notification_targets
-    oidc_providers = parsed.oidc_providers
     frigate = parsed.frigate
     backup_policies = parsed.backup_policies
     requirements: list[
@@ -76,17 +75,6 @@ def collect_credential_requirements(
                 resource_type="notification_target",
                 item=item,
                 credential="smtp_credentials",
-            )
-    for item in oidc_providers:
-        if item.get(
-            "client_secret_configured"
-        ) is True:
-            service._requirement(
-                requirements,
-                section="oidc_providers",
-                resource_type="oidc_provider",
-                item=item,
-                credential="client_secret",
             )
     if (
         isinstance(frigate, dict)

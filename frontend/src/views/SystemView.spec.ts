@@ -154,12 +154,10 @@ vi.mock("vue-i18n", () => ({
       const translations: Record<string, string> = {
         "system.main.title": "系统与运维设置",
         "system.main.navOverview": "系统概览与资源",
-        "system.main.navValidation": "生产就绪度预检",
         "system.main.general": "基础参数与网络",
         "system.main.time": "时钟与 NTP 策略",
         "system.main.navUsers": "用户权限 (RBAC)",
         "system.main.navApiTokens": "API 服务令牌",
-        "system.main.navOidc": "单点登录 (OIDC / SSO)",
         "system.main.notifications": "通知渠道 (Apprise)",
         "system.main.navAlertRules": "告警规则与防风暴",
         "system.main.aiFrigate": "Frigate AI 引擎配置",
@@ -203,15 +201,13 @@ vi.mock("vue-i18n", () => ({
 }))
 
 describe("SystemView (UniFi Protect Style)", () => {
-  it("renders 12 navigation rail items with footer and active indicator", async () => {
+  it("renders 10 navigation rail items with footer and active indicator", async () => {
     const wrapper = mount(SystemView, {
       global: {
         stubs: {
           UiIcon: true,
           SystemAccessControlPanel: true,
           SystemApiTokensPanel: true,
-          SystemOidcPanel: true,
-          SystemReleaseValidationPanel: true,
           SystemRecoveryKitPanel: true,
           SystemAlertRulesPanel: true,
           SystemSecretStorePanel: true
@@ -225,7 +221,7 @@ describe("SystemView (UniFi Protect Style)", () => {
     expect(wrapper.find(".system-nav__title").text()).toContain("系统运维 (System)")
 
     const navButtons = wrapper.findAll(".system-nav button")
-    expect(navButtons.length).toBe(12)
+    expect(navButtons.length).toBe(10)
     expect(navButtons[0].text()).toContain("系统概览与资源")
     expect(navButtons[0].classes()).toContain("system-nav__active")
 
@@ -241,8 +237,6 @@ describe("SystemView (UniFi Protect Style)", () => {
           UiIcon: true,
           SystemAccessControlPanel: true,
           SystemApiTokensPanel: true,
-          SystemOidcPanel: true,
-          SystemReleaseValidationPanel: true,
           SystemRecoveryKitPanel: true,
           SystemAlertRulesPanel: true,
           SystemSecretStorePanel: true
@@ -267,8 +261,6 @@ describe("SystemView (UniFi Protect Style)", () => {
           UiIcon: true,
           SystemAccessControlPanel: true,
           SystemApiTokensPanel: true,
-          SystemOidcPanel: true,
-          SystemReleaseValidationPanel: true,
           SystemRecoveryKitPanel: true,
           SystemAlertRulesPanel: true,
           SystemSecretStorePanel: true
@@ -289,35 +281,6 @@ describe("SystemView (UniFi Protect Style)", () => {
     expect(wrapper.text()).toContain("事件录制预录缓存 (Prebuffer)")
   })
 
-  it("switches to validation panel and mounts SystemReleaseValidationPanel", async () => {
-    const wrapper = mount(SystemView, {
-      global: {
-        stubs: {
-          UiIcon: true,
-          SystemAccessControlPanel: true,
-          SystemApiTokensPanel: true,
-          SystemOidcPanel: {
-            template: `<div class="stub-oidc">SystemOidcPanel</div>`
-          },
-          SystemReleaseValidationPanel: {
-            template: `<div class="stub-validation">SystemReleaseValidationPanel</div>`
-          },
-          SystemRecoveryKitPanel: true,
-          SystemAlertRulesPanel: true,
-          SystemSecretStorePanel: true
-        }
-      }
-    })
-    await flushPromises()
-
-    const navButtons = wrapper.findAll(".system-nav button")
-    const validationBtn = navButtons.find((btn) => btn.text().includes("生产就绪度预检"))
-    expect(validationBtn).toBeDefined()
-    await validationBtn!.trigger("click")
-    await flushPromises()
-
-    expect(wrapper.find(".stub-validation").exists()).toBe(true)
-  })
 
   it("switches to time tab and displays NTP sync configuration and camera drift", async () => {
     const wrapper = mount(SystemView, {
@@ -326,8 +289,6 @@ describe("SystemView (UniFi Protect Style)", () => {
           UiIcon: true,
           SystemAccessControlPanel: true,
           SystemApiTokensPanel: true,
-          SystemOidcPanel: true,
-          SystemReleaseValidationPanel: true,
           SystemRecoveryKitPanel: true,
           SystemAlertRulesPanel: true,
           SystemSecretStorePanel: true
@@ -354,8 +315,6 @@ describe("SystemView (UniFi Protect Style)", () => {
           UiIcon: true,
           SystemAccessControlPanel: true,
           SystemApiTokensPanel: true,
-          SystemOidcPanel: true,
-          SystemReleaseValidationPanel: true,
           SystemRecoveryKitPanel: true,
           SystemAlertRulesPanel: true,
           SystemSecretStorePanel: true

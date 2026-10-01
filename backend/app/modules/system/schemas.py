@@ -356,39 +356,3 @@ class ConfigurationImportApplyView(BaseModel):
     warnings: list[str]
 
 
-
-class ReleaseValidationArtifactView(BaseModel):
-    kind: Literal["benchmark", "soak"]
-    state: Literal[
-        "AVAILABLE",
-        "MISSING",
-        "INVALID",
-    ]
-    command: str
-    updated_at: datetime | None = None
-    report: dict[str, object] | None = None
-    error_code: str | None = None
-
-
-class ReleaseValidationView(BaseModel):
-    benchmark: ReleaseValidationArtifactView
-    soak: ReleaseValidationArtifactView
-
-
-class ReleaseReadinessCheckView(BaseModel):
-    name: Literal[
-        "benchmark",
-        "soak",
-        "verified_backup",
-    ]
-    passed: bool
-    code: str
-    details: dict[str, object]
-
-
-class ReleaseReadinessView(BaseModel):
-    expected_cameras: Literal[8, 16]
-    checked_at: datetime
-    max_age_hours: int
-    passed: bool
-    checks: list[ReleaseReadinessCheckView]

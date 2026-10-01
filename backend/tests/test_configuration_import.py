@@ -102,7 +102,6 @@ def test_empty_bundle_is_valid_and_reports_every_known_section(
         "storage_targets",
         "alert_policies",
         "notification_targets",
-        "oidc_providers",
         "frigate",
         "backup_policies",
     }
@@ -496,14 +495,6 @@ def test_credential_requirements_keep_section_order_and_multiple_needs(
                         "credentials_configured": True,
                     }
                 ],
-                "oidc_providers": [
-                    {
-                        "id": "o1",
-                        "name": "Office",
-                        "key": "office",
-                        "client_secret_configured": True,
-                    }
-                ],
                 "frigate": {"credentials_configured": True},
                 "backup_policies": [
                     {
@@ -524,7 +515,6 @@ def test_credential_requirements_keep_section_order_and_multiple_needs(
         ("storage_targets", "rclone_config"),
         ("notification_targets", "apprise_url"),
         ("notification_targets", "smtp_credentials"),
-        ("oidc_providers", "client_secret"),
         ("frigate", "integration_credentials"),
         ("backup_policies", "repository"),
         ("backup_policies", "repository_credentials"),
@@ -1174,27 +1164,6 @@ def test_unmatched_notification_target_requires_credentials(
     ]
 
 
-def test_unmatched_oidc_provider_requires_local_secret(
-    settings: Settings, database: Any
-) -> None:
-    document = bundle(
-        sections={
-            "oidc_providers": [
-                {"id": str(uuid.uuid4()), "key": "office", "name": "Office"}
-            ]
-        }
-    )
-
-    with database.session() as session:
-        result = ConfigurationImportService.apply(
-            session, settings=settings, bundle=document
-        )
-
-    assert [(item.resource_type, item.reason) for item in result.skipped] == [
-        ("oidc_provider", "credential_required")
-    ]
-
-
 def test_unmatched_backup_policy_requires_local_repository(
     settings: Settings, database: Any
 ) -> None:
@@ -1757,21 +1726,6 @@ def test_camera_group_maps_parent_before_child_and_preserves_members(
         if item.resource_type == "camera_group"
     ] == [("updated", str(parent_id)), ("created", str(child_id))]
     assert result.skipped == ()
-
-
-def test_an_oidc_provider_without_a_key_is_rejected(
-    settings: Settings,
-) -> None:
-    # `apply` matches providers by `key`; without it the lookup used to raise
-    # KeyError and escape as a 500.
-    payload = bundle(
-        sections={"oidc_providers": [{"id": "1" * 8, "issuer": "https://x"}]}
-    )
-
-    error = error_of(payload, settings)
-
-    assert error.code == "configuration_import_invalid"
-    assert error.details == {"path": "$.sections.oidc_providers[0].key"}
 
 
 # --- apply over HTTP --------------------------------------------------------

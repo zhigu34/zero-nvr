@@ -34,7 +34,6 @@ class ParsedSections:
     storage_targets: list[dict[str, Any]]
     alert_policies: list[dict[str, Any]]
     notification_targets: list[dict[str, Any]]
-    oidc_providers: list[dict[str, Any]]
     frigate: dict[str, Any] | None
     backup_policies: list[dict[str, Any]]
 
@@ -95,15 +94,6 @@ def parse_bundle(
             "$.sections.notification_targets"
         ),
     )
-    oidc_providers = service._items(
-        sections.get(
-            "oidc_providers",
-            [],
-        ),
-        path=(
-            "$.sections.oidc_providers"
-        ),
-    )
     frigate = sections.get("frigate")
     if (
         frigate is not None
@@ -142,7 +132,6 @@ def parse_bundle(
         storage_targets=storage_targets,
         alert_policies=alert_policies,
         notification_targets=notification_targets,
-        oidc_providers=oidc_providers,
         frigate=frigate,
         backup_policies=backup_policies,
     )

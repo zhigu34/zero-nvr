@@ -210,6 +210,12 @@ MIGRATION_POLICIES: tuple[MigrationPolicy, ...] = (
         SQLiteMigrationStrategy.BATCH,
         "add camera maintenance state",
     ),
+    MigrationPolicy(
+        "0018_drop_external_identities",
+        MigrationClass.A,
+        SQLiteMigrationStrategy.DIRECT,
+        "drop external identities table after OIDC removal",
+    ),
 )
 
 _POLICY_BY_REVISION = {

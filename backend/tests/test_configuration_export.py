@@ -32,9 +32,6 @@ def test_configuration_export_is_portable_and_secret_free(
     smtp_secret = (
         "smtp-password-never-export"
     )
-    oidc_secret = (
-        "oidc-secret-never-export"
-    )
     frigate_secret = (
         "frigate-secret-never-export"
     )
@@ -96,33 +93,6 @@ def test_configuration_export_is_portable_and_secret_free(
             },
         )
         assert notification.status_code == 201
-
-        roles = client.get(
-            "/api/v1/roles"
-        ).json()
-        viewer = next(
-            item
-            for item in roles
-            if item["name"] == "Viewer"
-        )
-        oidc = client.post(
-            "/api/v1/oidc/providers",
-            json={
-                "key": "authentik",
-                "name": "Authentik",
-                "issuer": (
-                    "https://id.example.test"
-                ),
-                "client_id": "zero-nvr",
-                "client_secret": oidc_secret,
-                "auto_provision": True,
-                "email_linking": True,
-                "default_role_ids": [
-                    viewer["id"]
-                ],
-            },
-        )
-        assert oidc.status_code == 201
 
         storage = client.post(
             "/api/v1/storage/targets",
@@ -205,7 +175,6 @@ def test_configuration_export_is_portable_and_secret_free(
         for secret in (
             camera_secret,
             smtp_secret,
-            oidc_secret,
             frigate_secret,
             rclone_secret,
         ):
@@ -263,16 +232,6 @@ def test_configuration_export_is_portable_and_secret_free(
         assert (
             storage_exports[0][
                 "credentials_configured"
-            ]
-            is True
-        )
-
-        oidc_exports = body[
-            "sections"
-        ]["oidc_providers"]
-        assert (
-            oidc_exports[0][
-                "client_secret_configured"
             ]
             is True
         )
@@ -385,16 +344,17 @@ def test_configuration_import_validation_checks_refs_and_secrets(
             bundle
         )
         with_secret["sections"][
-            "oidc_providers"
+            "storage_targets"
         ] = [
             {
                 "id": (
                     "11111111-1111-1111-"
                     "1111-111111111111"
                 ),
-                "key": "bad",
+                "type": "rclone",
+                "role": "archive",
                 "name": "Bad",
-                "client_secret": (
+                "rclone_config": (
                     "must-not-be-imported"
                 ),
             }

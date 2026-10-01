@@ -16,13 +16,10 @@ import {
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
 import {
-  createOidcProvider,
   createRole,
   createUser,
-  deleteOidcProvider,
   getRoleCameraScope,
   getUserCameraScope,
-  listOidcProviders,
   listPermissions,
   listRoles,
   listUsers,
@@ -30,43 +27,33 @@ import {
   setRoleCameraScope,
   setUserCameraScope,
   setUserEnabled,
-  updateOidcProvider,
   updateRole,
   updateUser,
   type AdminUser,
   type CameraScope,
-  type OidcProvider,
   type Role
 } from "../../api/system"
 import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
 import NoticeBanner from "../../components/ui/NoticeBanner.vue"
 
-import { confirmAction } from "../../composables/useConfirm"
 import { useAsyncResource } from "../../composables/useAsyncResource"
 
 const { loading, error, run } = useAsyncResource()
 
-// These prompts all remove or irreversibly change stored data, so the
-// dialog styles the accept action as destructive.
-const confirmDestroy = (message: string) =>
-  confirmAction({ message, danger: true })
-
 const { locale, t } = useI18n({ useScope: "global" })
 
-type AccessTab = "users" | "roles" | "oidc"
+type AccessTab = "users" | "roles"
 type EditorKind =
   | "user"
   | "role"
   | "password"
   | "scope"
-  | "oidc"
   | null
 
 const tab = ref<AccessTab>("users")
 const users = ref<AdminUser[]>([])
 const roles = ref<Role[]>([])
-const oidcProviders = ref<OidcProvider[]>([])
 const permissions = ref<string[]>([])
 const cameras = ref<CameraSummary[]>([])
 const cameraGroups = ref<CameraGroup[]>([])
@@ -75,7 +62,6 @@ const notice = ref<string | null>(null)
 const editorKind = ref<EditorKind>(null)
 const editingUser = ref<AdminUser | null>(null)
 const editingRole = ref<Role | null>(null)
-const editingOidc = ref<OidcProvider | null>(null)
 const scopeOwnerType = ref<"user" | "role">("user")
 const scopeOwnerId = ref("")
 const scopeOwnerLabel = ref("")
@@ -93,18 +79,6 @@ const roleForm = reactive({
   name: "",
   description: "",
   permissionIds: [] as string[]
-})
-
-const oidcForm = reactive({
-  key: "",
-  name: "",
-  issuer: "",
-  clientId: "",
-  clientSecret: "",
-  enabled: true,
-  autoProvision: false,
-  emailLinking: false,
-  defaultRoleIds: [] as string[]
 })
 
 const issuedReset = ref<{
@@ -138,7 +112,6 @@ function closeEditor(): void {
   editorKind.value = null
   editingUser.value = null
   editingRole.value = null
-  editingOidc.value = null
   scopeOwnerId.value = ""
   scopeOwnerLabel.value = ""
   scopeForm.groupIds = []
@@ -149,21 +122,18 @@ async function refresh(): Promise<void> {
     const [
       userItems,
       roleItems,
-      oidcItems,
       permissionItems,
       cameraItems,
       groupItems
     ] = await Promise.all([
       listUsers(),
       listRoles(),
-      listOidcProviders(),
       listPermissions(),
       listCameras().catch(() => []),
       listCameraGroups().catch(() => [])
     ])
     users.value = userItems
     roles.value = roleItems
-    oidcProviders.value = oidcItems
     permissions.value = permissionItems
     cameras.value = cameraItems
     cameraGroups.value = groupItems
@@ -319,137 +289,6 @@ async function saveRole(): Promise<void> {
   }
 }
 
-function openCreateOidc(): void {
-  editingOidc.value = null
-  oidcForm.key = ""
-  oidcForm.name = ""
-  oidcForm.issuer = ""
-  oidcForm.clientId = ""
-  oidcForm.clientSecret = ""
-  oidcForm.enabled = true
-  oidcForm.autoProvision = false
-  oidcForm.emailLinking = false
-  const viewer = roles.value.find(
-    (item) => item.name === "Viewer"
-  )
-  oidcForm.defaultRoleIds = viewer
-    ? [viewer.id]
-    : []
-  editorKind.value = "oidc"
-  notice.value = null
-}
-
-function openEditOidc(provider: OidcProvider): void {
-  editingOidc.value = provider
-  oidcForm.key = provider.key
-  oidcForm.name = provider.name
-  oidcForm.issuer = provider.issuer
-  oidcForm.clientId = provider.client_id
-  oidcForm.clientSecret = ""
-  oidcForm.enabled = provider.enabled
-  oidcForm.autoProvision =
-    provider.auto_provision
-  oidcForm.emailLinking =
-    provider.email_linking
-  oidcForm.defaultRoleIds = [
-    ...provider.default_role_ids
-  ]
-  editorKind.value = "oidc"
-  notice.value = null
-}
-
-async function saveOidc(): Promise<void> {
-  saving.value = true
-  error.value = null
-  try {
-    if (
-      oidcForm.autoProvision &&
-      !oidcForm.defaultRoleIds.length
-    ) {
-      throw new Error(
-        t("system.access.defaultRoleRequired")
-      )
-    }
-
-    if (editingOidc.value) {
-      const changes: {
-        name: string
-        enabled: boolean
-        issuer: string
-        client_id: string
-        auto_provision: boolean
-        email_linking: boolean
-        default_role_ids: string[]
-        client_secret?: string
-      } = {
-        name: oidcForm.name.trim(),
-        enabled: oidcForm.enabled,
-        issuer: oidcForm.issuer.trim(),
-        client_id: oidcForm.clientId.trim(),
-        auto_provision: oidcForm.autoProvision,
-        email_linking: oidcForm.emailLinking,
-        default_role_ids: [
-          ...oidcForm.defaultRoleIds
-        ]
-      }
-      if (oidcForm.clientSecret) {
-        changes.client_secret =
-          oidcForm.clientSecret
-      }
-      await updateOidcProvider(
-        editingOidc.value.key,
-        changes
-      )
-      notice.value = t("system.access.oidcUpdated")
-    } else {
-      await createOidcProvider({
-        key: oidcForm.key.trim(),
-        name: oidcForm.name.trim(),
-        enabled: oidcForm.enabled,
-        issuer: oidcForm.issuer.trim(),
-        client_id: oidcForm.clientId.trim(),
-        client_secret:
-          oidcForm.clientSecret,
-        auto_provision:
-          oidcForm.autoProvision,
-        email_linking:
-          oidcForm.emailLinking,
-        default_role_ids: [
-          ...oidcForm.defaultRoleIds
-        ]
-      })
-      notice.value = t("system.access.oidcCreated")
-    }
-    closeEditor()
-    await refresh()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function removeOidc(
-  provider: OidcProvider
-): Promise<void> {
-  if (
-    !await confirmDestroy(
-      t("system.access.deleteOidcConfirm", { name: provider.name })
-    )
-  ) {
-    return
-  }
-
-  error.value = null
-  try {
-    await deleteOidcProvider(provider.key)
-    notice.value = t("system.access.oidcDeleted", { name: provider.name })
-    await refresh()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  }
-}
-
 async function openUserScope(user: AdminUser): Promise<void> {
   error.value = null
   try {
@@ -597,15 +436,6 @@ onMounted(() => {
           <UiIcon name="plus" :size="14" />
           {{ t("system.access.addRole") }}
         </button>
-        <button
-          v-else
-          class="button button--primary"
-          type="button"
-          @click="openCreateOidc"
-        >
-          <UiIcon name="plus" :size="14" />
-          {{ t("system.access.addOidc") }}
-        </button>
       </div>
     </header>
 
@@ -625,14 +455,6 @@ onMounted(() => {
       >
         {{ t("system.access.roles") }}
         <span>{{ roles.length }}</span>
-      </button>
-      <button
-        type="button"
-        :class="{ 'access-tab--active': tab === 'oidc' }"
-        @click="tab = 'oidc'"
-      >
-        OIDC
-        <span>{{ oidcProviders.length }}</span>
       </button>
     </div>
 
@@ -766,69 +588,6 @@ onMounted(() => {
           </button>
         </footer>
       </article>
-    </div>
-
-    <div v-else class="system-table-wrap">
-      <table class="system-table">
-        <thead>
-          <tr>
-            <th>{{ t("system.access.provider") }}</th>
-            <th>{{ t("system.access.issuer") }}</th>
-            <th>{{ t("system.access.provisioning") }}</th>
-            <th>{{ t("system.access.status") }}</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="!oidcProviders.length">
-            <td colspan="5">
-              {{ t("system.oidc.empty") }}
-            </td>
-          </tr>
-          <tr
-            v-for="provider in oidcProviders"
-            :key="provider.id"
-          >
-            <td>
-              <strong>{{ provider.name }}</strong>
-              <small>{{ provider.key }} · {{ provider.client_id }}</small>
-            </td>
-            <td>{{ provider.issuer }}</td>
-            <td>
-              {{
-                provider.auto_provision
-                  ? t("system.access.autoProvisionShort")
-                  : provider.email_linking
-                    ? t("system.access.verifiedEmailLinking")
-                    : t("system.access.linkedIdentitiesOnly")
-              }}
-            </td>
-            <td>
-              <StatusPill :variant="provider.enabled ? 'ok' : 'muted'">
-                {{ provider.enabled ? t("system.access.enabled") : t("system.access.disabled") }}
-              </StatusPill>
-            </td>
-            <td class="system-table__actions">
-              <div class="access-row-actions">
-                <button
-                  class="button button--ghost button--compact"
-                  type="button"
-                  @click="openEditOidc(provider)"
-                >
-                  {{ t("system.access.edit") }}
-                </button>
-                <button
-                  class="button button--ghost button--compact"
-                  type="button"
-                  @click="removeOidc(provider)"
-                >
-                  {{ t("system.access.delete") }}
-                </button>
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
     </div>
 
     <aside
@@ -1002,180 +761,6 @@ onMounted(() => {
             :disabled="saving"
           >
             {{ saving ? t("system.access.issuing") : t("system.access.issueResetToken") }}
-          </button>
-        </div>
-      </form>
-    </aside>
-
-    <aside
-      v-if="editorKind === 'oidc'"
-      class="system-drawer"
-    >
-      <header class="storage-editor__header">
-        <div>
-          <strong>
-            {{
-              editingOidc
-                ? t("system.access.editOidc")
-                : t("system.access.addOidc")
-            }}
-          </strong>
-          <span>
-            {{ t("system.access.oidcIdentityProvider") }}
-          </span>
-        </div>
-        <button
-          class="icon-button"
-          type="button"
-          @click="closeEditor"
-        >
-          <UiIcon name="close" :size="16" />
-        </button>
-      </header>
-
-      <form
-        class="storage-editor__form"
-        @submit.prevent="saveOidc"
-      >
-        <label>
-          <span>{{ t("system.access.providerKey") }}</span>
-          <input
-            v-model="oidcForm.key"
-            required
-            maxlength="64"
-            pattern="[a-z0-9][a-z0-9_-]{0,63}"
-            :disabled="Boolean(editingOidc)"
-            :placeholder="t('system.access.authentikKey')"
-          />
-          <small>
-            {{ t("system.access.providerKeyHint") }}
-          </small>
-        </label>
-
-        <label>
-          <span>{{ t("system.access.displayName") }}</span>
-          <input
-            v-model="oidcForm.name"
-            required
-            maxlength="128"
-            :placeholder="t('system.access.authentikName')"
-          />
-        </label>
-
-        <label>
-          <span>{{ t("system.access.issuerUrl") }}</span>
-          <input
-            v-model="oidcForm.issuer"
-            required
-            type="url"
-            placeholder="https://id.example.com/application/o/zero-nvr/"
-          />
-          <small>
-            {{ t("system.access.httpsHint") }}
-          </small>
-        </label>
-
-        <label>
-          <span>{{ t("system.access.clientId") }}</span>
-          <input
-            v-model="oidcForm.clientId"
-            required
-            autocomplete="off"
-          />
-        </label>
-
-        <label>
-          <span>{{ t("system.access.clientSecret") }}</span>
-          <input
-            v-model="oidcForm.clientSecret"
-            type="password"
-            :required="!editingOidc"
-            autocomplete="new-password"
-            :placeholder="
-              editingOidc
-                ? t('system.access.keepSecretPlaceholder')
-                : ''
-            "
-          />
-          <small>
-            {{ t("system.access.encryptedHint") }}
-          </small>
-        </label>
-
-        <label class="storage-check">
-          <input
-            v-model="oidcForm.enabled"
-            type="checkbox"
-          />
-          <span>{{ t("system.access.providerEnabled") }}</span>
-        </label>
-
-        <label class="storage-check">
-          <input
-            v-model="oidcForm.emailLinking"
-            type="checkbox"
-          />
-          <span>
-            {{ t("system.access.linkByVerifiedEmail") }}
-            <small>
-              {{ t("system.access.emailVerifiedHint") }}
-            </small>
-          </span>
-        </label>
-
-        <label class="storage-check">
-          <input
-            v-model="oidcForm.autoProvision"
-            type="checkbox"
-          />
-          <span>
-            {{ t("system.access.autoProvision") }}
-            <small>
-              {{ t("system.access.autoProvisionHint") }}
-            </small>
-          </span>
-        </label>
-
-        <fieldset class="system-role-list">
-          <legend>{{ t("system.access.defaultRoles") }}</legend>
-          <label
-            v-for="role in roles"
-            :key="role.id"
-          >
-            <input
-              v-model="oidcForm.defaultRoleIds"
-              type="checkbox"
-              :value="role.id"
-            />
-            <span>
-              <strong>{{ role.name }}</strong>
-              <small>
-                {{ role.description || t("system.access.noDescription") }}
-              </small>
-            </span>
-          </label>
-        </fieldset>
-
-        <div class="storage-editor__actions">
-          <button
-            class="button button--ghost"
-            type="button"
-            @click="closeEditor"
-          >
-            {{ t("system.access.cancel") }}
-          </button>
-          <button
-            class="button button--primary"
-            type="submit"
-            :disabled="saving"
-          >
-            {{
-              saving
-                ? t("system.access.saving")
-                : editingOidc
-                  ? t("system.access.saveProvider")
-                  : t("system.access.createProvider")
-            }}
           </button>
         </div>
       </form>

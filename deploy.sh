@@ -21,15 +21,6 @@ Usage:
   ./deploy.sh rollback [version]
   ./deploy.sh status
   ./deploy.sh doctor
-  ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
-  ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
-  ./deploy.sh resource-check <static|idle> [--max-age-hours HOURS]
-  ./deploy.sh resource-bounds-check
-  ./deploy.sh camera-acceptance <prepare|restart|status|verify> <camera-id> [--live-confirmed] [--playback-confirmed]
-  ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
-  ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
-  ./deploy.sh release-check <8|16> [--max-age-hours HOURS]
-  ./deploy.sh release-manifest <validate|show|record> [revision]
   ./deploy.sh migrate [--maintenance]
   ./deploy.sh database migrate <postgres|sqlite> [--managed] [--target-url-env NAME] [--backup-policy <id-or-name>] [--confirm-sqlite-workload]
   ./deploy.sh backup [reason] [policy-id-or-name]
@@ -986,61 +977,6 @@ case "$command" in
     ensure_env
     ensure_host_dirs
     ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/check.sh"
-    ;;
-  benchmark)
-    ensure_env
-    ensure_host_dirs
-    "$SCRIPT_DIR/benchmark.sh" "$@"
-    ;;
-  resource-baseline)
-    ensure_env
-    ensure_host_dirs
-    "$SCRIPT_DIR/resource-baseline.sh" "$@"
-    ;;
-  resource-check)
-    ensure_env
-    ensure_host_dirs
-    require_command python3
-    ZERO_NVR_ENV_FILE="$ENV_FILE" \
-      python3 "$SCRIPT_DIR/resource_check.py" "$@"
-    ;;
-  resource-bounds-check)
-    ensure_env
-    ensure_host_dirs
-    require_command python3
-    ZERO_NVR_ENV_FILE="$ENV_FILE" \
-      python3 "$SCRIPT_DIR/resource_bounds_check.py"
-    ;;
-  camera-acceptance)
-    ensure_env
-    ensure_host_dirs
-    "$SCRIPT_DIR/camera-acceptance.sh" "$@"
-    ;;
-  soak)
-    ensure_env
-    ensure_host_dirs
-    "$SCRIPT_DIR/soak.sh" "$@"
-    ;;
-  small-host-soak)
-    ensure_env
-    ensure_host_dirs
-    require_command python3
-    ZERO_NVR_ENV_FILE="$ENV_FILE" \
-      python3 "$SCRIPT_DIR/small_host_soak.py" "$@"
-    ;;
-  release-check)
-    ensure_env
-    ensure_host_dirs
-    "$SCRIPT_DIR/release-check.sh" "$@"
-    ;;
-  release-manifest)
-    subcommand="${1:-show}"
-    shift || true
-    if [[ "$subcommand" != "validate" ]]; then
-      ensure_env
-      ensure_host_dirs
-    fi
-    "$SCRIPT_DIR/release-manifest.sh" "$subcommand" "$@"
     ;;
   migrate)
     ensure_env

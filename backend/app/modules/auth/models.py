@@ -172,34 +172,6 @@ class PersonalApiToken(UUIDPrimaryKeyMixin, Base):
     last_used_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
-
-class ExternalIdentity(UUIDPrimaryKeyMixin, Base):
-    __tablename__ = "external_identities"
-    __table_args__ = (
-        UniqueConstraint(
-            "issuer",
-            "subject",
-            name="uq_external_identities_issuer_subject",
-        ),
-    )
-
-    user_id: Mapped[uuid.UUID] = mapped_column(
-        UUIDType,
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    issuer: Mapped[str] = mapped_column(String(512), nullable=False)
-    subject: Mapped[str] = mapped_column(String(512), nullable=False)
-    email: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        UTCDateTime(),
-        nullable=False,
-        default=utc_now,
-    )
-    last_login_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
-
-
 class SecretRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "secret_records"
     __table_args__ = (

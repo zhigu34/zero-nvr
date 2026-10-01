@@ -18,7 +18,6 @@ from .config_import_settings import apply_general_time
 from .config_import_roles import apply_roles
 from .config_import_devices import apply_devices
 from .config_import_notifications import apply_notification_targets
-from .config_import_oidc import apply_oidc_providers
 from .config_import_backups import apply_backup_policies
 from .config_import_alerts import apply_alert_policies
 from .config_import_storage import apply_storage_targets
@@ -178,10 +177,6 @@ class _ImportApply:
             notification_map=notification_map,
         )
 
-        apply_oidc_providers(
-            cls, session, settings=settings, sections=sections,
-            applied=applied, skipped=skipped, role_map=role_map,
-        )
         apply_backup_policies(
             cls, session, settings=settings, sections=sections,
             applied=applied, skipped=skipped,

@@ -21,6 +21,7 @@ A conflict should be fixed rather than left as permanent dual truth.
 ## Start here
 
 - [PROJECT_BASELINE.md](PROJECT_BASELINE.md) — highest-level non-negotiable V1 engineering baseline
+- [IMPLEMENTATION-MAP.md](IMPLEMENTATION-MAP.md) — 每个功能在代码里如何实现（实现态，含文件:行号证据）
 - [ARCHITECTURE.md](ARCHITECTURE.md) — product boundaries, ownership, data flows, runtime topology
 - [DOMAIN_MODEL.md](DOMAIN_MODEL.md) — canonical business entities and invariants
 - [TECH_STACK.md](TECH_STACK.md) — implementation/component choices

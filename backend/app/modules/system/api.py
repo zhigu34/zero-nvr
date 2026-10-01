@@ -37,10 +37,6 @@ from .camera_ntp import CameraNtpService
 from .config_export import ConfigurationExportService
 from .config_import import ConfigurationImportService
 from .health import SystemHealthService
-from .release_validation import (
-    ReleaseValidationReportService,
-)
-from .release_readiness import ReleaseReadinessService
 from .frigate_managed import ManagedFrigateConfigService
 from .settings import (
     RuntimeTuningSettings,
@@ -73,10 +69,6 @@ from .schemas import (
     FrigateProviderView,
     GeneralSystemSettingsView,
     HealthComponentView,
-    ReleaseReadinessCheckView,
-    ReleaseReadinessView,
-    ReleaseValidationArtifactView,
-    ReleaseValidationView,
     RuntimeTuningSettingsView,
     SecretStoreHealthView,
     SecretStoreRotationView,
@@ -1779,78 +1771,3 @@ async def camera_clock_health(
         results=results,
     )
 
-
-@router.get(
-    "/release-validation",
-    response_model=ReleaseValidationView,
-)
-def release_validation(
-    request: Request,
-    _context: AuthContext = Depends(
-        require_permission("system.view")
-    ),
-) -> ReleaseValidationView:
-    benchmark, soak = (
-        ReleaseValidationReportService(
-            request.app.state.settings
-        ).collect()
-    )
-
-    def view(item) -> ReleaseValidationArtifactView:
-        return ReleaseValidationArtifactView(
-            kind=item.kind,
-            state=item.state,
-            command=item.command,
-            updated_at=item.updated_at,
-            report=item.report,
-            error_code=item.error_code,
-        )
-
-    return ReleaseValidationView(
-        benchmark=view(benchmark),
-        soak=view(soak),
-    )
-
-
-@router.get(
-    "/release-readiness",
-    response_model=ReleaseReadinessView,
-)
-def release_readiness(
-    request: Request,
-    expected_cameras: int = 8,
-    max_age_hours: int = 168,
-    _context: AuthContext = Depends(
-        require_permission("system.view")
-    ),
-) -> ReleaseReadinessView:
-    try:
-        result = ReleaseReadinessService(
-            request.app.state.settings,
-            request.app.state.database,
-        ).collect(
-            expected_cameras=expected_cameras,
-            max_age_hours=max_age_hours,
-        )
-    except ValueError as exc:
-        raise ApiError(
-            status_code=400,
-            code="release_readiness_invalid_query",
-            message=str(exc),
-        ) from exc
-
-    return ReleaseReadinessView(
-        expected_cameras=result.expected_cameras,
-        checked_at=result.checked_at,
-        max_age_hours=result.max_age_hours,
-        passed=result.passed,
-        checks=[
-            ReleaseReadinessCheckView(
-                name=item.name,
-                passed=item.passed,
-                code=item.code,
-                details=item.details,
-            )
-            for item in result.checks
-        ],
-    )

@@ -56,7 +56,6 @@ _KNOWN_SECTIONS = frozenset(
         "storage_targets",
         "alert_policies",
         "notification_targets",
-        "oidc_providers",
         "frigate",
         "backup_policies",
     }

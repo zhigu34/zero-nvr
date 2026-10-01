@@ -1,4 +1,4 @@
-"""Validate retention, recording, and OIDC role references."""
+"""Validate retention and recording references."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ from .config_import_reference_ids import ReferenceIds
 def validate_recording_references(service: type, parsed: ParsedSections, ids: ReferenceIds) -> None:
     retention_policies = parsed.retention_policies
     recording_policies = parsed.recording_policies
-    oidc_providers = parsed.oidc_providers
     camera_ids = ids.camera_ids
     group_ids = ids.group_ids
     storage_ids = ids.storage_ids
@@ -96,48 +95,4 @@ def validate_recording_references(service: type, parsed: ParsedSections, ids: Re
             ),
             nullable=True,
         )
-
-    for index, item in enumerate(
-        oidc_providers
-    ):
-        # `apply` matches providers by this key, so a missing one used to
-        # reach it as a KeyError and escape as a 500.
-        if not isinstance(item.get("key"), str) or not item["key"]:
-            raise service._error(
-                "configuration_import_invalid",
-                "OIDC provider is missing its key.",
-                details={
-                    "path": (
-                        "$.sections.oidc_providers"
-                        f"[{index}].key"
-                    )
-                },
-            )
-        roles_raw = item.get(
-            "default_role_ids",
-            [],
-        )
-        if not isinstance(roles_raw, list):
-            raise service._error(
-                "configuration_import_invalid",
-                "OIDC default role ids must be a list.",
-                details={
-                    "path": (
-                        "$.sections.oidc_providers"
-                        f"[{index}].default_role_ids"
-                    )
-                },
-            )
-        for role_index, role_id in enumerate(
-            roles_raw
-        ):
-            service._require_ref(
-                role_id,
-                role_ids,
-                path=(
-                    "$.sections.oidc_providers"
-                    f"[{index}].default_role_ids"
-                    f"[{role_index}]"
-                ),
-            )
 

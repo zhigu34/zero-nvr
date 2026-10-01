@@ -34,7 +34,6 @@ def summarize_bundle(
     storage_targets = parsed.storage_targets
     alert_policies = parsed.alert_policies
     notification_targets = parsed.notification_targets
-    oidc_providers = parsed.oidc_providers
     frigate = parsed.frigate
     backup_policies = parsed.backup_policies
 
@@ -68,9 +67,6 @@ def summarize_bundle(
         ),
         "notification_targets": (
             len(notification_targets)
-        ),
-        "oidc_providers": (
-            len(oidc_providers)
         ),
         "frigate": (
             1

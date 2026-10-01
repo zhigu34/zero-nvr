@@ -192,7 +192,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         secret_key=(
             resolved_settings.secret_key.get_secret_value()
         ),
-        session_cookie="zero_nvr_oidc_state",
+        session_cookie="zero_nvr_session_state",
         max_age=600,
         same_site="lax",
         https_only=(

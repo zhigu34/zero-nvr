@@ -49,7 +49,6 @@ EXPECTED_FOUNDATION_TABLES = {
     "user_sessions",
     "password_reset_tokens",
     "personal_api_tokens",
-    "external_identities",
     "secret_records",
     "system_settings",
     "audit_events",
