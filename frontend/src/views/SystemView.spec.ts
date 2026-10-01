@@ -222,7 +222,7 @@ describe("SystemView (UniFi Protect Style)", () => {
 
     expect(wrapper.find(".system-workspace").exists()).toBe(true)
     expect(wrapper.find(".system-nav").exists()).toBe(true)
-    expect(wrapper.find(".system-nav__title").text()).toContain("系统与运维设置 (Settings)")
+    expect(wrapper.find(".system-nav__title").text()).toContain("系统运维 (System)")
 
     const navButtons = wrapper.findAll(".system-nav button")
     expect(navButtons.length).toBe(12)

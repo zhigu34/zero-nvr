@@ -8,6 +8,10 @@ import {
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
+
+import { useToast } from "../composables/useToast"
+
 import {
   acknowledgeAlert,
   listAlerts,
@@ -27,8 +31,10 @@ import {
 import {
   createRecordingProtection
 } from "../api/recordings"
+import ToastHost from "../components/ui/ToastHost.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import { useAsyncResource } from "../composables/useAsyncResource"
 
 type Period = "24h" | "7d" | "30d" | "all"
 type SortOrder = "newest" | "confidence" | "severity"
@@ -36,6 +42,7 @@ type ViewMode = "grid" | "table"
 
 const router = useRouter()
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t } = useI18n({ useScope: "global" })
 
 // Data state
@@ -44,13 +51,9 @@ const events = ref<EventItem[]>([])
 const alerts = ref<AlertItem[]>([])
 const selectedEvent = ref<EventItem | null>(null)
 const nextCursor = ref<string | null>(null)
-const loading = ref(false)
 const loadingMore = ref(false)
 const alertActionId = ref<string | null>(null)
-const error = ref<string | null>(null)
 const snapshotFailures = ref(new Set<string>())
-const toastMessage = ref<string | null>(null)
-let toastTimer: number | null = null
 
 // Filter state
 const period = ref<Period>("24h")
@@ -65,14 +68,8 @@ const viewMode = ref<ViewMode>("grid")
 const inspectorOpen = ref(true)
 const auditNote = ref("")
 
-function showToast(msg: string): void {
-  toastMessage.value = msg
-  if (toastTimer !== null) clearTimeout(toastTimer)
-  toastTimer = window.setTimeout(() => {
-    toastMessage.value = null
-    toastTimer = null
-  }, 3000)
-}
+// Dwell time is shared with the other surfaces; the composable owns the timer.
+const { showToast } = useToast(3000)
 
 const cameraMap = computed(() =>
   new Map(cameras.value.map((c) => [c.id, c]))
@@ -99,27 +96,38 @@ const alertsByEvent = computed(() => {
 })
 
 // Counts per category
+// 分类筛选只暴露后端真实产出的事件类别：
+// motion（ONVIF 移动检测）、storage（storage_health 存储告警）、
+// camera（source_connectivity / tamper / offline 摄像头异常）。
+// Frigate 式 AI 类别（person/vehicle/…）目前没有生产者，已随假筛选一并移除；
+// 接入 Frigate 后在此扩充即可。
+function categoryMatches(cat: string | null | undefined, key: string): boolean {
+  const c = (cat || "").toLowerCase()
+  if (key === "motion") return c.includes("motion")
+  if (key === "storage") return c.includes("storage")
+  if (key === "camera") {
+    return (
+      c.includes("connectivity") ||
+      c.includes("tamper") ||
+      c.includes("offline")
+    )
+  }
+  return true
+}
+
 const categoryCounts = computed(() => {
   const counts: Record<string, number> = {
     all: events.value.length,
-    person: 0,
-    vehicle: 0,
-    package: 0,
-    animal: 0,
     motion: 0,
-    critical: 0,
+    storage: 0,
+    camera: 0,
     protected: 0
   }
 
   for (const e of events.value) {
-    const cat = (e.category || "").toLowerCase()
-    if (cat.includes("person") || cat.includes("human")) counts.person++
-    else if (cat.includes("car") || cat.includes("veh")) counts.vehicle++
-    else if (cat.includes("pack")) counts.package++
-    else if (cat.includes("anim") || cat.includes("pet")) counts.animal++
-    else if (cat.includes("motion")) counts.motion++
-
-    if (e.severity === "critical") counts.critical++
+    if (categoryMatches(e.category, "motion")) counts.motion++
+    else if (categoryMatches(e.category, "storage")) counts.storage++
+    else if (categoryMatches(e.category, "camera")) counts.camera++
     if (Boolean(e.metadata?.protected)) counts.protected++
   }
 
@@ -157,13 +165,11 @@ const filteredEvents = computed(() => {
 
   // Category filter
   if (selectedCategory.value !== "all") {
-    if (selectedCategory.value === "critical") {
-      list = list.filter((e) => e.severity === "critical")
-    } else if (selectedCategory.value === "protected") {
+    if (selectedCategory.value === "protected") {
       list = list.filter((e) => Boolean(e.metadata?.protected))
     } else {
       list = list.filter((e) =>
-        (e.category || "").toLowerCase().includes(selectedCategory.value)
+        categoryMatches(e.category, selectedCategory.value)
       )
     }
   }
@@ -238,9 +244,7 @@ function periodRange(): [Date, Date] {
 
 async function refresh(): Promise<void> {
   const [from, to] = periodRange()
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [eventsPage, alertsPage] = await Promise.all([
       listEvents({
         cameraId: selectedCameraId.value || null,
@@ -264,11 +268,7 @@ async function refresh(): Promise<void> {
     } else if (!selectedEvent.value && events.value.length > 0) {
       selectedEvent.value = events.value[0]
     }
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function resetFilters(): void {
@@ -320,7 +320,7 @@ async function lockEvent(item: EventItem): Promise<void> {
     item.metadata = { ...(item.metadata || {}), protected: true }
     showToast("已成功为该事件添加永久锁定保护")
   } catch (caught) {
-    showToast(`加锁失败: ${errorMessage(caught)}`)
+    showToast(t("events.toast.protectFailed", { error: errorMessage(caught) }))
   }
 }
 
@@ -337,7 +337,7 @@ async function ackEventAlert(item: EventItem): Promise<void> {
     if (idx >= 0) alerts.value.splice(idx, 1, updated)
     showToast("告警已标记为确认")
   } catch (caught) {
-    showToast(`确认失败: ${errorMessage(caught)}`)
+    showToast(t("events.toast.acknowledgeFailed", { error: errorMessage(caught) }))
   }
 }
 
@@ -350,18 +350,14 @@ async function batchAcknowledgeEvents(): Promise<void> {
   try {
     await Promise.all(openList.slice(0, 10).map((a) => acknowledgeAlert(a.id)))
     await refresh()
-    showToast(`成功批量确认了 ${Math.min(openList.length, 10)} 条告警`)
+    showToast(
+      t("events.toast.batchAcknowledged", {
+        count: Math.min(openList.length, 10)
+      })
+    )
   } catch (caught) {
-    showToast(`批量确认失败: ${errorMessage(caught)}`)
+    showToast(t("events.toast.batchAcknowledgeFailed", { error: errorMessage(caught) }))
   }
-}
-
-function batchProtectEvents(): void {
-  showToast("批量加锁已启动，正在保护筛选的事件...")
-}
-
-function batchExportEvents(): void {
-  showToast("批量切片导出作业已提交至导出队列")
 }
 
 function downloadSnapshot(item: EventItem): void {
@@ -389,14 +385,21 @@ function getDurationStr(item: EventItem): string {
   return `${Math.max(1, sec)}s`
 }
 
-function getCategoryIcon(cat: string): string {
-  const c = cat.toLowerCase()
-  if (c.includes("person") || c.includes("human")) return "👤"
-  if (c.includes("car") || c.includes("veh")) return "🚗"
-  if (c.includes("pack")) return "📦"
-  if (c.includes("anim") || c.includes("pet")) return "🐾"
-  return "⚡"
+function categoryIconName(cat: string | null | undefined): string {
+  const c = (cat || "").toLowerCase()
+  if (c.includes("motion")) return "activity"
+  if (c.includes("storage")) return "storage"
+  if (
+    c.includes("connectivity") ||
+    c.includes("tamper") ||
+    c.includes("offline")
+  ) {
+    return "warning"
+  }
+  return "events"
 }
+
+useGlobalRefresh(refresh)
 
 onMounted(async () => {
   if (auth.hasPermission("camera.view")) {
@@ -407,12 +410,9 @@ onMounted(async () => {
     }
   }
   await refresh()
-  window.addEventListener("zero-nvr:refresh", refresh)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener("zero-nvr:refresh", refresh)
-  if (toastTimer !== null) clearTimeout(toastTimer)
 })
 </script>
 
@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
       <div class="header-left">
         <div class="title-tag">
           <span class="blue-dot" />
-          <span>事件与告警处理中心 (Events & Detection Center)</span>
+          <span>事件中心 (Events)</span>
         </div>
         <div class="header-divider" />
         <div class="kpi-group">
@@ -454,24 +454,6 @@ onBeforeUnmount(() => {
           <UiIcon name="check" :size="13" class="text-emerald" />
           <span>批量确认</span>
         </button>
-
-        <button
-          type="button"
-          class="btn-batch"
-          @click="batchProtectEvents"
-        >
-          <UiIcon name="shield" :size="13" class="text-amber" />
-          <span>批量加锁</span>
-        </button>
-
-        <button
-          type="button"
-          class="btn-batch btn-batch--primary"
-          @click="batchExportEvents"
-        >
-          <UiIcon name="export" :size="13" />
-          <span>批量导出</span>
-        </button>
       </div>
     </header>
 
@@ -491,56 +473,32 @@ onBeforeUnmount(() => {
           <button
             type="button"
             class="chip-pill"
-            :class="{ 'chip-pill--active': selectedCategory === 'person' }"
-            @click="selectedCategory = 'person'"
-          >
-            <span>👤 人员</span>
-            <span class="chip-count">{{ categoryCounts.person }}</span>
-          </button>
-          <button
-            type="button"
-            class="chip-pill"
-            :class="{ 'chip-pill--active': selectedCategory === 'vehicle' }"
-            @click="selectedCategory = 'vehicle'"
-          >
-            <span>🚗 车辆</span>
-            <span class="chip-count">{{ categoryCounts.vehicle }}</span>
-          </button>
-          <button
-            type="button"
-            class="chip-pill"
-            :class="{ 'chip-pill--active': selectedCategory === 'package' }"
-            @click="selectedCategory = 'package'"
-          >
-            <span>📦 包裹</span>
-            <span class="chip-count">{{ categoryCounts.package }}</span>
-          </button>
-          <button
-            type="button"
-            class="chip-pill"
-            :class="{ 'chip-pill--active': selectedCategory === 'animal' }"
-            @click="selectedCategory = 'animal'"
-          >
-            <span>🐾 动物</span>
-            <span class="chip-count">{{ categoryCounts.animal }}</span>
-          </button>
-          <button
-            type="button"
-            class="chip-pill"
             :class="{ 'chip-pill--active': selectedCategory === 'motion' }"
             @click="selectedCategory = 'motion'"
           >
-            <span>⚡ 动检</span>
+            <UiIcon name="activity" :size="12" />
+            <span>移动检测</span>
             <span class="chip-count">{{ categoryCounts.motion }}</span>
           </button>
           <button
             type="button"
-            class="chip-pill chip-pill--critical"
-            :class="{ 'chip-pill--active': selectedCategory === 'critical' }"
-            @click="selectedCategory = 'critical'"
+            class="chip-pill"
+            :class="{ 'chip-pill--active': selectedCategory === 'storage' }"
+            @click="selectedCategory = 'storage'"
           >
-            <span>🚨 严重告警</span>
-            <span class="chip-count">{{ categoryCounts.critical }}</span>
+            <UiIcon name="storage" :size="12" />
+            <span>存储告警</span>
+            <span class="chip-count">{{ categoryCounts.storage }}</span>
+          </button>
+          <button
+            type="button"
+            class="chip-pill"
+            :class="{ 'chip-pill--active': selectedCategory === 'camera' }"
+            @click="selectedCategory = 'camera'"
+          >
+            <UiIcon name="warning" :size="12" />
+            <span>摄像头异常</span>
+            <span class="chip-count">{{ categoryCounts.camera }}</span>
           </button>
           <button
             type="button"
@@ -548,7 +506,8 @@ onBeforeUnmount(() => {
             :class="{ 'chip-pill--active': selectedCategory === 'protected' }"
             @click="selectedCategory = 'protected'"
           >
-            <span>🛡️ 加锁保护</span>
+            <UiIcon name="shield" :size="12" />
+            <span>加锁保护</span>
             <span class="chip-count">{{ categoryCounts.protected }}</span>
           </button>
         </div>
@@ -559,7 +518,7 @@ onBeforeUnmount(() => {
           <input
             v-model="searchQuery"
             type="search"
-            placeholder="搜索车牌 / 区域 / 机位 / 标签..."
+            placeholder="搜索机位 / 区域 / 标签..."
             class="search-input"
           />
         </div>
@@ -595,9 +554,9 @@ onBeforeUnmount(() => {
             <span class="select-label">级别:</span>
             <select v-model="selectedSeverity" class="filter-select">
               <option value="all">全部级别</option>
-              <option value="critical">🚨 严重 (Critical)</option>
-              <option value="warning">⚠️ 警告 (Warning)</option>
-              <option value="info">ℹ️ 提示 (Info)</option>
+              <option value="critical">严重 (Critical)</option>
+              <option value="warning">警告 (Warning)</option>
+              <option value="info">提示 (Info)</option>
             </select>
           </div>
 
@@ -606,8 +565,8 @@ onBeforeUnmount(() => {
             <span class="select-label">处理状态:</span>
             <select v-model="selectedStatus" class="filter-select">
               <option value="all">全部状态</option>
-              <option value="open">🔴 待处理 (Open)</option>
-              <option value="acknowledged">🟢 已确认 (Acknowledged)</option>
+              <option value="open">待处理 (Open)</option>
+              <option value="acknowledged">已确认 (Acknowledged)</option>
             </select>
           </div>
 
@@ -619,9 +578,9 @@ onBeforeUnmount(() => {
         <!-- Sort and View Mode Toggle -->
         <div class="view-controls">
           <select v-model="sortOrder" class="filter-select sort-select">
-            <option value="newest">🕒 时间最新优先</option>
-            <option value="confidence">🎯 置信度最高</option>
-            <option value="severity">🚨 严重级别最高</option>
+            <option value="newest">时间最新优先</option>
+            <option value="confidence">置信度最高</option>
+            <option value="severity">严重级别最高</option>
           </select>
 
           <div class="mode-toggle">
@@ -708,12 +667,13 @@ onBeforeUnmount(() => {
                 @error="snapshotFailures.add(event.id)"
               />
               <div v-else class="card-thumb-fallback">
-                <span>{{ getCategoryIcon(event.category) }}</span>
+                <UiIcon :name="categoryIconName(event.category)" :size="20" />
               </div>
 
               <!-- Top category badge -->
               <span class="card-badge-type">
-                {{ getCategoryIcon(event.category) }} {{ event.category || "事件" }}
+                <UiIcon :name="categoryIconName(event.category)" :size="11" />
+                {{ event.category || "事件" }}
                 {{ event.confidence ? `· ${(event.confidence * 100).toFixed(0)}%` : "" }}
               </span>
 
@@ -806,12 +766,15 @@ onBeforeUnmount(() => {
                     @error="snapshotFailures.add(event.id)"
                   />
                   <span v-else class="table-thumb-fallback">
-                    {{ getCategoryIcon(event.category) }}
+                    <UiIcon :name="categoryIconName(event.category)" :size="16" />
                   </span>
                 </td>
                 <td class="font-mono">{{ formatDate(event.started_at) }} {{ formatTime(event.started_at) }}</td>
                 <td>{{ cameraMap.get(event.camera_id ?? "")?.name || "Camera" }}</td>
-                <td>{{ getCategoryIcon(event.category) }} {{ event.category }}</td>
+                <td>
+                  <UiIcon :name="categoryIconName(event.category)" :size="11" />
+                  {{ event.category }}
+                </td>
                 <td class="font-mono">{{ event.confidence ? `${(event.confidence * 100).toFixed(1)}%` : "—" }}</td>
                 <td>{{ event.label || event.zone || "—" }}</td>
                 <td>
@@ -825,7 +788,7 @@ onBeforeUnmount(() => {
                   <span v-else class="text-muted">—</span>
                 </td>
                 <td>
-                  <span v-if="event.metadata?.protected" class="text-amber">🛡️ 加锁</span>
+                  <span v-if="event.metadata?.protected" class="text-amber protected-badge"><UiIcon name="shield" :size="11" /> 加锁</span>
                   <span v-else class="text-muted">轮转</span>
                 </td>
                 <td class="text-right table-actions" @click.stop>
@@ -846,7 +809,7 @@ onBeforeUnmount(() => {
 
         <!-- Empty state -->
         <div v-else class="events-empty">
-          <div class="empty-icon">🔍</div>
+          <div class="empty-icon"><UiIcon name="search" :size="26" /></div>
           <div class="empty-title">未找到符合当前复合筛选条件的事件</div>
           <div class="empty-desc">请尝试放宽时段、清空搜索关键字或重置分类</div>
           <button type="button" class="empty-btn" @click="resetFilters">
@@ -868,7 +831,7 @@ onBeforeUnmount(() => {
             title="关闭详情面板"
             @click="inspectorOpen = false"
           >
-            ✕
+            <UiIcon name="close" :size="14" />
           </button>
         </div>
 
@@ -883,7 +846,9 @@ onBeforeUnmount(() => {
               @error="snapshotFailures.add(selectedEvent.id)"
             />
             <div v-else class="inspector-img-fallback">
-              <span class="fallback-big-icon">{{ getCategoryIcon(selectedEvent.category) }}</span>
+              <span class="fallback-big-icon">
+                <UiIcon :name="categoryIconName(selectedEvent.category)" :size="26" />
+              </span>
             </div>
 
             <!-- Simulated bounding box overlay -->
@@ -942,7 +907,7 @@ onBeforeUnmount(() => {
               <div class="fact-item">
                 <span class="fact-label">存储保护:</span>
                 <span class="fact-value" :class="selectedEvent.metadata?.protected ? 'text-amber' : 'text-muted'">
-                  {{ selectedEvent.metadata?.protected ? "🛡️ 永久加锁" : "常规留存" }}
+                  {{ selectedEvent.metadata?.protected ? "永久加锁" : "常规留存" }}
                 </span>
               </div>
               <div class="fact-item">
@@ -1002,9 +967,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Toast Notification -->
-    <div v-if="toastMessage" class="toast-popup">
-      {{ toastMessage }}
-    </div>
+    <ToastHost surface-class="toast-popup" />
   </div>
 </template>
 
@@ -1129,17 +1092,6 @@ onBeforeUnmount(() => {
   cursor: not-allowed;
 }
 
-.btn-batch--primary {
-  background: var(--uf-accent);
-  border-color: var(--uf-accent);
-  color: #ffffff;
-  box-shadow: 0 2px 8px var(--uf-accent-glow);
-}
-
-.btn-batch--primary:hover {
-  background: var(--uf-accent-hover);
-}
-
 /* Filter toolbar */
 .filter-toolbar {
   background-color: var(--uf-bg-card-sub);
@@ -1189,7 +1141,7 @@ onBeforeUnmount(() => {
 .chip-pill--active {
   background: var(--uf-accent) !important;
   border-color: var(--uf-accent) !important;
-  color: #ffffff !important;
+  color: var(--text-on-accent) !important;
   box-shadow: 0 0 10px var(--uf-accent-glow);
 }
 
@@ -1310,7 +1262,7 @@ onBeforeUnmount(() => {
 
 .mode-btn--active {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 /* Histogram */
@@ -1676,7 +1628,7 @@ onBeforeUnmount(() => {
   padding: 6px 14px;
   border-radius: 8px;
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
   border: none;
   font-size: 12px;
   cursor: pointer;
@@ -1796,7 +1748,7 @@ onBeforeUnmount(() => {
   border-radius: 10px;
   background: var(--uf-accent);
   border: none;
-  color: #ffffff;
+  color: var(--text-on-accent);
   font-size: 12px;
   font-weight: 700;
   display: flex;

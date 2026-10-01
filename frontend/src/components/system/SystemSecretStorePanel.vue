@@ -9,22 +9,35 @@ import {
   type SecretStoreHealth
 } from "../../api/system"
 import { useAuthStore } from "../../stores/auth"
+import { type StatusVariant } from "../ui/StatusPill.vue"
+import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t } = useI18n({ useScope: "global" })
 const health = ref<SecretStoreHealth | null>(null)
-const loading = ref(false)
 const rotating = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
-function statusClass(
+// Returns a variant name rather than a class string so the closed union in
+// StatusPill rejects a variant with no CSS rule — the failure mode that left
+// --warning/--danger unstyled for months.
+function statusVariant(
   value: SecretStoreHealth["status"]
-): string {
-  if (value === "OK") return "status-pill--ok"
-  if (value === "ERROR") return "status-pill--error"
-  return "status-pill--muted"
+): StatusVariant {
+  if (value === "OK") return "ok"
+  if (value === "ERROR") return "error"
+  return "muted"
 }
 
 function statusMessage(
@@ -52,15 +65,9 @@ function statusLabel(value: SecretStoreHealth["status"]): string {
 async function load(): Promise<void> {
   if (!auth.hasPermission("system.view")) return
 
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     health.value = await getSecretStoreHealth()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function rotate(): Promise<void> {
@@ -74,7 +81,7 @@ async function rotate(): Promise<void> {
 
   const staleRecords = health.value.stale_records
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("system.secretStore.rotateConfirm", { count: staleRecords })
     )
   ) {
@@ -122,15 +129,17 @@ onMounted(() => {
       </button>
     </header>
 
-    <div v-if="error" class="secret-store-panel__message secret-store-panel__message--error">
-      <UiIcon name="warning" :size="14" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="secret-store-panel__message secret-store-panel__message--error"
+      variant="error" :icon-size="14"
+    >{{ error }}</NoticeBanner>
 
-    <div v-if="notice" class="secret-store-panel__message">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="secret-store-panel__message"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
     <div v-if="health" class="secret-store-panel__body">
       <div class="secret-store-panel__status">
@@ -138,12 +147,9 @@ onMounted(() => {
           <span>{{ t("system.secretStore.keyringHealth") }}</span>
           <strong>{{ statusMessage(health) }}</strong>
         </div>
-        <span
-          class="status-pill"
-          :class="statusClass(health.status)"
-        >
+        <StatusPill :variant="statusVariant(health.status)">
           {{ statusLabel(health.status) }}
-        </span>
+        </StatusPill>
       </div>
 
       <dl class="secret-store-panel__metrics">

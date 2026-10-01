@@ -1,11 +1,9 @@
 <script setup lang="ts">
-import {
-  computed,
-  onBeforeUnmount,
-  onMounted,
-  ref
-} from "vue"
+import { computed, ref } from "vue"
 import { useI18n } from "vue-i18n"
+
+import { useDismissable } from "../../composables/useDismissable"
+import UiIcon from "./UiIcon.vue"
 
 import {
   type AppLocale,
@@ -48,41 +46,7 @@ function choose(next: AppLocale): void {
   open.value = false
 }
 
-function closeOnOutside(event: PointerEvent): void {
-  if (
-    !open.value ||
-    root.value?.contains(event.target as Node)
-  ) {
-    return
-  }
-  open.value = false
-}
-
-function closeOnEscape(event: KeyboardEvent): void {
-  if (event.key === "Escape") open.value = false
-}
-
-onMounted(() => {
-  window.addEventListener(
-    "pointerdown",
-    closeOnOutside
-  )
-  window.addEventListener(
-    "keydown",
-    closeOnEscape
-  )
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener(
-    "pointerdown",
-    closeOnOutside
-  )
-  window.removeEventListener(
-    "keydown",
-    closeOnEscape
-  )
-})
+useDismissable(open, root)
 </script>
 
 <template>
@@ -126,7 +90,7 @@ onBeforeUnmount(() => {
           class="language-menu__check"
           aria-hidden="true"
         >
-          ✓
+          <UiIcon name="check" :size="11" />
         </span>
       </button>
     </div>

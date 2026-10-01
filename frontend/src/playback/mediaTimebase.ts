@@ -9,17 +9,6 @@ export function absoluteMediaTimeMs(
   )
 }
 
-export function mediaTimeSecondsForAbsoluteMs(
-  anchorMs: number,
-  absoluteTimeMs: number,
-  originSeconds: number
-): number {
-  return (
-    originSeconds +
-    (absoluteTimeMs - anchorMs) / 1000
-  )
-}
-
 export function mediaTimelineOriginSeconds(
   currentTimeSeconds: number,
   seekableStartSeconds: number | null

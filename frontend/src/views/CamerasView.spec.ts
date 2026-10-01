@@ -154,7 +154,7 @@ describe("CamerasView - Devices & Discovery Center", () => {
     })
     await flushPromises()
 
-    expect(wrapper.find(".devices-title").text()).toContain("Devices & Discovery")
+    expect(wrapper.find(".devices-title").text()).toContain("机位管理 (Cameras)")
     expect(wrapper.text()).toContain("发现新摄像机")
     expect(wrapper.text()).toContain("CSV 批量导入")
     expect(wrapper.text()).not.toContain("导出 CSV")

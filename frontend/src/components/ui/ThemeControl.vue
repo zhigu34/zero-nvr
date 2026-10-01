@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from "vue"
+import { computed, ref } from "vue"
 import { useI18n } from "vue-i18n"
+
+import { useDismissable } from "../../composables/useDismissable"
 
 import {
   type ThemePreference,
@@ -50,24 +52,7 @@ function choose(preference: ThemePreference): void {
   menuOpen.value = false
 }
 
-function closeOnOutside(event: PointerEvent): void {
-  if (!menuOpen.value || root.value?.contains(event.target as Node)) return
-  menuOpen.value = false
-}
-
-function closeOnEscape(event: KeyboardEvent): void {
-  if (event.key === "Escape") menuOpen.value = false
-}
-
-onMounted(() => {
-  window.addEventListener("pointerdown", closeOnOutside)
-  window.addEventListener("keydown", closeOnEscape)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("pointerdown", closeOnOutside)
-  window.removeEventListener("keydown", closeOnEscape)
-})
+useDismissable(menuOpen, root)
 </script>
 
 <template>

@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import { useI18n } from "vue-i18n"
 
+import { DATE_TIME_WITH_YEAR, formatDateTime } from "../../utils/format"
+
 import {
   createApiToken,
   listApiTokens,
@@ -11,15 +13,24 @@ import {
 } from "../../api/auth"
 import { errorMessage } from "../../api/client"
 import { useAuthStore } from "../../stores/auth"
+import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { locale, t } = useI18n({ useScope: "global" })
 const tokens = ref<PersonalApiToken[]>([])
-const loading = ref(false)
 const saving = ref(false)
 const panelOpen = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const created = ref<CreatedPersonalApiToken | null>(null)
 
@@ -51,26 +62,13 @@ function statusLabel(value: string): string {
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return "—"
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  }).format(new Date(value))
+  return formatDateTime(value, DATE_TIME_WITH_YEAR, { locale: locale.value })
 }
 
 async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     tokens.value = await listApiTokens()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function openCreate(): void {
@@ -110,7 +108,7 @@ async function save(): Promise<void> {
 
 async function revoke(item: PersonalApiToken): Promise<void> {
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("system.apiTokens.revokeConfirm", { name: item.name })
     )
   ) {
@@ -162,14 +160,16 @@ onMounted(() => {
       </button>
     </header>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
-    <div v-if="notice" class="storage-notice">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="storage-notice"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
     <div class="system-table-wrap">
       <table class="system-table">
@@ -201,16 +201,11 @@ onMounted(() => {
               </span>
             </td>
             <td>
-              <span
-                class="status-pill"
-                :class="
-                  status(item) === 'ACTIVE'
-                    ? 'status-pill--ok'
-                    : 'status-pill--muted'
-                "
+              <StatusPill
+                :variant="status(item) === 'ACTIVE' ? 'ok' : 'muted'"
               >
                 {{ statusLabel(status(item)) }}
-              </span>
+              </StatusPill>
             </td>
             <td>{{ formatTime(item.last_used_at) }}</td>
             <td>{{ formatTime(item.expires_at) }}</td>

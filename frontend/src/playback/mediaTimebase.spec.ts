@@ -3,8 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   absoluteMediaTimeMs,
   MediaTimelineOriginTracker,
-  mediaTimelineOriginSeconds,
-  mediaTimeSecondsForAbsoluteMs
+  mediaTimelineOriginSeconds
 } from "./mediaTimebase"
 
 describe("recording media timebase", () => {
@@ -18,27 +17,10 @@ describe("recording media timebase", () => {
     ).toBe(1_602_000)
   })
 
-  it("seeks on the browser media timeline when its origin is nonzero", () => {
-    expect(
-      mediaTimeSecondsForAbsoluteMs(
-        1_600_000,
-        1_602_000,
-        123.5
-      )
-    ).toBe(125.5)
-  })
-
   it("preserves the ordinary zero-based MP4 timebase", () => {
     expect(
       absoluteMediaTimeMs(1_600_000, 2, 0)
     ).toBe(1_602_000)
-    expect(
-      mediaTimeSecondsForAbsoluteMs(
-        1_600_000,
-        1_602_000,
-        0
-      )
-    ).toBe(2)
   })
 
   it("uses the first seekable timestamp when playback already advanced", () => {

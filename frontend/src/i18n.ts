@@ -10,6 +10,12 @@ const STORAGE_KEY = "zero-nvr.locale"
 
 const messages = {
   "en-US": {
+    // Labels owned by shared UI primitives (dialog actions) rather than by a
+    // feature area, so they are not duplicated per namespace.
+    common: {
+      confirm: "Confirm",
+      cancel: "Cancel"
+    },
     brand: {
       videoSecurity: "video security",
       selfHostedNvr: "self-hosted NVR",
@@ -25,7 +31,12 @@ const messages = {
       cameras: "Cameras",
       schedules: "Schedules",
       storage: "Storage",
-      system: "System"
+      system: "System",
+      groupPlatform: "Platform",
+      groupSystem: "System",
+      sidebarCollapse: "Toggle sidebar",
+      webrtcPlaceholder: "WebRTC connection status (coming soon)",
+      accountManage: "Account"
     },
     route: {
       signIn: "Sign in",
@@ -34,7 +45,7 @@ const messages = {
       live: "Live",
       playback: "Playback",
       files: "Files",
-      events: "Events",
+      events: "Event Center",
       alerts: "Alerts",
       cameras: "Cameras",
       schedules: "Recording Schedules",
@@ -558,6 +569,12 @@ const messages = {
       }
     },
     events: {
+      toast: {
+        protectFailed: "Lock failed: {error}",
+        acknowledgeFailed: "Acknowledge failed: {error}",
+        batchAcknowledged: "Acknowledged {count} alerts",
+        batchAcknowledgeFailed: "Batch acknowledge failed: {error}",
+      },
       title: "Events",
       description:
         "Provider-neutral activity from cameras and integrations.",
@@ -626,7 +643,31 @@ const messages = {
         manual: "Manual"
       }
     },
+    files: {
+      toast: {
+        monthChanged: "Switched month to {year}-{month}",
+        dateChanged: "Browsing date: {date}",
+        segmentLocated: "Located recording segment: {file} ({start})",
+        heatmapSlot: "Heatmap slot {label} (no recording)",
+        protectionRemoved: "Removed permanent protection: {file}",
+        lockRemoved: "Removed segment lock: {file}",
+        rangeProtected: "🛡️ Segment permanently protected; automatic cleanup will skip this range",
+        segmentProtected: "🛡️ Segment protected: {file}",
+        downloading: "⬇️ Downloading raw MP4: {file} ({size})",
+        archived: "☁️ Segment queued for remote archive sync: {file}",
+      }
+    },
+    schedules: {
+      toast: {
+        applied: "The recording schedule for [{name}] is now in effect",
+        batchApplied: "Applied the recording schedule to all {count} cameras",
+        batchPartial: "Applied to {count} cameras; {failed} failed to save",
+      }
+    },
     storage: {
+      mode: "Cleanup mode",
+      webdavRequired: "WebDAV required",
+      actions: "Actions",
       title: "Storage",
       description: "Local recording, remote archive and retention lifecycle.",
       refresh: "Refresh",
@@ -805,6 +846,13 @@ const messages = {
       apiBoundaryHint: "This page stays inside /api/v1 and will be filled without bypassing zero-nvr to third-party admin APIs."
     },
     cameras: {
+      toast: {
+        probeDone: "🔍 {name} probe complete: {codec} {resolution}{fps}",
+        probeFailed: "❌ {name} probe failed: {error}",
+        batchProbeDone: "Batch probe finished: {success} succeeded, {failed} failed",
+        csvExported: "⬇️ Exported the configuration CSV for all {count} cameras",
+        ptzHoming: "PTZ camera [{name}] is returning to its Home preset…",
+      },
       deviceCenter: "Device center",
       title: "Cameras",
       description: "Discover and validate devices before they become canonical Cameras. Source credentials stay server-side.",
@@ -1429,7 +1477,8 @@ const messages = {
         title:"Users & access",description:"Accounts, roles, permissions and per-camera visibility.",refresh:"Refresh",addUser:"Add user",addRole:"Add role",addOidc:"Add OIDC provider",users:"Users",roles:"Roles",user:"User",email:"Email",status:"Status",cameras:"Cameras",edit:"Edit",password:"Password",noRoles:"No roles",verified:"Verified",unverified:"Unverified",enabled:"Enabled",disabled:"Disabled",disable:"Disable",enable:"Enable",noDescription:"No description",builtin:"Built-in",cameraScope:"Camera scope",editRole:"Edit role",provider:"Provider",issuer:"Issuer",provisioning:"Provisioning",delete:"Delete",autoProvisionShort:"Auto-provision",verifiedEmailLinking:"Verified email linking",linkedIdentitiesOnly:"Linked identities only",editUser:"Edit user",rolesMetadata:"Roles and account metadata",createLocalAccount:"Create a local zero-nvr account",username:"Username",displayName:"Display name",initialPassword:"Initial password",cancel:"Cancel",saving:"Saving…",saveUser:"Save user",createUser:"Create user",issuePasswordReset:"Issue password reset",resetShownOnce:"This token is shown once and expires at {time}. The user must open the sign-in page, choose “I have a reset token”, and set their own new password.",oneTimeResetToken:"One-time reset token",copyToken:"Copy token",done:"Done",resetIssueHint:"This issues a single-use 30-minute token. The administrator never chooses or learns the user’s new password. Existing sessions remain active until the user consumes the token.",issuing:"Issuing…",issueResetToken:"Issue reset token",editOidc:"Edit OIDC provider",oidcIdentityProvider:"OpenID Connect identity provider",providerKey:"Provider key",providerKeyHint:"Lowercase identifier used in the callback URL.",issuerUrl:"Issuer URL",httpsHint:"HTTPS required except localhost/loopback development.",clientId:"Client ID",clientSecret:"Client secret",encryptedHint:"Stored encrypted and never returned to the browser.",providerEnabled:"Provider enabled",linkByVerifiedEmail:"Link existing users by verified email",emailVerifiedHint:"Only email_verified=true identities are eligible.",autoProvision:"Auto-provision new users",autoProvisionHint:"New users receive only the default roles selected below.",defaultRoles:"Default roles",saveProvider:"Save provider",createProvider:"Create provider",permissionBundle:"Permission bundle",name:"Name",descriptionLabel:"Description",saveRole:"Save role",createRole:"Create role",cameraAccess:"Camera access",scopeMode:"Scope mode",inheritRoles:"Inherit from roles",allCameras:"All cameras",selectedCameras:"Selected cameras",noCameras:"No cameras",cameraGroups:"Camera groups",individualCameras:"Individual cameras",directCameraCount:"{count} direct camera(s)",noLocation:"No location",saveAccess:"Save access",authentikKey:"authentik",authentikName:"Authentik",userUpdated:"Updated @{username}.",userCreated:"User created.",resetIssued:"One-time reset token issued for @{username}.",resetCopied:"Reset token copied.",copyBlocked:"Copy was blocked by the browser. Select the token and copy it manually.",builtinRoleImmutable:"Built-in roles cannot be modified.",roleUpdated:"Role updated.",roleCreated:"Role created.",defaultRoleRequired:"Select at least one default role when auto-provisioning is enabled.",oidcUpdated:"OIDC provider updated.",oidcCreated:"OIDC provider created.",deleteOidcConfirm:"Delete OIDC provider “{name}”? Existing external identity links remain in user history, but this provider can no longer sign users in.",oidcDeleted:"{name} deleted.",roleScopeNoInherit:"Role scope cannot inherit.",cameraAccessUpdated:"Camera access updated for {owner}.",keepSecretPlaceholder:"Leave blank to keep the current secret"
       },
       apiTokens: {
-        title:"Personal API tokens",description:"Bearer credentials for Home Assistant, scripts and automation.",createToken:"Create token",token:"Token",permissions:"Permissions",status:"Status",lastUsed:"Last used",expires:"Expires",loading:"Loading tokens…",empty:"No personal API tokens.",createdAt:"Created {time}",active:"Active",revoked:"Revoked",expired:"Expired",revoke:"Revoke",createTitle:"Create API token",plaintextOnce:"Plaintext is displayed exactly once",saveNow:"Save this token now",hashHint:"zero-nvr stores only its hash. Losing it requires creating a replacement token.",copyToken:"Copy token",done:"Done",name:"Name",homeAssistant:"Home Assistant",expiresAfter:"Expires after",days30:"30 days",days90:"90 days",year1:"1 year",never:"Never",permissionHint:"Cannot exceed your current account permissions.",cancel:"Cancel",creating:"Creating…",createdNotice:"Token created. Copy it now; the plaintext will not be shown again.",revokeConfirm:"Revoke API token “{name}”? Existing clients will stop authenticating immediately.",revokedNotice:"{name} revoked.",copied:"Token copied to clipboard.",copyBlocked:"Copy was blocked by the browser. Select the token and copy it manually."
+        title:"Personal API tokens",description:"Bearer credentials for Home Assistant, scripts and automation.",createToken:"Create token",token:"Token",permissions:"Permissions",status:"Status",
+lastUsed:"Last used",expires:"Expires",loading:"Loading tokens…",empty:"No personal API tokens.",createdAt:"Created {time}",active:"Active",revoked:"Revoked",expired:"Expired",revoke:"Revoke",createTitle:"Create API token",plaintextOnce:"Plaintext is displayed exactly once",saveNow:"Save this token now",hashHint:"zero-nvr stores only its hash. Losing it requires creating a replacement token.",copyToken:"Copy token",done:"Done",name:"Name",homeAssistant:"Home Assistant",expiresAfter:"Expires after",days30:"30 days",days90:"90 days",year1:"1 year",never:"Never",permissionHint:"Cannot exceed your current account permissions.",cancel:"Cancel",creating:"Creating…",createdNotice:"Token created. Copy it now; the plaintext will not be shown again.",revokeConfirm:"Revoke API token “{name}”? Existing clients will stop authenticating immediately.",revokedNotice:"{name} revoked.",copied:"Token copied to clipboard.",copyBlocked:"Copy was blocked by the browser. Select the token and copy it manually."
       },
       oidc: {
         title:"OpenID Connect",description:"External SSO through Authentik, Authelia, Keycloak or another OIDC provider.",addProvider:"Add provider",loading:"Loading OIDC providers…",empty:"No OIDC providers configured",emptyHint:"Local authentication and host-local recovery remain available even when SSO is enabled.",enabled:"Enabled",disabled:"Disabled",key:"Key",client:"Client",provisioning:"Provisioning",defaultRoleCount:"{count} default role(s)",linkExistingOnly:"Link existing users only",emailLinking:"Email linking",verifiedEmailAllowed:"Verified email allowed",off:"Off",edit:"Edit",delete:"Delete",editTitle:"Edit OIDC provider",addTitle:"Add OIDC provider",discovery:"Authorization Code + OpenID Connect discovery",providerKey:"Provider key",providerKeyHint:"Stable URL identifier. It cannot be changed after creation.",authentikKey:"authentik",displayName:"Display name",authentikName:"Authentik",issuerUrl:"Issuer URL",httpsHint:"HTTPS is required except localhost/loopback development.",clientId:"Client ID",clientSecret:"Client secret",keepSecretHint:"Leave blank to preserve the encrypted client secret.",encryptedSecretHint:"Stored encrypted through zero-nvr SecretStore.",callbackUrl:"Redirect / callback URL",callbackHint:"Register this exact URL in the OIDC provider.",providerEnabled:"Provider enabled",allowEmailLinking:"Allow verified-email linking",emailLinkingHint:"Only email_verified=true may link an existing local user.",autoProvision:"Auto-provision new users",autoProvisionHint:"New users receive only the default roles selected below.",defaultRoles:"Default roles",noDescription:"No description",cancel:"Cancel",saving:"Saving…",saveProvider:"Save provider",createProvider:"Create provider",updated:"{name} updated.",created:"{name} created.",deleteConfirm:"Delete OIDC provider “{name}”? Existing linked identities remain in zero-nvr, but this provider can no longer sign in.",deleted:"{name} deleted."
@@ -1615,6 +1664,10 @@ const messages = {
     }
   },
   "zh-CN": {
+    common: {
+      confirm: "确认",
+      cancel: "取消"
+    },
     brand: {
       videoSecurity: "视频安防",
       selfHostedNvr: "自托管 NVR",
@@ -1625,12 +1678,17 @@ const messages = {
       live: "实时监控",
       playback: "时光回放",
       files: "录像文件",
-      events: "事件",
+      events: "事件中心",
       alerts: "告警",
       cameras: "摄像机",
       schedules: "录制计划",
       storage: "存储",
-      system: "系统"
+      system: "系统",
+      groupPlatform: "平台",
+      groupSystem: "系统",
+      sidebarCollapse: "收起/展开侧栏",
+      webrtcPlaceholder: "WebRTC 连接状态（功能开发中）",
+      accountManage: "账户管理"
     },
     route: {
       signIn: "登录",
@@ -1639,7 +1697,7 @@ const messages = {
       live: "实时监控",
       playback: "时光回放",
       files: "录像文件",
-      events: "事件",
+      events: "事件中心",
       alerts: "告警",
       cameras: "摄像机",
       schedules: "录像录制计划",
@@ -2137,6 +2195,12 @@ const messages = {
       }
     },
     events: {
+      toast: {
+        protectFailed: "加锁失败: {error}",
+        acknowledgeFailed: "确认失败: {error}",
+        batchAcknowledged: "成功批量确认了 {count} 条告警",
+        batchAcknowledgeFailed: "批量确认失败: {error}",
+      },
       title: "事件",
       description: "查看来自摄像机和各类集成的统一事件活动。",
       refresh: "刷新",
@@ -2204,7 +2268,31 @@ const messages = {
         manual: "手动"
       }
     },
+    files: {
+      toast: {
+        monthChanged: "切换月份到: {year}年{month}月",
+        dateChanged: "已切换浏览日期: {date}",
+        segmentLocated: "定位到录像切片: {file} ({start})",
+        heatmapSlot: "热力图定位槽位: {label} (无录像)",
+        protectionRemoved: "已解除切片锁定保护: {file}",
+        lockRemoved: "已解除切片锁定: {file}",
+        rangeProtected: "🛡️ 切片已永久加锁保护，自动清理策略将跳过该范围",
+        segmentProtected: "🛡️ 切片已加锁保护: {file}",
+        downloading: "⬇️ 正在直接下载 Raw MP4: {file} ({size})",
+        archived: "☁️ 已将切片提交至远端归档同步队列: {file}",
+      }
+    },
+    schedules: {
+      toast: {
+        applied: "机位 [{name}] 录制计划已生效",
+        batchApplied: "已成功将录制计划批量应用到所有 {count} 路机位",
+        batchPartial: "已应用 {count} 路机位，{failed} 路保存失败",
+      }
+    },
     storage: {
+      mode: "清理模式",
+      webdavRequired: "WebDAV 强制前置",
+      actions: "操作",
       title: "存储",
       description: "管理本地录像、远端归档与录像保留生命周期。",
       refresh: "刷新",
@@ -2383,6 +2471,13 @@ const messages = {
       apiBoundaryHint: "此页面继续使用 /api/v1，不会绕过 zero-nvr 直接访问第三方管理 API。"
     },
     cameras: {
+      toast: {
+        probeDone: "🔍 {name} 连接检测完成：{codec} {resolution}{fps}",
+        probeFailed: "❌ {name} 连接检测失败: {error}",
+        batchProbeDone: "异常设备批量检测完成：成功 {success} 台，失败 {failed} 台",
+        csvExported: "⬇️ 已导出当前全部 {count} 路摄像机配置 CSV 清单",
+        ptzHoming: "云台机位 [{name}] 正在复位至 Home 初始位...",
+      },
       deviceCenter: "设备中心",
       title: "摄像机",
       description: "先发现并验证设备，再将其纳入正式摄像机清单。源凭据仅保存在服务器端。",
@@ -3007,7 +3102,8 @@ const messages = {
         title:"用户与访问控制",description:"管理账号、角色、权限以及每个摄像机的可见范围。",refresh:"刷新",addUser:"添加用户",addRole:"添加角色",addOidc:"添加 OIDC 提供方",users:"用户",roles:"角色",user:"用户",email:"邮箱",status:"状态",cameras:"摄像机",edit:"编辑",password:"密码",noRoles:"无角色",verified:"已验证",unverified:"未验证",enabled:"已启用",disabled:"已禁用",disable:"禁用",enable:"启用",noDescription:"无描述",builtin:"内置",cameraScope:"摄像机范围",editRole:"编辑角色",provider:"提供方",issuer:"签发者",provisioning:"用户配置",delete:"删除",autoProvisionShort:"自动创建用户",verifiedEmailLinking:"已验证邮箱关联",linkedIdentitiesOnly:"仅关联现有身份",editUser:"编辑用户",rolesMetadata:"角色与账号信息",createLocalAccount:"创建 zero-nvr 本地账号",username:"用户名",displayName:"显示名称",initialPassword:"初始密码",cancel:"取消",saving:"保存中…",saveUser:"保存用户",createUser:"创建用户",issuePasswordReset:"签发密码重置令牌",resetShownOnce:"该令牌只显示一次，并于 {time} 到期。用户需要打开登录页，选择“我有重置令牌”，并自行设置新密码。",oneTimeResetToken:"一次性重置令牌",copyToken:"复制令牌",done:"完成",resetIssueHint:"这会签发一个有效期 30 分钟的一次性令牌。管理员不会设置或得知用户的新密码；用户使用令牌前，现有会话仍保持有效。",issuing:"签发中…",issueResetToken:"签发重置令牌",editOidc:"编辑 OIDC 提供方",oidcIdentityProvider:"OpenID Connect 身份提供方",providerKey:"提供方键",providerKeyHint:"用于回调 URL 的小写标识符。",issuerUrl:"Issuer URL",httpsHint:"除 localhost/loopback 开发环境外必须使用 HTTPS。",clientId:"Client ID",clientSecret:"Client Secret",encryptedHint:"内容加密保存，且不会返回给浏览器。",providerEnabled:"启用提供方",linkByVerifiedEmail:"通过已验证邮箱关联现有用户",emailVerifiedHint:"只有 email_verified=true 的身份才可关联。",autoProvision:"自动创建新用户",autoProvisionHint:"新用户只会获得下方选择的默认角色。",defaultRoles:"默认角色",saveProvider:"保存提供方",createProvider:"创建提供方",permissionBundle:"权限集合",name:"名称",descriptionLabel:"描述",saveRole:"保存角色",createRole:"创建角色",cameraAccess:"摄像机访问范围",scopeMode:"范围模式",inheritRoles:"从角色继承",allCameras:"全部摄像机",selectedCameras:"指定摄像机",noCameras:"无摄像机",cameraGroups:"摄像机分组",individualCameras:"单独摄像机",directCameraCount:"{count} 路直接成员",noLocation:"未设置位置",saveAccess:"保存访问范围",authentikKey:"authentik",authentikName:"Authentik",userUpdated:"已更新 @{username}。",userCreated:"用户已创建。",resetIssued:"已为 @{username} 签发一次性重置令牌。",resetCopied:"重置令牌已复制。",copyBlocked:"浏览器阻止了剪贴板访问，请手动选择并复制令牌。",builtinRoleImmutable:"内置角色不能修改。",roleUpdated:"角色已更新。",roleCreated:"角色已创建。",defaultRoleRequired:"启用自动创建用户时，至少要选择一个默认角色。",oidcUpdated:"OIDC 提供方已更新。",oidcCreated:"OIDC 提供方已创建。",deleteOidcConfirm:"删除 OIDC 提供方“{name}”？已有外部身份关联仍会保留在用户历史中，但该提供方将无法继续登录。",oidcDeleted:"{name} 已删除。",roleScopeNoInherit:"角色的摄像机范围不能使用继承模式。",cameraAccessUpdated:"已更新 {owner} 的摄像机访问范围。",keepSecretPlaceholder:"留空以保留当前密钥"
       },
       apiTokens: {
-        title:"个人 API 令牌",description:"用于 Home Assistant、脚本和自动化的 Bearer 凭据。",createToken:"创建令牌",token:"令牌",permissions:"权限",status:"状态",lastUsed:"最近使用",expires:"到期时间",loading:"正在加载令牌…",empty:"暂无个人 API 令牌。",createdAt:"创建于 {time}",active:"有效",revoked:"已撤销",expired:"已过期",revoke:"撤销",createTitle:"创建 API 令牌",plaintextOnce:"明文只显示一次",saveNow:"立即保存此令牌",hashHint:"zero-nvr 只保存令牌哈希。若令牌丢失，只能创建新的替代令牌。",copyToken:"复制令牌",done:"完成",name:"名称",homeAssistant:"Home Assistant",expiresAfter:"有效期",days30:"30 天",days90:"90 天",year1:"1 年",never:"永不过期",permissionHint:"令牌权限不能超过当前账号自身的权限。",cancel:"取消",creating:"创建中…",createdNotice:"令牌已创建，请立即复制；之后不会再次显示明文。",revokeConfirm:"撤销 API 令牌“{name}”？现有客户端将立即无法继续认证。",revokedNotice:"{name} 已撤销。",copied:"令牌已复制到剪贴板。",copyBlocked:"浏览器阻止了剪贴板访问，请手动选择并复制令牌。"
+        title:"个人 API 令牌",description:"用于 Home Assistant、脚本和自动化的 Bearer 凭据。",createToken:"创建令牌",token:"令牌",permissions:"权限",status:"状态",
+lastUsed:"最近使用",expires:"到期时间",loading:"正在加载令牌…",empty:"暂无个人 API 令牌。",createdAt:"创建于 {time}",active:"有效",revoked:"已撤销",expired:"已过期",revoke:"撤销",createTitle:"创建 API 令牌",plaintextOnce:"明文只显示一次",saveNow:"立即保存此令牌",hashHint:"zero-nvr 只保存令牌哈希。若令牌丢失，只能创建新的替代令牌。",copyToken:"复制令牌",done:"完成",name:"名称",homeAssistant:"Home Assistant",expiresAfter:"有效期",days30:"30 天",days90:"90 天",year1:"1 年",never:"永不过期",permissionHint:"令牌权限不能超过当前账号自身的权限。",cancel:"取消",creating:"创建中…",createdNotice:"令牌已创建，请立即复制；之后不会再次显示明文。",revokeConfirm:"撤销 API 令牌“{name}”？现有客户端将立即无法继续认证。",revokedNotice:"{name} 已撤销。",copied:"令牌已复制到剪贴板。",copyBlocked:"浏览器阻止了剪贴板访问，请手动选择并复制令牌。"
       },
       oidc: {
         title:"OpenID Connect",description:"通过 Authentik、Authelia、Keycloak 或其他 OIDC 提供方接入外部 SSO。",addProvider:"添加提供方",loading:"正在加载 OIDC 提供方…",empty:"尚未配置 OIDC 提供方",emptyHint:"即使启用 SSO，本地认证和主机本地恢复方式仍然可用。",enabled:"已启用",disabled:"已禁用",key:"键",client:"客户端",provisioning:"用户配置",defaultRoleCount:"{count} 个默认角色",linkExistingOnly:"仅关联现有用户",emailLinking:"邮箱关联",verifiedEmailAllowed:"允许已验证邮箱",off:"关闭",edit:"编辑",delete:"删除",editTitle:"编辑 OIDC 提供方",addTitle:"添加 OIDC 提供方",discovery:"Authorization Code + OpenID Connect Discovery",providerKey:"提供方键",providerKeyHint:"稳定的 URL 标识符，创建后不能修改。",authentikKey:"authentik",displayName:"显示名称",authentikName:"Authentik",issuerUrl:"Issuer URL",httpsHint:"除 localhost/loopback 开发环境外必须使用 HTTPS。",clientId:"Client ID",clientSecret:"Client Secret",keepSecretHint:"留空以保留当前加密的 Client Secret。",encryptedSecretHint:"通过 zero-nvr SecretStore 加密保存。",callbackUrl:"重定向 / 回调 URL",callbackHint:"请在 OIDC 提供方中注册此精确 URL。",providerEnabled:"启用提供方",allowEmailLinking:"允许已验证邮箱关联",emailLinkingHint:"只有 email_verified=true 才能关联现有本地用户。",autoProvision:"自动创建新用户",autoProvisionHint:"新用户只会获得下方选中的默认角色。",defaultRoles:"默认角色",noDescription:"无描述",cancel:"取消",saving:"保存中…",saveProvider:"保存提供方",createProvider:"创建提供方",updated:"{name} 已更新。",created:"{name} 已创建。",deleteConfirm:"删除 OIDC 提供方“{name}”？已有身份关联仍保留在 zero-nvr 中，但该提供方将无法继续登录。",deleted:"{name} 已删除。"

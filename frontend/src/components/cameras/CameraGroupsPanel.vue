@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import {
   computed,
@@ -16,7 +17,19 @@ import {
   type CameraSummary
 } from "../../api/cameras"
 import { errorMessage } from "../../api/client"
+import DrawerDialog from "../ui/DrawerDialog.vue"
+import EmptyState from "../ui/EmptyState.vue"
 import UiIcon from "../ui/UiIcon.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const { t } = useI18n({ useScope: "global" })
 
@@ -25,9 +38,7 @@ const props = defineProps<{
 }>()
 
 const groups = ref<CameraGroup[]>([])
-const loading = ref(false)
 const saving = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const editorOpen = ref(false)
 const editing = ref<CameraGroup | null>(null)
@@ -75,15 +86,9 @@ const availableParents = computed(() => {
 })
 
 async function refresh(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     groups.value = await listCameraGroups()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function openCreate(): void {
@@ -143,7 +148,7 @@ async function save(): Promise<void> {
 }
 
 async function remove(group: CameraGroup): Promise<void> {
-  if (!window.confirm(t("cameras.groupsPanel.deleteConfirm", { name: group.name }))) {
+  if (!await confirmDestroy(t("cameras.groupsPanel.deleteConfirm", { name: group.name }))) {
     return
   }
   error.value = null
@@ -189,15 +194,16 @@ onMounted(() => {
     <p v-if="error" class="notice notice--error">{{ error }}</p>
     <p v-if="notice" class="notice notice--success">{{ notice }}</p>
 
-    <div
+    <EmptyState
       v-if="!groups.length && !loading"
-      class="empty-state empty-state--large"
+      surface-class="empty-state"
+      large
     >
       <strong>{{ t("cameras.groupsPanel.noGroups") }}</strong>
       <p>
         {{ t("cameras.groupsPanel.noGroupsHint") }}
       </p>
-    </div>
+    </EmptyState>
 
     <div v-else class="camera-group-grid">
       <article
@@ -238,7 +244,11 @@ onMounted(() => {
       </article>
     </div>
 
-    <div v-if="editorOpen" class="camera-group-drawer-backdrop" @click.self="editorOpen = false">
+    <DrawerDialog
+      :open="editorOpen"
+      backdrop-class="camera-group-drawer-backdrop"
+      @dismiss="editorOpen = false"
+    >
       <aside class="camera-group-drawer" @click.stop>
       <header class="storage-editor__header">
         <div>
@@ -338,7 +348,7 @@ onMounted(() => {
         </div>
       </form>
       </aside>
-    </div>
+    </DrawerDialog>
   </section>
 </template>
 

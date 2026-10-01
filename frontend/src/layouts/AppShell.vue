@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
 import AccountPanel from "../components/account/AccountPanel.vue"
+import ConfirmDialog from "../components/ui/ConfirmDialog.vue"
 import LanguageControl from "../components/ui/LanguageControl.vue"
 import ThemeControl from "../components/ui/ThemeControl.vue"
 import { useAuthStore } from "../stores/auth"
@@ -16,19 +17,18 @@ const { t } = useI18n({ useScope: "global" })
 const accountOpen = ref(false)
 
 /**
- * 导航项目对齐原型 Dock 顺序：
- * live → playback → files → events(detections) → cameras(devices) → storage → system
- * 原型底部独立放置 system，这里统一排在列表最后保持逻辑一致
+ * 导航顺序沿用原型 Dock（docs/archive/zero_nvr_prototype.html）：业务功能一组、
+ * 系统运维独立沉底一组。布局本身是 shadcn-admin 的 sidebar 模式（ADR 0013）。
  */
 const navigation = [
-  { to: "/live",     labelKey: "nav.live",     label: "实时监控 (Live View)" },
-  { to: "/playback", labelKey: "nav.playback", label: "时光回放 (Time-Lapse)" },
-  { to: "/files",    labelKey: "nav.files",    label: "录像文件管理 (Files)" },
-  { to: "/events",   labelKey: "nav.events",   label: "事件与告警中心 (Alerts & AI)" },
-  { to: "/cameras",  labelKey: "nav.cameras",  label: "机位设备管理 (ONVIF & CSV)" },
-  { to: "/recording-schedules", labelKey: "nav.schedules", label: "录像录制计划 (Schedule)" },
-  { to: "/storage",  labelKey: "nav.storage",  label: "存储与云归档 (Storage & Cloud)" },
-  { to: "/system",   labelKey: "nav.system",   label: "系统运维 & 灾备 (Operations)", bottomGroup: true }
+  { to: "/live",     labelKey: "nav.live" },
+  { to: "/playback", labelKey: "nav.playback" },
+  { to: "/files",    labelKey: "nav.files" },
+  { to: "/events",   labelKey: "nav.events" },
+  { to: "/cameras",  labelKey: "nav.cameras" },
+  { to: "/recording-schedules", labelKey: "nav.schedules" },
+  { to: "/storage",  labelKey: "nav.storage" },
+  { to: "/system",   labelKey: "nav.system", bottomGroup: true }
 ]
 
 const topNavItems = computed(() => navigation.filter(i => !i.bottomGroup))
@@ -41,6 +41,42 @@ const pageTitle = computed(() => {
 
 /** 沉浸式视图（live/playback/files）完全接管内容区，隐藏占位 topbar */
 const isImmersive = computed(() => route.meta.layout === "immersive")
+
+const SIDEBAR_STORAGE_KEY = "zero-nvr.sidebar-collapsed"
+
+/** Below this width the labelled sidebar would squeeze the content area, so
+     the shell forces the icon rail instead of the user's stored preference. */
+const NARROW_VIEWPORT_QUERY = "(max-width: 900px)"
+
+function readStoredCollapsed(): boolean {
+  return window.localStorage.getItem(SIDEBAR_STORAGE_KEY) === "collapsed"
+}
+
+/**
+ * 侧栏折叠态持久化。shadcn-admin 默认展开；折叠时退化为原先 56px 图标
+ * dock 的交互（悬浮 tooltip），老用户肌肉记忆不丢。
+ */
+const preferredCollapsed = ref(readStoredCollapsed())
+
+/** 窄视口强制折叠（不持久化，仅随视口宽度生效）。 */
+const narrowViewport = ref(false)
+let narrowQuery: MediaQueryList | null = null
+
+function handleNarrowChange(): void {
+  narrowViewport.value = narrowQuery?.matches ?? false
+}
+
+const sidebarCollapsed = computed(
+  () => preferredCollapsed.value || narrowViewport.value
+)
+
+function toggleSidebar(): void {
+  preferredCollapsed.value = !preferredCollapsed.value
+  window.localStorage.setItem(
+    SIDEBAR_STORAGE_KEY,
+    preferredCollapsed.value ? "collapsed" : "expanded"
+  )
+}
 
 const userInitial = computed(() => {
   const source = auth.user?.display_name || auth.user?.username || "Z"
@@ -74,141 +110,132 @@ async function logout(): Promise<void> {
   await router.push({ name: "login" })
 }
 
-onMounted(startEventStream)
+onMounted(() => {
+  startEventStream()
+  if (typeof window.matchMedia === "function") {
+    narrowQuery = window.matchMedia(NARROW_VIEWPORT_QUERY)
+    narrowViewport.value = narrowQuery.matches
+    narrowQuery.addEventListener("change", handleNarrowChange)
+  }
+})
 onBeforeUnmount(() => {
   eventSource?.close()
   eventSource = null
+  narrowQuery?.removeEventListener("change", handleNarrowChange)
+  narrowQuery = null
 })
 </script>
 
 <template>
   <div class="app-shell">
-    <!-- ================= UNIFI OS ICON DOCK (56px) ================= -->
-    <!-- 对应原型 L173-265 的 <aside> dock 结构 -->
-    <aside class="sidebar">
-      <!-- 上半区：Logo + 主导航 -->
-      <div class="sidebar-top">
-        <!-- Protect Shield Logo — 对应原型 L177-182 的渐变盾牌图标 -->
-        <RouterLink to="/live" class="brand-logo" title="zero-nvr · UniFi Protect">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
-               stroke-linecap="round" stroke-linejoin="round" width="20" height="20">
-            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-            <path d="M9 12l2 2 4-4"/>
-          </svg>
+    <!-- ================= SHADCN-STYLE SIDEBAR (ADR 0013) ================= -->
+    <aside class="sidebar" :class="{ 'sidebar--collapsed': sidebarCollapsed }">
+      <!-- 品牌行 + 折叠开关 -->
+      <div class="sidebar-header">
+        <RouterLink to="/live" class="brand" :title="t('brand.videoSecurity')">
+          <span class="brand__mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"
+                 stroke-linecap="round" stroke-linejoin="round" width="16" height="16">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+              <path d="M9 12l2 2 4-4"/>
+            </svg>
+          </span>
+          <span v-if="!sidebarCollapsed" class="brand__copy">
+            <strong>zero-nvr</strong>
+            <span>{{ t("brand.videoSecurity") }}</span>
+          </span>
         </RouterLink>
-
-        <!-- 主导航图标 — 对应原型 L184-242 -->
-        <nav aria-label="Primary navigation">
-          <!-- Live View -->
-          <RouterLink to="/live" class="dock-icon" :class="{ active: isActive('/live') }"
-                      :title="t('nav.live')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <rect x="3" y="3" width="7" height="7" rx="1.5"/>
-              <rect x="14" y="3" width="7" height="7" rx="1.5"/>
-              <rect x="14" y="14" width="7" height="7" rx="1.5"/>
-              <rect x="3" y="14" width="7" height="7" rx="1.5"/>
-            </svg>
-            <span class="dock-tooltip">实时监控 (Live View)</span>
-          </RouterLink>
-
-          <!-- Time-Lapse Playback -->
-          <RouterLink to="/playback" class="dock-icon" :class="{ active: isActive('/playback') }"
-                      :title="t('nav.playback')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="9"/>
-              <polyline points="12 7 12 12 15 15"/>
-            </svg>
-            <span class="dock-tooltip">时光回放 (Time-Lapse)</span>
-          </RouterLink>
-
-          <!-- Recordings File Manager -->
-          <RouterLink to="/files" class="dock-icon" :class="{ active: isActive('/files') }"
-                      :title="t('nav.files')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-            </svg>
-            <span class="dock-tooltip">录像文件管理 (Files)</span>
-          </RouterLink>
-
-          <!-- Detections & Alerts (对应 /events 路由) -->
-          <RouterLink to="/events" class="dock-icon" :class="{ active: isActive('/events') || isActive('/alerts') }"
-                      :title="t('nav.events')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
-            </svg>
-            <span class="dock-tooltip">事件与告警中心 (Alerts & AI)</span>
-          </RouterLink>
-
-          <!-- Devices & Cameras -->
-          <RouterLink to="/cameras" class="dock-icon" :class="{ active: isActive('/cameras') }"
-                      :title="t('nav.cameras')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
-              <circle cx="12" cy="13" r="4"/>
-            </svg>
-            <span class="dock-tooltip">机位设备管理 (ONVIF & CSV)</span>
-          </RouterLink>
-
-          <!-- Recording Schedules (录像录制计划) -->
-          <RouterLink to="/recording-schedules" class="dock-icon" :class="{ active: isActive('/recording-schedules') }"
-                      :title="t('nav.schedules')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
-              <line x1="16" y1="2" x2="16" y2="6"/>
-              <line x1="8" y1="2" x2="8" y2="6"/>
-              <line x1="3" y1="10" x2="21" y2="10"/>
-              <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>
-            </svg>
-            <span class="dock-tooltip">录像录制计划 (Schedule)</span>
-          </RouterLink>
-
-          <!-- Storage & Cloud Archive -->
-          <RouterLink to="/storage" class="dock-icon" :class="{ active: isActive('/storage') }"
-                      :title="t('nav.storage')">
-            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-              <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
-            </svg>
-            <span class="dock-tooltip">存储与云归档 (Storage & Cloud)</span>
-          </RouterLink>
-        </nav>
+        <button v-if="!narrowViewport" type="button" class="sidebar-collapse-btn"
+                :title="t('nav.sidebarCollapse')" @click="toggleSidebar">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24"
+               :class="{ 'sidebar-collapse-btn__icon--flipped': sidebarCollapsed }">
+            <path d="m11 17-5-5 5-5"/>
+            <path d="m18 17-5-5 5-5"/>
+          </svg>
+        </button>
       </div>
 
-      <!-- 下半区：连接状态 + System + 语言/主题 + 用户头像 -->
-      <!-- 对应原型 L245-264 底部区域 -->
-      <div class="sidebar-bottom">
-        <!--
-          TODO(phase-telemetry): WebRTC 实时遥测状态指示点
-          后端 API: WebRTC ICE 连接状态（待实现 /api/v1/system/rtc/health）
-          原型位置: protect dock L248
-          实现说明: 读取 LiveView 的 WebRTC PeerConnection 状态，
-                   connected → 绿色呼吸动画，disconnected → 灰色，failed → 红色
-          当前: 始终显示灰色占位点
-        -->
-        <div
-          class="webrtc-status-dot"
-          title="WebRTC 连接状态（功能开发中）"
-        ></div>
-
-        <!-- System Settings -->
-        <RouterLink to="/system" class="dock-icon" :class="{ active: isActive('/system') }"
-                    :title="t('nav.system')">
-          <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      <!-- 主导航 -->
+      <nav class="sidebar-nav" aria-label="Primary navigation">
+        <p v-if="!sidebarCollapsed" class="sidebar-nav__group-label">{{ t("nav.groupPlatform") }}</p>
+        <RouterLink v-for="item in topNavItems" :key="item.to" :to="item.to" class="sidebar-item"
+                    :class="{ 'sidebar-item--active': isActive(item.to) }" :title="t(item.labelKey)">
+          <svg v-if="item.to === '/live'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="14" y="3" width="7" height="7" rx="1.5"/>
+            <rect x="14" y="14" width="7" height="7" rx="1.5"/>
+            <rect x="3" y="14" width="7" height="7" rx="1.5"/>
           </svg>
-          <span class="dock-tooltip">系统运维 & 灾备 (Operations)</span>
+          <svg v-else-if="item.to === '/playback'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/>
+            <polyline points="12 7 12 12 15 15"/>
+          </svg>
+          <svg v-else-if="item.to === '/files'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+          <svg v-else-if="item.to === '/events'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/>
+          </svg>
+          <svg v-else-if="item.to === '/cameras'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
+          <svg v-else-if="item.to === '/recording-schedules'" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+            <line x1="16" y1="2" x2="16" y2="6"/>
+            <line x1="8" y1="2" x2="8" y2="6"/>
+            <line x1="3" y1="10" x2="21" y2="10"/>
+            <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/>
+          </svg>
+          <svg v-else width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/>
+          </svg>
+          <span v-if="!sidebarCollapsed" class="sidebar-item__label">{{ t(item.labelKey) }}</span>
         </RouterLink>
 
-        <!-- Theme / Language (轻量底部控件，不在原型中但保留功能) -->
-        <ThemeControl class="sidebar-util-btn" />
-        <LanguageControl class="sidebar-util-btn" />
+        <template v-for="item in bottomNavItems" :key="item.to">
+          <p v-if="!sidebarCollapsed" class="sidebar-nav__group-label">{{ t("nav.groupSystem") }}</p>
+          <RouterLink :to="item.to" class="sidebar-item" :class="{ 'sidebar-item--active': isActive(item.to) }"
+                      :title="t(item.labelKey)">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="3"/>
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+            </svg>
+            <span v-if="!sidebarCollapsed" class="sidebar-item__label">{{ t(item.labelKey) }}</span>
+          </RouterLink>
+        </template>
+      </nav>
 
-        <!-- User Avatar — 对应原型 L260-263 的用户头像 -->
-        <button @click="toggleAccount" class="user-avatar-btn" :title="auth.user?.display_name || 'Account'">
-          {{ userInitial }}
-          <span class="dock-tooltip">
-            {{ auth.user?.display_name || auth.user?.username }}
+      <!-- 底部：主题/语言 + 用户 -->
+      <div class="sidebar-footer">
+        <div v-if="!sidebarCollapsed" class="sidebar-footer__utils">
+          <!--
+            TODO(phase-telemetry): WebRTC 实时遥测状态指示点
+            后端 API: WebRTC ICE 连接状态（待实现 /api/v1/system/rtc/health）
+            实现说明: 读取 LiveView 的 WebRTC PeerConnection 状态，
+                     connected → 绿色呼吸动画，disconnected → 灰色，failed → 红色
+            当前: 始终显示灰色占位点
+          -->
+          <span class="webrtc-status-dot" :title="t('nav.webrtcPlaceholder')"></span>
+          <ThemeControl />
+          <LanguageControl />
+        </div>
+        <template v-else>
+          <ThemeControl />
+          <LanguageControl />
+        </template>
+
+        <button type="button" class="sidebar-user" @click="toggleAccount"
+                :title="auth.user?.display_name || auth.user?.username || 'Account'">
+          <span class="sidebar-user__avatar" aria-hidden="true">{{ userInitial }}</span>
+          <span v-if="!sidebarCollapsed" class="sidebar-user__meta">
+            <strong>{{ auth.user?.display_name || auth.user?.username }}</strong>
+            <span>{{ t("nav.accountManage") }}</span>
           </span>
+          <svg v-if="!sidebarCollapsed" class="sidebar-user__chevron" width="14" height="14" fill="none"
+               stroke="currentColor" stroke-width="1.8" viewBox="0 0 24 24">
+            <path d="m9 18 6-6-6-6"/>
+          </svg>
         </button>
       </div>
     </aside>
@@ -227,6 +254,10 @@ onBeforeUnmount(() => {
         <RouterView />
       </main>
     </div>
+
+    <!-- Single confirmation dialog for the whole app: callers raise it with
+         `await confirmAction({...})` instead of window.confirm. -->
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -240,157 +271,254 @@ onBeforeUnmount(() => {
   background-color: var(--surface-base);
 }
 
-/* ===== Dock 侧边栏 ===== */
-/* 对应原型: w-14 bg-[#10131b] border-r border-white/5 flex flex-col items-center py-3.5 justify-between */
+/* ===== shadcn 式侧栏：展开 264px / 折叠 60px（ADR 0013） ===== */
 .sidebar {
   position: relative;
-  width: 56px;
-  min-width: 56px;
+  display: flex;
+  width: 264px;
+  min-width: 264px;
+  flex-direction: column;
+  overflow: hidden;
   background-color: var(--uf-bg-dock);
   border-right: 1px solid var(--uf-border);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 14px 0;
+  transition: width 180ms ease, min-width 180ms ease;
   z-index: 40;
   user-select: none;
   flex-shrink: 0;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
 }
 
-.sidebar-top,
-.sidebar-bottom {
+.sidebar--collapsed {
+  width: 60px;
+  min-width: 60px;
+}
+
+/* --- 品牌行 --- */
+.sidebar-header {
+  display: flex;
+  min-height: 56px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--uf-border-subtle);
+}
+
+.brand {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.brand__mark {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  place-items: center;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+.brand__copy {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.brand__copy strong {
+  display: block;
+  font-size: 13px;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  color: var(--uf-text-primary);
+}
+
+.brand__copy span {
+  display: block;
+  margin-top: 1px;
+  font-size: 10px;
+  color: var(--uf-text-muted);
+}
+
+.sidebar-collapse-btn {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--uf-text-muted);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-primary);
+}
+
+.sidebar-collapse-btn__icon--flipped {
+  transform: rotate(180deg);
+}
+
+/* --- 导航 --- */
+.sidebar-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+  padding: 10px 8px;
+}
+
+.sidebar-nav__group-label {
+  margin: 14px 8px 4px;
+  font-size: 11px;
+  font-weight: 550;
+  letter-spacing: 0.04em;
+  color: var(--uf-text-muted);
+  white-space: nowrap;
+}
+
+.sidebar-nav__group-label:first-child {
+  margin-top: 2px;
+}
+
+.sidebar-item {
+  position: relative;
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: var(--radius-md);
+  color: var(--uf-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.sidebar-item svg {
+  flex: 0 0 18px;
+}
+
+.sidebar-item:hover {
+  background: var(--uf-bg-hover);
+  color: var(--uf-text-primary);
+}
+
+.sidebar-item--active,
+.sidebar-item--active:hover {
+  background: var(--uf-bg-active);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.sidebar-item--active svg {
+  color: var(--accent);
+}
+
+/* 折叠态的名称提示由原生 title 属性承担：自定义浮层会被侧栏的
+   overflow/滚动容器裁剪，portal 化 tooltip 不值得为此引入。 */
+
+/* --- 底部区 --- */
+.sidebar-footer {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  width: 100%;
-  gap: 16px;  /* space-y-4 = 16px */
-  padding: 0 8px;
+  gap: 6px;
+  padding: 10px 8px 12px;
+  border-top: 1px solid var(--uf-border-subtle);
 }
 
-.sidebar-bottom {
-  gap: 12px;
-}
-
-/* ===== Shield Logo ===== */
-/* 对应原型: w-9 h-9 rounded-xl bg-gradient-to-tr from-blue-700 via-blue-600 to-indigo-500 */
-.brand-logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #1d4ed8, #2563eb, #6366f1);
+.sidebar-footer__utils {
   display: flex;
   align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-  margin-bottom: 8px;
-  cursor: pointer;
-  text-decoration: none;
-  flex-shrink: 0;
+  gap: 6px;
+  padding: 0 4px;
 }
 
-/* ===== Dock 图标 ===== */
-/* 对应原型 CSS: .dock-icon { transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1); position: relative; } */
-.dock-icon {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
+.sidebar--collapsed .sidebar-footer__utils {
   justify-content: center;
-  color: var(--uf-text-muted);
-  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.sidebar--collapsed .sidebar-footer > * {
+  align-self: center;
+}
+
+/* WebRTC 占位指示点 —— 语义见模板内 TODO(phase-telemetry) */
+.webrtc-status-dot {
+  width: 8px;
+  height: 8px;
+  margin-right: auto;
+  border-radius: 50%;
+  background: var(--uf-border-strong);
+  cursor: default;
+}
+
+.sidebar-user {
   position: relative;
+  display: flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--uf-text-secondary);
   cursor: pointer;
-  text-decoration: none;
-  flex-shrink: 0;
+  text-align: left;
+  transition: background-color 140ms ease;
 }
 
-.dock-icon:hover {
-  color: var(--uf-text-primary);
+.sidebar-user:hover {
   background: var(--uf-bg-hover);
 }
 
-/* 激活状态 — 对应原型: background: var(--uf-blue); box-shadow: 0 0 16px var(--uf-blue-glow) */
-.dock-icon.active {
-  color: #ffffff;
-  background: var(--uf-accent);
-  box-shadow: 0 0 16px var(--uf-accent-glow);
-}
-
-/* 激活指示条 — 对应原型 .dock-icon.active::before */
-.dock-icon.active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 25%;
-  bottom: 25%;
-  width: 3px;
-  border-radius: 0 4px 4px 0;
-  background: #ffffff;
-}
-
-/* ===== Tooltip ===== */
-/* 对应原型: absolute left-14 bg-[#1c212e] text-white text-xs px-2.5 py-1 rounded-md */
-.dock-tooltip {
-  position: absolute;
-  left: 52px;
-  background-color: var(--uf-text-primary);
-  color: var(--uf-bg-card);
-  padding: 4px 10px;
-  border-radius: 6px;
+.sidebar-user__avatar {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--uf-bg-active);
+  color: var(--text-primary);
   font-size: 12px;
+  font-weight: 650;
+}
+
+.sidebar-user__meta {
+  min-width: 0;
   white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  border: 1px solid var(--uf-border);
-  transition: opacity 0.15s ease;
-  z-index: 50;
-  box-shadow: var(--uf-shadow-md);
 }
 
-.dock-icon:hover .dock-tooltip,
-.user-avatar-btn:hover .dock-tooltip {
-  opacity: 1;
+.sidebar-user__meta strong {
+  display: block;
+  overflow: hidden;
+  font-size: 12.5px;
+  font-weight: 570;
+  color: var(--uf-text-primary);
+  text-overflow: ellipsis;
 }
 
-/* ===== WebRTC 状态指示点 ===== */
-.webrtc-status-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background-color: var(--uf-border-strong);
-  cursor: pointer;
-  flex-shrink: 0;
+.sidebar-user__meta > span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--uf-text-muted);
 }
 
-/* ===== 底部工具按钮（主题/语言）===== */
-.sidebar-util-btn {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* ===== 用户头像 ===== */
-.user-avatar-btn {
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background-color: var(--uf-accent-soft);
-  border: 1px solid var(--uf-accent);
-  color: var(--uf-accent);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  font-size: 12px;
-  cursor: pointer;
-  position: relative;
-  flex-shrink: 0;
-  transition: all 0.18s ease;
+.sidebar-user__chevron {
+  margin-left: auto;
+  color: var(--uf-text-muted);
 }
 
 /* ===== 主内容区 ===== */
@@ -401,14 +529,13 @@ onBeforeUnmount(() => {
   overflow: hidden;
   background-color: var(--surface-base);
   min-width: 0;
-  margin-left: 0 !important;
 }
 
 /* 普通页面的通用标题栏 */
 .placeholder-topbar {
   display: flex;
   align-items: center;
-  height: 48px;
+  height: 52px;
   padding: 0 20px;
   background-color: var(--uf-bg-header);
   border-bottom: 1px solid var(--uf-border);

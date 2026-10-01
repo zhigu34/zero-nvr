@@ -8,6 +8,10 @@ import {
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
+import { DATE_TIME_SECONDS, formatDateTime } from "../utils/format"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
+
 import {
   acknowledgeAlert,
   listAlerts,
@@ -23,8 +27,15 @@ import {
   listNotificationDeliveries,
   type NotificationDelivery
 } from "../api/system"
+import EmptyState from "../components/ui/EmptyState.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import { type StatusVariant } from "../components/ui/StatusPill.vue"
+import StatusPill from "../components/ui/StatusPill.vue"
+import NoticeBanner from "../components/ui/NoticeBanner.vue"
+import { useAsyncResource } from "../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
 
 type AlertMode = "active" | "recent"
 type SeverityFilter = "" | "info" | "warning" | "critical"
@@ -40,11 +51,9 @@ const mode = ref<AlertMode>("active")
 const cameraId = ref("")
 const severity = ref<SeverityFilter>("")
 const search = ref("")
-const loading = ref(false)
 const acknowledgingId = ref<string | null>(null)
 const playbackId = ref<string | null>(null)
 const selectedId = ref<string | null>(null)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
 const selectedAlert = computed(() =>
@@ -99,17 +108,7 @@ function cameraName(id: string | null): string {
 }
 
 function formatTimestamp(value: string | null): string {
-  if (!value) return "—"
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return "—"
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(date)
+  return formatDateTime(value, DATE_TIME_SECONDS, { locale: locale.value })
 }
 
 function stateLabel(state: AlertItem["state"]): string {
@@ -134,17 +133,19 @@ function deliveryStateLabel(value: NotificationDelivery["state"]): string {
   return value
 }
 
-function stateClass(state: AlertItem["state"]): string {
-  if (state === "RESOLVED") return "status-pill--ok"
-  if (state === "ACKNOWLEDGED") return "status-pill--muted"
-  return "status-pill--warning"
+function stateVariant(state: AlertItem["state"]): StatusVariant {
+  if (state === "RESOLVED") return "ok"
+  if (state === "ACKNOWLEDGED") return "muted"
+  // An unresolved alert is a warning, not an error: it needs attention, and the
+  // danger tone is reserved for a delivery that actually failed.
+  return "warning"
 }
 
-function deliveryClass(state: NotificationDelivery["state"]): string {
-  if (state === "SENT") return "status-pill--ok"
-  if (state === "FAILED") return "status-pill--danger"
-  if (state === "SKIPPED") return "status-pill--muted"
-  return "status-pill--warning"
+function deliveryVariant(state: NotificationDelivery["state"]): StatusVariant {
+  if (state === "SENT") return "ok"
+  if (state === "FAILED") return "danger"
+  if (state === "SKIPPED") return "muted"
+  return "warning"
 }
 
 function deliverySummary(alertId: string): string {
@@ -165,10 +166,8 @@ function selectAlert(item: AlertItem): void {
 async function refresh(): Promise<void> {
   if (!auth.hasPermission("alert.view")) return
 
-  loading.value = true
-  error.value = null
-  notice.value = null
-  try {
+  await run(async () => {
+    notice.value = null
     const alertPage = await listAlerts({
       cameraId: cameraId.value || null,
       severity: severity.value || null,
@@ -190,11 +189,7 @@ async function refresh(): Promise<void> {
     deliveries.value = auth.hasPermission("notification.view")
       ? await listNotificationDeliveries({ limit: 500 }).catch(() => [])
       : []
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function acknowledge(item: AlertItem): Promise<void> {
@@ -248,23 +243,13 @@ async function openPlayback(item: AlertItem): Promise<void> {
   }
 }
 
-function handleRefreshEvent(): void {
-  void refresh()
-}
+useGlobalRefresh(refresh)
 
 onMounted(() => {
   void refresh()
-  window.addEventListener(
-    "zero-nvr:refresh",
-    handleRefreshEvent
-  )
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener(
-    "zero-nvr:refresh",
-    handleRefreshEvent
-  )
 })
 </script>
 
@@ -349,19 +334,21 @@ onBeforeUnmount(() => {
       </select>
     </div>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
 
-    <div v-if="notice" class="storage-notice">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="storage-notice"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
-    <div
+    <EmptyState
       v-if="!visibleAlerts.length && !loading"
-      class="alert-center__empty"
+      surface-class="alert-center__empty"
     >
       <UiIcon name="bell" :size="28" />
       <strong>
@@ -370,7 +357,7 @@ onBeforeUnmount(() => {
       <span>
         {{ t("alerts.emptyHint") }}
       </span>
-    </div>
+    </EmptyState>
 
     <div v-else class="alert-center__body">
       <div class="alert-center__list">
@@ -390,12 +377,9 @@ onBeforeUnmount(() => {
           <div class="alert-card__main">
             <div class="alert-card__title">
               <strong>{{ item.title }}</strong>
-              <span
-                class="status-pill"
-                :class="stateClass(item.state)"
-              >
+              <StatusPill :variant="stateVariant(item.state)">
                 {{ stateLabel(item.state) }}
-              </span>
+              </StatusPill>
               <span class="status-pill">
                 {{ severityLabel(item.severity) }}
               </span>
@@ -455,12 +439,9 @@ onBeforeUnmount(() => {
         </header>
 
         <div class="alert-detail__badges">
-          <span
-            class="status-pill"
-            :class="stateClass(selectedAlert.state)"
-          >
+          <StatusPill :variant="stateVariant(selectedAlert.state)">
             {{ stateLabel(selectedAlert.state) }}
-          </span>
+          </StatusPill>
           <span class="status-pill">
             {{ severityLabel(selectedAlert.severity) }}
           </span>
@@ -547,12 +528,9 @@ onBeforeUnmount(() => {
                   {{ delivery.last_error_code }}
                 </small>
               </div>
-              <span
-                class="status-pill"
-                :class="deliveryClass(delivery.state)"
-              >
+              <StatusPill :variant="deliveryVariant(delivery.state)">
                 {{ deliveryStateLabel(delivery.state) }}
-              </span>
+              </StatusPill>
             </article>
           </template>
           <div v-else class="alert-detail__muted">

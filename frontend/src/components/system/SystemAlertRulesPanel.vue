@@ -23,10 +23,21 @@ import {
   listNotificationTargets,
   type NotificationTarget
 } from "../../api/system"
+import EmptyState from "../ui/EmptyState.vue"
 import UiIcon from "../ui/UiIcon.vue"
 import { useAuthStore } from "../../stores/auth"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t } = useI18n({ useScope: "global" })
 
 const props = defineProps<{
@@ -36,9 +47,7 @@ const props = defineProps<{
 const policies = ref<AlertPolicy[]>([])
 const cameras = ref<CameraSummary[]>([])
 const targets = ref<NotificationTarget[]>([])
-const loading = ref(false)
 const saving = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const editorOpen = ref(false)
 const editingId = ref<string | null>(null)
@@ -149,9 +158,7 @@ const weekdays = computed(() => [
 ])
 
 async function refresh(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     ;[policies.value, cameras.value, targets.value] =
       await Promise.all([
         listAlertPolicies(),
@@ -160,11 +167,7 @@ async function refresh(): Promise<void> {
           ? listNotificationTargets()
           : Promise.resolve([])
       ])
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function resetForm(): void {
@@ -355,7 +358,7 @@ async function toggle(item: AlertPolicy): Promise<void> {
 }
 
 async function remove(item: AlertPolicy): Promise<void> {
-  if (!window.confirm(t("system.alertRules.deleteConfirm", { name: item.name }))) return
+  if (!await confirmDestroy(t("system.alertRules.deleteConfirm", { name: item.name }))) return
   try {
     await deleteAlertPolicy(item.id)
     notice.value = t("system.alertRules.deleted")
@@ -405,21 +408,26 @@ onMounted(() => {
       </span>
     </div>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
 
-    <div v-if="notice" class="storage-notice">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="storage-notice"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
-    <div v-if="!policies.length && !loading" class="storage-empty">
+    <EmptyState
+      v-if="!policies.length && !loading"
+      surface-class="storage-empty"
+    >
       <UiIcon name="bell" :size="26" />
       <strong>{{ t("system.alertRules.empty") }}</strong>
       <span>{{ t("system.alertRules.emptyHint") }}</span>
-    </div>
+    </EmptyState>
 
     <div v-else class="alert-rule-list">
       <article

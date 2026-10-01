@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import {
   computed,
@@ -37,7 +38,19 @@ import {
   type OidcProvider,
   type Role
 } from "../../api/system"
+import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const { locale, t } = useI18n({ useScope: "global" })
 
@@ -57,9 +70,7 @@ const oidcProviders = ref<OidcProvider[]>([])
 const permissions = ref<string[]>([])
 const cameras = ref<CameraSummary[]>([])
 const cameraGroups = ref<CameraGroup[]>([])
-const loading = ref(false)
 const saving = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const editorKind = ref<EditorKind>(null)
 const editingUser = ref<AdminUser | null>(null)
@@ -134,9 +145,7 @@ function closeEditor(): void {
 }
 
 async function refresh(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [
       userItems,
       roleItems,
@@ -158,11 +167,7 @@ async function refresh(): Promise<void> {
     permissions.value = permissionItems
     cameras.value = cameraItems
     cameraGroups.value = groupItems
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function openCreateUser(): void {
@@ -428,7 +433,7 @@ async function removeOidc(
   provider: OidcProvider
 ): Promise<void> {
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("system.access.deleteOidcConfirm", { name: provider.name })
     )
   ) {
@@ -631,14 +636,16 @@ onMounted(() => {
       </button>
     </div>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
-    <div v-if="notice" class="storage-notice">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="storage-notice"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
     <div v-if="tab === 'users'" class="system-table-wrap">
       <table class="system-table">
@@ -670,12 +677,9 @@ onMounted(() => {
               <template v-else>—</template>
             </td>
             <td>
-              <span
-                class="status-pill"
-                :class="user.enabled ? 'status-pill--ok' : 'status-pill--muted'"
-              >
+              <StatusPill :variant="user.enabled ? 'ok' : 'muted'">
                 {{ user.enabled ? t("system.access.enabled") : t("system.access.disabled") }}
-              </span>
+              </StatusPill>
             </td>
             <td class="system-table__actions">
               <div class="access-row-actions">
@@ -730,12 +734,9 @@ onMounted(() => {
               {{ role.description || t("system.access.noDescription") }}
             </span>
           </div>
-          <span
-            v-if="role.built_in"
-            class="status-pill"
-          >
+          <StatusPill v-if="role.built_in">
             {{ t("system.access.builtin") }}
-          </span>
+          </StatusPill>
         </header>
 
         <div class="role-card__permissions">
@@ -803,16 +804,9 @@ onMounted(() => {
               }}
             </td>
             <td>
-              <span
-                class="status-pill"
-                :class="
-                  provider.enabled
-                    ? 'status-pill--ok'
-                    : 'status-pill--muted'
-                "
-              >
+              <StatusPill :variant="provider.enabled ? 'ok' : 'muted'">
                 {{ provider.enabled ? t("system.access.enabled") : t("system.access.disabled") }}
-              </span>
+              </StatusPill>
             </td>
             <td class="system-table__actions">
               <div class="access-row-actions">

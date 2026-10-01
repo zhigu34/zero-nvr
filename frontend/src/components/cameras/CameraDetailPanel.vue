@@ -26,12 +26,16 @@ import {
   type StorageTarget
 } from "../../api/storage"
 import { useAuthStore } from "../../stores/auth"
+import DrawerDialog from "../ui/DrawerDialog.vue"
+import StatusPill from "../ui/StatusPill.vue"
 import CameraDeviceGlyph from "./CameraDeviceGlyph.vue"
 import LiveCameraTile from "../live/LiveCameraTile.vue"
 import UiIcon from "../ui/UiIcon.vue"
+
 import CameraDetailGeneralTab from "./detail/CameraDetailGeneralTab.vue"
 import CameraDetailStreamsTab from "./detail/CameraDetailStreamsTab.vue"
 import CameraDetailRecordingTab from "./detail/CameraDetailRecordingTab.vue"
+import { useAsyncResource } from "../../composables/useAsyncResource"
 
 type DetailTab = "general" | "streams" | "recording"
 
@@ -49,6 +53,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t, te } = useI18n({ useScope: "global" })
 
 const formFactorOptions: Array<{ value: CameraFormFactor; label: string }> = [
@@ -71,8 +76,6 @@ const detail = ref<CameraDetail | null>(null)
 const policy = ref<RecordingPolicy | null>(null)
 const localTargets = ref<StorageTarget[]>([])
 const retentionPolicies = ref<RetentionPolicy[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
 // Navigation across cameras
@@ -190,9 +193,7 @@ function runtimeLabel(value: string): string {
 }
 
 async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [cameraValue, targetValues, retentionValues] =
       await Promise.all([
         getCamera(props.camera.id),
@@ -227,11 +228,7 @@ async function load(): Promise<void> {
         throw caught
       }
     }
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function loadManualTrigger(): Promise<void> {
@@ -258,7 +255,7 @@ async function handleStartManual(): Promise<void> {
       "抽屉头部快捷发起手动保全录像"
     )
     activeManualTrigger.value = trigger
-    notice.value = "⏺️ 手动录像已启动，已提升 10 秒前置预录并写入保全存储区"
+    notice.value = "手动录像已启动，已提升 10 秒前置预录并写入保全存储区"
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -274,7 +271,7 @@ async function handleStopManual(): Promise<void> {
   try {
     await stopRecordingTrigger(activeManualTrigger.value.id)
     activeManualTrigger.value = null
-    notice.value = "⏹️ 手动录像已停止，录像切片已归档入库"
+    notice.value = "手动录像已停止，录像切片已归档入库"
   } catch (caught) {
     error.value = errorMessage(caught)
   } finally {
@@ -325,7 +322,10 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="camera-detail-drawer-backdrop" @click.self="emit('close')">
+  <DrawerDialog
+    backdrop-class="camera-detail-drawer-backdrop"
+    @dismiss="emit('close')"
+  >
     <aside class="camera-detail-drawer">
       <header class="camera-detail-header">
         <div class="camera-detail-header__main">
@@ -418,7 +418,7 @@ onBeforeUnmount(() => {
             <div>
               <dt>录像状态</dt>
               <dd :class="isRecording ? 'text-red-400 font-semibold' : 'text-gray-400'">
-                {{ isRecording ? '⏺️ 正在录像' : '空闲待命' }}
+                {{ isRecording ? '正在录像' : '空闲待命' }}
               </dd>
             </div>
           </dl>
@@ -471,7 +471,7 @@ onBeforeUnmount(() => {
                 :title="previewPlaying ? '暂停实时画面' : '播放实时画面'"
                 @click.stop="previewPlaying = !previewPlaying"
               >
-                <span class="preview-center-icon">{{ previewPlaying ? '⏸' : '▶' }}</span>
+                <span class="preview-center-icon"><UiIcon :name="previewPlaying ? 'pause' : 'play'" :size="26" /></span>
               </button>
               <div class="preview-center-label">
                 <strong>{{ previewPlaying ? '暂停实时画面' : '播放实时画面' }}</strong>
@@ -557,10 +557,7 @@ onBeforeUnmount(() => {
       </section>
 
       <div class="camera-detail-status">
-        <span
-          class="status-pill"
-          :class="detail?.enabled ? 'status-pill--ok' : 'status-pill--muted'"
-        >
+        <StatusPill :variant="detail?.enabled ? 'ok' : 'muted'">
           {{
             detail?.retired_at
               ? t("cameras.retired")
@@ -568,7 +565,7 @@ onBeforeUnmount(() => {
                 ? t("cameras.enabled")
                 : t("cameras.disabled")
           }}
-        </span>
+        </StatusPill>
         <span>{{ detail?.adapter_type || "manual" }}</span>
         <span v-if="policy?.runtime">
           {{
@@ -652,7 +649,7 @@ onBeforeUnmount(() => {
         />
       </template>
     </aside>
-  </div>
+  </DrawerDialog>
 </template>
 
 <style scoped>
@@ -1021,7 +1018,7 @@ onBeforeUnmount(() => {
 .preview-center-btn:hover {
   transform: scale(1.1);
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
   box-shadow: 0 0 20px var(--uf-accent-glow);
 }
 

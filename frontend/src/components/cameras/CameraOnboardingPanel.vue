@@ -1,5 +1,22 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
+import CameraOnboardingBatchFile from "./CameraOnboardingBatchFile.vue"
+import CameraOnboardingInspection from "./CameraOnboardingInspection.vue"
+import CameraOnboardingConnection from "./CameraOnboardingConnection.vue"
+import CameraOnboardingDiscovery from "./CameraOnboardingDiscovery.vue"
+import CameraOnboardingBatchStep from "./CameraOnboardingBatchStep.vue"
+import CameraOnboardingManualFlow from "./CameraOnboardingManualFlow.vue"
+import {
+  type BatchCredentialOverride,
+  type BatchResult,
+  type BatchResultState,
+  type BatchTimeSyncMode,
+  type FileBatchResult,
+  type FileImportKind,
+  type FileImportRow,
+  type OnboardingMode as Mode,
+  type OnboardingWorkingAction as WorkingAction
+} from "./onboarding"
 import { useI18n } from "vue-i18n"
 
 import {
@@ -43,16 +60,6 @@ const emit = defineEmits<{
 const auth = useAuthStore()
 const { t, te } = useI18n({ useScope: "global" })
 
-type Mode = "onvif" | "rtsp" | "batch_file"
-type WorkingAction =
-  | "discover"
-  | "inspect"
-  | "import"
-  | "batch"
-  | "file-batch"
-  | "test"
-  | "create"
-  | null
 
 const props = withDefaults(
   defineProps<{
@@ -96,27 +103,6 @@ const inspectionFingerprint = ref<string | null>(null)
 const selectedProfiles = ref<string[]>([])
 const confirmExistingIdentity = ref(false)
 
-type BatchResultState =
-  | "pending"
-  | "running"
-  | "success"
-  | "partial"
-  | "review"
-  | "failed"
-
-interface BatchResult {
-  candidate_id: string
-  label: string
-  state: BatchResultState
-  message: string
-  camera_ids: string[]
-}
-
-interface BatchCredentialOverride {
-  username: string
-  password: string
-}
-
 const batchSelectedIds = ref<string[]>([])
 const batchUsername = ref("")
 const batchPassword = ref("")
@@ -126,41 +112,11 @@ const batchRecordingMode = ref<"continuous" | "events" | "off">(
   "continuous"
 )
 const batchStorageTargetId = ref("")
-const batchTimeSyncMode = ref<
-  "monitor" | "manage_ntp" | "ignore"
->("monitor")
+const batchTimeSyncMode = ref<BatchTimeSyncMode>("monitor")
 const batchGroups = ref<CameraGroup[]>([])
 const batchStorageTargets = ref<StorageTarget[]>([])
 const batchOverrides = ref<Record<string, BatchCredentialOverride>>({})
 const batchResults = ref<BatchResult[]>([])
-
-type FileImportKind = "onvif" | "rtsp"
-
-interface FileImportRow {
-  line: number
-  kind: FileImportKind | null
-  name: string
-  host: string
-  onvif_port: number
-  rtsp_port: number
-  username: string
-  password: string
-  main_path: string
-  sub_path: string
-  main_url: string
-  sub_url: string
-  location: string
-  storage_label: string
-  errors: string[]
-}
-
-interface FileBatchResult {
-  line: number
-  label: string
-  state: BatchResultState
-  message: string
-  camera_ids: string[]
-}
 
 const fileBatchName = ref("")
 const fileBatchRows = ref<FileImportRow[]>([])
@@ -195,21 +151,9 @@ const canBatchImport = computed(
     working.value === null
 )
 
-const batchResultMap = computed(
-  () =>
-    new Map(
-      batchResults.value.map((result) => [
-        result.candidate_id,
-        result
-      ])
-    )
-)
 
 const fileBatchReadyCount = computed(
   () => fileBatchRows.value.filter((row) => !row.errors.length).length
-)
-const fileBatchInvalidCount = computed(
-  () => fileBatchRows.value.length - fileBatchReadyCount.value
 )
 const canFileBatchImport = computed(
   () =>
@@ -427,12 +371,13 @@ function clearMessages(): void {
   successMessage.value = null
 }
 
-async function handleBatchFile(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ""
-  if (!file) return
-
+/**
+ * Parse a CSV the operator picked.
+ *
+ * The batch-file component owns the file input (and clears it after every pick,
+ * so the same file can be re-selected), so this receives the `File` itself.
+ */
+async function handleBatchFile(file: File): Promise<void> {
   clearMessages()
   fileBatchResults.value = []
   fileBatchCompleted.value = false
@@ -688,17 +633,6 @@ async function importDevice(): Promise<void> {
   } finally {
     working.value = null
   }
-}
-
-function profileSummary(profile: OnvifInspection["profiles"][number]): string {
-  const parts = [
-    profile.codec,
-    profile.width && profile.height
-      ? `${profile.width}×${profile.height}`
-      : null,
-    profile.fps ? `${profile.fps} fps` : null
-  ]
-  return parts.filter(Boolean).join(" · ") || t("cameras.onboarding.profileUnavailable")
 }
 
 function candidateName(candidate: DiscoveryCandidate): string {
@@ -1122,11 +1056,6 @@ function batchStateLabel(value: BatchResultState): string {
   return te(key) ? t(key) : value
 }
 
-function discoveryStateLabel(value: string): string {
-  const key = `cameras.onboarding.discoveryState.${value.toLowerCase()}`
-  return te(key) ? t(key) : value
-}
-
 </script>
 
 <template>
@@ -1191,338 +1120,51 @@ function discoveryStateLabel(value: string): string {
           </div>
         </div>
 
-        <button
-          class="button button--secondary"
-          type="button"
-          :disabled="working !== null"
-          @click="runDiscovery"
-        >
-          {{ working === "discover" ? t("cameras.onboarding.discovering") : t("cameras.onboarding.discoverDevices") }}
-        </button>
+        <CameraOnboardingDiscovery
+          :discovery="discovery"
+          :selected-candidate-id="selectedCandidateId"
+          :working="working"
+          @discover="runDiscovery"
+          @use-candidate="useCandidate"
+        />
 
-        <div
+        <CameraOnboardingBatchStep
           v-if="discovery && discovery.candidates.length"
-          class="candidate-list"
-        >
-          <button
-            v-for="candidate in discovery.candidates"
-            :key="candidate.id"
-            type="button"
-            class="candidate-card"
-            :class="{
-              'candidate-card--selected': selectedCandidateId === candidate.id
-            }"
-            :disabled="!candidate.host"
-            @click="useCandidate(candidate)"
-          >
-            <strong>{{ candidate.host || t("cameras.onboarding.addressUnavailable") }}</strong>
-            <span>
-              {{ candidate.port ? t("cameras.onboarding.portValue", { port: candidate.port }) : t("cameras.onboarding.defaultPort") }}
-              · {{ discoveryStateLabel(candidate.state) }}
-            </span>
-          </button>
-        </div>
-        <p
-          v-else-if="discovery"
-          class="field-hint onboarding-hint"
-        >
-          {{ t("cameras.onboarding.noOnvifDevices") }}
-        </p>
+          :discovery="discovery"
+          v-model:batch-selected-ids="batchSelectedIds"
+          v-model:batch-name-template="batchNameTemplate"
+          v-model:batch-username="batchUsername"
+          v-model:batch-password="batchPassword"
+          v-model:batch-group-id="batchGroupId"
+          v-model:batch-recording-mode="batchRecordingMode"
+          v-model:batch-storage-target-id="batchStorageTargetId"
+          v-model:batch-time-sync-mode="batchTimeSyncMode"
+          :batch-groups="batchGroups"
+          :batch-storage-targets="batchStorageTargets"
+          :batch-results="batchResults"
+          :can-manage-storage="auth.hasPermission('storage.manage')"
+          :working="working"
+          :batch-credential="batchCredential"
+          :candidate-name="candidateName"
+          :batch-state-label="batchStateLabel"
+          @run="runBatchImport"
+        />
 
-        <div
-          v-if="discovery && discovery.candidates.length"
-          class="onboarding-step"
-        >
-          <div class="step-heading">
-            <span>B</span>
-            <div>
-              <strong>{{ t("cameras.onboarding.batchOnboarding") }}</strong>
-              <p>
-                {{ t("cameras.onboarding.batchHint") }}
-              </p>
-            </div>
-          </div>
-
-          <div class="profile-list">
-            <div
-              v-for="candidate in discovery.candidates"
-              :key="`batch-${candidate.id}`"
-              class="probe-card"
-            >
-              <label class="check-row">
-                <input
-                  v-model="batchSelectedIds"
-                  type="checkbox"
-                  :value="candidate.id"
-                  :disabled="!candidate.host || working !== null"
-                />
-                <span>
-                  <strong>{{ candidateName(candidate) }}</strong>
-                  · {{ candidate.host || t("cameras.onboarding.addressUnavailable") }}
-                </span>
-              </label>
-
-              <div
-                v-if="batchSelectedIds.includes(candidate.id)"
-                class="form-grid"
-              >
-                <label class="field">
-                  <span>{{ t("cameras.onboarding.usernameOverride") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-                  <input
-                    v-model="batchCredential(candidate.id).username"
-                    autocomplete="off"
-                    :placeholder="t('cameras.onboarding.useSharedUsername')"
-                  />
-                </label>
-                <label class="field">
-                  <span>{{ t("cameras.onboarding.passwordOverride") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-                  <input
-                    v-model="batchCredential(candidate.id).password"
-                    type="password"
-                    autocomplete="new-password"
-                    :placeholder="t('cameras.onboarding.useSharedPassword')"
-                  />
-                </label>
-              </div>
-
-              <p
-                v-if="batchResultMap.get(candidate.id)"
-                class="field-hint"
-              >
-                <strong>
-                  {{ batchStateLabel(batchResultMap.get(candidate.id)?.state || "pending") }}
-                </strong>
-                · {{ batchResultMap.get(candidate.id)?.message }}
-              </p>
-            </div>
-          </div>
-
-          <div class="form-grid form-grid--three">
-            <label class="field">
-              <span>{{ t("cameras.onboarding.sharedUsername") }}</span>
-              <input
-                v-model="batchUsername"
-                autocomplete="username"
-              />
-            </label>
-            <label class="field">
-              <span>{{ t("cameras.onboarding.sharedPassword") }}</span>
-              <input
-                v-model="batchPassword"
-                type="password"
-                autocomplete="new-password"
-              />
-            </label>
-            <label class="field">
-              <span>{{ t("cameras.onboarding.nameTemplate") }}</span>
-              <input
-                v-model="batchNameTemplate"
-                placeholder="{name}"
-              />
-              <small>{{ t("cameras.onboarding.nameTemplateHint", { name: "{name}", host: "{host}" }) }}</small>
-            </label>
-          </div>
-
-          <div class="form-grid form-grid--three">
-            <label class="field">
-              <span>{{ t("cameras.onboarding.cameraGroup") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-              <select v-model="batchGroupId">
-                <option value="">{{ t("cameras.onboarding.noGroup") }}</option>
-                <option
-                  v-for="group in batchGroups"
-                  :key="group.id"
-                  :value="group.id"
-                >
-                  {{ group.name }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>{{ t("cameras.onboarding.recordingDefault") }}</span>
-              <select v-model="batchRecordingMode">
-                <option value="continuous">{{ t("cameras.onboarding.continuous") }}</option>
-                <option value="events">{{ t("cameras.onboarding.eventsOnly") }}</option>
-                <option value="off">{{ t("cameras.onboarding.off") }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>{{ t("cameras.onboarding.storageTarget") }}</span>
-              <select
-                v-model="batchStorageTargetId"
-                :disabled="!auth.hasPermission('storage.manage')"
-              >
-                <option value="">{{ t("cameras.onboarding.systemDefault") }}</option>
-                <option
-                  v-for="target in batchStorageTargets"
-                  :key="target.id"
-                  :value="target.id"
-                >
-                  {{ target.name }}
-                </option>
-              </select>
-            </label>
-          </div>
-
-          <div class="form-grid form-grid--three">
-            <label class="field">
-              <span>{{ t("cameras.onboarding.timeSyncDefault") }}</span>
-              <select v-model="batchTimeSyncMode">
-                <option value="monitor">{{ t("cameras.onboarding.monitorOnly") }}</option>
-                <option value="manage_ntp">{{ t("cameras.onboarding.manageNtp") }}</option>
-                <option value="ignore">{{ t("cameras.onboarding.ignore") }}</option>
-              </select>
-            </label>
-          </div>
-
-          <div class="onboarding-actions">
-            <span class="field-hint">
-              {{ t("cameras.onboarding.devicesSelected", { count: batchSelectedIds.length }) }}
-            </span>
-            <button
-              class="button button--primary"
-              type="button"
-              :disabled="!canBatchImport"
-              @click="runBatchImport"
-            >
-              {{ working === "batch" ? t("cameras.onboarding.batchImporting") : t("cameras.onboarding.importSelectedDevices") }}
-            </button>
-          </div>
-        </div>
-
-        <div class="form-grid form-grid--three">
-          <label class="field field--grow">
-            <span>{{ t("cameras.onboarding.hostOrIp") }}</span>
-            <input
-              v-model="onvifHost"
-              placeholder="192.168.1.50"
-              autocomplete="off"
-              required
-            />
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.onboarding.port") }}</span>
-            <input
-              v-model.number="onvifPort"
-              type="number"
-              min="1"
-              max="65535"
-              inputmode="numeric"
-            />
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.onboarding.username") }}</span>
-            <input v-model="onvifUsername" autocomplete="username" />
-          </label>
-        </div>
-
-        <label class="field">
-          <span>{{ t("cameras.onboarding.password") }}</span>
-          <input
-            v-model="onvifPassword"
-            type="password"
-            autocomplete="current-password"
-          />
-        </label>
-
-        <button
-          class="button button--primary"
-          type="button"
-          :disabled="working !== null || !onvifHost.trim()"
-          @click="inspectDevice"
-        >
-          {{ working === "inspect" ? t("cameras.onboarding.inspecting") : t("cameras.onboarding.testInspect") }}
-        </button>
+        <CameraOnboardingConnection
+          v-model:onvif-host="onvifHost"
+          v-model:onvif-port="onvifPort"
+          v-model:onvif-username="onvifUsername"
+          v-model:onvif-password="onvifPassword"
+          :working="working"
+          @inspect="inspectDevice"
+        />
       </div>
 
-      <div class="onboarding-step">
-        <div class="step-heading">
-          <span>2</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.chooseProfiles") }}</strong>
-            <p>{{ t("cameras.onboarding.profilesHint") }}</p>
-          </div>
-        </div>
-
-        <div v-if="inspection" class="inspection-card">
-          <div class="device-summary">
-            <strong>
-              {{ inspection.device.manufacturer || t("cameras.onboarding.onvifDevice") }}
-              {{ inspection.device.model || "" }}
-            </strong>
-            <span v-if="inspection.device.serial_number">
-              S/N {{ inspection.device.serial_number }}
-            </span>
-          </div>
-
-          <p
-            v-if="inspection.identity.state === 'new_device'"
-            class="notice notice--success"
-            role="status"
-          >
-            {{ t("cameras.onboarding.newIdentity") }}
-          </p>
-          <p
-            v-else-if="inspection.identity.state === 'same_device'"
-            class="notice notice--success"
-            role="status"
-          >
-            {{ t("cameras.onboarding.existingIdentityPrefix") }}
-            <strong>
-              {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
-            </strong>{{ t("cameras.onboarding.existingIdentitySuffix") }}
-          </p>
-          <div
-            v-else-if="
-              inspection.identity.state ===
-              'probable_match_requires_confirmation'
-            "
-            class="notice"
-            role="status"
-          >
-            <strong>{{ t("cameras.onboarding.identityConfirmation") }}</strong>
-            {{ t("cameras.onboarding.endpointBelongsPrefix") }}
-            <strong>
-              {{ inspection.identity.matched_device_name || inspection.identity.matched_device_id }}
-            </strong>{{ t("cameras.onboarding.endpointBelongsSuffix") }}
-            <label class="check-row">
-              <input v-model="confirmExistingIdentity" type="checkbox" />
-              <span>{{ t("cameras.onboarding.confirmSameDevice") }}</span>
-            </label>
-          </div>
-          <p
-            v-else
-            class="notice notice--error"
-            role="alert"
-          >
-            <strong>{{ t("cameras.onboarding.identityConflict") }}</strong>
-            {{ t("cameras.onboarding.identityConflictHint") }}
-          </p>
-
-          <div class="profile-list">
-            <label
-              v-for="profile in inspection.profiles"
-              :key="profile.token"
-              class="profile-option"
-              :class="{ 'profile-option--disabled': !profile.stream_uri_available }"
-            >
-              <input
-                v-model="selectedProfiles"
-                type="checkbox"
-                :value="profile.token"
-                :disabled="!profile.stream_uri_available"
-              />
-              <span>
-                <strong>{{ profile.name }}</strong>
-                <small>{{ profileSummary(profile) }}</small>
-              </span>
-            </label>
-          </div>
-        </div>
-
-        <div v-else class="step-empty">
-          {{ t("cameras.onboarding.testDeviceHint") }}
-        </div>
-      </div>
+      <CameraOnboardingInspection
+        :inspection="inspection"
+        v-model:confirm-existing-identity="confirmExistingIdentity"
+        v-model:selected-profiles="selectedProfiles"
+      />
 
       <div class="onboarding-step onboarding-step--full">
         <div class="step-heading">
@@ -1566,316 +1208,41 @@ function discoveryStateLabel(value: string): string {
       </div>
     </div>
 
-    <div v-else-if="mode === 'batch_file'" class="onboarding-grid">
-      <div class="onboarding-step onboarding-step--full">
-        <div class="step-heading">
-          <span>1</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.batchFileTitle") }}</strong>
-            <p>{{ t("cameras.onboarding.batchFileHint") }}</p>
-          </div>
-        </div>
+    <CameraOnboardingBatchFile
+      v-else-if="mode == 'batch_file'"
+      v-model:batch-group-id="batchGroupId"
+      v-model:batch-recording-mode="batchRecordingMode"
+      v-model:batch-storage-target-id="batchStorageTargetId"
+      v-model:batch-time-sync-mode="batchTimeSyncMode"
+      :batch-groups="batchGroups"
+      :batch-storage-targets="batchStorageTargets"
+      :file-batch-name="fileBatchName"
+      :file-batch-rows="fileBatchRows"
+      :file-batch-results="fileBatchResults"
+      :can-file-batch-import="canFileBatchImport"
+      :can-manage-storage="auth.hasPermission('storage.manage')"
+      :working="working"
+      :batch-state-label="batchStateLabel"
+      @download-template="downloadBatchTemplate"
+      @file-selected="handleBatchFile"
+      @run="runFileBatchImport"
+    />
 
-        <div class="onboarding-actions">
-          <button
-            class="button button--secondary"
-            type="button"
-            :disabled="working !== null"
-            @click="downloadBatchTemplate"
-          >
-            {{ t("cameras.onboarding.downloadCsvTemplate") }}
-          </button>
-          <label class="field field--grow">
-            <span>{{ t("cameras.onboarding.chooseCsvFile") }}</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              :disabled="working !== null"
-              @change="handleBatchFile"
-            />
-          </label>
-        </div>
-
-        <p class="field-hint">
-          {{ t("cameras.onboarding.csvColumns") }}
-        </p>
-        <p v-if="fileBatchName" class="field-hint">
-          {{
-            t("cameras.onboarding.csvLoaded", {
-              file: fileBatchName,
-              total: fileBatchRows.length,
-              valid: fileBatchReadyCount,
-              invalid: fileBatchInvalidCount
-            })
-          }}
-        </p>
-
-        <div v-if="fileBatchRows.length" class="profile-list">
-          <article
-            v-for="row in fileBatchRows"
-            :key="row.line"
-            class="probe-card"
-          >
-            <div class="device-summary">
-              <strong>
-                {{ t("cameras.onboarding.csvLine", { line: row.line }) }}
-                · {{ row.kind?.toUpperCase() || "?" }}
-              </strong>
-              <span>{{ row.name || row.host || "—" }}</span>
-            </div>
-            <p
-              v-if="row.errors.length"
-              class="notice notice--error"
-            >
-              {{ row.errors.join(" · ") }}
-            </p>
-            <p v-else class="field-hint">
-              {{ t("cameras.onboarding.csvReady") }}
-            </p>
-          </article>
-        </div>
-      </div>
-
-      <div class="onboarding-step onboarding-step--full">
-        <div class="step-heading">
-          <span>2</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.batchDefaults") }}</strong>
-            <p>{{ t("cameras.onboarding.batchDefaultsHint") }}</p>
-          </div>
-        </div>
-
-        <div class="form-grid form-grid--three">
-          <label class="field">
-            <span>{{ t("cameras.onboarding.cameraGroup") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-            <select v-model="batchGroupId">
-              <option value="">{{ t("cameras.onboarding.noGroup") }}</option>
-              <option
-                v-for="group in batchGroups"
-                :key="group.id"
-                :value="group.id"
-              >
-                {{ group.name }}
-              </option>
-            </select>
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.onboarding.recordingDefault") }}</span>
-            <select v-model="batchRecordingMode">
-              <option value="continuous">{{ t("cameras.onboarding.continuous") }}</option>
-              <option value="events">{{ t("cameras.onboarding.eventsOnly") }}</option>
-              <option value="off">{{ t("cameras.onboarding.off") }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.onboarding.storageTarget") }}</span>
-            <select
-              v-model="batchStorageTargetId"
-              :disabled="!auth.hasPermission('storage.manage')"
-            >
-              <option value="">{{ t("cameras.onboarding.systemDefault") }}</option>
-              <option
-                v-for="target in batchStorageTargets"
-                :key="target.id"
-                :value="target.id"
-              >
-                {{ target.name }}
-              </option>
-            </select>
-          </label>
-        </div>
-
-        <div class="form-grid form-grid--three">
-          <label class="field">
-            <span>{{ t("cameras.onboarding.timeSyncDefault") }}</span>
-            <select v-model="batchTimeSyncMode">
-              <option value="monitor">{{ t("cameras.onboarding.monitorOnly") }}</option>
-              <option value="manage_ntp">{{ t("cameras.onboarding.manageNtp") }}</option>
-              <option value="ignore">{{ t("cameras.onboarding.ignore") }}</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div class="onboarding-step onboarding-step--full">
-        <div class="step-heading">
-          <span>3</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.batchFileImport") }}</strong>
-            <p>{{ t("cameras.onboarding.batchFileImportHint") }}</p>
-          </div>
-        </div>
-
-        <div class="onboarding-actions">
-          <span class="field-hint">
-            {{ t("cameras.onboarding.csvReadyCount", { count: fileBatchReadyCount }) }}
-          </span>
-          <button
-            class="button button--primary"
-            type="button"
-            :disabled="!canFileBatchImport"
-            @click="runFileBatchImport"
-          >
-            {{
-              working === "file-batch"
-                ? t("cameras.onboarding.fileBatchImporting")
-                : t("cameras.onboarding.importCsvRows", {
-                    count: fileBatchReadyCount
-                  })
-            }}
-          </button>
-        </div>
-
-        <div v-if="fileBatchResults.length" class="profile-list">
-          <article
-            v-for="result in fileBatchResults"
-            :key="result.line"
-            class="probe-card"
-          >
-            <div class="device-summary">
-              <strong>
-                {{ t("cameras.onboarding.csvLine", { line: result.line }) }}
-                · {{ result.label }}
-              </strong>
-              <span>{{ batchStateLabel(result.state) }}</span>
-            </div>
-            <p>{{ result.message }}</p>
-          </article>
-        </div>
-      </div>
-    </div>
-
-    <div v-else class="onboarding-grid">
-      <div class="onboarding-step">
-        <div class="step-heading">
-          <span>1</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.describeCamera") }}</strong>
-            <p>{{ t("cameras.onboarding.manualHint") }}</p>
-          </div>
-        </div>
-
-        <label class="field">
-          <span>{{ t("cameras.onboarding.cameraName") }}</span>
-          <input v-model="manualName" :placeholder="t('cameras.onboarding.garage')" required />
-        </label>
-
-        <div class="form-grid">
-          <label class="field">
-            <span>{{ t("cameras.location") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-            <input v-model="manualLocation" />
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.storageLabel") }} <small>{{ t("cameras.onboarding.optional") }}</small></span>
-            <input v-model="manualStorageLabel" />
-          </label>
-        </div>
-      </div>
-
-      <div class="onboarding-step">
-        <div class="step-heading">
-          <span>2</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.configureStreams") }}</strong>
-            <p>{{ t("cameras.onboarding.zlmHint") }}</p>
-          </div>
-        </div>
-
-        <label class="field">
-          <span>{{ t("cameras.onboarding.primaryStreamName") }}</span>
-          <input v-model="primaryName" required />
-        </label>
-        <label class="field">
-          <span>{{ t("cameras.onboarding.primaryRtspUrl") }}</span>
-          <input
-            v-model="primaryUrl"
-            type="password"
-            autocomplete="off"
-            placeholder="rtsp://user:password@camera/stream"
-            required
-          />
-        </label>
-
-        <label class="check-row">
-          <input v-model="secondaryEnabled" type="checkbox" />
-          <span>{{ t("cameras.onboarding.addSecondary") }}</span>
-        </label>
-
-        <template v-if="secondaryEnabled">
-          <label class="field">
-            <span>{{ t("cameras.onboarding.secondaryStreamName") }}</span>
-            <input v-model="secondaryName" required />
-          </label>
-          <label class="field">
-            <span>{{ t("cameras.onboarding.secondaryRtspUrl") }}</span>
-            <input
-              v-model="secondaryUrl"
-              type="password"
-              autocomplete="off"
-              required
-            />
-          </label>
-        </template>
-      </div>
-
-      <div class="onboarding-step onboarding-step--full">
-        <div class="step-heading">
-          <span>3</span>
-          <div>
-            <strong>{{ t("cameras.onboarding.verifyBeforeCreating") }}</strong>
-            <p>
-              {{ t("cameras.onboarding.verifyHint") }}
-            </p>
-          </div>
-        </div>
-
-        <div v-if="manualProbe" class="probe-results">
-          <article
-            v-for="stream in manualProbe.streams"
-            :key="stream.role"
-            class="probe-card"
-          >
-            <div>
-              <strong>{{ stream.name }}</strong>
-              <span>{{ stream.role }}</span>
-            </div>
-            <p>
-              {{ t("cameras.onboarding.video") }}
-              <strong>{{ stream.video?.codec || t("cameras.onboarding.notDetected") }}</strong>
-              <template v-if="stream.video?.width && stream.video?.height">
-                · {{ stream.video.width }}×{{ stream.video.height }}
-              </template>
-            </p>
-            <p>
-              {{ t("cameras.onboarding.audio") }}
-              <strong>{{ stream.audio?.codec || t("cameras.onboarding.none") }}</strong>
-            </p>
-          </article>
-        </div>
-
-        <div class="onboarding-actions">
-          <button
-            class="button button--secondary"
-            type="button"
-            :disabled="
-              working !== null ||
-              !manualName.trim() ||
-              !primaryUrl.trim()
-            "
-            @click="testRtsp"
-          >
-            {{ working === "test" ? t("cameras.onboarding.testing") : t("cameras.onboarding.testStreams") }}
-          </button>
-          <button
-            class="button button--primary"
-            type="button"
-            :disabled="!canCreateManual"
-            @click="createRtsp"
-          >
-            {{ working === "create" ? t("cameras.onboarding.creating") : t("cameras.onboarding.createCamera") }}
-          </button>
-        </div>
-      </div>
-    </div>
+    <CameraOnboardingManualFlow
+      v-else
+      v-model:manual-name="manualName"
+      v-model:manual-location="manualLocation"
+      v-model:manual-storage-label="manualStorageLabel"
+      v-model:primary-name="primaryName"
+      v-model:primary-url="primaryUrl"
+      v-model:secondary-enabled="secondaryEnabled"
+      v-model:secondary-name="secondaryName"
+      v-model:secondary-url="secondaryUrl"
+      :manual-probe="manualProbe"
+      :working="working"
+      :can-create-manual="canCreateManual"
+      @test="testRtsp"
+      @create="createRtsp"
+    />
   </section>
 </template>

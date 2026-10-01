@@ -9,6 +9,10 @@ import {
 import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
+import { useFullscreen } from "../composables/useFullscreen"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
+
 import {
   listCameras,
   type CameraSummary
@@ -18,7 +22,6 @@ import {
   createExport,
   createExportShare,
   deleteExport,
-  exportDownloadUrl,
   getExport,
   listExportShares,
   listExports,
@@ -49,7 +52,12 @@ import {
   type TimelineDetailLevel,
   type TimelineSegment
 } from "../api/playback"
+import PlaybackActionPanel from "../components/playback/PlaybackActionPanel.vue"
+import PlaybackCameraPanel from "../components/playback/PlaybackCameraPanel.vue"
+import PlaybackControls from "../components/playback/PlaybackControls.vue"
+import PlaybackDiagnosticsPanel from "../components/playback/PlaybackDiagnosticsPanel.vue"
 import PlaybackTimelineCanvas from "../components/playback/PlaybackTimelineCanvas.vue"
+import PlaybackTopBar from "../components/playback/PlaybackTopBar.vue"
 import TolerantPlaybackTile from "../components/playback/TolerantPlaybackTile.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import {
@@ -59,6 +67,13 @@ import {
 } from "../playback/mediaTimebase"
 import { MasterPlaybackClock } from "../playback/masterClock"
 import { useAuthStore } from "../stores/auth"
+
+import { confirmAction } from "../composables/useConfirm"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 type ZoomHours = 1 | 6 | 24
 type PlaybackRate = 0.5 | 1 | 2 | 4 | 8
@@ -80,24 +95,16 @@ interface SyncTileState {
 const auth = useAuthStore()
 const route = useRoute()
 const router = useRouter()
-const cameraDropdownOpen = ref(false)
-const datePickerPopoverOpen = ref(false)
-
-function togglePlaybackCameraDropdown(): void {
-  cameraDropdownOpen.value = !cameraDropdownOpen.value
-  if (cameraDropdownOpen.value) datePickerPopoverOpen.value = false
-}
-
-function togglePlaybackDatePicker(): void {
-  datePickerPopoverOpen.value = !datePickerPopoverOpen.value
-  if (datePickerPopoverOpen.value) cameraDropdownOpen.value = false
-}
-
 function shiftPlaybackDay(delta: number): void {
   const current = new Date(`${selectedDate.value}T00:00:00`)
   if (isNaN(current.getTime())) return
   current.setDate(current.getDate() + delta)
   selectedDate.value = formatDateInput(current)
+  handleDateChange()
+}
+
+function selectPlaybackToday(): void {
+  selectedDate.value = formatDateInput(new Date())
   handleDateChange()
 }
 
@@ -133,7 +140,6 @@ const syncTileStates = ref<
   Record<string, SyncTileState>
 >({})
 const cameraPanelOpen = ref(false)
-const search = ref("")
 const timeline = ref<PlaybackTimeline | null>(null)
 const alignedTimelineTracks = ref<
   Record<string, PlaybackTimeline>
@@ -295,17 +301,6 @@ const effectiveMuted = computed(
     muted.value ||
     highSpeedMuted.value
 )
-
-const filteredCameras = computed(() => {
-  const needle = search.value.trim().toLowerCase()
-  if (!needle) return cameras.value
-
-  return cameras.value.filter((camera) =>
-    [camera.name, camera.location, camera.adapter_type]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(needle))
-  )
-})
 
 const timelineStartMs = computed(() =>
   timeline.value
@@ -2133,7 +2128,7 @@ async function removeProtection(
   item: RecordingProtection
 ): Promise<void> {
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("playback.removeProtectionConfirm", {
         reason: item.reason
       })
@@ -2252,7 +2247,7 @@ async function revokeShare(item: ExportShare): Promise<void> {
 }
 
 async function removeExport(item: ExportJob): Promise<void> {
-  if (!window.confirm(t("playback.deleteExportConfirm"))) return
+  if (!await confirmDestroy(t("playback.deleteExportConfirm"))) return
   try {
     if (activeExport.value?.id === item.id) clearExportPoll()
     await deleteExport(item.id)
@@ -2268,13 +2263,6 @@ async function removeExport(item: ExportJob): Promise<void> {
   } catch (caught) {
     error.value = errorMessage(caught)
   }
-}
-
-function exportStateClass(state: string): string {
-  const normalized = state.toUpperCase()
-  if (normalized === "COMPLETED") return "status-pill--ok"
-  if (normalized === "FAILED") return "status-pill--error"
-  return "status-pill--muted"
 }
 
 function togglePlayback(): void {
@@ -2538,27 +2526,19 @@ function handleEnded(
   void resolveAt(next, true)
 }
 
-async function toggleFullscreen(): Promise<void> {
-  if (!document.fullscreenElement) {
-    await stage.value?.requestFullscreen?.()
-  } else {
-    await document.exitFullscreen()
-  }
-}
-
-function handleFullscreenChange(): void {
-  fullscreen.value = Boolean(document.fullscreenElement)
-}
+// `stage` is the element that goes fullscreen; the composable also owns the
+// `fullscreenchange` listener that keeps `fullscreen` in sync.
+const { toggle: toggleFullscreen } = useFullscreen(stage, fullscreen)
 
 function handleRefreshEvent(): void {
   void refreshTimeline(false)
   void loadPlaybackActions()
 }
 
+useGlobalRefresh(handleRefreshEvent)
+
 onMounted(() => {
   void refreshCameras()
-  window.addEventListener("zero-nvr:refresh", handleRefreshEvent)
-  document.addEventListener("fullscreenchange", handleFullscreenChange)
 })
 
 onBeforeUnmount(() => {
@@ -2569,359 +2549,45 @@ onBeforeUnmount(() => {
   clearExportPoll()
   resolveGeneration += 1
   timelineGeneration += 1
-  window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
-  document.removeEventListener("fullscreenchange", handleFullscreenChange)
 })
 </script>
 
 <template>
   <section class="playback-workspace">
-    <aside
-      v-if="cameraPanelOpen"
-      class="live-camera-panel playback-camera-panel"
-    >
-      <div class="live-camera-panel__header">
-        <div>
-          <strong>{{ t("playback.cameras") }}</strong>
-          <span>{{ t("playback.availableCount", { count: cameras.length }) }}</span>
-        </div>
-        <button
-          class="icon-button topbar-icon-button"
-          type="button"
-          :title="t('playback.refreshCameras')"
-          :aria-label="t('playback.refreshCameras')"
-          :disabled="loadingCameras"
-          @click="refreshCameras"
-        >
-          <UiIcon name="refresh" :size="16" />
-        </button>
-      </div>
-
-      <label class="live-search">
-        <UiIcon name="search" :size="15" />
-        <input
-          v-model="search"
-          type="search"
-          :placeholder="t('playback.searchCameras')"
-          :aria-label="t('playback.searchCameras')"
-        />
-      </label>
-
-      <div class="live-camera-list">
-        <div
-          v-for="camera in filteredCameras"
-          :key="camera.id"
-          class="playback-camera-select-row"
-        >
-          <button
-            class="live-camera-row playback-camera-select-row__primary"
-            :class="{
-              'live-camera-row--selected':
-                activeCameraId === camera.id
-            }"
-            type="button"
-            @click="selectCamera(camera.id)"
-          >
-            <span
-              class="live-camera-row__status"
-              :class="{
-                'live-camera-row__status--enabled':
-                  camera.enabled
-              }"
-            />
-            <span class="live-camera-row__copy">
-              <strong>{{ camera.name }}</strong>
-              <small>
-                {{
-                  camera.location ||
-                  camera.adapter_type ||
-                  t("playback.cameraFallback")
-                }}
-              </small>
-            </span>
-            <span class="live-camera-row__check">
-              <UiIcon
-                v-if="activeCameraId === camera.id"
-                name="chevron-right"
-                :size="14"
-              />
-            </span>
-          </button>
-
-          <button
-            class="playback-sync-toggle"
-            :class="{
-              'playback-sync-toggle--active':
-                isSyncParticipant(camera.id)
-            }"
-            type="button"
-            :disabled="
-              activeCameraId === camera.id
-            "
-            :title="
-              activeCameraId === camera.id
-                ? t('playback.primarySyncCamera')
-                : isSyncParticipant(camera.id)
-                  ? t('playback.removeFromSync')
-                  : t('playback.addToSync')
-            "
-            :aria-label="
-              isSyncParticipant(camera.id)
-                ? t('playback.removeSyncCamera')
-                : t('playback.addSyncCamera')
-            "
-            @click="toggleSyncCamera(camera.id)"
-          >
-            <UiIcon
-              :name="
-                isSyncParticipant(camera.id)
-                  ? 'check'
-                  : 'plus'
-              "
-              :size="13"
-            />
-          </button>
-        </div>
-
-        <div
-          v-if="!filteredCameras.length && !loadingCameras"
-          class="live-camera-list__empty"
-        >
-          {{ t("playback.noCamerasFound") }}
-        </div>
-      </div>
-    </aside>
+    <PlaybackCameraPanel
+      :open="cameraPanelOpen"
+      :cameras="cameras"
+      :loading="loadingCameras"
+      :active-camera-id="activeCameraId"
+      :synced-camera-ids="syncedCameraIds"
+      @refresh="refreshCameras"
+      @select="selectCamera"
+      @toggle-sync="toggleSyncCamera"
+    />
 
     <div ref="stage" class="playback-stage">
-            <!-- UniFi Protect Top Time-Lapse Control Header -->
-      <header class="playback-unifi-topbar">
-        <div class="topbar-left">
-          <!-- View Title -->
-          <div class="topbar-title-tag">
-            <span class="blue-dot" />
-            <span>时光回放 (Time-Lapse)</span>
-          </div>
-
-          <div class="topbar-divider" />
-
-          <!-- Camera Selector Dropdown Pill (UniFi 机位选择器) -->
-          <div class="relative-container">
-            <button
-              class="topbar-pill-btn"
-              type="button"
-              title="切换回放摄像机"
-              @click="togglePlaybackCameraDropdown"
-            >
-              <span class="green-live-dot pulse-live" />
-              <span class="pill-camera-name">{{ activeCamera?.name || t("playback.title") }}</span>
-              <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            <!-- Camera Dropdown Menu -->
-            <div v-if="cameraDropdownOpen" class="topbar-popover camera-dropdown-popover">
-              <div class="popover-heading">选择回放机位 (Cameras)</div>
-              <div class="popover-cam-list">
-                <button
-                  v-for="camera in cameras"
-                  :key="camera.id"
-                  class="popover-cam-item"
-                  :class="{ 'popover-cam-item--active': activeCameraId === camera.id }"
-                  type="button"
-                  @click="selectCamera(camera.id); cameraDropdownOpen = false"
-                >
-                  <div class="popover-cam-left">
-                    <span class="cam-status-dot" :class="{ 'cam-status-dot--on': camera.enabled }" />
-                    <span class="cam-name">{{ camera.name }}</span>
-                  </div>
-                  <span class="cam-tag">{{ camera.adapter_type || "RTSP" }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Multi-camera Sync Panel Drawer Toggle -->
-          <button
-            class="topbar-icon-btn"
-            type="button"
-            :class="{ 'topbar-icon-btn--active': cameraPanelOpen }"
-            :title="cameraPanelOpen ? t('playback.hideCameras') : '打开多机位同步面板'"
-            @click="cameraPanelOpen = !cameraPanelOpen"
-          >
-            <UiIcon name="panel" :size="14" />
-          </button>
-
-          <div class="topbar-divider" />
-
-          <!-- Date Selector Pill (UniFi 日期选择与切换) -->
-          <div class="date-selector-group">
-            <button
-              class="date-nav-btn"
-              type="button"
-              title="前一天"
-              @click="shiftPlaybackDay(-1)"
-            >
-              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7" />
-              </svg>
-            </button>
-
-            <div class="relative-container">
-              <button
-                class="topbar-pill-btn date-pill-btn"
-                type="button"
-                title="点击选择回放日期"
-                @click="togglePlaybackDatePicker"
-              >
-                <UiIcon name="calendar" :size="13" class="text-blue" />
-                <span class="date-label">{{ selectedDate }} {{ isToday ? "(今天)" : "" }}</span>
-                <svg class="chevron-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-
-              <!-- Datepicker Popover -->
-              <div v-if="datePickerPopoverOpen" class="topbar-popover date-popover">
-                <div class="popover-heading flex-between">
-                  <span>选择回放日期</span>
-                  <div class="quick-date-actions">
-                    <button
-                      type="button"
-                      class="quick-date-btn"
-                      @click="selectedDate = formatDateInput(new Date()); handleDateChange(); datePickerPopoverOpen = false"
-                    >
-                      今天
-                    </button>
-                    <button
-                      type="button"
-                      class="quick-date-btn"
-                      @click="shiftPlaybackDay(-1); datePickerPopoverOpen = false"
-                    >
-                      昨天
-                    </button>
-                    <button type="button" class="popover-close-btn" @click="datePickerPopoverOpen = false">✕</button>
-                  </div>
-                </div>
-                <div class="date-input-wrap">
-                  <input
-                    v-model="selectedDate"
-                    type="date"
-                    class="native-date-input"
-                    @change="handleDateChange(); datePickerPopoverOpen = false"
-                  />
-                </div>
-              </div>
-            </div>
-
-            <button
-              class="date-nav-btn"
-              type="button"
-              :disabled="isToday"
-              title="后一天"
-              @click="shiftPlaybackDay(1)"
-            >
-              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7" />
-              </svg>
-            </button>
-          </div>
-
-          <div class="topbar-divider" />
-
-          <!-- Sync Mode Switcher (Tolerant vs Strict) -->
-          <div class="sync-mode-pill">
-            <button
-              class="sync-btn"
-              :class="{ 'sync-btn--active': syncMode === 'tolerant' }"
-              type="button"
-              @click="setSyncMode('tolerant')"
-            >
-              {{ t("playback.tolerant") }}
-            </button>
-            <button
-              class="sync-btn"
-              :class="{ 'sync-btn--active': syncMode === 'strict' }"
-              type="button"
-              @click="setSyncMode('strict')"
-            >
-              {{ t("playback.strict") }}
-            </button>
-          </div>
-        </div>
-
-        <div class="topbar-right">
-          <!-- Jump to File Manager -->
-          <button
-            class="action-pill-btn"
-            type="button"
-            title="在录像文件中心查看与管理当前片段"
-            @click="goToFilesManager"
-          >
-            <UiIcon name="folder" :size="13" class="text-blue" />
-            <span>管理当前文件</span>
-          </button>
-
-          <!-- Recording Protection (加锁保护) -->
-          <button
-            class="action-pill-btn action-pill-btn--amber"
-            type="button"
-            title="对当前时段切片添加锁定保护防自动覆盖清理"
-            @click="openActionPanel('protect')"
-          >
-            <UiIcon name="shield" :size="13" class="text-amber" />
-            <span>加锁保护</span>
-          </button>
-
-          <!-- UniFi Scissors Clip Exporter -->
-          <button
-            class="action-pill-btn action-pill-btn--blue"
-            type="button"
-            title="选定时段导出剪辑"
-            @click="openActionPanel('export')"
-          >
-            <UiIcon name="export" :size="13" />
-            <span>剪辑导出</span>
-          </button>
-
-          <div class="topbar-divider" />
-
-          <!-- Skip Gaps Toggle -->
-          <button
-            class="action-pill-btn"
-            :class="{ 'action-pill-btn--active': skipGaps }"
-            type="button"
-            :title="t('playback.skipGapsTitle')"
-            @click="skipGaps = !skipGaps"
-          >
-            {{ t("playback.skipGaps") }}
-          </button>
-
-          <!-- Zoom Switcher -->
-          <div class="zoom-pill">
-            <button
-              v-for="hours in zoomOptions"
-              :key="hours"
-              class="zoom-btn"
-              :class="{ 'zoom-btn--active': zoomHours === hours }"
-              type="button"
-              @click="setZoom(hours)"
-            >
-              {{ hours }}h
-            </button>
-          </div>
-
-          <!-- Fullscreen Toggle -->
-          <button
-            class="topbar-icon-btn"
-            type="button"
-            :title="fullscreen ? t('playback.exitFullscreen') : t('playback.fullscreenPlayback')"
-            @click="toggleFullscreen"
-          >
-            <UiIcon :name="fullscreen ? 'minimize' : 'maximize'" :size="14" />
-          </button>
-        </div>
-      </header>
+      <PlaybackTopBar
+        v-model:camera-panel-open="cameraPanelOpen"
+        v-model:selected-date="selectedDate"
+        v-model:skip-gaps="skipGaps"
+        :cameras="cameras"
+        :active-camera-id="activeCameraId"
+        :active-camera-name="activeCamera?.name ?? null"
+        :is-today="isToday"
+        :sync-mode="syncMode"
+        :zoom-hours="zoomHours"
+        :zoom-options="zoomOptions"
+        :fullscreen="fullscreen"
+        @select-camera="selectCamera"
+        @shift-day="shiftPlaybackDay"
+        @date-change="handleDateChange"
+        @select-today="selectPlaybackToday"
+        @set-sync-mode="setSyncMode"
+        @go-to-files="goToFilesManager"
+        @open-action="openActionPanel"
+        @set-zoom="setZoom"
+        @toggle-fullscreen="toggleFullscreen"
+      />
 
       <div
         v-if="multiCameraMode"
@@ -3058,361 +2724,49 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div class="playback-controls">
-        <button
-          class="media-button"
-          type="button"
-          :aria-label="
-            playbackControlActive
-              ? t('playback.pause')
-              : t('playback.play')
-          "
-          @click="togglePlayback"
-        >
-          <UiIcon
-            :name="
-              playbackControlActive
-                ? 'pause'
-                : 'play'
-            "
-            :size="16"
-          />
-        </button>
+      <PlaybackControls
+        v-model:diagnostics-open="diagnosticsOpen"
+        :playback-control-active="playbackControlActive"
+        :high-speed-muted="highSpeedMuted"
+        :effective-muted="effectiveMuted"
+        :playback-rate="playbackRate"
+        :playback-rate-options="playbackRateOptions"
+        :current-at="currentAt"
+        :format-timestamp="formatTimestamp"
+        :can-protect="auth.hasPermission('recording.protect')"
+        :can-export="auth.hasPermission('recording.export')"
+        :multi-camera-mode="multiCameraMode"
+        :playback-result="playbackResult"
+        @toggle-playback="togglePlayback"
+        @toggle-mute="toggleMute"
+        @set-rate="setPlaybackRate"
+        @open-action="openActionPanel"
+      />
 
-        <button
-          class="media-button"
-          type="button"
-          :disabled="highSpeedMuted"
-          :title="
-            highSpeedMuted
-              ? t('playback.highSpeedMuted')
-              : effectiveMuted
-                ? t('playback.unmute')
-                : t('playback.mute')
-          "
-          :aria-label="
-            highSpeedMuted
-              ? t('playback.highSpeedMutedLabel')
-              : effectiveMuted
-                ? t('playback.unmute')
-                : t('playback.mute')
-          "
-          @click="toggleMute"
-        >
-          <UiIcon
-            :name="
-              effectiveMuted
-                ? 'volume-off'
-                : 'volume'
-            "
-            :size="16"
-          />
-        </button>
-
-        <div class="playback-speed-switcher">
-          <button
-            v-for="rate in playbackRateOptions"
-            :key="rate"
-            class="media-button media-button--text"
-            :class="{
-              'media-button--active':
-                playbackRate === rate
-            }"
-            type="button"
-            :aria-pressed="
-              playbackRate === rate
-            "
-            @click="setPlaybackRate(rate)"
-          >
-            {{ rate }}x
-          </button>
-        </div>
-
-        <button
-          class="media-button media-button--text"
-          :class="{
-            'media-button--active':
-              diagnosticsOpen
-          }"
-          type="button"
-          :aria-pressed="diagnosticsOpen"
-          @click="
-            diagnosticsOpen =
-              !diagnosticsOpen
-          "
-        >
-          {{ t("playback.diagnostics") }}
-        </button>
-
-        <span class="playback-current-time">
-          {{ formatTimestamp(currentAt) }}
-        </span>
-
-        <div class="playback-action-buttons">
-          <button
-            v-if="auth.hasPermission('recording.protect')"
-            class="media-button media-button--text"
-            type="button"
-            @click="openActionPanel('protect')"
-          >
-            <UiIcon name="shield" :size="14" />
-            {{ t("playback.protect") }}
-          </button>
-          <button
-            v-if="auth.hasPermission('recording.export')"
-            class="media-button media-button--text"
-            type="button"
-            @click="openActionPanel('export')"
-          >
-            <UiIcon name="export" :size="14" />
-            {{ t("playback.export") }}
-          </button>
-        </div>
-
-        <span
-          v-if="multiCameraMode"
-          class="playback-codec"
-        >
-          {{ t("playback.tolerantSync") }}
-        </span>
-        <span
-          v-else-if="
-            playbackResult?.status === 'playable'
-          "
-          class="playback-codec"
-        >
-          {{ playbackResult.codec || t("playback.video") }}
-        </span>
-      </div>
-
-      <aside
+      <PlaybackDiagnosticsPanel
         v-if="diagnosticsOpen"
-        class="playback-diagnostics"
-      >
-        <header>
-          <div>
-            <strong>{{ t("playback.diagnosticsTitle") }}</strong>
-            <span>
-              {{ t("playback.diagnosticsDescription") }}
-            </span>
-          </div>
-          <button
-            class="media-button media-button--text"
-            type="button"
-            @click="diagnosticsOpen = false"
-          >
-            {{ t("playback.close") }}
-          </button>
-        </header>
-
-        <div class="playback-diagnostics__grid">
-          <section>
-            <strong>{{ t("playback.masterClock") }}</strong>
-            <dl>
-              <div>
-                <dt>{{ t("playback.state") }}</dt>
-                <dd>{{ translatedStatus(diagnosticClock.state) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.intent") }}</dt>
-                <dd>
-                  {{
-                    playbackControlActive
-                      ? t("playback.play")
-                      : t("playback.pause")
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.rate") }}</dt>
-                <dd>{{ playbackRate }}x</dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.clock") }}</dt>
-                <dd>
-                  {{
-                    formatTimestamp(
-                      new Date(
-                        diagnosticClock.currentTimeMs
-                      )
-                    )
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.sync") }}</dt>
-                <dd>
-                  {{
-                    multiCameraMode
-                      ? `${translatedStatus(syncMode)} · ${playbackParticipants.length}`
-                      : t("playback.single")
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.skipGapsLabel") }}</dt>
-                <dd>{{ skipGaps ? t("playback.on") : t("playback.off") }}</dd>
-              </div>
-            </dl>
-          </section>
-
-          <section>
-            <strong>{{ t("playback.resolver") }}</strong>
-            <dl>
-              <div>
-                <dt>{{ t("playback.statusLabel") }}</dt>
-                <dd>{{ translatedStatus(diagnosticResolverState) }}</dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.segment") }}</dt>
-                <dd>
-                  {{ activeSegmentId || "—" }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.availability") }}</dt>
-                <dd>
-                  {{
-                    activeTimelineSegment
-                      ?.availability ? translatedStatus(activeTimelineSegment.availability) : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.standby") }}</dt>
-                <dd>
-                  {{
-                    standbySegment
-                      ? standbyReady
-                        ? t("playback.ready")
-                        : t("playback.loading")
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.transport") }}</dt>
-                <dd>
-                  {{
-                    playbackResult?.status ===
-                    "playable"
-                      ? playbackResult.transport
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.gap") }}</dt>
-                <dd>
-                  {{
-                    gapResult?.reason ? translatedReason(gapResult.reason) : "—"
-                  }}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section v-if="!multiCameraMode">
-            <strong>{{ t("playback.activeMedia") }}</strong>
-            <dl>
-              <div>
-                <dt>{{ t("playback.mediaReady") }}</dt>
-                <dd>
-                  {{
-                    activeMediaDiagnostics
-                      ?.readyState
-                      ? translatedStatus(
-                          activeMediaDiagnostics.readyState
-                        )
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.mediaTime") }}</dt>
-                <dd>
-                  {{
-                    activeMediaDiagnostics
-                      ? `${activeMediaDiagnostics.currentTimeSeconds.toFixed(3)} s`
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.drift") }}</dt>
-                <dd>
-                  {{
-                    formatDiagnosticMs(
-                      activeMediaDiagnostics
-                        ?.driftMs ?? null
-                    )
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.mediaRate") }}</dt>
-                <dd>
-                  {{
-                    activeMediaDiagnostics
-                      ? `${activeMediaDiagnostics.playbackRate.toFixed(3)}x`
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.paused") }}</dt>
-                <dd>
-                  {{
-                    activeMediaDiagnostics
-                      ? activeMediaDiagnostics.paused
-                        ? t("playback.yes")
-                        : t("playback.no")
-                      : "—"
-                  }}
-                </dd>
-              </div>
-              <div>
-                <dt>{{ t("playback.seeking") }}</dt>
-                <dd>
-                  {{
-                    activeMediaDiagnostics
-                      ? activeMediaDiagnostics.seeking
-                        ? t("playback.yes")
-                        : t("playback.no")
-                      : "—"
-                  }}
-                </dd>
-              </div>
-            </dl>
-          </section>
-
-          <section v-else>
-            <strong>{{ t("playback.syncChannels") }}</strong>
-            <div class="playback-diagnostics__channels">
-              <div
-                v-for="camera in playbackParticipants"
-                :key="camera.id"
-              >
-                <span>{{ camera.name }}</span>
-                <strong>
-                  {{
-                    syncTileStates[camera.id]
-                      ?.state ? translatedStatus(syncTileStates[camera.id].state) : translatedStatus("resolving")
-                  }}
-                </strong>
-                <small>
-                  {{
-                    syncTileStates[camera.id]
-                      ?.blocksStrict
-                      ? t("playback.strictBlocker")
-                      : t("playback.nonBlocking")
-                  }}
-                </small>
-              </div>
-            </div>
-          </section>
-        </div>
-      </aside>
+        :diagnostic-clock="diagnosticClock"
+        :diagnostic-resolver-state="diagnosticResolverState"
+        :playback-control-active="playbackControlActive"
+        :playback-rate="playbackRate"
+        :multi-camera-mode="multiCameraMode"
+        :sync-mode="syncMode"
+        :playback-participants="playbackParticipants"
+        :skip-gaps="skipGaps"
+        :active-segment-id="activeSegmentId"
+        :active-timeline-segment="activeTimelineSegment"
+        :standby-segment="standbySegment"
+        :standby-ready="standbyReady"
+        :playback-result="playbackResult"
+        :gap-result="gapResult"
+        :active-media-diagnostics="activeMediaDiagnostics"
+        :sync-tile-states="syncTileStates"
+        :format-timestamp="formatTimestamp"
+        :format-diagnostic-ms="formatDiagnosticMs"
+        :translated-status="translatedStatus"
+        :translated-reason="translatedReason"
+        @close="diagnosticsOpen = false"
+      />
 
       <div class="playback-timeline-shell">
         <div class="playback-timeline-legend">
@@ -3442,1071 +2796,43 @@ onBeforeUnmount(() => {
         />
       </div>
 
-      <aside
+      <PlaybackActionPanel
         v-if="actionPanelOpen"
-        class="playback-action-panel"
-      >
-        <header>
-          <div>
-            <strong>
-              {{
-                actionMode === "protect"
-                  ? editingProtectionId
-                    ? t("playback.editProtection")
-                    : t("playback.protectRecording")
-                  : t("playback.exportClip")
-              }}
-            </strong>
-            <span>{{ activeCamera?.name || t("playback.cameraFallback") }}</span>
-          </div>
-          <button
-            class="icon-button"
-            type="button"
-            :title="t('playback.close')"
-            @click="actionPanelOpen = false"
-          >
-            <UiIcon name="close" :size="15" />
-          </button>
-        </header>
-
-        <form
-          class="playback-action-form"
-          @submit.prevent="
-            actionMode === 'protect'
-              ? saveProtection()
-              : saveExport()
-          "
-        >
-          <label>
-            <span>{{ t("playback.start") }}</span>
-            <input
-              v-model="actionStart"
-              type="datetime-local"
-              step="1"
-              required
-            />
-          </label>
-          <label>
-            <span>{{ t("playback.end") }}</span>
-            <input
-              v-model="actionEnd"
-              type="datetime-local"
-              step="1"
-              required
-            />
-          </label>
-
-          <template v-if="actionMode === 'protect'">
-            <label>
-              <span>{{ t("playback.reason") }}</span>
-              <input
-                v-model="protectionReason"
-                required
-                maxlength="1024"
-              />
-            </label>
-            <label>
-              <span>{{ t("playback.expiresAt") }}</span>
-              <input
-                v-model="protectionExpiresAt"
-                type="datetime-local"
-                step="60"
-              />
-              <small>{{ t("playback.indefiniteHint") }}</small>
-            </label>
-          </template>
-
-          <template v-else>
-            <label>
-              <span>{{ t("playback.codec") }}</span>
-              <select v-model="exportCodecMode">
-                <option value="auto">{{ t("playback.auto") }}</option>
-                <option value="copy">{{ t("playback.copyWhenPossible") }}</option>
-                <option value="h264">{{ t("playback.transcodeH264") }}</option>
-              </select>
-            </label>
-            <label>
-              <span>{{ t("playback.gaps") }}</span>
-              <select v-model="exportGapPolicy">
-                <option value="skip">{{ t("playback.skipGapsOption") }}</option>
-                <option value="fail">{{ t("playback.failOnGaps") }}</option>
-              </select>
-            </label>
-          </template>
-
-          <div class="playback-action-form__actions">
-            <button
-              class="button button--ghost"
-              type="button"
-              @click="actionPanelOpen = false"
-            >
-              {{ t("playback.cancel") }}
-            </button>
-            <button
-              class="button button--primary"
-              type="submit"
-              :disabled="actionSaving"
-            >
-              {{
-                actionSaving
-                  ? t("playback.saving")
-                  : actionMode === "protect"
-                    ? editingProtectionId
-                      ? t("playback.saveProtection")
-                      : t("playback.protectRange")
-                    : t("playback.createExport")
-              }}
-            </button>
-          </div>
-        </form>
-
-        <section
-          v-if="actionMode === 'protect' && cameraProtections.length"
-          class="playback-action-history"
-        >
-          <h3>{{ t("playback.protectedRanges") }}</h3>
-          <article
-            v-for="item in cameraProtections"
-            :key="item.id"
-          >
-            <div>
-              <strong>{{ item.reason }}</strong>
-              <span>
-                {{ formatTimestamp(new Date(item.started_at)) }}
-                →
-                {{ formatTimestamp(new Date(item.ended_at)) }}
-              </span>
-              <span v-if="item.expires_at">
-                {{ t("playback.expires", { time: formatTimestamp(new Date(item.expires_at)) }) }}
-              </span>
-            </div>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('playback.editProtection')"
-              @click="editProtection(item)"
-            >
-              <UiIcon name="shield" :size="13" />
-            </button>
-            <button
-              class="icon-button icon-button--danger"
-              type="button"
-              :title="t('playback.removeProtection')"
-              @click="removeProtection(item)"
-            >
-              <UiIcon name="trash" :size="13" />
-            </button>
-          </article>
-        </section>
-
-        <section
-          v-if="actionMode === 'export' && cameraExports.length"
-          class="playback-action-history"
-        >
-          <h3>{{ t("playback.recentExports") }}</h3>
-          <article
-            v-for="item in cameraExports"
-            :key="item.id"
-          >
-            <div>
-              <strong>
-                {{ formatTimestamp(new Date(item.start_at)) }}
-              </strong>
-              <span>
-                {{ Math.round(item.requested_duration_ms / 1000) }}s ·
-                {{ item.codec_mode }}
-              </span>
-            </div>
-            <span
-              class="status-pill"
-              :class="exportStateClass(item.state)"
-            >
-              {{ translatedStatus(item.state) }}
-            </span>
-            <button
-              v-if="item.state === 'COMPLETED'"
-              class="icon-button"
-              type="button"
-              :title="t('playback.manageShareLink')"
-              @click="openShare(item)"
-            >
-              <UiIcon name="share" :size="13" />
-            </button>
-            <a
-              v-if="item.state === 'COMPLETED'"
-              class="icon-button"
-              :href="exportDownloadUrl(item.id)"
-              :title="t('playback.downloadMp4')"
-            >
-              <UiIcon name="download" :size="13" />
-            </a>
-            <button
-              class="icon-button icon-button--danger"
-              type="button"
-              :title="t('playback.deleteExport')"
-              @click="removeExport(item)"
-            >
-              <UiIcon name="trash" :size="13" />
-            </button>
-          </article>
-        </section>
-
-        <section
-          v-if="
-            actionMode === 'export' &&
-            shareExport
-          "
-          class="playback-share-editor"
-        >
-          <header>
-            <div>
-              <strong>{{ t("playback.shareExport") }}</strong>
-              <span>
-                {{ formatTimestamp(new Date(shareExport.start_at)) }}
-              </span>
-            </div>
-            <button
-              class="icon-button"
-              type="button"
-              :title="t('playback.closeShareEditor')"
-              @click="closeShare"
-            >
-              <UiIcon name="close" :size="13" />
-            </button>
-          </header>
-
-          <form @submit.prevent="saveShare">
-            <label>
-              <span>{{ t("playback.password") }}</span>
-              <input
-                v-model="sharePassword"
-                type="password"
-                :placeholder="t('playback.optional')"
-                autocomplete="new-password"
-              />
-            </label>
-            <label>
-              <span>{{ t("playback.expiresAfter") }}</span>
-              <select v-model.number="shareExpiresHours">
-                <option :value="1">{{ t("playback.oneHour") }}</option>
-                <option :value="6">{{ t("playback.sixHours") }}</option>
-                <option :value="24">{{ t("playback.twentyFourHours") }}</option>
-                <option :value="72">{{ t("playback.threeDays") }}</option>
-                <option :value="168">{{ t("playback.sevenDays") }}</option>
-                <option :value="720">{{ t("playback.thirtyDays") }}</option>
-              </select>
-            </label>
-            <label>
-              <span>{{ t("playback.maximumDownloads") }}</span>
-              <input
-                v-model.number="shareMaxDownloads"
-                type="number"
-                min="0"
-                max="100000"
-                :placeholder="t('playback.unlimitedDownloads')"
-              />
-            </label>
-            <button
-              class="button button--primary"
-              type="submit"
-              :disabled="shareSaving"
-            >
-              {{ shareSaving ? t("playback.creating") : t("playback.createShareLink") }}
-            </button>
-          </form>
-
-          <div
-            v-if="createdShare"
-            class="playback-share-created"
-          >
-            <strong>{{ t("playback.shareLinkCreated") }}</strong>
-            <span>
-              {{ t("playback.oneTimeTokenHint") }}
-            </span>
-            <div>
-              <input
-                :value="shareUrl(createdShare)"
-                readonly
-                @focus="($event.target as HTMLInputElement).select()"
-              />
-              <button
-                class="button button--ghost button--compact"
-                type="button"
-                @click="copyShareLink"
-              >
-                {{ shareCopied ? t("playback.copied") : t("playback.copy") }}
-              </button>
-            </div>
-          </div>
-
-          <div
-            v-if="exportShares.length"
-            class="playback-share-list"
-          >
-            <h4>{{ t("playback.existingShares") }}</h4>
-            <article
-              v-for="item in exportShares"
-              :key="item.id"
-            >
-              <div>
-                <strong>
-                  {{
-                    item.revoked_at
-                      ? t("playback.revoked")
-                      : new Date(item.expires_at) <= new Date()
-                        ? t("playback.expired")
-                        : t("playback.active")
-                  }}
-                </strong>
-                <span>
-                  {{
-                    item.max_downloads
-                      ? t("playback.downloadsLimited", {
-                          downloads: item.download_count,
-                          max: item.max_downloads,
-                          time: formatTimestamp(new Date(item.expires_at))
-                        })
-                      : t("playback.downloadsExpires", {
-                          downloads: item.download_count,
-                          time: formatTimestamp(new Date(item.expires_at))
-                        })
-                  }}
-                </span>
-              </div>
-              <span
-                v-if="item.password_protected"
-                class="status-pill"
-              >
-                {{ t("playback.passwordProtected") }}
-              </span>
-              <button
-                v-if="!item.revoked_at"
-                class="icon-button icon-button--danger"
-                type="button"
-                :title="t('playback.revokeShare')"
-                @click="revokeShare(item)"
-              >
-                <UiIcon name="trash" :size="13" />
-              </button>
-            </article>
-          </div>
-        </section>
-      </aside>
+        v-model:action-start="actionStart"
+        v-model:action-end="actionEnd"
+        v-model:protection-reason="protectionReason"
+        v-model:protection-expires-at="protectionExpiresAt"
+        v-model:export-codec-mode="exportCodecMode"
+        v-model:export-gap-policy="exportGapPolicy"
+        v-model:share-password="sharePassword"
+        v-model:share-expires-hours="shareExpiresHours"
+        v-model:share-max-downloads="shareMaxDownloads"
+        :action-mode="actionMode"
+        :camera-name="activeCamera?.name ?? null"
+        :editing-protection-id="editingProtectionId"
+        :action-saving="actionSaving"
+        :camera-protections="cameraProtections"
+        :camera-exports="cameraExports"
+        :share-export="shareExport"
+        :share-saving="shareSaving"
+        :share-copied="shareCopied"
+        :created-share="createdShare"
+        :export-shares="exportShares"
+        :format-timestamp="formatTimestamp"
+        :translated-status="translatedStatus"
+        :share-url="shareUrl"
+        @close="actionPanelOpen = false"
+        @save-protection="saveProtection"
+        @save-export="saveExport"
+        @edit-protection="editProtection"
+        @remove-protection="removeProtection"
+        @open-share="openShare"
+        @remove-export="removeExport"
+        @close-share="closeShare"
+        @save-share="saveShare"
+        @copy-share-link="copyShareLink"
+        @revoke-share="revokeShare"
+      />
     </div>
   </section>
 </template>
-
-<style scoped>
-.playback-action-buttons {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-
-.playback-action-panel {
-  position: fixed;
-  top: var(--topbar-height);
-  right: 0;
-  bottom: 0;
-  z-index: 42;
-  width: min(370px, 94vw);
-  overflow-y: auto;
-  border-left: 1px solid var(--border-subtle);
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  box-shadow: -16px 0 42px rgba(0, 0, 0, 0.2);
-}
-
-.playback-action-panel > header {
-  display: flex;
-  min-height: 56px;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 0 10px 0 13px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.playback-action-panel > header strong,
-.playback-action-panel > header span {
-  display: block;
-}
-
-.playback-action-panel > header strong {
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.playback-action-panel > header span {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.playback-action-form {
-  display: grid;
-  gap: 10px;
-  padding: 12px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.playback-action-form label {
-  display: grid;
-  gap: 5px;
-}
-
-.playback-action-form label > span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-
-.playback-action-form label > small {
-  color: var(--text-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-.playback-action-form input,
-.playback-action-form select {
-  width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  background: var(--surface-base);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 13px;
-}
-
-.playback-action-form input:focus,
-.playback-action-form select:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--focus-ring);
-}
-
-.playback-action-form__actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
-  padding-top: 3px;
-}
-
-.playback-action-history {
-  padding: 11px 12px;
-}
-
-.playback-action-history h3 {
-  margin: 0 0 7px;
-  color: var(--text-muted);
-  font-size: 11px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  font-weight: 600;
-}
-
-.playback-action-history article {
-  display: flex;
-  min-height: 48px;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.playback-action-history article:last-child {
-  border-bottom: 0;
-}
-
-.playback-action-history article > div {
-  min-width: 0;
-  flex: 1;
-}
-
-.playback-action-history strong,
-.playback-action-history div > span {
-  display: block;
-}
-
-.playback-action-history strong {
-  overflow: hidden;
-  font-size: 12px;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.playback-action-history div > span {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.playback-share-editor {
-  display: grid;
-  gap: 10px;
-  margin: 0 12px 12px;
-  padding: 12px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  background: var(--surface-base);
-}
-
-.playback-share-editor > header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.playback-share-editor > header strong,
-.playback-share-editor > header span {
-  display: block;
-}
-
-.playback-share-editor > header strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.playback-share-editor > header span {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.playback-share-editor form {
-  display: grid;
-  gap: 8px;
-}
-
-.playback-share-editor form label {
-  display: grid;
-  gap: 4px;
-}
-
-.playback-share-editor form label > span {
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.playback-share-editor input,
-.playback-share-editor select {
-  width: 100%;
-  min-height: 36px;
-  padding: 0 10px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-sm);
-  outline: 0;
-  background: var(--surface-raised);
-  color: var(--text-primary);
-  font: inherit;
-  font-size: 13px;
-}
-
-.playback-share-created {
-  display: grid;
-  gap: 5px;
-  padding: 10px;
-  border: 1px solid rgba(70, 170, 112, 0.2);
-  border-radius: var(--radius-sm);
-  background: var(--success-soft);
-}
-
-.playback-share-created > strong,
-.playback-share-created > span {
-  display: block;
-}
-
-.playback-share-created > strong {
-  color: var(--success);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.playback-share-created > span {
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.playback-share-created > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 5px;
-}
-
-.playback-share-list {
-  display: grid;
-  gap: 4px;
-}
-
-.playback-share-list h4 {
-  margin: 0 0 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-
-.playback-share-list article {
-  display: grid;
-  min-height: 42px;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.playback-share-list article:last-child {
-  border-bottom: 0;
-}
-
-.playback-share-list strong,
-.playback-share-list article div > span {
-  display: block;
-}
-
-.playback-share-list strong {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.playback-share-list article div > span {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-/* ===== UniFi Protect Top Time-Lapse Control Header ===== */
-.playback-unifi-topbar {
-  height: 48px;
-  min-height: 48px;
-  background-color: var(--uf-bg-header);
-  border-bottom: 1px solid var(--uf-border);
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  z-index: 30;
-  user-select: none;
-}
-
-.topbar-left,
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.topbar-title-tag {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--uf-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-}
-
-.blue-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: var(--uf-accent);
-  box-shadow: 0 0 8px var(--uf-accent-glow);
-}
-
-.topbar-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--uf-border);
-}
-
-.relative-container {
-  position: relative;
-}
-
-.topbar-pill-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 12px;
-  border-radius: 10px;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border-strong);
-  color: var(--uf-text-primary);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.topbar-pill-btn:hover {
-  border-color: var(--uf-accent);
-  background: var(--uf-bg-hover);
-}
-
-.green-live-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: #10b981;
-}
-
-.pulse-live {
-  box-shadow: 0 0 8px rgba(16, 185, 129, 0.8);
-}
-
-.pill-camera-name {
-  max-width: 180px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.chevron-icon {
-  color: var(--uf-text-muted);
-  flex-shrink: 0;
-}
-
-.topbar-icon-btn {
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-}
-
-.topbar-icon-btn:hover {
-  color: var(--uf-text-primary);
-  background: var(--uf-bg-hover);
-}
-
-.topbar-icon-btn--active {
-  color: #ffffff;
-  background: var(--uf-accent);
-  border-color: var(--uf-accent);
-}
-
-.date-selector-group {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.date-nav-btn {
-  background: var(--uf-bg-card-sub);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  padding: 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.12s ease;
-}
-
-.date-nav-btn:hover:not(:disabled) {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.date-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.date-pill-btn {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.sync-mode-pill {
-  display: flex;
-  align-items: center;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 8px;
-  padding: 2px;
-}
-
-.sync-btn {
-  background: transparent;
-  border: none;
-  color: var(--uf-text-muted);
-  font-size: 11px;
-  font-weight: 500;
-  padding: 3px 8px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-
-.sync-btn:hover {
-  color: var(--uf-text-primary);
-}
-
-.sync-btn--active {
-  background: var(--uf-accent);
-  color: #ffffff;
-}
-
-.action-pill-btn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.action-pill-btn:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.action-pill-btn--active {
-  background: var(--uf-accent-soft);
-  border-color: var(--uf-accent);
-  color: var(--uf-accent);
-}
-
-.action-pill-btn--amber {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.35);
-  color: #f59e0b;
-}
-
-.action-pill-btn--amber:hover {
-  background: rgba(245, 158, 11, 0.25);
-  color: #f59e0b;
-}
-
-.action-pill-btn--blue {
-  background: var(--uf-accent);
-  border-color: var(--uf-accent);
-  color: #ffffff;
-  box-shadow: 0 2px 10px var(--uf-accent-glow);
-}
-
-.action-pill-btn--blue:hover {
-  background: var(--uf-accent-hover);
-}
-
-.zoom-pill {
-  display: flex;
-  align-items: center;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 8px;
-  padding: 2px;
-}
-
-.zoom-btn {
-  background: transparent;
-  border: none;
-  color: var(--uf-text-muted);
-  font-size: 10px;
-  font-family: var(--font-mono);
-  font-weight: 600;
-  padding: 3px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.12s ease;
-}
-
-.zoom-btn:hover {
-  color: var(--uf-text-primary);
-}
-
-.zoom-btn--active {
-  background: var(--uf-accent);
-  color: #ffffff;
-}
-
-.text-blue {
-  color: var(--uf-accent) !important;
-}
-
-.text-amber {
-  color: #f59e0b !important;
-}
-
-/* Popover menus */
-.topbar-popover {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 14px;
-  box-shadow: var(--uf-shadow-lg);
-  padding: 10px;
-  z-index: 50;
-  font-size: 12px;
-}
-
-.camera-dropdown-popover {
-  width: 280px;
-}
-
-.date-popover {
-  width: 280px;
-}
-
-.popover-heading {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  color: var(--uf-text-muted);
-  letter-spacing: 0.05em;
-  padding-bottom: 6px;
-  border-bottom: 1px solid var(--uf-border-subtle);
-  margin-bottom: 6px;
-}
-
-.flex-between {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.popover-cam-list {
-  max-height: 280px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.popover-cam-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 7px 10px;
-  border-radius: 8px;
-  background: transparent;
-  border: none;
-  color: var(--uf-text-secondary);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.12s ease;
-}
-
-.popover-cam-item:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.popover-cam-item--active {
-  background: var(--uf-accent-soft) !important;
-  color: var(--uf-accent) !important;
-}
-
-.popover-cam-left {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.cam-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background-color: var(--uf-text-muted);
-  flex-shrink: 0;
-}
-
-.cam-status-dot--on {
-  background-color: #10b981;
-}
-
-.cam-name {
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.cam-tag {
-  font-size: 10px;
-  color: var(--uf-accent);
-  font-family: var(--font-mono);
-}
-
-.quick-date-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.quick-date-btn {
-  background: var(--uf-bg-card-sub);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.quick-date-btn:hover {
-  background: var(--uf-accent);
-  color: #ffffff;
-}
-
-.popover-close-btn {
-  background: transparent;
-  border: none;
-  color: var(--uf-text-muted);
-  cursor: pointer;
-  padding: 0 4px;
-}
-
-.popover-close-btn:hover {
-  color: var(--uf-text-primary);
-}
-
-.date-input-wrap {
-  padding-top: 4px;
-}
-
-.native-date-input {
-  width: 100%;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border-strong);
-  border-radius: 8px;
-  padding: 6px 10px;
-  color: var(--uf-text-primary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  outline: none;
-}
-
-.native-date-input:focus {
-  border-color: var(--uf-accent);
-}
-</style>

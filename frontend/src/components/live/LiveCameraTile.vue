@@ -10,6 +10,8 @@ import {
 } from "vue"
 import { useI18n } from "vue-i18n"
 
+import { useFullscreen } from "../../composables/useFullscreen"
+
 import {
   getCamera,
   moveCameraPtz,
@@ -1168,13 +1170,15 @@ function suspendPlayback(): void {
   loading.value = false
 }
 
+// Fullscreen is scoped to this tile, so the active state compares against the
+// tile element rather than "any fullscreen element". The composable also owns
+// the `fullscreenchange` listener.
+const { enter: enterFullscreen } = useFullscreen(tile, fullscreenActive, {
+  isActive: (element) => document.fullscreenElement === element
+})
+
 function handlePageVisibilityChange(): void {
   pageVisible.value = !document.hidden
-}
-
-function handleTileFullscreenChange(): void {
-  fullscreenActive.value =
-    document.fullscreenElement === tile.value
 }
 
 function waitForIceGatheringComplete(
@@ -1975,10 +1979,6 @@ function downloadSnapshot(): void {
   anchor.remove()
 }
 
-async function enterFullscreen(): Promise<void> {
-  await tile.value?.requestFullscreen?.()
-}
-
 function handlePlaying(): void {
   if (descriptor.value) {
     playing.value = true
@@ -2049,10 +2049,6 @@ onMounted(() => {
   document.addEventListener(
     "visibilitychange",
     handlePageVisibilityChange
-  )
-  document.addEventListener(
-    "fullscreenchange",
-    handleTileFullscreenChange
   )
 })
 
@@ -2146,10 +2142,6 @@ onBeforeUnmount(() => {
   document.removeEventListener(
     "visibilitychange",
     handlePageVisibilityChange
-  )
-  document.removeEventListener(
-    "fullscreenchange",
-    handleTileFullscreenChange
   )
   destroyPlayer()
   clearRecordingError()

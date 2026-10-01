@@ -18,6 +18,8 @@ import { computed, onMounted, reactive, ref } from "vue"
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
 
+import { useToast } from "../composables/useToast"
+
 import {
   listCameras,
   type CameraSummary
@@ -38,8 +40,13 @@ import {
   type StorageTarget
 } from "../api/storage"
 import CameraDeviceGlyph from "../components/cameras/CameraDeviceGlyph.vue"
+import ToastHost from "../components/ui/ToastHost.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import NoticeBanner from "../components/ui/NoticeBanner.vue"
+import { useAsyncResource } from "../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
 
 interface WeekdayOption {
   value: number
@@ -72,9 +79,6 @@ const cameras = ref<CameraSummary[]>([])
 const policiesMap = ref<Map<string, RecordingPolicy>>(new Map())
 const storageTargets = ref<StorageTarget[]>([])
 const retentionPolicies = ref<RetentionPolicy[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
-const toastMessage = ref<string | null>(null)
 
 // Selection & Filter State
 const selectedCameraIds = ref<string[]>([])
@@ -102,12 +106,8 @@ const editForm = reactive({
   showAdvanced: false
 })
 
-function showToast(msg: string): void {
-  toastMessage.value = msg
-  setTimeout(() => {
-    if (toastMessage.value === msg) toastMessage.value = null
-  }, 4000)
-}
+// The composable owns the timer, so it cannot outlive the view.
+const { message: toastMessage, showToast } = useToast(4000)
 
 function normalizedDays(days?: number[]): number[] {
   if (!days?.length) return [...ALL_DAYS]
@@ -312,9 +312,7 @@ function toggleSelectCamera(cameraId: string): void {
 
 // Data loading
 async function loadData(force = false): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [cams, targets, retentions, policies] = await Promise.all([
       listCameras(),
       listStorageTargets().catch(() => [] as StorageTarget[]),
@@ -350,11 +348,11 @@ async function loadData(force = false): Promise<void> {
     if (force) {
       showToast("机位录制计划数据已更新")
     }
-  } catch (caught) {
-    error.value = `加载计划失败: ${errorMessage(caught)}`
-  } finally {
-    loading.value = false
-  }
+  }, {
+    // This screen prefixes its failures so an operator can tell a failed
+    // schedule load apart from a failed save.
+    onError: (caught) => `加载计划失败: ${errorMessage(caught)}`
+  })
 }
 
 // Dialog Handlers
@@ -544,7 +542,7 @@ async function savePlan(): Promise<void> {
     if (dialogMode.value === "single" && editingCamera.value) {
       const res = await putRecordingPolicy(editingCamera.value.id, payload)
       policiesMap.value.set(editingCamera.value.id, res)
-      showToast(`机位 [${editingCamera.value.name}] 录制计划已生效`)
+      showToast(t("schedules.toast.applied", { name: editingCamera.value.name }))
     } else if (dialogMode.value === "batch" && selectedCameraIds.value.length) {
       const targets = [...selectedCameraIds.value]
       let succeedCount = 0
@@ -564,9 +562,14 @@ async function savePlan(): Promise<void> {
       )
 
       if (errors.length === 0) {
-        showToast(`已成功将录制计划批量应用到全部 ${succeedCount} 路机位`)
+        showToast(t("schedules.toast.batchApplied", { count: succeedCount }))
       } else {
-        showToast(`已应用 ${succeedCount} 路机位，${errors.length} 路保存失败`)
+        showToast(
+      t("schedules.toast.batchPartial", {
+        count: succeedCount,
+        failed: errors.length
+      })
+    )
       }
     }
 
@@ -587,10 +590,10 @@ onMounted(() => {
 <template>
   <div class="schedule-view">
     <!-- Toast Message -->
-    <div v-if="toastMessage" class="schedule-toast">
+    <ToastHost surface-class="schedule-toast">
       <UiIcon name="check" :size="16" />
       <span>{{ toastMessage }}</span>
-    </div>
+    </ToastHost>
 
     <!-- Header Block -->
     <header class="schedule-header">
@@ -606,7 +609,7 @@ onMounted(() => {
             </svg>
           </div>
           <div>
-            <h1 class="schedule-title">录像录制计划 (Recording Schedules)</h1>
+            <h1 class="schedule-title">录制计划 (Schedules)</h1>
             <p class="schedule-subtitle">集中管理全网机位 24×7 自动录像、跨午夜分段周计划与动检策略</p>
           </div>
         </div>
@@ -644,10 +647,11 @@ onMounted(() => {
     </header>
 
     <!-- Error Alert Banner -->
-    <div v-if="error" class="alert-banner alert-banner--error">
-      <UiIcon name="warning" :size="16" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="alert-banner alert-banner--error"
+      variant="error" :icon-size="16"
+    >{{ error }}</NoticeBanner>
 
     <!-- Quick Stats Cards (Overview) -->
     <section class="stats-row">
@@ -786,16 +790,16 @@ onMounted(() => {
                 :class="`mode-badge--${getCameraEffectiveMode(camera)}`"
               >
                 <template v-if="getCameraEffectiveMode(camera) === 'continuous'">
-                  🟢 全天自动录像
+                  <UiIcon name="record" :size="10" /> 全天自动录像
                 </template>
                 <template v-else-if="getCameraEffectiveMode(camera) === 'schedule'">
-                  ⏱️ 自定义周计划
+                  <UiIcon name="calendar" :size="10" /> 自定义周计划
                 </template>
                 <template v-else-if="getCameraEffectiveMode(camera) === 'events'">
-                  🔔 动检事件录像
+                  <UiIcon name="activity" :size="10" /> 动检事件录像
                 </template>
                 <template v-else>
-                  ⚪ 停用 / 仅手动
+                  <UiIcon name="pause" :size="10" /> 停用 / 仅手动
                 </template>
               </span>
             </td>
@@ -1396,7 +1400,7 @@ onMounted(() => {
 .btn-action--primary {
   background: var(--uf-accent);
   border-color: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .btn-action--primary:hover:not(:disabled) {
@@ -1697,7 +1701,7 @@ onMounted(() => {
 
 .day-dot.active {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .schedule-summary-text {
@@ -2116,7 +2120,7 @@ onMounted(() => {
 .weekday-btn.active {
   background: var(--uf-accent);
   border-color: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .day-short {
@@ -2343,7 +2347,7 @@ onMounted(() => {
 .btn-footer--save {
   border: 1px solid var(--uf-accent);
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .btn-footer--save:hover:not(:disabled) {

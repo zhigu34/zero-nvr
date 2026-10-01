@@ -12,6 +12,13 @@ import {
 } from "../../../api/cameras"
 import { errorMessage } from "../../../api/client"
 
+import { confirmAction } from "../../../composables/useConfirm"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
+
 const props = defineProps<{
   camera: CameraDetail
   canConfigure: boolean
@@ -124,7 +131,7 @@ async function toggleRetired(): Promise<void> {
   const restoring = Boolean(props.camera.retired_at)
   if (
     !restoring &&
-    !window.confirm(
+    !await confirmDestroy(
       t("cameras.detail.retireConfirm", { name: props.camera.name })
     )
   ) {
@@ -385,7 +392,7 @@ async function toggleMaintenance(): Promise<void> {
 
 .button--primary {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .button--primary:hover:not(:disabled) {

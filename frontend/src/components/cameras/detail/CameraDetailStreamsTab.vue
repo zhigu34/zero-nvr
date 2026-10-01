@@ -10,6 +10,7 @@ import {
   type CameraStreamProfile
 } from "../../../api/cameras"
 import { errorMessage } from "../../../api/client"
+import StatusPill from "../../ui/StatusPill.vue"
 import UiIcon from "../../ui/UiIcon.vue"
 
 const props = defineProps<{
@@ -239,9 +240,9 @@ async function handleVerifyStream(profileId: string): Promise<void> {
           <span>{{ streamDescription(stream) }}</span>
         </div>
         <div class="stream-actions">
-          <span class="status-pill">
+          <StatusPill>
             {{ streamStatusLabel(stream.status) }}
-          </span>
+          </StatusPill>
           <button
             v-if="canConfigure"
             type="button"
@@ -453,7 +454,7 @@ async function handleVerifyStream(profileId: string): Promise<void> {
 
 .button--primary {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .button--primary:hover:not(:disabled) {

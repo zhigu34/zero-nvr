@@ -136,7 +136,7 @@ describe("StorageView (UniFi Protect Style)", () => {
     })
     await flushPromises()
 
-    expect(wrapper.text()).toContain("Storage & WebDAV Tiering")
+    expect(wrapper.text()).toContain("存储管理 (Storage)")
     expect(wrapper.find(".unifi-subtabs-pill").exists()).toBe(true)
     expect(wrapper.findAll(".unifi-subtab-btn").length).toBe(2)
   })

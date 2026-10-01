@@ -1,3 +1,4 @@
+
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue"
 import { useI18n } from "vue-i18n"
@@ -12,17 +13,28 @@ import {
   type OidcProvider,
   type Role
 } from "../../api/system"
+import StatusPill from "../ui/StatusPill.vue"
+import EmptyState from "../ui/EmptyState.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../../composables/useConfirm"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
 
 const { t } = useI18n({ useScope: "global" })
 
 const providers = ref<OidcProvider[]>([])
 const roles = ref<Role[]>([])
-const loading = ref(false)
 const saving = ref(false)
 const editorOpen = ref(false)
 const editing = ref<OidcProvider | null>(null)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
 const form = reactive({
@@ -49,18 +61,12 @@ const callbackUrl = computed(() => {
 })
 
 async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     ;[providers.value, roles.value] = await Promise.all([
       listOidcProviders(),
       listRoles()
     ])
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function openCreate(): void {
@@ -156,7 +162,7 @@ async function save(): Promise<void> {
 
 async function remove(item: OidcProvider): Promise<void> {
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("system.oidc.deleteConfirm", { name: item.name })
     )
   ) {
@@ -197,25 +203,31 @@ onMounted(() => {
       </button>
     </header>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
-    <div v-if="notice" class="storage-notice">
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="storage-notice"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
     <div v-if="loading" class="empty-state">
       {{ t("system.oidc.loading") }}
     </div>
 
-    <div v-else-if="!providers.length" class="empty-state empty-state--large">
+    <EmptyState
+      v-else-if="!providers.length"
+      surface-class="empty-state"
+      large
+    >
       <strong>{{ t("system.oidc.empty") }}</strong>
       <p>
         {{ t("system.oidc.emptyHint") }}
       </p>
-    </div>
+    </EmptyState>
 
     <div v-else class="oidc-provider-grid">
       <article
@@ -228,16 +240,9 @@ onMounted(() => {
             <strong>{{ item.name }}</strong>
             <span>{{ item.issuer }}</span>
           </div>
-          <span
-            class="status-pill"
-            :class="
-              item.enabled
-                ? 'status-pill--ok'
-                : 'status-pill--muted'
-            "
-          >
+          <StatusPill :variant="item.enabled ? 'ok' : 'muted'">
             {{ item.enabled ? t("system.oidc.enabled") : t("system.oidc.disabled") }}
-          </span>
+          </StatusPill>
         </div>
 
         <dl>

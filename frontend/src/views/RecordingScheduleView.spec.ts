@@ -177,7 +177,7 @@ describe("RecordingScheduleView.vue", () => {
     await flushPromises()
 
     // Title and stats
-    expect(wrapper.find(".schedule-title").text()).toContain("录像录制计划")
+    expect(wrapper.find(".schedule-title").text()).toContain("录制计划 (Schedules)")
     const statCards = wrapper.findAll(".stat-card")
     expect(statCards.length).toBe(5)
 

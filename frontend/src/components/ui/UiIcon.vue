@@ -131,7 +131,9 @@ const icons: Record<string, string> = {
   star:
     '<path d="m12 3 2.7 5.5 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
   minus:
-    '<path d="M5 12h14"/>'
+    '<path d="M5 12h14"/>',
+  stop:
+    '<rect x="7" y="7" width="10" height="10" rx="1.5"/>'
 }
 
 const content = computed(() => icons[props.name] ?? icons.activity)

@@ -8,6 +8,10 @@ import {
 } from "vue"
 import { useI18n } from "vue-i18n"
 
+import { useFullscreen } from "../composables/useFullscreen"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
+
 import {
   listCameras,
   type CameraSummary
@@ -31,6 +35,14 @@ import {
 } from "../live/previewWall"
 import { useAuthStore } from "../stores/auth"
 
+import { confirmAction } from "../composables/useConfirm"
+import { useAsyncResource } from "../composables/useAsyncResource"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
+
 interface NetworkInformationLike extends EventTarget {
   saveData?: boolean
   effectiveType?: string
@@ -39,6 +51,7 @@ interface NetworkInformationLike extends EventTarget {
 }
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t } = useI18n({ useScope: "global" })
 const previewWall = createLivePreviewWallClient()
 const layoutOptions: LiveLayoutSlots[] = [1, 4, 9, 16]
@@ -52,8 +65,6 @@ const cameraPanelOpen = ref(false)
 const search = ref("")
 const cameraFilter = ref<"all" | "selected">("all")
 const draggingCameraId = ref<string | null>(null)
-const loading = ref(false)
-const error = ref<string | null>(null)
 const fullscreen = ref(false)
 const networkConstrained = ref(false)
 
@@ -399,9 +410,7 @@ function applyLayout(layout: LiveViewLayout): void {
 async function refresh(): Promise<void> {
   if (!auth.hasPermission("camera.view")) return
 
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [nextCameras, nextLayouts] = await Promise.all([
       listCameras(),
       listLiveViewLayouts()
@@ -431,11 +440,7 @@ async function refresh(): Promise<void> {
     } else {
       initializeSelection()
     }
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function toggleCamera(camera: CameraSummary): void {
@@ -697,7 +702,7 @@ async function deleteActiveLayout(): Promise<void> {
   const layout = activeLayout.value
   if (!layout || layoutBusy.value) return
   if (
-    !window.confirm(
+    !await confirmDestroy(
       t("live.deleteLayoutConfirm", { name: layout.name })
     )
   ) {
@@ -720,17 +725,9 @@ async function deleteActiveLayout(): Promise<void> {
   }
 }
 
-async function toggleFullscreen(): Promise<void> {
-  if (!document.fullscreenElement) {
-    await workspace.value?.requestFullscreen?.()
-  } else {
-    await document.exitFullscreen()
-  }
-}
-
-function handleFullscreenChange(): void {
-  fullscreen.value = Boolean(document.fullscreenElement)
-}
+// `workspace` is the element that goes fullscreen; the composable also owns the
+// `fullscreenchange` listener that keeps `fullscreen` in sync.
+const { toggle: toggleFullscreen } = useFullscreen(workspace, fullscreen)
 
 function handleKeydown(event: KeyboardEvent): void {
   if (event.key === "Escape" && focusedCameraId.value) {
@@ -738,9 +735,7 @@ function handleKeydown(event: KeyboardEvent): void {
   }
 }
 
-function handleRefreshEvent(): void {
-  void refresh()
-}
+useGlobalRefresh(refresh)
 
 onMounted(() => {
   void refresh()
@@ -749,9 +744,7 @@ onMounted(() => {
     "change",
     handleNetworkChange
   )
-  window.addEventListener("zero-nvr:refresh", handleRefreshEvent)
   window.addEventListener("keydown", handleKeydown)
-  document.addEventListener("fullscreenchange", handleFullscreenChange)
 })
 
 onBeforeUnmount(() => {
@@ -761,9 +754,7 @@ onBeforeUnmount(() => {
     handleNetworkChange
   )
   clearNetworkTimers()
-  window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
   window.removeEventListener("keydown", handleKeydown)
-  document.removeEventListener("fullscreenchange", handleFullscreenChange)
   if (layoutNoticeTimer !== null) {
     window.clearTimeout(layoutNoticeTimer)
   }
@@ -964,7 +955,7 @@ onBeforeUnmount(() => {
                 :title="activeLayout.is_default ? t('live.defaultLayout') : t('live.setDefaultLayout')"
                 @click="setActiveLayoutDefault"
               >
-                {{ activeLayout.is_default ? "★ 默认预案" : "★ 设为默认" }}
+                <UiIcon name="star" :size="11" /> {{ activeLayout.is_default ? "默认预案" : "设为默认" }}
               </button>
             </template>
 
@@ -997,7 +988,7 @@ onBeforeUnmount(() => {
           <div v-if="presetsPopoverOpen" class="hud-popover hud-popover--left">
             <div class="popover-header">
               <span>{{ t("live.savedLayouts") }}</span>
-              <button class="popover-close" @click="presetsPopoverOpen = false">✕</button>
+              <button class="popover-close" @click="presetsPopoverOpen = false"><UiIcon name="close" :size="12" /></button>
             </div>
 
             <!-- Create layout inline form -->
@@ -1053,7 +1044,7 @@ onBeforeUnmount(() => {
                     <span>{{ layout.name }}</span>
                   </div>
                   <span class="item-badge">
-                    {{ layout.is_default ? "★ 默认" : `${layout.layout.slots}机位` }}
+                    <UiIcon v-if="layout.is_default" name="star" :size="10" /> {{ layout.is_default ? "默认" : `${layout.layout.slots}机位` }}
                   </span>
                 </button>
                 <button
@@ -1062,7 +1053,7 @@ onBeforeUnmount(() => {
                   :title="t('live.deleteSavedLayout')"
                   @click.stop="activeLayoutId = layout.id; deleteActiveLayout()"
                 >
-                  ✕
+                  <UiIcon name="close" :size="12" />
                 </button>
               </div>
 
@@ -1163,11 +1154,11 @@ onBeforeUnmount(() => {
           <div v-if="qualityPopoverOpen" class="hud-popover hud-popover--right">
             <div class="popover-header">
               <span>分屏画质策略 (Quality Strategy)</span>
-              <button class="popover-close" @click="qualityPopoverOpen = false">✕</button>
+              <button class="popover-close" @click="qualityPopoverOpen = false"><UiIcon name="close" :size="12" /></button>
             </div>
             <div class="popover-list">
               <div class="quality-strategy-card">
-                <div class="quality-card-title">⚡ 智能自适应 (Auto)</div>
+                <div class="quality-card-title"><UiIcon name="activity" :size="12" /> 智能自适应 (Auto)</div>
                 <div class="quality-card-desc">多路分屏优先子码流保流畅，单机放大自动切 4K/2K 主码流</div>
                 <span class="quality-badge">当前生效中</span>
               </div>

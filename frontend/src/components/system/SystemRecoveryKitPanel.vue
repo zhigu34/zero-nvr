@@ -2,6 +2,8 @@
 import { computed, ref, watch } from "vue"
 import { useI18n } from "vue-i18n"
 
+import { DATE_TIME_SECONDS, formatDateTime } from "../../utils/format"
+
 import { errorMessage } from "../../api/client"
 import {
   downloadRecoveryKit,
@@ -10,21 +12,24 @@ import {
   type RecoveryKitStatus
 } from "../../api/system"
 import { useAuthStore } from "../../stores/auth"
+import { type StatusVariant } from "../ui/StatusPill.vue"
+import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+import { useAsyncResource } from "../../composables/useAsyncResource"
 
 const props = defineProps<{
   policies: BackupPolicy[]
 }>()
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { locale, t } = useI18n({ useScope: "global" })
 const policyId = ref("")
 const status = ref<RecoveryKitStatus | null>(null)
 const passphrase = ref("")
 const confirmation = ref("")
-const loading = ref(false)
 const generating = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
 const selectedPolicy = computed(
@@ -34,14 +39,14 @@ const selectedPolicy = computed(
     ) ?? null
 )
 
-function statusClass(): string {
+function statusVariant(): StatusVariant {
   if (status.value?.status === "current") {
-    return "status-pill--ok"
+    return "ok"
   }
   if (status.value?.status === "stale") {
-    return "status-pill--error"
+    return "error"
   }
-  return "status-pill--muted"
+  return "muted"
 }
 
 function statusLabel(): string {
@@ -55,15 +60,10 @@ function statusLabel(): string {
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return t("system.recoveryKit.never")
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false
-  }).format(new Date(value))
+  return formatDateTime(value, DATE_TIME_SECONDS, {
+    locale: locale.value,
+    fallback: t("system.recoveryKit.never")
+  })
 }
 
 async function loadStatus(): Promise<void> {
@@ -71,17 +71,11 @@ async function loadStatus(): Promise<void> {
     status.value = null
     return
   }
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     status.value = await getRecoveryKitStatus(
       policyId.value
     )
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function generate(): Promise<void> {
@@ -162,28 +156,21 @@ watch(
           {{ t("system.recoveryKit.description") }}
         </span>
       </div>
-      <span
-        class="status-pill"
-        :class="statusClass()"
-      >
+      <StatusPill :variant="statusVariant()">
         {{ loading ? t("system.recoveryKit.checking") : statusLabel() }}
-      </span>
+      </StatusPill>
     </div>
 
-    <div
+    <NoticeBanner
       v-if="error"
-      class="recovery-kit-panel__message recovery-kit-panel__message--error"
-    >
-      <UiIcon name="warning" :size="14" />
-      <span>{{ error }}</span>
-    </div>
-    <div
+      surface-class="recovery-kit-panel__message recovery-kit-panel__message--error"
+      variant="error" :icon-size="14"
+    >{{ error }}</NoticeBanner>
+    <NoticeBanner
       v-if="notice"
-      class="recovery-kit-panel__message"
-    >
-      <UiIcon name="check" :size="14" />
-      <span>{{ notice }}</span>
-    </div>
+      surface-class="recovery-kit-panel__message"
+      variant="success"
+    >{{ notice }}</NoticeBanner>
 
     <div
       v-if="policies.length"

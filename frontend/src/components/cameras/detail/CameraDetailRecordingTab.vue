@@ -22,7 +22,6 @@ type RecordingMode = "continuous" | "schedule" | "events" | "off"
 interface SmartTag {
   key: string
   label: string
-  emoji: string
   aliases: string[]
 }
 
@@ -52,12 +51,12 @@ const manualElapsedSeconds = ref(0)
 let manualTimer: number | null = null
 
 const SMART_TAGS: SmartTag[] = [
-  { key: "person", label: "人体 / 访客", emoji: "🚶", aliases: ["person"] },
-  { key: "vehicle", label: "机动车", emoji: "🚗", aliases: ["vehicle", "car"] },
-  { key: "bicycle", label: "两轮车", emoji: "🛵", aliases: ["bicycle", "motorcycle"] },
-  { key: "pet", label: "宠物动物", emoji: "🐕", aliases: ["pet", "dog", "cat", "animal"] },
-  { key: "package", label: "快递包裹", emoji: "📦", aliases: ["package"] },
-  { key: "face", label: "人脸近景", emoji: "🧑", aliases: ["face"] }
+  { key: "person", label: "人体 / 访客", aliases: ["person"] },
+  { key: "vehicle", label: "机动车", aliases: ["vehicle", "car"] },
+  { key: "bicycle", label: "两轮车", aliases: ["bicycle", "motorcycle"] },
+  { key: "pet", label: "宠物动物", aliases: ["pet", "dog", "cat", "animal"] },
+  { key: "package", label: "快递包裹", aliases: ["package"] },
+  { key: "face", label: "人脸近景", aliases: ["face"] }
 ]
 
 const weekdays = computed(() => [
@@ -327,7 +326,7 @@ async function handleStartManual(): Promise<void> {
     )
     activeManualTrigger.value = trigger
     startManualTimer()
-    emit("notice", "⏺️ 手动录像已启动，已提升 10 秒前置预录并写入保全存储区")
+    emit("notice", "手动录像已启动，已提升 10 秒前置预录并写入保全存储区")
     manualReason.value = ""
   } catch (caught) {
     emit("error", errorMessage(caught))
@@ -343,7 +342,7 @@ async function handleStopManual(): Promise<void> {
     await stopRecordingTrigger(activeManualTrigger.value.id)
     activeManualTrigger.value = null
     startManualTimer()
-    emit("notice", "⏹️ 手动录像已停止，录像切片已归档入库")
+    emit("notice", "手动录像已停止，录像切片已归档入库")
   } catch (caught) {
     emit("error", errorMessage(caught))
   } finally {
@@ -501,7 +500,7 @@ onBeforeUnmount(() => {
             @click="handleStopManual"
           >
             <UiIcon name="pause" :size="13" />
-            <span>{{ manualRecordingBusy ? '正在停止...' : '⏹️ 停止手动录制并归档' }}</span>
+            <span><UiIcon name="stop" :size="11" /> {{ manualRecordingBusy ? '正在停止...' : '停止手动录制并归档' }}</span>
           </button>
         </template>
 
@@ -521,7 +520,7 @@ onBeforeUnmount(() => {
               @click="handleStartManual"
             >
               <UiIcon name="play" :size="13" />
-              <span>{{ manualRecordingBusy ? '启动中...' : '⏺️ 立即发起手动录制' }}</span>
+              <span><UiIcon name="record" :size="11" /> {{ manualRecordingBusy ? '启动中...' : '立即发起手动录制' }}</span>
             </button>
           </div>
         </template>
@@ -548,7 +547,7 @@ onBeforeUnmount(() => {
             :disabled="!canConfigure"
           />
           <div class="recording-mode-card__header">
-            <span class="text-emerald-400 font-bold">🟢 全天候连续录制</span>
+            <span class="text-emerald-400 font-bold"><span class="mode-dot mode-dot--continuous" /> 全天候连续录制</span>
             <span class="mode-tag bg-emerald-500/20 text-emerald-400">推荐</span>
           </div>
           <span>24/7 底层不间断连续写盘；配合 AI 目标识别可在回放时间轴上精确标红事件。</span>
@@ -566,7 +565,7 @@ onBeforeUnmount(() => {
             :disabled="!canConfigure"
           />
           <div class="recording-mode-card__header">
-            <span class="text-purple-400 font-bold">🟣 计划排程定时录制</span>
+            <span class="text-purple-400 font-bold"><span class="mode-dot mode-dot--schedule" /> 计划排程定时录制</span>
             <span class="mode-tag bg-purple-500/20 text-purple-400">定时</span>
           </div>
           <span>仅在周一至周日指定的时间段内录制（如营业时段、夜间安防），时段外停止写盘。</span>
@@ -584,7 +583,7 @@ onBeforeUnmount(() => {
             :disabled="!canConfigure"
           />
           <div class="recording-mode-card__header">
-            <span class="text-amber-400 font-bold">🟡 仅事件触发录制</span>
+            <span class="text-amber-400 font-bold"><span class="mode-dot mode-dot--events" /> 仅事件触发录制</span>
             <span class="mode-tag bg-amber-500/20 text-amber-400">省盘</span>
           </div>
           <span>平常不写盘（常驻 10 秒内存预录），仅在检测到人/车或动态时即时唤醒写盘，大幅节省磁盘。</span>
@@ -602,7 +601,7 @@ onBeforeUnmount(() => {
             :disabled="!canConfigure"
           />
           <div class="recording-mode-card__header">
-            <span class="text-gray-400 font-bold">⚪ 完全停用录制</span>
+            <span class="text-gray-400 font-bold"><span class="mode-dot mode-dot--off" /> 完全停用录制</span>
             <span class="mode-tag bg-white/10 text-gray-400">停用</span>
           </div>
           <span>停止所有自动与事件录像写盘，该机位仅供实时监控多画面预览使用。</span>
@@ -819,7 +818,6 @@ onBeforeUnmount(() => {
             :disabled="!canConfigure"
             @click="toggleSmartTag(tag)"
           >
-            <span class="tag-emoji">{{ tag.emoji }}</span>
             <span class="tag-label">{{ tag.label }}</span>
             <span class="tag-key font-mono text-[9px]">({{ tag.key }})</span>
           </button>
@@ -829,23 +827,23 @@ onBeforeUnmount(() => {
       <!-- Visual Pre-roll & Post-roll Graphic Timeline -->
       <div class="timeline-diagram-card">
         <div class="text-[10px] text-gray-300 font-semibold mb-2">
-          ⏱️ 智能事件前后缓冲时间轴模型 (Pre-roll & Post-roll Buffer)
+          <UiIcon name="playback" :size="11" /> 智能事件前后缓冲时间轴模型 (Pre-roll & Post-roll Buffer)
         </div>
         <div class="timeline-diagram-flow">
           <div class="timeline-diagram-block timeline-diagram-block--pre">
-            <span class="block-title">⏪ 预录内存环存</span>
+            <span class="block-title"><UiIcon name="previous" :size="11" /> 预录内存环存</span>
             <span class="block-desc">内存常驻缓存事件前动作，确保起因不漏截</span>
             <span class="block-val font-mono">{{ recordingForm.preRoll }}s</span>
           </div>
-          <div class="timeline-diagram-arrow">➔</div>
+          <div class="timeline-diagram-arrow"><UiIcon name="chevron-right" :size="14" /></div>
           <div class="timeline-diagram-block timeline-diagram-block--event">
-            <span class="block-title">🎯 目标侦测触发中</span>
+            <span class="block-title"><UiIcon name="focus" :size="11" /> 目标侦测触发中</span>
             <span class="block-desc">人/车/包裹进入画面持续录像</span>
             <span class="block-val font-mono">持续中</span>
           </div>
-          <div class="timeline-diagram-arrow">➔</div>
+          <div class="timeline-diagram-arrow"><UiIcon name="chevron-right" :size="14" /></div>
           <div class="timeline-diagram-block timeline-diagram-block--post">
-            <span class="block-title">⏩ 延录缓冲保护</span>
+            <span class="block-title"><UiIcon name="next" :size="11" /> 延录缓冲保护</span>
             <span class="block-desc">目标离开画面后继续延录防漏尾</span>
             <span class="block-val font-mono">{{ recordingForm.postRoll }}s</span>
           </div>
@@ -1413,8 +1411,30 @@ onBeforeUnmount(() => {
   color: var(--uf-accent);
 }
 
-.tag-emoji {
-  font-size: 14px;
+/* 录制模式图例圆点：原先的颜色信号只来自 emoji 本体 */
+.mode-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 2px;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+
+.mode-dot--continuous {
+  background: var(--success);
+}
+
+.mode-dot--schedule {
+  background: #8b5cf6;
+}
+
+.mode-dot--events {
+  background: var(--warning);
+}
+
+.mode-dot--off {
+  background: var(--text-muted);
 }
 
 .timeline-diagram-card {
@@ -1564,7 +1584,7 @@ onBeforeUnmount(() => {
 
 .button--primary {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .button--primary:hover:not(:disabled) {

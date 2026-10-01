@@ -2,6 +2,8 @@
 import { computed, onMounted, reactive, ref } from "vue"
 import { useI18n } from "vue-i18n"
 
+import { DATE_TIME_MINUTES, formatDateTime } from "../../utils/format"
+
 import {
   listSessions,
   revokeSession,
@@ -10,18 +12,18 @@ import {
 import { errorMessage } from "../../api/client"
 import { useAuthStore } from "../../stores/auth"
 import UiIcon from "../ui/UiIcon.vue"
+import { useAsyncResource } from "../../composables/useAsyncResource"
 
 const emit = defineEmits<{
   close: []
 }>()
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { locale, t } = useI18n({ useScope: "global" })
 const sessions = ref<SessionSummary[]>([])
-const loading = ref(false)
 const savingPassword = ref(false)
 const revokingId = ref<string | null>(null)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 
 const passwordForm = reactive({
@@ -35,13 +37,9 @@ const otherSessions = computed(() =>
 )
 
 function formatTime(value: string): string {
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(value))
+  // The shared helper also guards an unparseable value; the previous inline
+  // version would throw a RangeError on an invalid date.
+  return formatDateTime(value, DATE_TIME_MINUTES, { locale: locale.value })
 }
 
 function sourceIp(item: SessionSummary): string {
@@ -57,15 +55,9 @@ function userAgent(item: SessionSummary): string {
 }
 
 async function refreshSessions(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     sessions.value = await listSessions()
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function changePassword(): Promise<void> {

@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import {
   computed,
-  onBeforeUnmount,
   onMounted,
   reactive,
   ref
 } from "vue"
 import { useI18n } from "vue-i18n"
+
+import { formatBytesAdaptive } from "../utils/format"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
 
 import {
   listCameras,
@@ -29,21 +32,33 @@ import {
   type StorageTarget,
   type StorageTargetTest
 } from "../api/storage"
+import DrawerDialog from "../components/ui/DrawerDialog.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import NoticeBanner from "../components/ui/NoticeBanner.vue"
+
+import { confirmAction } from "../composables/useConfirm"
+import { useAsyncResource } from "../composables/useAsyncResource"
+
+// These prompts all remove or irreversibly change stored data, so the
+// dialog styles the accept action as destructive.
+const confirmDestroy = (message: string) =>
+  confirmAction({ message, danger: true })
+// Routine but consequential: the operator is asked to confirm, without
+// the destructive styling.
+const confirmProceed = (message: string) => confirmAction({ message })
 
 type StorageTab = "targets" | "retention"
 type TargetFormType = "local" | "rclone"
 type ArchiveProvider = "custom" | "openlist_webdav"
 
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t, te } = useI18n({ useScope: "global" })
 const tab = ref<StorageTab>("targets")
 const targets = ref<StorageTarget[]>([])
 const policies = ref<RetentionPolicy[]>([])
 const cameras = ref<CameraSummary[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const targetPanelOpen = ref(false)
 const policyPanelOpen = ref(false)
@@ -117,18 +132,11 @@ const switchDestinations = computed(() =>
   )
 )
 
-function formatBytes(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "—"
-  const units = ["B", "KB", "MB", "GB", "TB", "PB"]
-  let index = 0
-  let amount = value
-  while (amount >= 1024 && index < units.length - 1) {
-    amount /= 1024
-    index += 1
-  }
-  const digits = amount >= 100 || index === 0 ? 0 : amount >= 10 ? 1 : 2
-  return `${amount.toFixed(digits)} ${units[index]}`
-}
+// Capacity figures need magnitude-scaled precision, so this view uses the
+// adaptive formatter rather than the one-decimal shared variant.
+const formatBytes = (
+  value: number | null | undefined
+): string => formatBytesAdaptive(value)
 
 function targetDetail(target: StorageTarget): string {
   if (target.type === "local") {
@@ -229,9 +237,7 @@ function scopeLabel(policy: RetentionPolicy): string {
 async function refresh(): Promise<void> {
   if (!auth.hasPermission("storage.manage")) return
 
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [targetItems, retentionItems, cameraItems] =
       await Promise.all([
         listStorageTargets(),
@@ -254,11 +260,7 @@ async function refresh(): Promise<void> {
           // ignore background probe failures
         })
     })
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 function resetTargetForm(type: TargetFormType = "local"): void {
@@ -393,7 +395,7 @@ async function runRecordingTargetSwitch(): Promise<void> {
   if (!source || !destination) return
 
   if (
-    !window.confirm(
+    !await confirmProceed(
       t("storage.switchConfirm", {
         source: source.name,
         destination: destination.name
@@ -591,7 +593,7 @@ async function toggleTarget(target: StorageTarget): Promise<void> {
 }
 
 async function removeTarget(target: StorageTarget): Promise<void> {
-  if (!window.confirm(t("storage.deleteTargetConfirm", { name: target.name }))) {
+  if (!await confirmDestroy(t("storage.deleteTargetConfirm", { name: target.name }))) {
     return
   }
   try {
@@ -693,7 +695,7 @@ async function togglePolicy(policy: RetentionPolicy): Promise<void> {
 }
 
 async function removePolicy(policy: RetentionPolicy): Promise<void> {
-  if (!window.confirm(t("storage.deletePolicyConfirm", { name: policy.name }))) {
+  if (!await confirmDestroy(t("storage.deletePolicyConfirm", { name: policy.name }))) {
     return
   }
   try {
@@ -705,17 +707,10 @@ async function removePolicy(policy: RetentionPolicy): Promise<void> {
   }
 }
 
-function handleRefreshEvent(): void {
-  void refresh()
-}
+useGlobalRefresh(refresh)
 
 onMounted(() => {
   void refresh()
-  window.addEventListener("zero-nvr:refresh", handleRefreshEvent)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("zero-nvr:refresh", handleRefreshEvent)
 })
 </script>
 
@@ -725,10 +720,10 @@ onBeforeUnmount(() => {
     <header class="unifi-storage-header">
       <div class="unifi-storage-header__title-group">
         <h2 class="unifi-storage-title">
-          {{ t("storage.title") }} & WebDAV Tiering (存储分层、WebDAV 与自动留存)
+          存储管理 (Storage)
         </h2>
         <p class="unifi-storage-subtitle">
-          本地 NVMe 高速写入池 ➔ WebDAV 自动归档 ➔ 80%/85%/95% 高水位自动清理 ➔ 前端统一直连秒开
+          本地 NVMe 高速写入池 → WebDAV 自动归档 → 80%/85%/95% 高水位自动清理 → 前端统一直连秒开
         </p>
       </div>
 
@@ -799,16 +794,18 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Error Notice Banner -->
-    <div v-if="error" class="unifi-banner unifi-banner--danger">
-      <UiIcon name="warning" :size="16" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="unifi-banner unifi-banner--danger"
+      variant="error" :icon-size="16"
+    >{{ error }}</NoticeBanner>
 
     <!-- Success Notice Banner -->
-    <div v-if="notice" class="unifi-banner unifi-banner--success">
-      <UiIcon name="check" :size="15" />
-      <span>{{ notice }}</span>
-    </div>
+    <NoticeBanner
+      v-if="notice"
+      surface-class="unifi-banner unifi-banner--success"
+      variant="success" :icon-size="15"
+    >{{ notice }}</NoticeBanner>
 
     <!-- Subtab 1: Storage Targets -->
     <div v-if="tab === 'targets'" class="unifi-tab-content">
@@ -1061,14 +1058,15 @@ onBeforeUnmount(() => {
             <div>
               状态凭据:
               <span :class="target.credentials_configured ? 'text-emerald-400' : 'text-amber-400'">
-                {{ target.credentials_configured ? '✓ 凭据已就绪 (SHA-256 校验完毕)' : '⚠ 未配置访问凭据' }}
+                <UiIcon :name="target.credentials_configured ? 'check' : 'warning'" :size="11" />
+                {{ target.credentials_configured ? '凭据已就绪 (SHA-256 校验完毕)' : '未配置访问凭据' }}
               </span>
             </div>
           </div>
 
           <!-- UniFi Highlight Feature Callout -->
           <div class="unifi-callout-box">
-            ✨ <b>前端无感等同于本地：</b>WebDAV 录像与本地录像汇聚在同一条连续时间轴上，拖拽洗带时由后端智能流式拉取（Byte Range），不需要手动“恢复/解冻”，体验与本地完全一致。
+            <b>前端无感等同于本地：</b>WebDAV 录像与本地录像汇聚在同一条连续时间轴上，拖拽洗带时由后端智能流式拉取（Byte Range），不需要手动“恢复/解冻”，体验与本地完全一致。
           </div>
 
           <!-- Test Result or Note -->
@@ -1166,10 +1164,10 @@ onBeforeUnmount(() => {
                 <th>{{ t("storage.ordinary") }}</th>
                 <th>{{ t("storage.event") }}</th>
                 <th>{{ t("storage.manual") }}</th>
-                <th>{{ t("storage.mode") || "清理模式" }}</th>
-                <th>WebDAV 强制前置</th>
+                <th>{{ t("storage.mode") }}</th>
+                <th>{{ t("storage.webdavRequired") }}</th>
                 <th>{{ t("storage.status") }}</th>
-                <th class="text-right">操作</th>
+                <th class="text-right">{{ t("storage.actions") }}</th>
               </tr>
             </thead>
             <tbody>
@@ -1233,7 +1231,7 @@ onBeforeUnmount(() => {
                 <!-- Require Archive -->
                 <td class="font-sans">
                   <span v-if="policy.require_archive_before_delete" class="text-emerald-400 font-medium">
-                    ✓ 强制 (必须归档完才删)
+                    <UiIcon name="check" :size="11" /> 强制 (必须归档完才删)
                   </span>
                   <span v-else class="text-gray-400">
                     - 可选 (允许直删)
@@ -1289,7 +1287,11 @@ onBeforeUnmount(() => {
     <!-- ================= MODALS / DRAWERS ================= -->
 
     <!-- 1. Switch Recording Target Drawer -->
-    <div v-if="switchSource" class="unifi-drawer-backdrop" @click.self="switchSource = null; switchDestinationId = ''">
+    <DrawerDialog
+      v-if="switchSource"
+      backdrop-class="unifi-drawer-backdrop"
+      @dismiss="switchSource = null; switchDestinationId = ''"
+    >
       <aside class="unifi-drawer">
         <header class="unifi-drawer__header">
           <div>
@@ -1352,10 +1354,14 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </aside>
-    </div>
+    </DrawerDialog>
 
     <!-- 2. Target Editor Drawer (Create / Edit) -->
-    <div v-if="targetPanelOpen" class="unifi-drawer-backdrop" @click.self="targetPanelOpen = false; editingTarget = null">
+    <DrawerDialog
+      :open="targetPanelOpen"
+      backdrop-class="unifi-drawer-backdrop"
+      @dismiss="targetPanelOpen = false; editingTarget = null"
+    >
       <aside class="unifi-drawer">
         <header class="unifi-drawer__header">
           <div>
@@ -1591,10 +1597,14 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </aside>
-    </div>
+    </DrawerDialog>
 
     <!-- 3. Policy Editor Drawer (Create / Edit) -->
-    <div v-if="policyPanelOpen" class="unifi-drawer-backdrop" @click.self="policyPanelOpen = false; editingPolicy = null">
+    <DrawerDialog
+      :open="policyPanelOpen"
+      backdrop-class="unifi-drawer-backdrop"
+      @dismiss="policyPanelOpen = false; editingPolicy = null"
+    >
       <aside class="unifi-drawer">
         <header class="unifi-drawer__header">
           <div>
@@ -1731,7 +1741,7 @@ onBeforeUnmount(() => {
           </div>
         </form>
       </aside>
-    </div>
+    </DrawerDialog>
   </div>
 </template>
 
@@ -1809,7 +1819,7 @@ onBeforeUnmount(() => {
 
 .unifi-subtab-btn--active {
   background: var(--uf-accent) !important;
-  color: #ffffff !important;
+  color: var(--text-on-accent) !important;
   box-shadow: 0 1px 3px rgba(37, 99, 235, 0.4);
 }
 
@@ -2325,7 +2335,7 @@ onBeforeUnmount(() => {
 
 .unifi-btn--primary {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .unifi-btn--primary:hover:not(:disabled) {

@@ -1,12 +1,19 @@
 <script setup lang="ts">
 import {
   computed,
-  onBeforeUnmount,
   onMounted,
   ref
 } from "vue"
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
+
+import {
+  DATE_TIME_MINUTES,
+  TIME_ONLY,
+  formatDateTime as formatDateTimeShared
+} from "../utils/format"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
 
 import {
   acknowledgeAlert,
@@ -33,8 +40,11 @@ import {
   type BackupSet,
   type SystemHealth
 } from "../api/system"
+import { type StatusVariant } from "../components/ui/StatusPill.vue"
+import StatusPill from "../components/ui/StatusPill.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import NoticeBanner from "../components/ui/NoticeBanner.vue"
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -181,23 +191,14 @@ function cameraName(cameraId: string | null): string {
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return "—"
-  return new Intl.DateTimeFormat(locale.value, {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(value))
+  return formatDateTimeShared(value, TIME_ONLY, { locale: locale.value })
 }
 
 function formatDateTime(value: string | null): string {
-  if (!value) return t("dashboard.never")
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false
-  }).format(new Date(value))
+  return formatDateTimeShared(value, DATE_TIME_MINUTES, {
+    locale: locale.value,
+    fallback: t("dashboard.never")
+  })
 }
 
 function pretty(value: string): string {
@@ -261,28 +262,23 @@ function severityClass(value: string): string {
   return "dashboard-alert--info"
 }
 
-function statusClass(value: string): string {
+// This view's vocabulary is deliberately narrower than SystemView's: it only
+// renders the states its own summary query returns.
+function statusVariant(value: string): StatusVariant {
   const normalized = value.toUpperCase()
   if (normalized === "OK" || normalized === "COMPLETED") {
-    return "status-pill--ok"
+    return "ok"
   }
   if (normalized === "ERROR" || normalized === "FAILED") {
-    return "status-pill--error"
+    return "error"
   }
-  return "status-pill--muted"
+  return "muted"
 }
 
-function handleRefresh(): void {
-  void refresh()
-}
+useGlobalRefresh(refresh)
 
 onMounted(() => {
   void refresh()
-  window.addEventListener("zero-nvr:refresh", handleRefresh)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("zero-nvr:refresh", handleRefresh)
 })
 </script>
 
@@ -304,10 +300,11 @@ onBeforeUnmount(() => {
       </button>
     </header>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="16" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error" :icon-size="16"
+    >{{ error }}</NoticeBanner>
 
     <div class="dashboard-metrics">
       <RouterLink to="/system" class="dashboard-metric">
@@ -473,13 +470,9 @@ onBeforeUnmount(() => {
             >
               {{ acknowledgingId === item.id ? "…" : t("dashboard.acknowledge") }}
             </button>
-            <span
-              v-else
-              class="status-pill"
-              :class="statusClass(item.state)"
-            >
+            <StatusPill v-else :variant="statusVariant(item.state)">
               {{ pretty(item.state) }}
-            </span>
+            </StatusPill>
           </article>
         </div>
       </section>

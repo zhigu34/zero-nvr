@@ -2,7 +2,7 @@
 /**
  * CamerasView.vue - Devices & Discovery (机位发现与配置中心)
  *
- * 深度 1:1 对齐 UniFi Protect 原型 (docs/zero_nvr_prototype.html #protect-devices)：
+ * 深度 1:1 对齐 UniFi Protect 原型 (docs/archive/zero_nvr_prototype.html #protect-devices)：
  * 1. 顶部控制栏与发现矩阵：
  *    - 发现新摄像机 (ONVIF WS-Discovery 局域网探测接入)；
  *    - CSV 批量导入 (快速进入 CSV 拖拽解析纳管流程)；
@@ -24,9 +24,13 @@
  *    - 速度调节滑块 (1-10 档平滑调速) 与预置位扩展槽位。
  */
 
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
+import { computed, onMounted, reactive, ref, watch } from "vue"
 import { useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
+
+import { useGlobalRefresh } from "../composables/useGlobalRefresh"
+
+import { useToast } from "../composables/useToast"
 
 import {
   getCamera,
@@ -46,18 +50,20 @@ import CameraDetailPanel from "../components/cameras/CameraDetailPanel.vue"
 import CameraDeviceGlyph from "../components/cameras/CameraDeviceGlyph.vue"
 import CameraGroupsPanel from "../components/cameras/CameraGroupsPanel.vue"
 import CameraOnboardingPanel from "../components/cameras/CameraOnboardingPanel.vue"
+import ToastHost from "../components/ui/ToastHost.vue"
+import EmptyState from "../components/ui/EmptyState.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
 import { useAuthStore } from "../stores/auth"
+import NoticeBanner from "../components/ui/NoticeBanner.vue"
+import { useAsyncResource } from "../composables/useAsyncResource"
 
 const router = useRouter()
 const auth = useAuthStore()
+const { loading, error, run } = useAsyncResource()
 const { t, te } = useI18n({ useScope: "global" })
 
 // State: Cameras & Selection
 const cameras = ref<CameraSummary[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
-const toastMessage = ref<string | null>(null)
 
 // Search & Sort state
 const searchQuery = ref("")
@@ -85,14 +91,8 @@ const ptzZoomFactor = ref<number>(1.0)
 const ptzMoving = ref(false)
 
 // Toast feedback helper
-function showToast(msg: string): void {
-  toastMessage.value = msg
-  setTimeout(() => {
-    if (toastMessage.value === msg) {
-      toastMessage.value = null
-    }
-  }, 3200)
-}
+// The composable owns the timer, so it cannot outlive the view.
+const { showToast } = useToast(3200)
 
 // Filtered Camera List
 const activeCameras = computed(() => cameras.value.filter((c) => !c.retired_at))
@@ -197,9 +197,24 @@ async function runQuickProbe(camera: CameraSummary): Promise<void> {
       }
     }
     const fpsStr = updated.fps ? ` · ${Math.round(updated.fps)} FPS` : ""
-    showToast(`🔍 ${camera.name} 连接检测完成：${updated.video_codec?.toUpperCase() || 'H.264'} ${updated.width && updated.height ? `${updated.width}×${updated.height}` : ''}${fpsStr}`)
+    showToast(
+      t("cameras.toast.probeDone", {
+        name: camera.name,
+        codec: updated.video_codec?.toUpperCase() || "H.264",
+        resolution:
+          updated.width && updated.height
+            ? `${updated.width}×${updated.height}`
+            : "",
+        fps: fpsStr
+      })
+    )
   } catch (caught) {
-    showToast(`❌ ${camera.name} 连接检测失败: ${errorMessage(caught)}`)
+    showToast(
+      t("cameras.toast.probeFailed", {
+        name: camera.name,
+        error: errorMessage(caught)
+      })
+    )
   } finally {
     singleProbingId.value = null
   }
@@ -227,7 +242,12 @@ async function runBatchProbe(): Promise<void> {
   }
   batchProbeRunning.value = false
   await refresh()
-  showToast(`异常设备批量检测完成：成功 ${batchProbeProgress.success} 台，失败 ${batchProbeProgress.failed} 台`)
+  showToast(
+      t("cameras.toast.batchProbeDone", {
+        success: batchProbeProgress.success,
+        failed: batchProbeProgress.failed
+      })
+    )
 }
 
 function adapterLabel(value: string | null): string {
@@ -242,19 +262,13 @@ function adapterLabel(value: string | null): string {
  * 载入机位列表与真实辅助详情（流绑定、NTP 时钟状态）
  */
 async function refresh(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     cameras.value = await listCameras({
       includeRetired: auth.hasPermission("camera.configure")
     })
     // 异步拉取详细码流规格与 NTP 时钟状态
     void loadAuxiliaryData(cameras.value)
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function loadAuxiliaryData(cams: CameraSummary[]): Promise<void> {
@@ -367,7 +381,7 @@ function exportCamerasCsv(): void {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
-  showToast(`⬇️ 已导出当前全部 ${cameras.value.length} 路摄像机配置 CSV 清单`)
+  showToast(t("cameras.toast.csvExported", { count: cameras.value.length }))
 }
 
 // PTZ Controls
@@ -416,7 +430,7 @@ function handlePtzZoom(direction: number): void {
 
 function handlePtzHome(): void {
   if (!ptzActiveCamera.value) return
-  showToast(`云台机位 [${ptzActiveCamera.value.name}] 正在复位至 Home 初始位...`)
+  showToast(t("cameras.toast.ptzHoming", { name: ptzActiveCamera.value.name }))
   void stopCameraPtz(ptzActiveCamera.value.id).catch(() => {})
 }
 
@@ -482,27 +496,22 @@ function formatNtpDrift(camera: CameraSummary): { label: string; class: string }
   return { label: `${driftStr} (超限)`, class: "text-red-400" }
 }
 
+useGlobalRefresh(refresh)
+
 onMounted(() => {
   void refresh()
-  window.addEventListener("zero-nvr:refresh", refresh)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("zero-nvr:refresh", refresh)
 })
 </script>
 
 <template>
   <div class="devices-view">
     <!-- Toast Message Banner -->
-    <div v-if="toastMessage" class="toast-banner">
-      <span>{{ toastMessage }}</span>
-    </div>
+    <ToastHost surface-class="toast-banner" />
 
     <!-- Header Block (Devices & Discovery) -->
     <header class="devices-header">
       <div>
-        <h1 class="devices-title">Devices & Discovery (机位发现与配置)</h1>
+        <h1 class="devices-title">机位管理 (Cameras)</h1>
         <p class="devices-subtitle">ONVIF WS-Discovery 自动探测、RTSP 批量接入与 CSV 导入管理</p>
       </div>
 
@@ -554,10 +563,11 @@ onBeforeUnmount(() => {
     </header>
 
     <!-- Error Banner -->
-    <div v-if="error" class="notice-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="notice-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
 
     <!-- Filter Chips (胶囊筛选栏) -->
     <div class="filter-chips-bar">
@@ -576,7 +586,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'online' }"
         @click="workspace = 'cameras'; activeFilter = 'online'"
       >
-        🟢 在线正常 ({{ onlineCameras.length }})
+        <span class="status-dot status-dot--ok" /> 在线正常 ({{ onlineCameras.length }})
       </button>
 
       <button
@@ -585,7 +595,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'maintenance' }"
         @click="workspace = 'cameras'; activeFilter = 'maintenance'"
       >
-        🔧 维护模式 ({{ maintenanceCameras.length }})
+        <UiIcon name="system" :size="12" /> 维护模式 ({{ maintenanceCameras.length }})
       </button>
 
       <button
@@ -595,7 +605,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'issue' }"
         @click="workspace = 'cameras'; activeFilter = 'issue'"
       >
-        ⚠️ 异常 / 需检测 ({{ issueCameras.length }})
+        <UiIcon name="warning" :size="12" /> 异常 / 需检测 ({{ issueCameras.length }})
       </button>
 
       <button
@@ -605,7 +615,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'disabled' }"
         @click="workspace = 'cameras'; activeFilter = 'disabled'"
       >
-        🔴 已禁用 ({{ disabledCameras.length }})
+        <span class="status-dot status-dot--disabled" /> 已禁用 ({{ disabledCameras.length }})
       </button>
 
       <button
@@ -615,7 +625,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'groups' }"
         @click="workspace = 'groups'"
       >
-        👥 分组管理
+        <UiIcon name="users" :size="12" /> 分组管理
       </button>
 
       <button
@@ -625,7 +635,7 @@ onBeforeUnmount(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'retired' }"
         @click="workspace = 'cameras'; activeFilter = 'retired'"
       >
-        📦 退役归档 ({{ retiredCameras.length }})
+        <UiIcon name="backup" :size="12" /> 退役归档 ({{ retiredCameras.length }})
       </button>
     </div>
 
@@ -696,7 +706,10 @@ onBeforeUnmount(() => {
 
     <!-- Main Table View -->
     <div v-else class="devices-table-card">
-      <div v-if="!filteredCameras.length" class="empty-state">
+      <EmptyState
+        v-if="!filteredCameras.length"
+        surface-class="empty-state"
+      >
         <UiIcon name="camera" :size="36" class="text-gray-600 mb-2" />
         <div class="text-sm font-semibold text-gray-300">
           {{ activeFilter === 'retired' ? '无退役归档机位' : '当前筛选条件下暂无摄像机' }}
@@ -704,7 +717,7 @@ onBeforeUnmount(() => {
         <p class="text-xs text-gray-500 mt-1">
           可通过上方“发现新摄像机”或“CSV 批量导入”接入视频设备
         </p>
-      </div>
+      </EmptyState>
 
       <div v-else class="table-container">
         <table class="devices-table">
@@ -777,19 +790,19 @@ onBeforeUnmount(() => {
               <td>
                 <div class="status-cell-wrap">
                   <span v-if="camera.retired_at" class="status-pill status-pill--retired">
-                    📦 已退役
+                    <UiIcon name="backup" :size="10" /> 已退役
                   </span>
                   <span v-else-if="camera.maintenance" class="status-pill status-pill--maintenance">
-                    🔧 维护中
+                    <UiIcon name="system" :size="10" /> 维护中
                   </span>
                   <span v-else-if="!camera.enabled" class="status-pill status-pill--disabled">
-                    🔴 已禁用
+                    <span class="status-dot status-dot--disabled" /> 已禁用
                   </span>
                   <span v-else-if="camera.connectivity_status === 'offline'" class="status-pill status-pill--offline">
-                    ⚠️ 离线
+                    <UiIcon name="warning" :size="10" /> 离线
                   </span>
                   <span v-else class="status-pill status-pill--online">
-                    🟢 在线正常
+                    <span class="status-dot status-dot--ok" /> 在线正常
                   </span>
                 </div>
               </td>
@@ -831,7 +844,7 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <button type="button" class="ptz-close-btn" @click="closePtzModal">✕</button>
+          <button type="button" class="ptz-close-btn" @click="closePtzModal"><UiIcon name="close" :size="14" /></button>
         </div>
 
         <!-- Center Control Stage: 8-Way D-Pad + Zoom & Speed -->
@@ -1078,6 +1091,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
@@ -1098,6 +1113,7 @@ onBeforeUnmount(() => {
 .devices-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1109,6 +1125,8 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
   cursor: pointer;
   transition: all 0.15s ease;
   background: var(--uf-bg-card);
@@ -1123,7 +1141,7 @@ onBeforeUnmount(() => {
 .btn-action--primary {
   background: var(--uf-accent);
   border-color: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
   box-shadow: 0 4px 12px var(--uf-accent-glow);
 }
 
@@ -1184,7 +1202,7 @@ onBeforeUnmount(() => {
 
 .chip-btn--active {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
   border-color: var(--uf-accent);
   box-shadow: 0 2px 8px var(--uf-accent-glow);
 }
@@ -1740,7 +1758,7 @@ onBeforeUnmount(() => {
 .dpad-btn:hover {
   background: var(--uf-accent);
   border-color: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 
 .dpad-btn:active {
@@ -1749,7 +1767,7 @@ onBeforeUnmount(() => {
 
 .dpad-btn--home {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
   display: flex;
   flex-direction: column;
   font-size: 12px;
@@ -1865,6 +1883,6 @@ onBeforeUnmount(() => {
 
 .preset-btn:hover {
   background: var(--uf-accent);
-  color: #ffffff;
+  color: var(--text-on-accent);
 }
 </style>

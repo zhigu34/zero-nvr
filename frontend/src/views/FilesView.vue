@@ -12,9 +12,8 @@
  *    - 24 小时录像热力图 (288 槽位)：精炼标题与真实时段统计（无冗长文字说明），高亮当前选中切片对应槽位；
  *    - 切片事实检视器 (Segment Inspector)：文件名、时段、时长、视频流规格、音频规格、实际字节大小、真实存储节点、真实归档状态、防删保护；
  *    - 切片单兵操作栏：跳转时光轴连续回放 (Time-Lapse)、Raw MP4 下载、加锁保护 (免轮转覆盖)、即时远端归档与清理确认；
- * 4. 右侧结构化数据流与批处理矩阵 (Right Column Catalog)：
+ * 4. 右侧结构化录像目录 (Right Column Catalog)：
  *    - 5 联顶栏真实 KPI 概览卡 (当日片段数、当日存储、真实云端归档率、受保护锁定数、健康完整性)；
- *    - 批量操作栏 (全选当前、已勾选计数、批量导出、批量加锁、批量归档、批量删除)；
  *    - 结构化录像切片数据表格 (时段、时长、大小、编码规格、存储分层状态、保护状态、健康诊断、操作)；
  *    - 底部分页栏与双击直入时光回放交互。
  */
@@ -22,6 +21,8 @@
 import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useI18n } from "vue-i18n"
+
+import { useToast } from "../composables/useToast"
 
 import { getCamera, listCameras, verifyCameraStream, type CameraDetail, type CameraSummary } from "../api/cameras"
 import { errorMessage } from "../api/client"
@@ -38,42 +39,14 @@ import {
   type RecordingProtection,
   type RecordingSegment
 } from "../api/recordings"
+import FilesMonthCalendar from "../components/files/FilesMonthCalendar.vue"
+import FilesHeatmap from "../components/files/FilesHeatmap.vue"
+import FilesPreviewPlayer from "../components/files/FilesPreviewPlayer.vue"
+import FilesSegmentTable from "../components/files/FilesSegmentTable.vue"
+import FilesSegmentInspector from "../components/files/FilesSegmentInspector.vue"
+import type { HeatCell, SegmentItem } from "../components/files/types"
+import ToastHost from "../components/ui/ToastHost.vue"
 import UiIcon from "../components/ui/UiIcon.vue"
-
-export interface SegmentItem {
-  id: string
-  file: string
-  start: string
-  end: string
-  startDate: Date
-  endDate: Date
-  durationSec: number
-  sizeFormatted: string
-  bytes: number
-  type: "continuous" | "event" | "manual"
-  tier: TimelineAvailability
-  tierLabel: string
-  storageNode: string
-  isArchived: boolean
-  archiveLabel: string
-  spec: string
-  audioSpec: string
-  protected: boolean
-  protectionId?: string
-  health: "healthy" | "abnormal"
-  healthLabel: string
-  codec: string
-  container: string
-}
-
-export interface HeatCell {
-  hour: number
-  minuteSlot: number // 0..11 (00, 05, 10, ... 55)
-  timeLabel: string
-  level: number // 0: 无, 1: 常规, 2: 动检/告警, 3: 云端/加锁
-  count: number
-  bytes: number
-}
 
 interface MonthDayStats {
   count: number
@@ -107,7 +80,6 @@ const selectedDate = ref<string>(getInitialDate())
 const calendarExpanded = ref<boolean>(false)
 const loading = ref<boolean>(false)
 const error = ref<string | null>(null)
-const toastMessage = ref<string | null>(null)
 
 // Multi-dimensional filters (Genuine values)
 const filterStorage = ref<"all" | "local" | "cloud" | "both">("all")
@@ -119,18 +91,14 @@ const filterType = ref<"all" | "continuous" | "event" | "manual">("all")
 const segments = ref<SegmentItem[]>([])
 const protections = ref<RecordingProtection[]>([])
 const selectedSegmentId = ref<string | null>(null)
-const selectedBatchIds = ref<Set<string>>(new Set())
 
 // Month timeline store (genuine data from backend)
 const monthSegmentsMap = ref<Map<string, MonthDayStats>>(new Map())
 const monthLoading = ref<boolean>(false)
 
 // Video player in inspector
-const inspectorVideo = ref<HTMLVideoElement | null>(null)
-const isPlaying = ref<boolean>(false)
 const videoUrl = ref<string | null>(null)
-const videoLoading = ref<boolean>(false)
-const autoAdvance = ref<boolean>(true)
+const previewSelectionToken = ref(0)
 const activeHeatBinIndex = ref<number | null>(null)
 
 // Pagination
@@ -243,233 +211,8 @@ function formatDuration(sec: number): string {
   return `${s}秒`
 }
 
-function formatDurationCompact(sec: number): string {
-  if (!sec || sec <= 0) return ""
-  const h = Math.floor(sec / 3600)
-  const m = Math.floor((sec % 3600) / 60)
-  if (h >= 24) return "24h"
-  if (h > 0 && m > 0) return `${h}h${m}m`
-  if (h > 0) return `${h}h`
-  if (m > 0) return `${m}m`
-  return `${sec}s`
-}
-
-// 288 Heatmap grid cells (24 hours * 12 slots = 288 bins)
-const heatGrid = computed<HeatCell[]>(() => {
-  const cells: HeatCell[] = []
-  const [year, month, day] = selectedDate.value.split("-").map(Number)
-
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 12; m++) {
-      const startMin = m * 5
-      const endMin = startMin + 5
-      const timeLabel = `${String(h).padStart(2, "0")}:${String(startMin).padStart(2, "0")}`
-
-      const cellStart = new Date(year, month - 1, day, h, startMin, 0, 0).getTime()
-      const cellEnd = new Date(year, month - 1, day, h, endMin, 0, 0).getTime()
-
-      const matched = segments.value.filter((s) => {
-        const segStart = s.startDate.getTime()
-        const segEnd = s.endDate.getTime()
-        return segStart < cellEnd && segEnd > cellStart
-      })
-
-      let level = 0
-      let bytes = 0
-      if (matched.length > 0) {
-        bytes = matched.reduce((acc, cur) => acc + cur.bytes, 0)
-        const hasLock = matched.some((s) => s.protected)
-        const hasEvent = matched.some((s) => s.type === "event")
-        if (hasLock) level = 3
-        else if (hasEvent) level = 2
-        else level = 1
-      }
-
-      cells.push({
-        hour: h,
-        minuteSlot: m,
-        timeLabel,
-        level,
-        count: matched.length,
-        bytes
-      })
-    }
-  }
-  return cells
-})
-
-// Current month calendar days (7-column grid)
-const currentYearMonthTitle = computed<string>(() => {
-  const [year, month] = selectedDate.value.split("-").map(Number)
-  return `${year} 年 ${month} 月`
-})
-
-const prevMonthName = computed<string>(() => {
-  const [year, month] = selectedDate.value.split("-").map(Number)
-  const prevM = month === 1 ? 12 : month - 1
-  return `${prevM}月`
-})
-
-const nextMonthName = computed<string>(() => {
-  const [year, month] = selectedDate.value.split("-").map(Number)
-  const nextM = month === 12 ? 1 : month + 1
-  return `${nextM}月`
-})
-
-// Genuine month summary calculations
-const activeDaysInMonth = computed<number>(() => {
-  const countedDates = new Set<string>()
-  const ymPrefix = selectedDate.value.slice(0, 7)
-  for (const [dateStr, info] of monthSegmentsMap.value) {
-    if (dateStr.startsWith(ymPrefix) && info.count > 0) {
-      countedDates.add(dateStr)
-    }
-  }
-  if (segments.value.length > 0 && selectedDate.value.startsWith(ymPrefix)) {
-    countedDates.add(selectedDate.value)
-  }
-  return countedDates.size
-})
-
-const monthTotalSegments = computed<number>(() => {
-  let total = 0
-  const ymPrefix = selectedDate.value.slice(0, 7)
-  if (monthSegmentsMap.value.size > 0) {
-    for (const [dateStr, info] of monthSegmentsMap.value) {
-      if (dateStr.startsWith(ymPrefix)) {
-        total += info.count
-      }
-    }
-  } else {
-    total = segments.value.length
-  }
-  return total
-})
-
-const monthTotalBytes = computed<number>(() => {
-  let bytes = 0
-  const ymPrefix = selectedDate.value.slice(0, 7)
-  if (monthSegmentsMap.value.size > 0) {
-    for (const [dateStr, info] of monthSegmentsMap.value) {
-      if (dateStr.startsWith(ymPrefix)) {
-        bytes += info.bytes
-      }
-    }
-  } else {
-    bytes = totalBytes.value
-  }
-  return bytes
-})
-
-const monthTotalStorageFormatted = computed<string>(() => {
-  const bytes = monthTotalBytes.value
-  if (bytes === 0) return "0 MB"
-  const gb = bytes / (1024 * 1024 * 1024)
-  if (gb >= 1) return `${gb.toFixed(1)} GB`
-  const mb = bytes / (1024 * 1024)
-  return `${mb.toFixed(1)} MB`
-})
-
-const monthArchiveRate = computed<string>(() => {
-  if (monthTotalSegments.value === 0) return "—"
-  let cloudSegments = 0
-  for (const [_, info] of monthSegmentsMap.value) {
-    cloudSegments += info.cloudCount
-  }
-  if (cloudSegments === 0) return "0% (仅本地)"
-  return `${Math.round((cloudSegments / monthTotalSegments.value) * 100)}%`
-})
-
-const monthCalendarCells = computed(() => {
-  const cells: Array<{
-    dateStr: string
-    dayNum: number
-    isOtherMonth: boolean
-    isToday: boolean
-    count: number
-    durationStr: string
-  }> = []
-
-  const [year, month] = selectedDate.value.split("-").map(Number)
-  const firstDayOfWeek = new Date(year, month - 1, 1).getDay() // 0 = Sunday
-  const daysInCurrentMonth = new Date(year, month, 0).getDate()
-  const daysInPrevMonth = new Date(year, month - 1, 0).getDate()
-  const todayStr = getInitialDate()
-
-  // Previous month trailing days
-  for (let i = firstDayOfWeek - 1; i >= 0; i--) {
-    const d = daysInPrevMonth - i
-    const prevM = month === 1 ? 12 : month - 1
-    const prevY = month === 1 ? year - 1 : year
-    const dStr = `${prevY}-${String(prevM).padStart(2, "0")}-${String(d).padStart(2, "0")}`
-    cells.push({
-      dateStr: dStr,
-      dayNum: d,
-      isOtherMonth: true,
-      isToday: dStr === todayStr,
-      count: 0,
-      durationStr: ""
-    })
-  }
-
-  // Current month days
-  for (let d = 1; d <= daysInCurrentMonth; d++) {
-    const dStr = `${year}-${String(month).padStart(2, "0")}-${String(d).padStart(2, "0")}`
-    const isToday = dStr === todayStr
-
-    let count = 0
-    let durSec = 0
-    if (dStr === selectedDate.value) {
-      count = segments.value.length
-      durSec = totalDurationSec.value
-    } else if (monthSegmentsMap.value.has(dStr)) {
-      const info = monthSegmentsMap.value.get(dStr)!
-      count = info.count
-      durSec = info.durationSec
-    }
-
-    cells.push({
-      dateStr: dStr,
-      dayNum: d,
-      isOtherMonth: false,
-      isToday,
-      count,
-      durationStr: formatDurationCompact(durSec)
-    })
-  }
-
-  // Next month leading days to complete grid
-  const totalCells = cells.length
-  const remainder = totalCells % 7
-  const needed = remainder === 0 ? 0 : 7 - remainder
-  const targetTotal = Math.max(35, totalCells + needed)
-  const finalNeeded = targetTotal - totalCells
-
-  for (let d = 1; d <= finalNeeded; d++) {
-    const nextM = month === 12 ? 1 : month + 1
-    const nextY = month === 12 ? year + 1 : year
-    const dStr = `${nextY}-${String(nextM).padStart(2, "0")}-${String(d).padStart(2, "0")}`
-    cells.push({
-      dateStr: dStr,
-      dayNum: d,
-      isOtherMonth: true,
-      isToday: dStr === todayStr,
-      count: 0,
-      durationStr: ""
-    })
-  }
-
-  return cells
-})
-
-function showToast(msg: string): void {
-  toastMessage.value = msg
-  setTimeout(() => {
-    if (toastMessage.value === msg) {
-      toastMessage.value = null
-    }
-  }, 2500)
-}
+// The composable owns the timer, so it cannot outlive the view.
+const { message: toastMessage, showToast } = useToast(2500)
 
 /**
  * 载入机位列表与当前机位规格详情
@@ -542,7 +285,6 @@ async function loadSegments(): Promise<void> {
   if (!selectedCameraId.value) return
   loading.value = true
   error.value = null
-  selectedBatchIds.value.clear()
   currentPage.value = 1
 
   const [startAt, endAt] = localDayBounds(selectedDate.value)
@@ -629,28 +371,28 @@ async function loadSegments(): Promise<void> {
         const isCached = seg.availability === "cached_remote"
         const isCorrupted = seg.availability === "corrupted"
 
-        let tierLabel = "⚡ 本地存储"
+        let tierLabel = "本地存储"
         let storageNode = "本地存储池"
         let isArchived = false
         let archiveLabel = "未归档 (仅本地存储)"
 
         if (isRemote) {
-          tierLabel = "☁️ 远端归档"
+          tierLabel = "远端归档"
           storageNode = "远端归档池"
           isArchived = true
           archiveLabel = "已归档至远端"
         } else if (isCached) {
-          tierLabel = "🔄 本地缓存 + 远端"
+          tierLabel = "本地缓存 + 远端"
           storageNode = "本地缓存 + 远端归档"
           isArchived = true
           archiveLabel = "双副本 (已归档)"
         } else if (isLocal) {
-          tierLabel = "⚡ 本地存储"
+          tierLabel = "本地存储"
           storageNode = "本地存储池"
           isArchived = false
           archiveLabel = "未归档 (仅本地存储)"
         } else if (isCorrupted) {
-          tierLabel = "⚠️ 损坏切片"
+          tierLabel = "损坏切片"
           storageNode = "本地存储池 (异常)"
           isArchived = false
           archiveLabel = "切片损坏"
@@ -717,8 +459,7 @@ async function loadSegments(): Promise<void> {
  */
 async function selectSegment(item: SegmentItem, updateHeat = true): Promise<void> {
   selectedSegmentId.value = item.id
-  videoLoading.value = true
-  isPlaying.value = false
+  previewSelectionToken.value += 1
 
   if (updateHeat) {
     const [h, m] = item.start.split(":").map(Number)
@@ -737,8 +478,6 @@ async function selectSegment(item: SegmentItem, updateHeat = true): Promise<void
     }
   } catch {
     videoUrl.value = null
-  } finally {
-    videoLoading.value = false
   }
 }
 
@@ -763,13 +502,13 @@ function shiftMonth(delta: number): void {
   const nextD = String(d.getDate()).padStart(2, "0")
   selectedDate.value = `${nextY}-${nextM}-${nextD}`
   loadMonthTimeline()
-  showToast(`切换月份到: ${nextY}年${nextM}月`)
+  showToast(t("files.toast.monthChanged", { year: nextY, month: nextM }))
 }
 
 function selectCalendarDate(dateStr: string): void {
   selectedDate.value = dateStr
   calendarExpanded.value = false
-  showToast(`已切换浏览日期: ${dateStr}`)
+  showToast(t("files.toast.dateChanged", { date: dateStr }))
 }
 
 function setLatestRecordings(): void {
@@ -786,9 +525,14 @@ function onHeatCellClick(cell: HeatCell, binIdx: number): void {
   const closest = segments.value.find((s) => s.start >= targetTime) || segments.value[segments.value.length - 1]
   if (closest) {
     selectSegment(closest, false)
-    showToast(`定位到录像切片: ${closest.file} (${closest.start})`)
+    showToast(
+      t("files.toast.segmentLocated", {
+        file: closest.file,
+        start: closest.start
+      })
+    )
   } else {
-    showToast(`热力图定位槽位: ${cell.timeLabel} (无录像)`)
+    showToast(t("files.toast.heatmapSlot", { label: cell.timeLabel }))
   }
 }
 
@@ -816,10 +560,10 @@ async function toggleSegmentLock(item: SegmentItem): Promise<void> {
       await deleteRecordingProtection(item.protectionId)
       item.protected = false
       item.protectionId = undefined
-      showToast(`已解除切片锁定保护: ${item.file}`)
+      showToast(t("files.toast.protectionRemoved", { file: item.file }))
     } catch {
       item.protected = false
-      showToast(`已解除切片锁定: ${item.file}`)
+      showToast(t("files.toast.lockRemoved", { file: item.file }))
     }
   } else {
     try {
@@ -831,10 +575,10 @@ async function toggleSegmentLock(item: SegmentItem): Promise<void> {
       })
       item.protected = true
       item.protectionId = created.id
-      showToast(`🛡️ 切片已永久加锁保护，自动清理策略将跳过该范围`)
+      showToast(t("files.toast.rangeProtected"))
     } catch {
       item.protected = true
-      showToast(`🛡️ 切片已加锁保护: ${item.file}`)
+      showToast(t("files.toast.segmentProtected", { file: item.file }))
     }
   }
 }
@@ -843,7 +587,12 @@ async function toggleSegmentLock(item: SegmentItem): Promise<void> {
  * 触发原始切片下载
  */
 function downloadRawSegment(item: SegmentItem): void {
-  showToast(`⬇️ 正在直接下载 Raw MP4: ${item.file} (${item.sizeFormatted})`)
+  showToast(
+      t("files.toast.downloading", {
+        file: item.file,
+        size: item.sizeFormatted
+      })
+    )
   const link = document.createElement("a")
   link.href = videoUrl.value || "#"
   link.download = item.file
@@ -851,68 +600,8 @@ function downloadRawSegment(item: SegmentItem): void {
 }
 
 function triggerArchiveSync(item: SegmentItem): void {
-  showToast(`☁️ 已将切片提交至远端归档同步队列: ${item.file}`)
+  showToast(t("files.toast.archived", { file: item.file }))
 }
-
-// 批量选择逻辑
-function toggleSelectAll(e: Event): void {
-  const checked = (e.target as HTMLInputElement).checked
-  if (checked) {
-    selectedBatchIds.value = new Set(filteredSegments.value.map((s) => s.id))
-  } else {
-    selectedBatchIds.value.clear()
-  }
-}
-
-function toggleItemSelect(id: string): void {
-  if (selectedBatchIds.value.has(id)) {
-    selectedBatchIds.value.delete(id)
-  } else {
-    selectedBatchIds.value.add(id)
-  }
-}
-
-function batchProtect(): void {
-  const ids = Array.from(selectedBatchIds.value)
-  segments.value.forEach((s) => {
-    if (ids.includes(s.id)) s.protected = true
-  })
-  showToast(`🛡️ 已批量加锁保护 ${ids.length} 个录像文件`)
-}
-
-function batchExport(): void {
-  showToast(`📦 批量导出任务已创建 (共 ${selectedBatchIds.value.size} 个切片)，后端正在打包...`)
-}
-
-function batchSyncArchive(): void {
-  showToast(`☁️ 已将 ${selectedBatchIds.value.size} 个切片加入远端归档同步队列`)
-}
-
-function batchDelete(): void {
-  showToast(`⚠️ 批量删除受保护：需在系统设置中心进行管理员审计授权确认`)
-}
-
-function togglePlayPreview(): void {
-  if (!inspectorVideo.value) {
-    isPlaying.value = !isPlaying.value
-    showToast(isPlaying.value ? "正在播放录像片段预览" : "已暂停预览")
-    return
-  }
-  if (inspectorVideo.value.paused) {
-    inspectorVideo.value.play().catch(() => undefined)
-    isPlaying.value = true
-  } else {
-    inspectorVideo.value.pause()
-    isPlaying.value = false
-  }
-}
-
-function onVideoEnded(): void {
-  if (autoAdvance.value) {
-    nextSegment()
-  }
-}
-
 function nextSegment(): void {
   if (!activeSegment.value) return
   const idx = segments.value.findIndex((s) => s.id === activeSegment.value!.id)
@@ -960,7 +649,7 @@ onMounted(async () => {
         <!-- View Title -->
         <div class="files-title-tag">
           <span class="amber-dot" />
-          <span>录像文件管理中心 (Files)</span>
+          <span>录像文件 (Files)</span>
         </div>
 
         <div class="topbar-divider" />
@@ -1040,9 +729,9 @@ onMounted(async () => {
         <!-- Storage Filter -->
         <select v-model="filterStorage" class="header-filter-select" aria-label="存储源筛选">
           <option value="all">存储源: 全部 ({{ segments.length }})</option>
-          <option value="local">⚡ 本地可用 ({{ localSegmentsCount }})</option>
-          <option value="cloud">☁️ 仅远端归档 ({{ cloudSegmentsCount }})</option>
-          <option value="both">🔄 双副本已同步 ({{ bothSegmentsCount }})</option>
+          <option value="local">本地可用 ({{ localSegmentsCount }})</option>
+          <option value="cloud">仅远端归档 ({{ cloudSegmentsCount }})</option>
+          <option value="both">双副本已同步 ({{ bothSegmentsCount }})</option>
         </select>
 
         <!-- Health Filter -->
@@ -1073,286 +762,50 @@ onMounted(async () => {
     </header>
 
     <!-- Expandable Month Calendar Drawer (Genuine 30-day data overview) -->
-    <section v-if="calendarExpanded" class="files-month-calendar">
-      <div class="calendar-drawer-header">
-        <div class="calendar-month-controls">
-          <button type="button" class="month-nav-btn" @click="shiftMonth(-1)">‹ {{ prevMonthName }}</button>
-          <span class="month-title">{{ currentYearMonthTitle }} · 录像日历分布概览</span>
-          <button type="button" class="month-nav-btn" @click="shiftMonth(1)">{{ nextMonthName }} ›</button>
-        </div>
-        <div class="calendar-drawer-stats">
-          <span>月度录像天数: <b class="text-white">{{ activeDaysInMonth }} 天</b></span>
-          <span>切片总量: <b class="text-white">{{ monthTotalSegments }} 段</b></span>
-          <span>总存储数据量: <b class="text-white">{{ monthTotalStorageFormatted }}</b></span>
-          <span>云端归档率: <b class="text-emerald-400">{{ monthArchiveRate }}</b></span>
-        </div>
-      </div>
-
-      <!-- Calendar Grid: 7 columns (周日 ~ 周六) -->
-      <div class="calendar-grid-7">
-        <div class="cal-col-header">周日</div>
-        <div class="cal-col-header">周一</div>
-        <div class="cal-col-header">周二</div>
-        <div class="cal-col-header">周三</div>
-        <div class="cal-col-header">周四</div>
-        <div class="cal-col-header">周五</div>
-        <div class="cal-col-header">周六</div>
-
-        <button
-          v-for="d in monthCalendarCells"
-          :key="d.dateStr"
-          type="button"
-          class="cal-day-cell"
-          :class="{
-            'cal-day-cell--other': d.isOtherMonth,
-            'cal-day-cell--active': d.dateStr === selectedDate,
-            'cal-day-cell--today': d.isToday,
-            'cal-day-cell--has-data': d.count > 0
-          }"
-          @click="selectCalendarDate(d.dateStr)"
-        >
-          <span class="cal-day-num">{{ d.dayNum }}{{ d.isToday ? ' (今天)' : '' }}</span>
-          <div v-if="d.count > 0" class="cal-day-count">
-            {{ d.count }}段{{ d.durationStr ? ` · ${d.durationStr}` : '' }}
-          </div>
-          <div v-else-if="!d.isOtherMonth" class="cal-day-empty">无录像</div>
-        </button>
-      </div>
-    </section>
+    <FilesMonthCalendar
+      v-if="calendarExpanded"
+      :selected-date="selectedDate"
+      :today-date="getInitialDate()"
+      :segments-count="segments.length"
+      :total-bytes="totalBytes"
+      :total-duration-sec="totalDurationSec"
+      :month-segments-map="monthSegmentsMap"
+      @shift-month="shiftMonth"
+      @select-date="selectCalendarDate"
+    />
 
     <!-- Main Body: Two-Column Ergonomics -->
     <div class="files-body">
       <!-- Left Column: Selected Segment Inspector & Preview (420px fixed) -->
       <aside class="files-inspector-column">
-        <!-- 1. Player Preview Section -->
-        <div class="inspector-card-section">
-          <div class="section-header">
-            <span class="section-title">
-              <span class="blue-dot" />
-              <span>片段画面预览 (Preview)</span>
-            </span>
-            <span class="stream-badge">{{ activeSegment?.codec || 'H.264' }} 原画直放</span>
-          </div>
+        <FilesPreviewPlayer
+          :active-segment="activeSegment"
+          :video-url="videoUrl"
+          :selection-token="previewSelectionToken"
+          @previous="prevSegment"
+          @next="nextSegment"
+          @preview-status="showToast"
+        />
 
-          <!-- Video Player Stage -->
-          <div class="player-stage group">
-            <video
-              v-if="videoUrl"
-              ref="inspectorVideo"
-              :src="videoUrl"
-              class="stage-video"
-              controls
-              @ended="onVideoEnded"
-            />
-            <div v-else class="stage-placeholder">
-              <UiIcon name="play" :size="36" class="text-white/30" />
-              <span class="text-xs text-gray-300 font-mono">{{ activeSegment ? activeSegment.file : '未选定切片' }}</span>
-              <span class="text-[10px] text-gray-500 font-mono">
-                {{ activeSegment ? `${activeSegment.start} ~ ${activeSegment.end} (${activeSegment.durationSec}s)` : '' }}
-              </span>
-            </div>
+        <FilesHeatmap
+          :selected-date="selectedDate"
+          :segments="segments"
+          :total-duration-formatted="totalDurationFormatted"
+          :active-heat-bin-index="activeHeatBinIndex"
+          @select-cell="onHeatCellClick"
+        />
 
-            <!-- Video Floating Timecode OSD -->
-            <div class="player-timecode-osd">
-              {{ activeSegment ? `${activeSegment.start} - ${activeSegment.end}` : '--:--:-- - --:--:--' }}
-            </div>
-
-            <!-- Hover Controls Overlay -->
-            <div class="player-overlay">
-              <button type="button" class="overlay-btn" title="上一段" @click="prevSegment">
-                <UiIcon name="previous" :size="15" />
-              </button>
-              <button type="button" class="overlay-btn overlay-btn--main" title="播放 / 暂停" @click="togglePlayPreview">
-                <UiIcon :name="isPlaying ? 'pause' : 'play'" :size="18" />
-              </button>
-              <button type="button" class="overlay-btn" title="下一段" @click="nextSegment">
-                <UiIcon name="next" :size="15" />
-              </button>
-            </div>
-          </div>
-
-          <!-- Player Transport & Auto-advance Bar -->
-          <div class="transport-bar">
-            <div class="transport-btns">
-              <button type="button" class="transport-btn" @click="prevSegment">‹ 上一段</button>
-              <button type="button" class="transport-btn transport-btn--primary" @click="togglePlayPreview">
-                {{ isPlaying ? '暂停' : '播放' }}
-              </button>
-              <button type="button" class="transport-btn" @click="nextSegment">下一段 ›</button>
-            </div>
-            <label class="auto-advance-label">
-              <input type="checkbox" v-model="autoAdvance" class="uf-checkbox" />
-              <span>自动续播</span>
-            </label>
-          </div>
-        </div>
-
-        <!-- 2. 24-hour Recording Heatmap Card (Clean concise header) -->
-        <div class="inspector-card-section">
-          <div class="section-header">
-            <span class="section-title">
-              <span class="blue-dot" />
-              <span>24 小时录像热力图</span>
-            </span>
-            <span class="heat-summary-tag">
-              {{ segments.length }} 段 · {{ totalDurationFormatted }}
-            </span>
-          </div>
-
-          <!-- Heatmap Container with Minute Axis -->
-          <div class="heatmap-container">
-            <!-- Left minute labels (:00 ~ :55) -->
-            <div class="heat-minute-axis">
-              <span>:00</span>
-              <span>:15</span>
-              <span>:30</span>
-              <span>:45</span>
-              <span>:55</span>
-            </div>
-
-            <!-- Center 24-column x 12-row grid -->
-            <div class="heat-matrix-col">
-              <div class="heat-grid-24">
-                <button
-                  v-for="(cell, idx) in heatGrid"
-                  :key="idx"
-                  type="button"
-                  class="heat-cell heat-cell-btn"
-                  :class="[
-                    `heat-cell--level-${cell.level}`,
-                    {
-                      'recorded': cell.level === 1,
-                      'warning': cell.level === 2,
-                      'cloud': cell.level === 3,
-                      'empty': cell.level === 0,
-                      'active': activeHeatBinIndex === idx
-                    }
-                  ]"
-                  :title="`[${cell.timeLabel}] ${cell.count > 0 ? `${cell.count} 个切片 · ${(cell.bytes / 1024 / 1024).toFixed(1)} MB` : '无录像'}`"
-                  @click="onHeatCellClick(cell, idx)"
-                />
-              </div>
-
-              <!-- Hour horizontal labels (00:00 to 24:00) -->
-              <div class="heat-hour-axis">
-                <span>00:00</span>
-                <span>04:00</span>
-                <span>08:00</span>
-                <span>12:00</span>
-                <span>16:00</span>
-                <span>20:00</span>
-                <span>24:00</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Heatmap Legend -->
-          <div class="heat-legend-row">
-            <div class="legend-item"><span class="legend-box bg-blue-600" /><span>录像覆盖</span></div>
-            <div class="legend-item"><span class="legend-box bg-purple-500" /><span>远端归档</span></div>
-            <div class="legend-item"><span class="legend-box bg-amber-500" /><span>有告警</span></div>
-            <div class="legend-item"><span class="legend-box bg-white/10" /><span>无录像</span></div>
-          </div>
-        </div>
-
-        <!-- 3. Segment Metadata Inspector (当前片段详情 Inspector) -->
-        <div v-if="activeSegment" class="inspector-card-section">
-          <div class="section-header pb-2 border-b border-white/5">
-            <span class="font-bold text-white text-xs">当前片段详情 (Inspector)</span>
-            <span class="text-[10px] font-mono text-gray-400">片段 {{ activeSegmentIndex + 1 }} / {{ segments.length }}</span>
-          </div>
-
-          <div class="metadata-rows">
-            <div class="meta-row">
-              <span class="meta-label">文件名称:</span>
-              <span class="meta-value inspector-filename font-mono text-[11px] truncate max-w-[240px]" :title="activeSegment.file">
-                {{ activeSegment.file }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">时间范围:</span>
-              <span class="meta-value font-mono">{{ activeSegment.start }} ~ {{ activeSegment.end }}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">片段时长:</span>
-              <span class="meta-value font-mono">{{ formatDuration(activeSegment.durationSec) }}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">视频流参数:</span>
-              <span class="meta-value text-blue-300 font-mono">{{ activeSegment.spec }}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">音频参数:</span>
-              <span class="meta-value text-gray-300 font-mono">{{ activeSegment.audioSpec }}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">文件大小:</span>
-              <span class="meta-value font-mono font-bold text-white">{{ activeSegment.sizeFormatted }}</span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">存储节点:</span>
-              <span class="meta-value text-emerald-400 font-medium">
-                {{ activeSegment.storageNode }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">归档状态:</span>
-              <span class="meta-value font-medium" :class="activeSegment.isArchived ? 'text-blue-400' : 'text-gray-400'">
-                {{ activeSegment.archiveLabel }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span class="meta-label">防删除保护:</span>
-              <span class="meta-value" :class="activeSegment.protected ? 'text-amber-400 font-bold' : 'text-gray-400'">
-                {{ activeSegment.protected ? '🛡️ 已加锁保护 (免除轮转)' : '未锁定 (按生命周期轮转)' }}
-              </span>
-            </div>
-          </div>
-
-          <!-- Single File Operational Actions -->
-          <div class="inspector-action-buttons">
-            <button
-              type="button"
-              class="action-btn action-btn--primary w-full"
-              @click="jumpToTimeline(activeSegment)"
-            >
-              <UiIcon name="playback" :size="15" />
-              <span>跳转时光轴连续回放 (Time-Lapse)</span>
-            </button>
-            <div class="action-grid-2">
-              <button type="button" class="action-btn" @click="downloadRawSegment(activeSegment)">
-                <UiIcon name="download" :size="14" class="text-blue-400" />
-                <span>下载 Raw MP4</span>
-              </button>
-              <button
-                type="button"
-                class="action-btn"
-                :class="{ 'action-btn--warn': activeSegment.protected }"
-                @click="toggleSegmentLock(activeSegment)"
-              >
-                <UiIcon name="shield" :size="14" class="text-amber-400" />
-                <span>{{ activeSegment.protected ? '已保护锁定' : '加锁保护' }}</span>
-              </button>
-            </div>
-            <div class="action-grid-2">
-              <button type="button" class="action-btn" @click="triggerArchiveSync(activeSegment)">
-                <UiIcon name="cloud" :size="14" class="text-cyan-400" />
-                <span>提交远端归档</span>
-              </button>
-              <button type="button" class="action-btn action-btn--danger" @click="showToast('审计安全保护：单条物理清理需在存储设置中操作')">
-                <UiIcon name="delete" :size="14" class="text-red-400" />
-                <span>清理片段</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Empty state placeholder when no segments exist -->
-        <div v-else class="inspector-card-section inspector-card--empty">
-          <UiIcon name="play" :size="36" class="text-white/20" />
-          <span class="text-gray-400 text-xs">未选定切片</span>
-          <span class="text-gray-600 text-[11px]">从右侧列表或上方热力图选择切片</span>
-        </div>
+        <FilesSegmentInspector
+          :active-segment="activeSegment"
+          :active-segment-index="activeSegmentIndex"
+          :segments-count="segments.length"
+          :format-duration="formatDuration"
+          @jump="jumpToTimeline"
+          @download="downloadRawSegment"
+          @toggle-lock="toggleSegmentLock"
+          @archive="triggerArchiveSync"
+          @clear="showToast('审计安全保护：单条物理清理需在存储设置中操作')"
+        />
       </aside>
 
       <!-- Right Column: Recording File Catalog & Batch Operations -->
@@ -1390,197 +843,30 @@ onMounted(async () => {
           </div>
         </div>
 
-        <!-- Batch Operations Action Bar -->
-        <div class="batch-bar">
-          <div class="batch-bar__left">
-            <label class="batch-select-all">
-              <input
-                type="checkbox"
-                :checked="selectedBatchIds.size === filteredSegments.length && filteredSegments.length > 0"
-                @change="toggleSelectAll"
-                class="uf-checkbox"
-              />
-              <span>全选当前</span>
-            </label>
-            <span class="batch-divider">|</span>
-            <span class="batch-info">已勾选 <b class="text-blue-400">{{ selectedBatchIds.size }}</b> 个录像片段</span>
-          </div>
-
-          <div class="batch-bar__right">
-            <button
-              type="button"
-              class="batch-action-btn batch-action-btn--primary"
-              :disabled="selectedBatchIds.size === 0"
-              @click="batchExport"
-            >
-              <UiIcon name="export" :size="13" />
-              <span>批量打包导出</span>
-            </button>
-            <button
-              type="button"
-              class="batch-action-btn batch-action-btn--warn"
-              :disabled="selectedBatchIds.size === 0"
-              @click="batchProtect"
-            >
-              <UiIcon name="shield" :size="13" class="text-amber-400" />
-              <span>批量加锁保护</span>
-            </button>
-            <button
-              type="button"
-              class="batch-action-btn batch-action-btn--cloud"
-              :disabled="selectedBatchIds.size === 0"
-              @click="batchSyncArchive"
-            >
-              <UiIcon name="cloud" :size="13" class="text-cyan-400" />
-              <span>批量归档至远端</span>
-            </button>
-            <button
-              type="button"
-              class="batch-action-btn batch-action-btn--danger"
-              :disabled="selectedBatchIds.size === 0"
-              @click="batchDelete"
-            >
-              <UiIcon name="delete" :size="13" class="text-red-400" />
-              <span>批量删除</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Structured Recording File Table -->
-        <div class="table-container">
-          <div class="table-scroll-area">
-            <table v-if="filteredSegments.length > 0" class="files-table">
-              <thead>
-                <tr>
-                  <th class="th-check">
-                    <input
-                      type="checkbox"
-                      :checked="selectedBatchIds.size === filteredSegments.length && filteredSegments.length > 0"
-                      @change="toggleSelectAll"
-                      class="uf-checkbox"
-                    />
-                  </th>
-                  <th>录像时段 (Time Range)</th>
-                  <th>时长</th>
-                  <th>文件大小</th>
-                  <th>编码规格</th>
-                  <th>存储分层状态</th>
-                  <th>保护状态</th>
-                  <th>健康诊断</th>
-                  <th class="th-actions">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="s in pagedSegments"
-                  :key="s.id"
-                  :class="{ 'tr--active': s.id === selectedSegmentId }"
-                  @click="selectSegment(s)"
-                  @dblclick="jumpToTimeline(s)"
-                >
-                  <td class="td-check" @click.stop>
-                    <input
-                      type="checkbox"
-                      :checked="selectedBatchIds.has(s.id)"
-                      @change="toggleItemSelect(s.id)"
-                      class="uf-checkbox"
-                    />
-                  </td>
-                  <td>
-                    <div class="file-timerange">
-                      <span class="range-dot" :class="s.protected ? 'range-dot--amber' : 'range-dot--blue'" />
-                      <span>{{ s.start }} ~ {{ s.end }}</span>
-                    </div>
-                    <div class="file-name-sub">{{ s.file }}</div>
-                  </td>
-                  <td class="font-mono text-xs">{{ formatDuration(s.durationSec) }}</td>
-                  <td class="font-mono text-xs font-bold text-white">{{ s.sizeFormatted }}</td>
-                  <td class="font-mono text-[11px] text-blue-300">{{ s.spec }}</td>
-                  <td>
-                    <span class="tier-tag" :class="s.tier === 'local' ? 'tier-tag--local' : (s.tier === 'remote' ? 'tier-tag--cloud' : 'tier-tag--both')">
-                      {{ s.tierLabel }}
-                    </span>
-                  </td>
-                  <td>
-                    <span v-if="s.protected" class="lock-badge">
-                      <UiIcon name="shield" :size="12" class="text-amber-400" />
-                      <span>已加锁</span>
-                    </span>
-                    <span v-else class="text-gray-500 text-[11px]">可轮转</span>
-                  </td>
-                  <td>
-                    <span :class="s.health === 'abnormal' ? 'text-red-400 text-[11px]' : 'text-emerald-400 text-[11px]'">
-                      {{ s.health === 'abnormal' ? '✗ 异常' : '✓ 正常' }}
-                    </span>
-                  </td>
-                  <td class="td-actions" @click.stop>
-                    <button type="button" class="row-btn" title="回放此片段" @click="jumpToTimeline(s)">
-                      <UiIcon name="playback" :size="14" class="text-blue-400" />
-                    </button>
-                    <button type="button" class="row-btn" title="下载 Raw MP4" @click="downloadRawSegment(s)">
-                      <UiIcon name="download" :size="14" class="text-gray-300" />
-                    </button>
-                    <button
-                      type="button"
-                      class="row-btn"
-                      :class="{ 'text-amber-400': s.protected }"
-                      :title="s.protected ? '解除锁定' : '加锁保护'"
-                      @click="toggleSegmentLock(s)"
-                    >
-                      <UiIcon name="shield" :size="14" />
-                    </button>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-
-            <!-- Empty State -->
-            <div v-else-if="!loading" class="empty-state">
-              <UiIcon name="folder" :size="44" class="text-white/20" />
-              <strong class="text-sm text-gray-300">所选条件暂无录像片段</strong>
-              <span class="text-xs text-gray-500">
-                当前摄像机在 {{ selectedDate }} 没有检索到匹配条件的录像切片，请尝试重置筛选或切换日期
-              </span>
-            </div>
-          </div>
-
-          <!-- Table Footer Pagination -->
-          <div class="table-footer">
-            <span class="footer-info">
-              共 {{ filteredSegments.length }} 个录像片段 · 显示第 {{ pageStartIndex }} - {{ pageEndIndex }} 条 (双击任意行直接进入时光回放)
-            </span>
-            <div class="pagination-controls">
-              <button
-                type="button"
-                class="page-nav-btn"
-                :disabled="currentPage <= 1"
-                @click="currentPage--"
-              >
-                ‹ 上一页
-              </button>
-              <span class="page-indicator font-mono font-bold text-white">{{ currentPage }} / {{ totalPages }}</span>
-              <button
-                type="button"
-                class="page-nav-btn"
-                :disabled="currentPage >= totalPages"
-                @click="currentPage++"
-              >
-                下一页 ›
-              </button>
-            </div>
-          </div>
-        </div>
+        <FilesSegmentTable
+          v-model:current-page="currentPage"
+          :filtered-count="filteredSegments.length"
+          :paged-segments="pagedSegments"
+          :selected-segment-id="selectedSegmentId"
+          :loading="loading"
+          :selected-date="selectedDate"
+          :total-pages="totalPages"
+          :page-start-index="pageStartIndex"
+          :page-end-index="pageEndIndex"
+          :format-duration="formatDuration"
+          @select="selectSegment"
+          @jump="jumpToTimeline"
+          @download="downloadRawSegment"
+          @toggle-lock="toggleSegmentLock"
+        />
       </main>
     </div>
 
     <!-- Notification Toast -->
-    <div
-      v-if="toastMessage"
-      class="toast-notification"
-    >
+    <ToastHost surface-class="toast-notification">
       <span class="toast-dot" />
       <span>{{ toastMessage }}</span>
-    </div>
+    </ToastHost>
   </div>
 </template>
 
@@ -1634,15 +920,6 @@ onMounted(async () => {
   border-radius: 50%;
   background-color: #f59e0b;
   box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
-  flex-shrink: 0;
-}
-
-.blue-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background-color: var(--uf-accent);
-  box-shadow: 0 0 8px var(--uf-accent-glow);
   flex-shrink: 0;
 }
 
@@ -1759,132 +1036,6 @@ onMounted(async () => {
   color: var(--uf-text-primary);
 }
 
-/* Month Calendar Drawer */
-.files-month-calendar {
-  background-color: var(--uf-bg-card);
-  border-bottom: 1px solid var(--uf-border);
-  padding: 14px 20px;
-  animation: slide-down 0.2s ease-out;
-  flex-shrink: 0;
-}
-
-@keyframes slide-down {
-  from { opacity: 0; transform: translateY(-8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-
-.calendar-drawer-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.calendar-month-controls {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.month-nav-btn {
-  background: var(--uf-bg-card-sub);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.month-nav-btn:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.month-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--uf-text-primary);
-}
-
-.calendar-drawer-stats {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: 11px;
-  color: var(--uf-text-muted);
-}
-
-.calendar-grid-7 {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 6px;
-  text-align: center;
-}
-
-.cal-col-header {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--uf-text-muted);
-  padding: 4px 0;
-}
-
-.cal-day-cell {
-  background: var(--uf-bg-card-sub);
-  border: 1px solid var(--uf-border);
-  border-radius: 10px;
-  padding: 6px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  cursor: pointer;
-  transition: all 0.15s;
-  min-height: 48px;
-  justify-content: center;
-}
-
-.cal-day-cell:hover {
-  background: var(--uf-bg-hover);
-  border-color: var(--uf-accent);
-}
-
-.cal-day-cell--other {
-  opacity: 0.25;
-  cursor: default;
-}
-
-.cal-day-cell--active {
-  background: var(--uf-accent) !important;
-  color: #ffffff;
-  box-shadow: 0 0 12px var(--uf-accent-glow);
-}
-
-.cal-day-cell--today {
-  outline: 2px solid var(--uf-accent);
-}
-
-.cal-day-num {
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.cal-day-count {
-  font-size: 10px;
-  color: var(--uf-accent);
-  margin-top: 2px;
-  font-family: var(--font-mono);
-}
-
-.cal-day-cell--active .cal-day-count {
-  color: #ffffff;
-}
-
-.cal-day-empty {
-  font-size: 9px;
-  color: var(--uf-text-muted);
-  margin-top: 2px;
-}
-
 /* Main Body Layout */
 .files-body {
   display: flex;
@@ -1904,409 +1055,6 @@ onMounted(async () => {
   gap: 12px;
   overflow-y: auto;
   flex-shrink: 0;
-}
-
-.inspector-card-section {
-  background-color: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 14px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.inspector-card--empty {
-  align-items: center;
-  justify-content: center;
-  text-align: center;
-  padding: 24px;
-}
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--uf-text-primary);
-}
-
-.heat-summary-tag {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  color: var(--uf-accent);
-  white-space: nowrap;
-}
-
-.stream-badge {
-  background: var(--uf-accent-soft);
-  color: var(--uf-accent);
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-/* Player Stage */
-.player-stage {
-  width: 100%;
-  height: 190px;
-  background-color: #000000;
-  border-radius: 10px;
-  overflow: hidden;
-  position: relative;
-  border: 1px solid var(--uf-border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.stage-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-}
-
-.stage-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 10px;
-  text-align: center;
-}
-
-.player-timecode-osd {
-  position: absolute;
-  top: 8px;
-  left: 8px;
-  background: rgba(0, 0, 0, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: #ffffff;
-  z-index: 10;
-}
-
-.player-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  opacity: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  transition: opacity 0.15s ease;
-  pointer-events: none;
-}
-
-.player-stage:hover .player-overlay {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.overlay-btn {
-  background: rgba(255, 255, 255, 0.15);
-  border: none;
-  border-radius: 50%;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ffffff;
-  cursor: pointer;
-  transition: background 0.12s;
-}
-
-.overlay-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
-}
-
-.overlay-btn--main {
-  width: 40px;
-  height: 40px;
-  background: var(--uf-accent);
-  box-shadow: 0 4px 12px var(--uf-accent-glow);
-}
-
-.overlay-btn--main:hover {
-  background: var(--uf-accent-hover);
-}
-
-.transport-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  background: var(--uf-bg-card-sub);
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--uf-border);
-}
-
-.transport-btns {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.transport-btn {
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-
-.transport-btn:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.transport-btn--primary {
-  background: var(--uf-accent);
-  border-color: var(--uf-accent);
-  color: #ffffff;
-  font-weight: 600;
-}
-
-.transport-btn--primary:hover {
-  background: var(--uf-accent-hover);
-}
-
-.auto-advance-label {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 11px;
-  color: var(--uf-text-muted);
-  cursor: pointer;
-  user-select: none;
-}
-
-/* Heatmap Section in Inspector */
-.heatmap-container {
-  display: flex;
-  gap: 6px;
-  align-items: stretch;
-  background: var(--uf-bg-card-sub);
-  padding: 8px;
-  border-radius: 10px;
-  border: 1px solid var(--uf-border);
-}
-
-.heat-minute-axis {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  height: 94px;
-  font-size: 8px;
-  font-family: var(--font-mono);
-  color: var(--uf-text-muted);
-  width: 16px;
-  text-align: right;
-  flex-shrink: 0;
-  user-select: none;
-}
-
-.heat-matrix-col {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  overflow: hidden;
-}
-
-.heat-grid-24 {
-  display: grid !important;
-  grid-template-columns: repeat(24, minmax(0, 1fr)) !important;
-  grid-template-rows: repeat(12, 6px) !important;
-  grid-auto-flow: column !important;
-  gap: 2px !important;
-  width: 100% !important;
-}
-
-.heat-cell-btn {
-  height: 6px !important;
-  min-height: 6px !important;
-  border-radius: 1px !important;
-  background: var(--uf-bg-hover);
-  cursor: pointer;
-  border: none;
-  padding: 0;
-  transition: all 0.12s ease;
-  display: block;
-  width: 100%;
-}
-
-.heat-cell-btn:hover {
-  transform: scale(1.3);
-  z-index: 30;
-  position: relative;
-  filter: brightness(1.3);
-}
-
-.heat-cell-btn.recorded {
-  background: rgba(37, 99, 235, 0.65);
-}
-
-.heat-cell-btn.cloud {
-  background: #8b5cf6;
-  box-shadow: inset 0 0 0 1px #8b5cf6;
-}
-
-.heat-cell-btn.warning {
-  background: #f59e0b;
-  box-shadow: 0 0 4px rgba(245, 158, 11, 0.8);
-}
-
-.heat-cell-btn.empty {
-  background: var(--uf-bg-hover);
-}
-
-.heat-cell-btn.active {
-  background: var(--uf-accent) !important;
-  outline: 2px solid var(--uf-text-primary);
-  outline-offset: 1px;
-  box-shadow: 0 0 8px var(--uf-accent-glow);
-  z-index: 40;
-  position: relative;
-  transform: scale(1.3);
-}
-
-.heat-hour-axis {
-  display: flex;
-  justify-content: space-between;
-  font-size: 8px;
-  font-family: var(--font-mono);
-  color: var(--uf-text-muted);
-  margin-top: 4px;
-  padding: 0 2px;
-  user-select: none;
-}
-
-.heat-legend-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--uf-text-muted);
-  padding-top: 4px;
-  border-top: 1px solid var(--uf-border-subtle);
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.legend-box {
-  width: 7px;
-  height: 7px;
-  border-radius: 2px;
-}
-
-/* Metadata Inspector Rows */
-.metadata-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  font-size: 11px;
-}
-
-.meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.meta-label {
-  color: var(--uf-text-muted);
-}
-
-.meta-value {
-  color: var(--uf-text-primary);
-  text-align: right;
-}
-
-.inspector-filename {
-  font-weight: 600;
-  color: var(--uf-text-primary);
-}
-
-.inspector-action-buttons {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--uf-border-subtle);
-}
-
-.action-grid-2 {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 6px;
-}
-
-.action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  background: var(--uf-bg-card-sub);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  padding: 6px 10px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-
-.action-btn:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.action-btn--primary {
-  background: var(--uf-accent);
-  border-color: var(--uf-accent);
-  color: #ffffff;
-  font-weight: 700;
-  box-shadow: 0 4px 14px var(--uf-accent-glow);
-}
-
-.action-btn--primary:hover {
-  background: var(--uf-accent-hover);
-}
-
-.action-btn--warn {
-  background: rgba(245, 158, 11, 0.15);
-  border-color: rgba(245, 158, 11, 0.3);
-  color: #f59e0b;
-}
-
-.action-btn--danger {
-  background: rgba(239, 68, 68, 0.12);
-  border-color: rgba(239, 68, 68, 0.25);
-  color: #ef4444;
 }
 
 /* Right Column: Catalog & Table */
@@ -2361,293 +1109,6 @@ onMounted(async () => {
 
 .kpi-sub {
   font-size: 10px;
-}
-
-/* Batch Operations Bar */
-.batch-bar {
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 10px;
-  padding: 8px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  flex-shrink: 0;
-}
-
-.batch-bar__left,
-.batch-bar__right {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.batch-select-all {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--uf-text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.batch-divider {
-  color: var(--uf-border);
-}
-
-.batch-info {
-  color: var(--uf-text-muted);
-  font-family: var(--font-mono);
-}
-
-.batch-action-btn {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.12s;
-  border: 1px solid transparent;
-}
-
-.batch-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.batch-action-btn--primary {
-  background: var(--uf-accent);
-  color: #ffffff;
-}
-
-.batch-action-btn--warn {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  border-color: rgba(245, 158, 11, 0.25);
-}
-
-.batch-action-btn--cloud {
-  background: var(--uf-accent-soft);
-  color: var(--uf-accent);
-  border-color: var(--uf-accent-glow);
-}
-
-.batch-action-btn--danger {
-  background: rgba(239, 68, 68, 0.12);
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.25);
-}
-
-/* Structured Table Container */
-.table-container {
-  flex: 1;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  border-radius: 14px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  box-shadow: var(--uf-shadow-sm);
-}
-
-.table-scroll-area {
-  flex: 1;
-  overflow-y: auto;
-}
-
-.files-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-  text-align: left;
-}
-
-.files-table th {
-  position: sticky;
-  top: 0;
-  background: var(--uf-bg-card-sub);
-  color: var(--uf-text-muted);
-  padding: 8px 12px;
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-  border-bottom: 1px solid var(--uf-border);
-  z-index: 10;
-}
-
-.files-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--uf-border-subtle);
-  color: var(--uf-text-primary);
-  cursor: pointer;
-  user-select: none;
-}
-
-.files-table tr:hover td {
-  background-color: var(--uf-bg-hover);
-}
-
-.tr--active td {
-  background-color: var(--uf-accent-soft) !important;
-}
-
-.th-check, .td-check {
-  width: 36px;
-  text-align: center;
-}
-
-.uf-checkbox {
-  border-radius: 4px;
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border-strong);
-  accent-color: var(--uf-accent);
-  cursor: pointer;
-}
-
-.file-timerange {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-weight: 600;
-  color: var(--uf-text-primary);
-}
-
-.range-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-
-.range-dot--blue { background-color: var(--uf-accent); }
-.range-dot--amber { background-color: #f59e0b; }
-
-.file-name-sub {
-  font-size: 10px;
-  color: var(--uf-text-muted);
-  font-family: var(--font-mono);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 220px;
-}
-
-.tier-tag {
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
-
-.tier-tag--local {
-  background: rgba(16, 185, 129, 0.15);
-  color: #10b981;
-  border: 1px solid rgba(16, 185, 129, 0.3);
-}
-
-.tier-tag--cloud {
-  background: rgba(37, 99, 235, 0.15);
-  color: var(--uf-accent);
-  border: 1px solid rgba(37, 99, 235, 0.3);
-}
-
-.tier-tag--both {
-  background: rgba(139, 92, 246, 0.15);
-  color: #8b5cf6;
-  border: 1px solid rgba(139, 92, 246, 0.3);
-}
-
-.lock-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  font-weight: 700;
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid rgba(245, 158, 11, 0.3);
-}
-
-.td-actions {
-  text-align: right;
-  white-space: nowrap;
-}
-
-.row-btn {
-  background: transparent;
-  border: none;
-  padding: 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--uf-text-muted);
-  transition: all 0.1s;
-}
-
-.row-btn:hover {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-/* Table Footer Pagination */
-.table-footer {
-  height: 38px;
-  background: var(--uf-bg-card-sub);
-  border-top: 1px solid var(--uf-border);
-  padding: 0 16px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--uf-text-muted);
-  flex-shrink: 0;
-}
-
-.pagination-controls {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.page-nav-btn {
-  background: var(--uf-bg-card);
-  border: 1px solid var(--uf-border);
-  color: var(--uf-text-secondary);
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-
-.page-nav-btn:hover:not(:disabled) {
-  background: var(--uf-bg-hover);
-  color: var(--uf-text-primary);
-}
-
-.page-nav-btn:disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-/* Empty State */
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 260px;
-  gap: 8px;
-  text-align: center;
-  padding: 24px;
-  color: var(--uf-text-muted);
 }
 
 /* Toast Notification */

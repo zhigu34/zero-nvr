@@ -1,6 +1,9 @@
+
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue"
 import { useI18n } from "vue-i18n"
+
+import { DATE_TIME_WITH_YEAR_SECONDS, formatBytes, formatDateTime } from "../../utils/format"
 
 import {
   getReleaseReadiness,
@@ -11,15 +14,19 @@ import {
   type ReleaseValidationArtifact
 } from "../../api/system"
 import { errorMessage } from "../../api/client"
+import { type StatusVariant } from "../ui/StatusPill.vue"
+import StatusPill from "../ui/StatusPill.vue"
 import UiIcon from "../ui/UiIcon.vue"
+import NoticeBanner from "../../components/ui/NoticeBanner.vue"
+import { useAsyncResource } from "../../composables/useAsyncResource"
+
+const { loading, error, run } = useAsyncResource()
 
 const { locale, t } = useI18n({ useScope: "global" })
 
 const validation = ref<ReleaseValidation | null>(null)
 const readiness = ref<ReleaseReadiness | null>(null)
 const readinessTarget = ref<8 | 16>(8)
-const loading = ref(false)
-const error = ref<string | null>(null)
 const copiedCommand = ref<string | null>(null)
 
 function objectValue(value: unknown): Record<string, unknown> {
@@ -74,39 +81,24 @@ function artifactStatus(
     : "FAIL"
 }
 
-function statusClass(
+// Returns a variant name so StatusPill's union is the single source of truth for
+// which chips have a style.
+function statusVariant(
   artifact: ReleaseValidationArtifact
-): string {
+): StatusVariant {
   const status = artifactStatus(artifact)
-  if (status === "PASS") return "status-pill--ok"
+  if (status === "PASS") return "ok"
   if (status === "FAIL" || status === "INVALID") {
-    return "status-pill--error"
+    return "error"
   }
-  return "status-pill--muted"
+  return "muted"
 }
 
 function formatTime(value: string | null): string {
-  if (!value) return t("system.releaseValidation.never")
-  return new Intl.DateTimeFormat(locale.value, {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit"
-  }).format(new Date(value))
-}
-
-function formatBytes(value: number | null): string {
-  if (value === null) return "—"
-  const units = ["B", "KB", "MB", "GB", "TB"]
-  let amount = value
-  let index = 0
-  while (amount >= 1024 && index < units.length - 1) {
-    amount /= 1024
-    index += 1
-  }
-  return `${amount.toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+  return formatDateTime(value, DATE_TIME_WITH_YEAR_SECONDS, {
+    locale: locale.value,
+    fallback: t("system.releaseValidation.never")
+  })
 }
 
 function formatDuration(value: number | null): string {
@@ -192,15 +184,9 @@ async function selectReadinessTarget(target: 8 | 16): Promise<void> {
   }
   readinessTarget.value = target
   readiness.value = null
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     readiness.value = await getReleaseReadiness(target)
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 async function copyCommand(command: string): Promise<void> {
@@ -218,20 +204,14 @@ async function copyCommand(command: string): Promise<void> {
 }
 
 async function refresh(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
+  await run(async () => {
     const [nextValidation, nextReadiness] = await Promise.all([
       getReleaseValidation(),
       getReleaseReadiness(readinessTarget.value)
     ])
     validation.value = nextValidation
     readiness.value = nextReadiness
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    loading.value = false
-  }
+  })
 }
 
 onMounted(() => {
@@ -259,10 +239,11 @@ onMounted(() => {
       </button>
     </header>
 
-    <div v-if="error" class="events-error">
-      <UiIcon name="warning" :size="15" />
-      <span>{{ error }}</span>
-    </div>
+    <NoticeBanner
+      v-if="error"
+      surface-class="events-error"
+      variant="error"
+    >{{ error }}</NoticeBanner>
 
     <div
       v-if="validation"
@@ -279,12 +260,9 @@ onMounted(() => {
               }}
             </span>
           </div>
-          <span
-            class="status-pill"
-            :class="statusClass(validation.benchmark)"
-          >
+          <StatusPill :variant="statusVariant(validation.benchmark)">
             {{ artifactStatusLabel(validation.benchmark) }}
-          </span>
+          </StatusPill>
         </header>
 
         <template v-if="validation.benchmark.state === 'AVAILABLE'">
@@ -374,12 +352,11 @@ onMounted(() => {
               }}
             </span>
           </div>
-          <span
-            class="status-pill"
-            :class="statusClass(validation.soak)"
+          <StatusPill
+            :variant="statusVariant(validation.soak)"
           >
             {{ artifactStatusLabel(validation.soak) }}
-          </span>
+          </StatusPill>
         </header>
 
         <template v-if="validation.soak.state === 'AVAILABLE'">
