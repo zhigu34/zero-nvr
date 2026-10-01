@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
@@ -113,7 +114,7 @@ class StorageTargetService:
             )
 
     @staticmethod
-    def _ensure_default_recording_unique(
+    def _ensure_default_target_unique(
         session: Session,
         *,
         target_id: uuid.UUID | None,
@@ -121,18 +122,30 @@ class StorageTargetService:
         role: str,
         enabled: bool,
         config: dict[str, object],
+        expected_type: str,
+        expected_role: str,
+        flag_key: str,
+        error_code: str,
+        error_message: str,
     ) -> None:
+        """Reject a second enabled target claiming the default flag for its role.
+
+        Recording and archive had structurally identical copies of this rule
+        differing only in the type/role literals, the config flag, and the error
+        identity. Only a target that is enabled *and* explicitly claims the flag
+        participates, so a disabled or non-default target is a no-op.
+        """
         if not (
-            target_type == "local"
-            and role == "recording"
+            target_type == expected_type
+            and role == expected_role
             and enabled
-            and bool(config.get("default_recording"))
+            and bool(config.get(flag_key))
         ):
             return
 
         statement = select(StorageTarget.id).where(
-            StorageTarget.type == "local",
-            StorageTarget.role == "recording",
+            StorageTarget.type == expected_type,
+            StorageTarget.role == expected_role,
             StorageTarget.enabled.is_(True),
         )
         if target_id is not None:
@@ -143,13 +156,39 @@ class StorageTargetService:
         for existing_id in session.scalars(statement):
             existing = session.get(StorageTarget, existing_id)
             if existing is not None and bool(
-                (existing.config_json or {}).get("default_recording")
+                (existing.config_json or {}).get(flag_key)
             ):
                 raise ApiError(
                     status_code=409,
-                    code="default_recording_target_conflict",
-                    message="Only one enabled local recording target can be the default.",
+                    code=error_code,
+                    message=error_message,
                 )
+
+    @staticmethod
+    def _ensure_default_recording_unique(
+        session: Session,
+        *,
+        target_id: uuid.UUID | None,
+        target_type: str,
+        role: str,
+        enabled: bool,
+        config: dict[str, object],
+    ) -> None:
+        StorageTargetService._ensure_default_target_unique(
+            session,
+            target_id=target_id,
+            target_type=target_type,
+            role=role,
+            enabled=enabled,
+            config=config,
+            expected_type="local",
+            expected_role="recording",
+            flag_key="default_recording",
+            error_code="default_recording_target_conflict",
+            error_message=(
+                "Only one enabled local recording target can be the default."
+            ),
+        )
 
     @staticmethod
     def _ensure_default_archive_unique(
@@ -161,34 +200,21 @@ class StorageTargetService:
         enabled: bool,
         config: dict[str, object],
     ) -> None:
-        if not (
-            target_type == "rclone"
-            and role == "archive"
-            and enabled
-            and bool(config.get("default_archive"))
-        ):
-            return
-
-        statement = select(StorageTarget.id).where(
-            StorageTarget.type == "rclone",
-            StorageTarget.role == "archive",
-            StorageTarget.enabled.is_(True),
+        StorageTargetService._ensure_default_target_unique(
+            session,
+            target_id=target_id,
+            target_type=target_type,
+            role=role,
+            enabled=enabled,
+            config=config,
+            expected_type="rclone",
+            expected_role="archive",
+            flag_key="default_archive",
+            error_code="default_archive_target_conflict",
+            error_message=(
+                "Only one enabled rclone archive target can be the default."
+            ),
         )
-        if target_id is not None:
-            statement = statement.where(
-                StorageTarget.id != target_id
-            )
-
-        for existing_id in session.scalars(statement):
-            existing = session.get(StorageTarget, existing_id)
-            if existing is not None and bool(
-                (existing.config_json or {}).get("default_archive")
-            ):
-                raise ApiError(
-                    status_code=409,
-                    code="default_archive_target_conflict",
-                    message="Only one enabled rclone archive target can be the default.",
-                )
 
     @staticmethod
     def list(session: Session) -> list[StorageTarget]:
@@ -248,13 +274,13 @@ class StorageTargetService:
         session: Session,
         target_id: uuid.UUID,
     ) -> StorageTarget:
-        target = session.get(StorageTarget, target_id)
-        if target is None:
-            raise ApiError(
-                status_code=404,
-                code="storage_target_not_found",
-                message="Storage target was not found.",
-            )
+        target = fetch_or_404(
+            session,
+            StorageTarget,
+            target_id,
+            code="storage_target_not_found",
+            message="Storage target was not found.",
+        )
         return target
 
     @staticmethod

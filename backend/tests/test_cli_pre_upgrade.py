@@ -16,26 +16,17 @@ from app.modules.backups.models import (
 from app.modules.backups.service import (
     BackupPolicyService,
 )
+from tests.factories import make_test_database
 
 
 def make_database(
     tmp_path: Path,
 ) -> tuple[Settings, Database]:
-    settings = Settings(
-        secret_key=(
-            "pre-upgrade-backup-test-secret-key-"
-            "32-bytes-minimum"
-        ),
-        database_url=(
-            f"sqlite:///{tmp_path / 'backup.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
+    return make_test_database(
+        tmp_path,
+        secret_key="pre-upgrade-backup-test-secret-key-" "32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'backup.db'}",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def create_policy(

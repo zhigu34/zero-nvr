@@ -5,29 +5,21 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.auth.camera_scope import CameraScopeService
 from app.modules.auth.models import Role, User
 from app.modules.cameras.models import Camera, CameraGroup, CameraGroupMember
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="camera-scope-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'camera-scope.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def test_camera_scope_inheritance_override_and_group_descendants(

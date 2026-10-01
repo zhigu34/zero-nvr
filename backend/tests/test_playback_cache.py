@@ -26,6 +26,7 @@ from app.modules.storage.service import ResolvedRcloneTarget
 from app.modules.system.settings import (
     RuntimeTuningSettingsService,
 )
+from tests.factories import make_test_database
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -68,18 +69,13 @@ class FakeRclone:
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="playback-cache-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'playback-cache.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         playback_cache_max_bytes=64 * 1024 * 1024,
         session_cookie_secure=False,
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_remote_segment(

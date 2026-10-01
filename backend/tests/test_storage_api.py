@@ -8,11 +8,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
 from app.core.security import SecretStore
 from app.integrations.rclone import RcloneAdapter
-from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.cameras.service import CameraService
 from app.modules.auth.models import SecretRecord
@@ -27,6 +24,7 @@ from app.modules.storage.models import (
 from app.modules.storage.recording_resolver import (
     RecordingStorageResolver,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -65,22 +63,15 @@ class FakeRecordingTasks:
         )
 
 
-
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="storage-api-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'storage.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:
@@ -401,7 +392,6 @@ def test_storage_target_delete_is_blocked_while_policy_references_it(
         )
 
 
-
 def test_storage_target_switch_preserves_historical_locations(
     tmp_path: Path,
 ) -> None:
@@ -711,7 +701,6 @@ def test_storage_target_switch_preserves_historical_locations(
         is False
         for item in tasks.reconciled
     )
-
 
 
 def test_openlist_webdav_archive_builds_rclone_config_without_exposing_credentials(

@@ -7,6 +7,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_raise
 from app.core.errors import ApiError
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.recordings.models import (
@@ -242,13 +243,14 @@ class RecordingCatalogService:
             )
 
         profile_id = cls.profile_id_from_stream(evidence.stream)
-        profile = session.get(CameraStreamProfile, profile_id)
-        if profile is None:
-            raise ApiError(
-                status_code=422,
-                code="recording_stream_unknown",
-                message="Recording stream profile does not exist.",
-            )
+        profile = fetch_or_raise(
+            session,
+            CameraStreamProfile,
+            profile_id,
+            status_code=422,
+            code="recording_stream_unknown",
+            message="Recording stream profile does not exist.",
+        )
 
         target = RecordingStorageResolver.local_target_for_camera(
             session,

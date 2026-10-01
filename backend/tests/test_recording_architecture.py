@@ -76,9 +76,12 @@ def test_post_finalize_file_operations_are_explicitly_bounded() -> None:
 
     # EVENT_ONLY promotion copies only a finalized fragment to a .partial
     # destination, verifies its size, fsyncs it, then publishes atomically.
+    # The fsync+rename step is owned by app.core.fs.replace_durably so the
+    # durability guarantee cannot silently regress per call site.
     assert "shutil.copy2(source, partial)" in prebuffer
     assert "copied_size = partial.stat().st_size" in prebuffer
-    assert "os.replace(partial, destination)" in prebuffer
+    assert "replace_durably(partial, destination)" in prebuffer
+    assert "os.replace(partial, destination)" not in prebuffer
 
     # Interrupted ZLM finalize recovery does not rewrite media bytes. It
     # reproduces ZLM's final name transition only after probe/settle checks.

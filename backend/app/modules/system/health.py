@@ -23,6 +23,7 @@ from app.integrations.zlm import (
     ZlmIntegrationError,
 )
 from app.core.errors import ApiError
+from app.core.fs import atomic_write_text
 from app.modules.storage.capacity import (
     LocalStorageCapacityService,
 )
@@ -873,22 +874,21 @@ class SystemHealthService:
 def write_worker_heartbeat(
     settings: Settings,
 ) -> Path:
+    # The heartbeat is how the API decides whether the worker is alive, so a
+    # torn read (truncated JSON) would be reported as a worker outage. The write
+    # therefore goes through the shared atomic helper: it picks a unique temp
+    # name per call and fsyncs before renaming. A fixed temp name previously let
+    # two concurrent writers open the same file and rename a half-written file
+    # over the target.
     path = (
         settings.cache_dir
         / "runtime"
         / "worker-heartbeat.json"
     )
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-    temporary = path.with_suffix(".tmp")
-    temporary.write_text(
+    return atomic_write_text(
+        path,
         json.dumps(
             {"pid": os.getpid(), "time": time.time()},
             separators=(",", ":"),
         ),
-        encoding="utf-8",
     )
-    os.replace(temporary, path)
-    return path

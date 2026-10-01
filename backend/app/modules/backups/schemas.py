@@ -107,7 +107,7 @@ class BackupSetView(BaseModel):
 
 class BackupSetPage(BaseModel):
     items: list[BackupSetView]
-    next_cursor: str | None
+    next_cursor: str | None = None
 
 
 class RecoveryKitGenerateRequest(BaseModel):

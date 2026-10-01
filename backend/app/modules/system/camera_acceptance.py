@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import os
-import tempfile
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -13,6 +11,7 @@ from sqlalchemy import func, select
 from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
+from app.core.fs import atomic_write_json
 from app.modules.cameras.models import Camera
 from app.modules.recordings.models import RecordingSegment
 from app.modules.storage.models import (
@@ -74,27 +73,17 @@ class RealCameraAcceptanceService:
         camera_id: uuid.UUID,
         value: dict[str, Any],
     ) -> None:
+        # Persisted acceptance state gates release validation, so it must not be
+        # observable half-written. 0o640 keeps it owner/group readable only; the
+        # trailing newline matches the on-disk format written before the shared
+        # helper existed, and the reader parses JSON so it is cosmetic.
         path = self.state_path(camera_id)
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+        atomic_write_json(
+            path,
+            value,
+            mode=0o640,
+            trailing_newline=True,
         )
-        with tempfile.NamedTemporaryFile(
-            "w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=".real-camera.",
-            delete=False,
-        ) as handle:
-            json.dump(
-                value,
-                handle,
-                sort_keys=True,
-            )
-            handle.write("\n")
-            temporary = Path(handle.name)
-        os.chmod(temporary, 0o640)
-        os.replace(temporary, path)
 
     def _read_state(
         self,

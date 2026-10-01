@@ -8,24 +8,18 @@ from sqlalchemy import select
 
 from app.core.config import Settings
 from app.core.db import Base
-from app.main import create_app
 from app.modules.auth.models import Role, User, UserSession
 from app.modules.system.models import SystemSetting
+from tests.factories import make_test_app
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="auth-api-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'auth-api.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
         session_ttl_hours=24,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def test_initial_setup_login_me_and_logout(tmp_path: Path) -> None:
@@ -178,7 +172,6 @@ def test_setup_rejects_short_password(tmp_path: Path) -> None:
         )
 
     assert response.status_code == 422
-
 
 
 class FakeNotificationTasks:
@@ -446,7 +439,6 @@ def test_self_service_password_reset_is_single_use_non_enumerating_and_revokes_s
     assert "auth.password_reset.complete" in actions
 
 
-
 def test_personal_api_token_is_hashed_scoped_and_revocable(
     tmp_path: Path,
 ) -> None:
@@ -577,7 +569,6 @@ def test_personal_api_token_is_hashed_scoped_and_revocable(
             headers=headers,
         )
         assert after_revoke.status_code == 401
-
 
 
 def test_login_and_reset_rate_limits_are_non_enumerating(

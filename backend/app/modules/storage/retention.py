@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.core.db import Database
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.core.fs import PathEscapeError, resolve_within
 from app.modules.cameras.models import (
     CameraGroup,
     CameraGroupMember,
@@ -909,16 +910,15 @@ class LocalRetentionDeletionService:
                 "Local recording target is invalid.",
             )
 
-        root = Path(raw_root).expanduser().resolve(strict=False)
-        candidate = (root / object_path).resolve(strict=False)
+        # Deletion is the most destructive use of a path, so it uses the same
+        # shared containment rule as archive/export rather than a local copy.
         try:
-            candidate.relative_to(root)
-        except ValueError as exc:
+            return resolve_within(raw_root, object_path)
+        except PathEscapeError as exc:
             raise RetentionDeleteError(
                 "retention_local_path_invalid",
                 "Local recording path is invalid.",
             ) from exc
-        return candidate
 
     @staticmethod
     def _mark_failed(

@@ -5,10 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
 from app.core.security import SecretStore
-from app.main import create_app
 from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import (
     Camera,
@@ -18,23 +15,18 @@ from app.modules.cameras.models import (
     DeviceCredential,
     DeviceEndpoint,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="camera-ptz-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'camera-ptz.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def test_ptz_api_uses_encrypted_onvif_credentials(

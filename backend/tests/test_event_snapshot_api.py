@@ -7,32 +7,24 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 import app.modules.events.api as events_api
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.cameras.service import CameraService
 from app.modules.events.models import Event
 from app.modules.system.frigate import (
     FrigateCredentials,
     FrigateProviderConfig,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="event-snapshot-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'events.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def test_event_snapshot_is_proxied_without_exposing_provider_credentials(

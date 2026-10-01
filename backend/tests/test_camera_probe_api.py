@@ -10,14 +10,11 @@ from pydantic import SecretStr
 from sqlalchemy import func, select
 
 import app.modules.cameras.api as camera_api
-from app.core.config import Settings
-from app.core.db import Base
 from app.integrations.zlm import (
     ZlmIntegrationError,
     ZlmMediaProbe,
     ZlmTrackProbe,
 )
-from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import (
@@ -26,6 +23,7 @@ from app.modules.cameras.models import (
     Device,
     DeviceEndpoint,
 )
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
@@ -44,18 +42,12 @@ def make_app(
     *,
     zlm_api_secret: SecretStr | None = SecretStr("test-zlm-api-secret"),
 ):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="camera-probe-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'camera-probe.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
         zlm_api_secret=zlm_api_secret,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

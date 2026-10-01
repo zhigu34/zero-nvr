@@ -7,36 +7,28 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
 import app.modules.cameras.api as camera_api
-from app.core.config import Settings
-from app.core.db import Base
 from app.integrations.onvif import (
     OnvifDiscoveryCandidate,
     OnvifIntegrationError,
 )
-from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.cameras.models import (
     Camera,
     DiscoveryCandidate,
     DiscoverySession,
 )
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="camera-discovery-test-secret-key-32-bytes",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'camera-discovery.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

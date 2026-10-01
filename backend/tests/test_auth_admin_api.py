@@ -6,12 +6,11 @@ import uuid
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
 from app.core.db.types import utc_now
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import User
+from tests.factories import make_test_app
 
 
 COOKIE = "zero_nvr_session"
@@ -20,18 +19,12 @@ VIEWER_PASSWORD = "viewer-correct-horse-battery"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="auth-admin-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'auth-admin.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
         session_ttl_hours=24,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def login(client: TestClient, username: str, password: str) -> str:
@@ -315,7 +308,6 @@ def test_user_role_permissions_last_admin_and_audit(tmp_path: Path) -> None:
     } <= actions
 
 
-
 def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
     tmp_path: Path,
 ) -> None:
@@ -469,7 +461,6 @@ def test_oidc_provider_configuration_encrypts_secret_and_validates_roles(
         assert client.get(
             "/api/v1/oidc/providers"
         ).json() == []
-
 
 
 def test_builtin_role_permissions_reconcile_on_startup(

@@ -31,6 +31,7 @@ from app.core.db.preflight import (
 )
 from app.core.db.transfer import DatabaseTransferService
 from app.core.db.types import utc_now
+from app.core.fs import fsync_path
 from app.core.security import SecretStore
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.security import PasswordService
@@ -67,6 +68,41 @@ from app.modules.system.settings import (
 )
 
 
+
+def _emit_json(payload: object) -> None:
+    """Print one machine-readable JSON object for scripted CLI consumers.
+
+    Every command that reports a structured result used to spell out
+    ``print(json.dumps(payload, sort_keys=True))`` itself. Centralising it keeps
+    the machine-readable contract (sorted keys, one object per invocation) in a
+    single place, so a later change cannot apply to some commands and not others.
+    """
+    print(json.dumps(payload, sort_keys=True))
+
+
+def _publish_sqlite_snapshot(
+    partial: Path,
+    target: Path,
+    rollback_dir: Path,
+) -> None:
+    """Flush a verified snapshot copy and swap it in as the live database.
+
+    SQLite must never observe a fresh database file sitting next to the previous
+    database's ``-wal``/``-shm`` files: the stale write-ahead log would be
+    replayed onto the new file and corrupt it. The sidecars are therefore moved
+    aside *before* the rename, and only after the copy has been verified and
+    flushed to stable storage.
+
+    Both the pre-migration safety path and the restore path performed exactly
+    this sequence, so it lives here rather than being duplicated.
+    """
+    fsync_path(partial)
+    for suffix in ("-wal", "-shm"):
+        sidecar = Path(str(target) + suffix)
+        if sidecar.exists():
+            shutil.move(sidecar, rollback_dir / sidecar.name)
+    os.replace(partial, target)
+
 def _settings_database() -> tuple[Settings, Database]:
     settings = Settings()
     database = Database(settings)
@@ -85,16 +121,13 @@ def secret_rotate_command(
             result = store.rotate_records(session)
             session.commit()
 
-        print(
-            json.dumps(
-                {
-                    "total_records": result.total_records,
-                    "rotated_records": result.rotated_records,
-                    "current_records": result.current_records,
-                    "primary_key_id": result.primary_key_id,
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "total_records": result.total_records,
+                "rotated_records": result.rotated_records,
+                "current_records": result.current_records,
+                "primary_key_id": result.primary_key_id,
+            },
         )
         return 0
     finally:
@@ -263,11 +296,8 @@ def migration_preflight_command(
         payload["sqlite_checkpoint"] = (
             sqlite_checkpoint
         )
-        print(
-            json.dumps(
-                payload,
-                sort_keys=True,
-            )
+        _emit_json(
+            payload,
         )
         return 0
     finally:
@@ -344,13 +374,10 @@ def migration_verify_command(
 ) -> int:
     _settings, database = _settings_database()
     try:
-        print(
-            json.dumps(
-                _verify_migration_result(
-                    database
-                ),
-                sort_keys=True,
-            )
+        _emit_json(
+            _verify_migration_result(
+                database
+            ),
         )
         return 0
     finally:
@@ -368,19 +395,16 @@ def check_schema_command(
         assert_database_schema_current(
             database
         )
-        print(
-            json.dumps(
-                {
-                    "compatible": True,
-                    "current": sorted(
-                        status.current
-                    ),
-                    "expected": sorted(
-                        status.expected
-                    ),
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "compatible": True,
+                "current": sorted(
+                    status.current
+                ),
+                "expected": sorted(
+                    status.expected
+                ),
+            },
         )
         return 0
     finally:
@@ -495,25 +519,22 @@ def database_transfer_command(
             source=source,
             target=target,
         )
-        print(
-            json.dumps(
-                {
-                    "transferred": True,
-                    "source_backend": (
-                        result.source_backend
-                    ),
-                    "target_backend": (
-                        result.target_backend
-                    ),
-                    "total_rows": (
-                        result.total_rows
-                    ),
-                    "table_counts": (
-                        result.table_counts
-                    ),
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "transferred": True,
+                "source_backend": (
+                    result.source_backend
+                ),
+                "target_backend": (
+                    result.target_backend
+                ),
+                "total_rows": (
+                    result.total_rows
+                ),
+                "table_counts": (
+                    result.table_counts
+                ),
+            },
         )
         return 0
     finally:
@@ -572,11 +593,8 @@ def database_preflight_sqlite_command(
             "blockers": blockers,
             "warnings": list(result.warnings),
         }
-        print(
-            json.dumps(
-                payload,
-                sort_keys=True,
-            )
+        _emit_json(
+            payload,
         )
         return 0 if not blockers else 1
     finally:
@@ -653,14 +671,11 @@ def backup_command(args: argparse.Namespace) -> int:
             database,
             backup_set_id=backup_id,
         )
-        print(
-            json.dumps(
-                {
-                    "backup_id": str(backup_id),
-                    "state": state,
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "backup_id": str(backup_id),
+                "state": state,
+            },
         )
         return 0 if state == "COMPLETED" else 1
     finally:
@@ -866,11 +881,8 @@ def update_preflight_command(
             database,
             policy_selector=args.policy,
         )
-        print(
-            json.dumps(
-                payload,
-                sort_keys=True,
-            )
+        _emit_json(
+            payload,
         )
         return 0
     finally:
@@ -945,21 +957,15 @@ def _verified_safety_backup_command(
                 != "PASSED"
                 or not completed.restic_snapshot_id
             ):
-                print(
-                    json.dumps(
-                        payload,
-                        sort_keys=True,
-                    )
+                _emit_json(
+                    payload,
                 )
                 raise RuntimeError(
                     f"{operation} backup did not complete with verified restic snapshot"
                 )
 
-            print(
-                json.dumps(
-                    payload,
-                    sort_keys=True,
-                )
+            _emit_json(
+                payload,
             )
         return 0
     finally:
@@ -1004,21 +1010,18 @@ def safety_snapshot_command(
             database,
             destination_dir=destination,
         )
-        print(
-            json.dumps(
-                {
-                    "safety_snapshot": str(
-                        snapshot.path
-                    ),
-                    "database_engine": (
-                        snapshot.engine
-                    ),
-                    "size_bytes": (
-                        snapshot.size_bytes
-                    ),
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "safety_snapshot": str(
+                    snapshot.path
+                ),
+                "database_engine": (
+                    snapshot.engine
+                ),
+                "size_bytes": (
+                    snapshot.size_bytes
+                ),
+            },
         )
         return 0
     finally:
@@ -1072,11 +1075,8 @@ def camera_acceptance_command(
                 camera_id
             )
 
-        print(
-            json.dumps(
-                value,
-                sort_keys=True,
-            )
+        _emit_json(
+            value,
         )
         if (
             args.acceptance_action
@@ -1189,14 +1189,11 @@ def resource_bounds_status_command(
 ) -> int:
     settings, database = _settings_database()
     try:
-        print(
-            json.dumps(
-                _resource_bounds_status(
-                    settings,
-                    database,
-                ),
-                sort_keys=True,
-            )
+        _emit_json(
+            _resource_bounds_status(
+                settings,
+                database,
+            ),
         )
         return 0
     finally:
@@ -1247,11 +1244,8 @@ def resource_baseline_status_command(
             settings,
             database,
         )
-        print(
-            json.dumps(
-                payload,
-                sort_keys=True,
-            )
+        _emit_json(
+            payload,
         )
         return 0 if payload["passed"] else 1
     finally:
@@ -1269,50 +1263,47 @@ def benchmark_status_command(
         ).collect(
             expected_cameras=args.expected_cameras,
         )
-        print(
-            json.dumps(
-                {
-                    "expected_cameras": (
-                        status.expected_cameras
-                    ),
-                    "enabled_cameras": (
-                        status.enabled_cameras
-                    ),
-                    "recording_expected_cameras": (
-                        status.recording_expected_cameras
-                    ),
-                    "record_streams_online": (
-                        status.record_streams_online
-                    ),
-                    "recorders_active": (
-                        status.recorders_active
-                    ),
-                    "passed": status.passed,
-                    "failures": list(
-                        status.failures
-                    ),
-                    "cameras": [
-                        {
-                            "camera_id": str(
-                                item.camera_id
-                            ),
-                            "name": item.name,
-                            "desired_mode": (
-                                item.desired_mode
-                            ),
-                            "stream_online": (
-                                item.stream_online
-                            ),
-                            "recording_active": (
-                                item.recording_active
-                            ),
-                            "error": item.error,
-                        }
-                        for item in status.cameras
-                    ],
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "expected_cameras": (
+                    status.expected_cameras
+                ),
+                "enabled_cameras": (
+                    status.enabled_cameras
+                ),
+                "recording_expected_cameras": (
+                    status.recording_expected_cameras
+                ),
+                "record_streams_online": (
+                    status.record_streams_online
+                ),
+                "recorders_active": (
+                    status.recorders_active
+                ),
+                "passed": status.passed,
+                "failures": list(
+                    status.failures
+                ),
+                "cameras": [
+                    {
+                        "camera_id": str(
+                            item.camera_id
+                        ),
+                        "name": item.name,
+                        "desired_mode": (
+                            item.desired_mode
+                        ),
+                        "stream_online": (
+                            item.stream_online
+                        ),
+                        "recording_active": (
+                            item.recording_active
+                        ),
+                        "error": item.error,
+                    }
+                    for item in status.cameras
+                ],
+            },
         )
         return 0 if status.passed else 1
     finally:
@@ -1391,92 +1382,89 @@ def soak_status_command(
                 args.require_progress
             ),
         )
-        print(
-            json.dumps(
-                {
-                    "expected_cameras": (
-                        status.expected_cameras
+        _emit_json(
+            {
+                "expected_cameras": (
+                    status.expected_cameras
+                ),
+                "sampled_at": (
+                    status.sampled_at
+                    .isoformat()
+                ),
+                "since": (
+                    status.since.isoformat()
+                ),
+                "passed": status.passed,
+                "failures": list(
+                    status.failures
+                ),
+                "required_health": (
+                    status.required_health
+                ),
+                "database": (
+                    _soak_database_status(
+                        database
+                    )
+                ),
+                "runtime": {
+                    "passed": (
+                        status.runtime.passed
                     ),
-                    "sampled_at": (
-                        status.sampled_at
-                        .isoformat()
+                    "enabled_cameras": (
+                        status.runtime
+                        .enabled_cameras
                     ),
-                    "since": (
-                        status.since.isoformat()
+                    "recording_expected_cameras": (
+                        status.runtime
+                        .recording_expected_cameras
                     ),
-                    "passed": status.passed,
+                    "record_streams_online": (
+                        status.runtime
+                        .record_streams_online
+                    ),
+                    "recorders_active": (
+                        status.runtime
+                        .recorders_active
+                    ),
                     "failures": list(
-                        status.failures
+                        status.runtime
+                        .failures
                     ),
-                    "required_health": (
-                        status.required_health
-                    ),
-                    "database": (
-                        _soak_database_status(
-                            database
-                        )
-                    ),
-                    "runtime": {
-                        "passed": (
-                            status.runtime.passed
-                        ),
-                        "enabled_cameras": (
-                            status.runtime
-                            .enabled_cameras
-                        ),
-                        "recording_expected_cameras": (
-                            status.runtime
-                            .recording_expected_cameras
-                        ),
-                        "record_streams_online": (
-                            status.runtime
-                            .record_streams_online
-                        ),
-                        "recorders_active": (
-                            status.runtime
-                            .recorders_active
-                        ),
-                        "failures": list(
-                            status.runtime
-                            .failures
-                        ),
-                    },
-                    "progress_required": (
-                        status.progress_required
-                    ),
-                    "persistent_progress": [
-                        {
-                            "camera_id": str(
-                                item.camera_id
-                            ),
-                            "name": item.name,
-                            "segment_target_seconds": (
-                                item.segment_target_seconds
-                            ),
-                            "segments_since_start": (
-                                item.segments_since_start
-                            ),
-                            "available_local_segments_since_start": (
-                                item.available_local_segments_since_start
-                            ),
-                            "bytes_since_start": (
-                                item.bytes_since_start
-                            ),
-                            "latest_segment_created_at": (
-                                item.latest_segment_created_at
-                                .isoformat()
-                                if item.latest_segment_created_at
-                                is not None
-                                else None
-                            ),
-                            "passed": item.passed,
-                        }
-                        for item
-                        in status.persistent_progress
-                    ],
                 },
-                sort_keys=True,
-            )
+                "progress_required": (
+                    status.progress_required
+                ),
+                "persistent_progress": [
+                    {
+                        "camera_id": str(
+                            item.camera_id
+                        ),
+                        "name": item.name,
+                        "segment_target_seconds": (
+                            item.segment_target_seconds
+                        ),
+                        "segments_since_start": (
+                            item.segments_since_start
+                        ),
+                        "available_local_segments_since_start": (
+                            item.available_local_segments_since_start
+                        ),
+                        "bytes_since_start": (
+                            item.bytes_since_start
+                        ),
+                        "latest_segment_created_at": (
+                            item.latest_segment_created_at
+                            .isoformat()
+                            if item.latest_segment_created_at
+                            is not None
+                            else None
+                        ),
+                        "passed": item.passed,
+                    }
+                    for item
+                    in status.persistent_progress
+                ],
+            },
         )
         return 0 if status.passed else 1
     finally:
@@ -1497,31 +1485,28 @@ def release_readiness_command(
             expected_cameras=args.expected_cameras,
             max_age_hours=args.max_age_hours,
         )
-        print(
-            json.dumps(
-                {
-                    "expected_cameras": (
-                        result.expected_cameras
-                    ),
-                    "checked_at": (
-                        result.checked_at.isoformat()
-                    ),
-                    "max_age_hours": (
-                        result.max_age_hours
-                    ),
-                    "passed": result.passed,
-                    "checks": [
-                        {
-                            "name": item.name,
-                            "passed": item.passed,
-                            "code": item.code,
-                            "details": item.details,
-                        }
-                        for item in result.checks
-                    ],
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "expected_cameras": (
+                    result.expected_cameras
+                ),
+                "checked_at": (
+                    result.checked_at.isoformat()
+                ),
+                "max_age_hours": (
+                    result.max_age_hours
+                ),
+                "passed": result.passed,
+                "checks": [
+                    {
+                        "name": item.name,
+                        "passed": item.passed,
+                        "code": item.code,
+                        "details": item.details,
+                    }
+                    for item in result.checks
+                ],
+            },
         )
         return 0 if result.passed else 1
     finally:
@@ -1571,15 +1556,12 @@ def reset_password_command(
                 item.revoked_at = now
             session.commit()
 
-        print(
-            json.dumps(
-                {
-                    "username": args.username,
-                    "password_reset": True,
-                    "sessions_revoked": True,
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "username": args.username,
+                "password_reset": True,
+                "sessions_revoked": True,
+            },
         )
         return 0
     finally:
@@ -2058,19 +2040,7 @@ def _restore_safety_snapshot(
         shutil.copy2(snapshot, partial)
         try:
             _verify_sqlite(partial)
-            with partial.open("rb+") as handle:
-                os.fsync(handle.fileno())
-            for suffix in ("-wal", "-shm"):
-                sidecar = Path(
-                    str(target) + suffix
-                )
-                if sidecar.exists():
-                    shutil.move(
-                        sidecar,
-                        rollback_dir
-                        / sidecar.name,
-                    )
-            os.replace(partial, target)
+            _publish_sqlite_snapshot(partial, target, rollback_dir)
         finally:
             partial.unlink(missing_ok=True)
 
@@ -2127,24 +2097,21 @@ def restore_safety_snapshot_command(
                 snapshot=snapshot,
             )
         )
-        print(
-            json.dumps(
-                {
-                    "restored": True,
-                    "safety_snapshot": str(
-                        snapshot
-                    ),
-                    "database_engine": backend,
-                    "rollback_snapshot": (
-                        str(rollback_snapshot)
-                        if rollback_snapshot
-                        is not None
-                        else None
-                    ),
-                    "recordings_modified": False,
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "restored": True,
+                "safety_snapshot": str(
+                    snapshot
+                ),
+                "database_engine": backend,
+                "rollback_snapshot": (
+                    str(rollback_snapshot)
+                    if rollback_snapshot
+                    is not None
+                    else None
+                ),
+                "recordings_modified": False,
+            },
         )
         return 0
     finally:
@@ -2169,20 +2136,17 @@ def restore_preflight_command(
                 root=root,
             )
         )
-        print(
-            json.dumps(
-                {
-                    "restore_preflight": "ok",
-                    "backup_set_id": manifest.get(
-                        "backup_set_id"
-                    ),
-                    "database_engine": manifest.get(
-                        "database_engine"
-                    ),
-                    "secret_keyring": "readable",
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "restore_preflight": "ok",
+                "backup_set_id": manifest.get(
+                    "backup_set_id"
+                ),
+                "database_engine": manifest.get(
+                    "database_engine"
+                ),
+                "secret_keyring": "readable",
+            },
         )
         return 0
     finally:
@@ -2304,17 +2268,7 @@ def restore_staged_command(
             )
             shutil.copy2(snapshot, partial)
             _verify_sqlite(partial)
-            with partial.open("rb+") as handle:
-                os.fsync(handle.fileno())
-            for suffix in ("-wal", "-shm"):
-                sidecar = Path(str(target) + suffix)
-                if sidecar.exists():
-                    shutil.move(
-                        sidecar,
-                        rollback_dir
-                        / sidecar.name,
-                    )
-            os.replace(partial, target)
+            _publish_sqlite_snapshot(partial, target, rollback_dir)
 
         elif backend == "postgresql":
             safety = DatabaseSnapshotService(
@@ -2356,24 +2310,21 @@ def restore_staged_command(
                 file=sys.stderr,
             )
 
-        print(
-            json.dumps(
-                {
-                    "restored": True,
-                    "backup_set_id": manifest.get(
-                        "backup_set_id"
-                    ),
-                    "database_engine": backend,
-                    "rollback_snapshot": (
-                        str(rollback_snapshot)
-                        if rollback_snapshot is not None
-                        else None
-                    ),
-                    "recordings_modified": False,
-                    "audit_recorded": audit_recorded,
-                },
-                sort_keys=True,
-            )
+        _emit_json(
+            {
+                "restored": True,
+                "backup_set_id": manifest.get(
+                    "backup_set_id"
+                ),
+                "database_engine": backend,
+                "rollback_snapshot": (
+                    str(rollback_snapshot)
+                    if rollback_snapshot is not None
+                    else None
+                ),
+                "recordings_modified": False,
+                "audit_recorded": audit_recorded,
+            },
         )
         return 0
     finally:

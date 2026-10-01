@@ -7,6 +7,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.core.security import SecretStore
@@ -46,13 +47,13 @@ class CameraService:
 
     @staticmethod
     def get_camera(session: Session, camera_id: uuid.UUID) -> Camera:
-        camera = session.get(Camera, camera_id)
-        if camera is None:
-            raise ApiError(
-                status_code=404,
-                code="camera_not_found",
-                message="Camera was not found.",
-            )
+        camera = fetch_or_404(
+            session,
+            Camera,
+            camera_id,
+            code="camera_not_found",
+            message="Camera was not found.",
+        )
         return camera
 
     @staticmethod

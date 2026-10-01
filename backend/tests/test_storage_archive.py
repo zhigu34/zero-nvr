@@ -21,6 +21,7 @@ from app.modules.storage.archive import (
 from app.modules.storage.dispatcher import StorageTaskDispatcher
 from app.modules.storage.models import RecordingLocation
 from app.modules.storage.service import StorageTargetService
+from tests.factories import make_test_database
 
 
 RCLONE_CONFIG = """[archive]
@@ -32,19 +33,14 @@ pass = super-secret-rclone-password
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="archive-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'archive.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed(

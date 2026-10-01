@@ -10,6 +10,7 @@ from sqlalchemy import select
 from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
+from app.core.fs import PathEscapeError, resolve_within
 from app.integrations.contracts import StorageBackend
 from app.integrations.rclone import RcloneAdapter, RcloneIntegrationError
 from app.modules.recordings.models import RecordingSegment
@@ -77,16 +78,16 @@ class ArchiveLifecycleService:
                 "Local recording storage target is invalid.",
             )
 
-        root = Path(raw_root).expanduser().resolve(strict=False)
-        candidate = (root / object_path).resolve(strict=False)
+        # Containment is checked by the shared helper so the traversal rule is
+        # identical in archive, retention, export, and backup paths; this module
+        # keeps ownership of its own error code.
         try:
-            candidate.relative_to(root)
-        except ValueError as exc:
+            return resolve_within(raw_root, object_path)
+        except PathEscapeError as exc:
             raise ArchiveLifecycleError(
                 "archive_source_path_invalid",
                 "Recording source path is invalid.",
             ) from exc
-        return candidate
 
     def prepare(
         self,

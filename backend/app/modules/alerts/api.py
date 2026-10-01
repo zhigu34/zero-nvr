@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
@@ -267,7 +267,7 @@ def list_alerts(
     state: str | None = None,
     severity: str | None = None,
     cursor: str | None = None,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=200),
     context: AuthContext = Depends(
         require_permission("alert.view")
     ),

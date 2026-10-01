@@ -6,28 +6,19 @@ from app import cli
 from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.cameras.models import Camera
+from tests.factories import make_test_database
 
 
 def make_database(
     tmp_path: Path,
 ) -> tuple[Settings, Database]:
-    settings = Settings(
-        secret_key=(
-            "resource-baseline-test-secret-key-"
-            "32-bytes-minimum"
-        ),
+    return make_test_database(
+        tmp_path,
+        secret_key="resource-baseline-test-secret-key-" "32-bytes-minimum",
         environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'resource.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
+        database_url=f"sqlite:///{tmp_path / 'resource.db'}",
         prebuffer_require_tmpfs=False,
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def test_resource_baseline_requires_clean_camera_inventory(

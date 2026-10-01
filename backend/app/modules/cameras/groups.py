@@ -6,6 +6,8 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
+from app.core.db.repository import fetch_or_raise
 from app.core.errors import ApiError
 
 from .models import (
@@ -33,13 +35,13 @@ class CameraGroupService:
         session: Session,
         group_id: uuid.UUID,
     ) -> CameraGroup:
-        group = session.get(CameraGroup, group_id)
-        if group is None:
-            raise ApiError(
-                status_code=404,
-                code="camera_group_not_found",
-                message="Camera group was not found.",
-            )
+        group = fetch_or_404(
+            session,
+            CameraGroup,
+            group_id,
+            code="camera_group_not_found",
+            message="Camera group was not found.",
+        )
         return group
 
     @staticmethod
@@ -75,13 +77,14 @@ class CameraGroupService:
                 message="Camera group cannot be its own parent.",
             )
 
-        parent = session.get(CameraGroup, parent_id)
-        if parent is None:
-            raise ApiError(
-                status_code=400,
-                code="camera_group_parent_invalid",
-                message="Camera group parent does not exist.",
-            )
+        parent = fetch_or_raise(
+            session,
+            CameraGroup,
+            parent_id,
+            status_code=400,
+            code="camera_group_parent_invalid",
+            message="Camera group parent does not exist.",
+        )
 
         seen: set[uuid.UUID] = set()
         current: CameraGroup | None = parent

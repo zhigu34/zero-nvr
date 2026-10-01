@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_raise
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.core.security import SecretStore
@@ -995,13 +996,14 @@ class OnvifOnboardingService:
         if candidate_id is None:
             return
 
-        candidate = session.get(DiscoveryCandidate, candidate_id)
-        if candidate is None:
-            raise ApiError(
-                status_code=400,
-                code="discovery_candidate_not_found",
-                message="Discovery candidate was not found.",
-            )
+        candidate = fetch_or_raise(
+            session,
+            DiscoveryCandidate,
+            candidate_id,
+            status_code=400,
+            code="discovery_candidate_not_found",
+            message="Discovery candidate was not found.",
+        )
 
         metadata = candidate.metadata_json or {}
         candidate_port = metadata.get("port")

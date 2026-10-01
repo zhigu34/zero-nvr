@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.core.time import optional_utc
 from app.modules.auth.dependencies import (
     get_effective_camera_scope,
     require_permission,
@@ -33,20 +34,9 @@ from .schemas import (
 router = APIRouter()
 
 
-def _normalized_utc(
-    value: datetime | None,
-    *,
-    field_name: str,
-) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ApiError(
-            status_code=422,
-            code="timezone_required",
-            message=f"{field_name} must include a timezone offset.",
-        )
-    return value.astimezone(UTC)
+# Optional filter timestamps may be absent, so this alias points at the
+# None-tolerant shared helper rather than the strict one.
+_normalized_utc = optional_utc
 
 
 def _event_view(event: Event) -> EventView:
@@ -86,7 +76,7 @@ def list_events(
     ),
     severity: str | None = None,
     cursor: str | None = None,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=200),
     context: AuthContext = Depends(
         require_permission("event.view")
     ),
@@ -156,7 +146,7 @@ def get_event(
 def list_event_recordings(
     event_id: uuid.UUID,
     cursor: str | None = None,
-    limit: int = 100,
+    limit: int = Query(default=100, ge=1, le=200),
     context: AuthContext = Depends(
         require_permission("event.view")
     ),

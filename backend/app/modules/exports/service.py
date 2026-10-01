@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 
 from .models import ExportJob
@@ -75,13 +76,13 @@ class ExportService:
         session: Session,
         export_id: uuid.UUID,
     ) -> ExportJob:
-        job = session.get(ExportJob, export_id)
-        if job is None:
-            raise ApiError(
-                status_code=404,
-                code="export_not_found",
-                message="Export was not found.",
-            )
+        job = fetch_or_404(
+            session,
+            ExportJob,
+            export_id,
+            code="export_not_found",
+            message="Export was not found.",
+        )
         return job
 
     @classmethod

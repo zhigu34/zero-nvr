@@ -17,19 +17,15 @@ from app.modules.recordings.models import (
     RecordingTrigger,
 )
 from app.modules.storage.models import RecordingLocation, StorageTarget
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="recording-model-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'recording-models.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_camera_and_target(

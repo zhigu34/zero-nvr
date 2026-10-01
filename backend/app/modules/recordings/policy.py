@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.modules.cameras.models import Camera
 from app.modules.recordings.models import RecordingPolicy
@@ -307,13 +308,13 @@ class RecordingPolicyService:
         camera_id: uuid.UUID,
         values: dict[str, object],
     ) -> RecordingPolicy:
-        camera = session.get(Camera, camera_id)
-        if camera is None:
-            raise ApiError(
-                status_code=404,
-                code="camera_not_found",
-                message="Camera was not found.",
-            )
+        camera = fetch_or_404(
+            session,
+            Camera,
+            camera_id,
+            code="camera_not_found",
+            message="Camera was not found.",
+        )
 
         baseline_mode = str(values["baseline_mode"])
         schedule_json = values.get("schedule_json")

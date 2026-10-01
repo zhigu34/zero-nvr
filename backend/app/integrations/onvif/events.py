@@ -8,15 +8,12 @@ from onvif import ONVIFCamera
 
 from app.core.config import Settings
 
+from .access import read_attribute
 from .adapter import OnvifIntegrationError
 
 
-def _read(value: Any, name: str) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value.get(name)
-    return getattr(value, name, None)
+# Shared with the adapter and notification normaliser.
+_read = read_attribute
 
 
 class OnvifEventSubscription:

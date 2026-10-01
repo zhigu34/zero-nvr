@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.coerce import as_text
+
+from .access import read_attribute
+
 
 @dataclass(frozen=True, slots=True)
 class OnvifNormalizedNotification:
@@ -20,13 +24,8 @@ class OnvifNormalizedNotification:
     source_event_id: str
 
 
-def _read(value: Any, name: str) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value.get(name)
-    return getattr(value, name, None)
-
+# Shared with the adapter and subscription reader.
+_read = read_attribute
 
 def _text(value: Any) -> str | None:
     if value is None:
@@ -43,8 +42,7 @@ def _text(value: Any) -> str | None:
     )
     if nested is not None and nested is not value:
         return _text(nested)
-    rendered = str(value).strip()
-    return rendered or None
+    return as_text(value)
 
 
 def _items(value: Any) -> tuple[Any, ...]:

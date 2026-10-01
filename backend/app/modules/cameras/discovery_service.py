@@ -5,8 +5,8 @@ from urllib.parse import unquote, urlsplit
 
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.db.types import utc_now
-from app.core.errors import ApiError
 from app.integrations.onvif import OnvifDiscoveryCandidate
 
 from .models import DiscoveryCandidate, DiscoverySession
@@ -33,13 +33,13 @@ class CameraDiscoveryService:
         session: Session,
         discovery_id: uuid.UUID,
     ) -> DiscoverySession:
-        discovery = session.get(DiscoverySession, discovery_id)
-        if discovery is None:
-            raise ApiError(
-                status_code=404,
-                code="discovery_session_not_found",
-                message="Discovery session was not found.",
-            )
+        discovery = fetch_or_404(
+            session,
+            DiscoverySession,
+            discovery_id,
+            code="discovery_session_not_found",
+            message="Discovery session was not found.",
+        )
         return discovery
 
     @staticmethod

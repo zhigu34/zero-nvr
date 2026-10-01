@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.db import get_db_session
 from app.core.errors import ApiError
 from app.modules.audit.service import append_audit_event
@@ -426,13 +427,13 @@ def verify_backup(
     ),
     session: Session = Depends(get_db_session),
 ) -> BackupSetView:
-    item = session.get(BackupSet, backup_id)
-    if item is None:
-        raise ApiError(
-            status_code=404,
-            code="backup_not_found",
-            message="Backup set was not found.",
-        )
+    item = fetch_or_404(
+        session,
+        BackupSet,
+        backup_id,
+        code="backup_not_found",
+        message="Backup set was not found.",
+    )
     if (
         item.state != "COMPLETED"
         or item.restic_snapshot_id is None

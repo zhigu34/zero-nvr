@@ -13,6 +13,9 @@ from wsdiscovery import QName
 from wsdiscovery.discovery import ThreadedWSDiscovery
 
 from app.core.config import Settings
+from app.core.coerce import as_text as _text
+
+from .access import read_attribute, read_path
 
 
 class OnvifIntegrationError(RuntimeError):
@@ -95,29 +98,9 @@ class OnvifDiscoveryCandidate:
     device_service_url: str | None
 
 
-def _read(value: Any, name: str) -> Any:
-    if value is None:
-        return None
-    if isinstance(value, dict):
-        return value.get(name)
-    return getattr(value, name, None)
-
-
-def _path(value: Any, *names: str) -> Any:
-    current = value
-    for name in names:
-        current = _read(current, name)
-        if current is None:
-            return None
-    return current
-
-
-def _text(value: Any) -> str | None:
-    if value is None:
-        return None
-    rendered = str(value).strip()
-    return rendered or None
-
+# Shared with the notification normaliser and subscription reader.
+_read = read_attribute
+_path = read_path
 
 def _safe_http_url(value: str) -> str | None:
     try:

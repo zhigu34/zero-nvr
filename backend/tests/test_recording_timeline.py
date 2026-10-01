@@ -5,7 +5,6 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.cameras.models import CameraStreamProfile
 from app.modules.cameras.service import CameraService
@@ -14,19 +13,15 @@ from app.modules.events.system import SystemEventService
 from app.modules.recordings.models import RecordingPolicy, RecordingSegment
 from app.modules.recordings.timeline import PlaybackTimelineService
 from app.modules.storage.models import RecordingLocation, StorageTarget
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path):
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="timeline-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'timeline.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def test_timeline_merges_physical_segments_into_wall_clock_ranges(
@@ -270,7 +265,6 @@ def test_timeline_merges_physical_segments_into_wall_clock_ranges(
         database.close()
 
 
-
 def test_timeline_exposes_all_segment_availability_states(
     tmp_path: Path,
 ) -> None:
@@ -461,7 +455,6 @@ def test_timeline_exposes_all_segment_availability_states(
         ]
     finally:
         database.close()
-
 
 
 def test_timeline_projects_schedule_runtime_and_storage_gap_reasons(

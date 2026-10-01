@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 from app.integrations.apprise import AppriseAdapter, AppriseIntegrationError
@@ -588,13 +589,13 @@ class NotificationTargetService:
         session: Session,
         target_id: uuid.UUID,
     ) -> NotificationTarget:
-        target = session.get(NotificationTarget, target_id)
-        if target is None:
-            raise ApiError(
-                status_code=404,
-                code="notification_target_not_found",
-                message="Notification target was not found.",
-            )
+        target = fetch_or_404(
+            session,
+            NotificationTarget,
+            target_id,
+            code="notification_target_not_found",
+            message="Notification target was not found.",
+        )
         return target
 
     @staticmethod

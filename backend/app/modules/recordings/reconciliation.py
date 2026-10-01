@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.db import Database
 from app.core.db.types import utc_now
+from app.core.fs import resolve_within_or_none
 from app.modules.cameras.models import (
     CameraStreamProfile,
 )
@@ -243,19 +244,10 @@ class RecordingCatalogReconciliationService:
         root: Path,
         object_path: str,
     ) -> Path | None:
-        try:
-            candidate = (
-                root
-                / Path(object_path)
-            ).resolve(
-                strict=False
-            )
-            candidate.relative_to(
-                root
-            )
-        except (OSError, ValueError):
-            return None
-        return candidate
+        # Reconciliation walks directories produced by ZLM and by earlier
+        # versions, so an escaping or unreadable entry is skipped rather than
+        # failing the whole scan — hence the non-raising containment helper.
+        return resolve_within_or_none(root, object_path)
 
     @staticmethod
     def _parse_time(

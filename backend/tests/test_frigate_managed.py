@@ -17,20 +17,16 @@ from app.modules.system.frigate import (
 from app.modules.system.frigate_managed import (
     ManagedFrigateConfigService,
 )
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="managed-frigate-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'managed-frigate.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         zlm_rtsp_base_url="rtsp://zlmediakit:554",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def test_managed_frigate_uses_only_zlm_ai_detect_stream_and_never_records(

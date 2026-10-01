@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
+from app.core.time import require_utc
 from app.modules.cameras.models import Camera
 from app.modules.recordings.models import (
     RecordingProtection,
@@ -16,19 +17,9 @@ from app.modules.storage.models import RecordingLocation
 
 
 class RecordingProtectionService:
-    @staticmethod
-    def _utc(
-        value: datetime,
-        *,
-        field_name: str,
-    ) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ApiError(
-                status_code=422,
-                code="timezone_required",
-                message=f"{field_name} must include a timezone offset.",
-            )
-        return value.astimezone(UTC)
+    # Protection windows are always explicit instants, so this points at the
+    # strict shared helper.
+    _utc = staticmethod(require_utc)
 
     @staticmethod
     def get(

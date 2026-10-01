@@ -29,4 +29,4 @@ class AuditEventView(BaseModel):
 
 class AuditPage(BaseModel):
     items: list[AuditEventView]
-    next_cursor: str | None
+    next_cursor: str | None = None

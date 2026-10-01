@@ -7,9 +7,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import Role
 from app.modules.cameras.models import CameraStreamProfile
@@ -22,6 +19,7 @@ from app.modules.storage.models import (
     RecordingLocation,
     StorageTarget,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -30,20 +28,14 @@ VIEWER_PASSWORD = "viewer-correct-horse-battery"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="retention-api-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'retention-api.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

@@ -4,10 +4,10 @@ from pathlib import Path
 
 from sqlalchemy import select
 
-from app.core.config import Settings
 from app.core.db import Base, Database
 from app.modules.auth.models import SecretRecord
 from app.modules.backups.service import BackupPolicyService
+from tests.factories import make_test_database
 
 
 REPOSITORY = "s3:s3.amazonaws.com/example-bucket/zero-nvr"
@@ -16,16 +16,11 @@ ACCESS_KEY = "AKIA_TEST_SECRET_VALUE"
 
 
 def make_database(tmp_path: Path):
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="backup-policy-test-secret-key-32-bytes",
         database_url=f"sqlite:///{tmp_path / 'policy.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def test_backup_policy_secrets_are_encrypted_and_resolvable(

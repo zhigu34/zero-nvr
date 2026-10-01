@@ -12,9 +12,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.db import Database
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
+from app.core.fs import PathEscapeError, resolve_within
 from app.core.security import SecretStore
 from app.integrations.restic import (
     ResticAdapter,
@@ -136,16 +138,14 @@ class BackupExecutionService:
         self.settings = settings
 
     def _safe_work_dir(self, backup_set_id: uuid.UUID) -> Path:
-        root = (self.settings.cache_dir / "backups").resolve(strict=False)
-        work = (root / str(backup_set_id)).resolve(strict=False)
+        root = self.settings.cache_dir / "backups"
         try:
-            work.relative_to(root)
-        except ValueError as exc:
+            return resolve_within(root, str(backup_set_id))
+        except PathEscapeError as exc:
             raise DatabaseSnapshotError(
                 "backup_work_dir_invalid",
                 "Backup staging directory is invalid.",
             ) from exc
-        return work
 
     def _safe_deployment_config(self) -> Path:
         configured = self.settings.deployment_config_dir
@@ -504,13 +504,13 @@ class BackupExecutionService:
         backup_set_id: uuid.UUID,
     ) -> str:
         with database.session() as session:
-            item = session.get(BackupSet, backup_set_id)
-            if item is None:
-                raise ApiError(
-                    status_code=404,
-                    code="backup_not_found",
-                    message="Backup set was not found.",
-                )
+            item = fetch_or_404(
+                session,
+                BackupSet,
+                backup_set_id,
+                code="backup_not_found",
+                message="Backup set was not found.",
+            )
             policy = session.get(
                 BackupPolicy,
                 item.backup_policy_id,

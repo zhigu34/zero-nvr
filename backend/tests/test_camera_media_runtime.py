@@ -14,6 +14,7 @@ from app.integrations.zlm import (
 from app.modules.auth.models import SecretRecord  # noqa: F401
 from app.modules.cameras.media_runtime import CameraMediaRuntimeService
 from app.modules.cameras.service import CameraService
+from tests.factories import make_test_database
 
 
 PRIMARY_URL = (
@@ -27,17 +28,12 @@ SECONDARY_URL = (
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="media-runtime-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'media-runtime.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         zlm_api_secret="test-zlm-secret",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 class FakeZlm:

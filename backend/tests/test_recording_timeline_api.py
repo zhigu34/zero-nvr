@@ -6,9 +6,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.cameras.models import (
     CameraStreamProfile,
 )
@@ -24,6 +21,7 @@ from app.modules.storage.models import (
     RecordingLocation,
     StorageTarget,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = (
@@ -32,31 +30,14 @@ ADMIN_PASSWORD = (
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
-        secret_key=(
-            "timeline-api-test-secret-key-"
-            "32-bytes-minimum"
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'timeline-api.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        recordings_dir=(
-            tmp_path / "recordings"
-        ),
-        prebuffer_dir=(
-            tmp_path / "prebuffer"
-        ),
+    return make_test_app(
+        tmp_path,
+        secret_key="timeline-api-test-secret-key-" "32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'timeline-api.db'}",
+        recordings_dir=tmp_path / "recordings",
+        prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 def setup_admin(client: TestClient) -> None:
@@ -410,7 +391,6 @@ def test_timeline_api_rejects_naive_and_invalid_ranges(
         )
 
 
-
 def test_timeline_api_exposes_explicit_detail_levels(
     tmp_path: Path,
 ) -> None:
@@ -460,7 +440,6 @@ def test_timeline_api_exposes_explicit_detail_levels(
             },
         )
         assert invalid.status_code == 422
-
 
 
 def test_timeline_event_markers_aggregate_by_zoom_level(
@@ -629,7 +608,6 @@ def test_timeline_event_markers_aggregate_by_zoom_level(
         }
 
 
-
 def test_timeline_segments_are_canonical_and_ordered_for_binary_lookup(
     tmp_path: Path,
 ) -> None:
@@ -758,7 +736,6 @@ def test_timeline_segments_are_canonical_and_ordered_for_binary_lookup(
             == base
             + timedelta(minutes=10)
         )
-
 
 
 def test_aligned_timeline_returns_tracks_in_requested_order(

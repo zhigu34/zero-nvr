@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ApiError
+from app.core.time import require_utc
 from app.core.security import redact_sensitive_value
 from app.modules.cameras.models import Camera
 
@@ -42,13 +43,13 @@ class EventUpsertResult:
 class EventService:
     @staticmethod
     def _instant(value: datetime, *, field_name: str) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ApiError(
-                status_code=422,
-                code="event_timezone_required",
-                message=f"{field_name} must include a timezone offset.",
-            )
-        return value.astimezone(UTC)
+        # Detection ingest keeps its own error code so a client can tell a
+        # malformed event payload apart from a malformed user-supplied filter.
+        return require_utc(
+            value,
+            field_name=field_name,
+            code="event_timezone_required",
+        )
 
     @staticmethod
     def _text(

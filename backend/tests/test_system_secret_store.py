@@ -6,9 +6,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings
-from app.core.db import Base
 from app.core.security import SecretStore
-from app.main import create_app
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -21,29 +20,15 @@ def make_app(
     *,
     include_previous: bool,
 ):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key=NEW_KEY,
-        secret_key_previous=(
-            [OLD_KEY]
-            if include_previous
-            else []
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'secret-store.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
+        secret_key_previous=[OLD_KEY] if include_previous else [],
+        database_url=f"sqlite:///{tmp_path / 'secret-store.db'}",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

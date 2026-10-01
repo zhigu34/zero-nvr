@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.db import Database
 from app.core.errors import ApiError
 from app.integrations.ffmpeg import (
@@ -54,13 +55,13 @@ class ExportExecutionService:
     ) -> ExportExecutionPlan | ExportExecutionResult:
         now = datetime.now(UTC)
         with database.session() as session:
-            job = session.get(ExportJob, export_id)
-            if job is None:
-                raise ApiError(
-                    status_code=404,
-                    code="export_not_found",
-                    message="Export was not found.",
-                )
+            job = fetch_or_404(
+                session,
+                ExportJob,
+                export_id,
+                code="export_not_found",
+                message="Export was not found.",
+            )
 
             if job.state == "COMPLETED":
                 session.commit()

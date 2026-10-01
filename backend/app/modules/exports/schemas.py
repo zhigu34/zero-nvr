@@ -40,7 +40,7 @@ class ExportView(BaseModel):
 
 class ExportPage(BaseModel):
     items: list[ExportView]
-    next_cursor: str | None
+    next_cursor: str | None = None
 
 
 

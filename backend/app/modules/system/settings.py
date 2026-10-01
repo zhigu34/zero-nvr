@@ -21,6 +21,41 @@ _HOSTNAME = re.compile(
 )
 
 
+class NamespaceSettingsStore:
+    """Load and persist the single ``SystemSetting`` row owned by a namespace.
+
+    Three settings services (general, time, runtime tuning) each re-implemented
+    the same create-or-update dance around one namespace row. Only the
+    ``normalize`` signature differed — and time's had already drifted to drop the
+    ``settings`` argument and add a ``legacy`` fallback — so the storage part is
+    shared here while each service keeps its own validation.
+    """
+
+    namespace: str
+
+    @classmethod
+    def _row(cls, session: Session) -> SystemSetting | None:
+        return session.get(SystemSetting, cls.namespace)
+
+    @classmethod
+    def _persist(
+        cls,
+        session: Session,
+        normalized: dict[str, object],
+    ) -> None:
+        row = cls._row(session)
+        if row is None:
+            session.add(
+                SystemSetting(
+                    namespace=cls.namespace,
+                    value_json=normalized,
+                )
+            )
+        else:
+            row.value_json = normalized
+        session.flush()
+
+
 @dataclass(frozen=True, slots=True)
 class GeneralSystemSettings:
     system_name: str
@@ -28,7 +63,7 @@ class GeneralSystemSettings:
     camera_ntp_servers: tuple[str, ...]
 
 
-class SystemSettingsService:
+class SystemSettingsService(NamespaceSettingsStore):
     namespace = "general"
 
     @staticmethod
@@ -135,10 +170,7 @@ class SystemSettingsService:
         *,
         settings: Settings,
     ) -> GeneralSystemSettings:
-        row = session.get(
-            SystemSetting,
-            cls.namespace,
-        )
+        row = cls._row(session)
         value = cls.normalize(
             settings=settings,
             current=(
@@ -169,10 +201,7 @@ class SystemSettingsService:
         settings: Settings,
         changes: dict[str, object],
     ) -> GeneralSystemSettings:
-        row = session.get(
-            SystemSetting,
-            cls.namespace,
-        )
+        row = cls._row(session)
         normalized = cls.normalize(
             settings=settings,
             current=(
@@ -182,15 +211,7 @@ class SystemSettingsService:
             ),
             changes=changes,
         )
-        if row is None:
-            row = SystemSetting(
-                namespace=cls.namespace,
-                value_json=normalized,
-            )
-            session.add(row)
-        else:
-            row.value_json = normalized
-        session.flush()
+        cls._persist(session, normalized)
         return cls.get(
             session,
             settings=settings,
@@ -204,7 +225,7 @@ class TimeSystemSettings:
     managed_camera_ntp_servers: tuple[str, ...]
 
 
-class TimeSystemSettingsService:
+class TimeSystemSettingsService(NamespaceSettingsStore):
     namespace = "time"
 
     @staticmethod
@@ -257,10 +278,7 @@ class TimeSystemSettingsService:
     def _legacy(
         session: Session,
     ) -> dict[str, object]:
-        row = session.get(
-            SystemSetting,
-            SystemSettingsService.namespace,
-        )
+        row = SystemSettingsService._row(session)
         if row is None:
             return {}
         value = row.value_json or {}
@@ -343,10 +361,7 @@ class TimeSystemSettingsService:
         cls,
         session: Session,
     ) -> TimeSystemSettings:
-        row = session.get(
-            SystemSetting,
-            cls.namespace,
-        )
+        row = cls._row(session)
         value = cls.normalize(
             current=(
                 row.value_json
@@ -382,10 +397,7 @@ class TimeSystemSettingsService:
         *,
         changes: dict[str, object],
     ) -> TimeSystemSettings:
-        row = session.get(
-            SystemSetting,
-            cls.namespace,
-        )
+        row = cls._row(session)
         normalized = cls.normalize(
             current=(
                 row.value_json
@@ -399,15 +411,7 @@ class TimeSystemSettingsService:
             ),
             changes=changes,
         )
-        if row is None:
-            row = SystemSetting(
-                namespace=cls.namespace,
-                value_json=normalized,
-            )
-            session.add(row)
-        else:
-            row.value_json = normalized
-        session.flush()
+        cls._persist(session, normalized)
         return cls.get(session)
 
 
@@ -427,7 +431,7 @@ class RuntimeTuningSettings:
     live_transcode_video_bitrate_kbps: int
 
 
-class RuntimeTuningSettingsService:
+class RuntimeTuningSettingsService(NamespaceSettingsStore):
     namespace = "runtime_tuning"
 
     @staticmethod
@@ -673,7 +677,7 @@ class RuntimeTuningSettingsService:
         *,
         settings: Settings,
     ) -> RuntimeTuningSettings:
-        row = session.get(SystemSetting, cls.namespace)
+        row = cls._row(session)
         value = cls.normalize(
             settings=settings,
             current=row.value_json if row is not None else None,
@@ -722,20 +726,12 @@ class RuntimeTuningSettingsService:
         settings: Settings,
         changes: dict[str, object],
     ) -> RuntimeTuningSettings:
-        row = session.get(SystemSetting, cls.namespace)
+        row = cls._row(session)
         normalized = cls.normalize(
             settings=settings,
             current=row.value_json if row is not None else None,
             changes=changes,
         )
-        if row is None:
-            row = SystemSetting(
-                namespace=cls.namespace,
-                value_json=normalized,
-            )
-            session.add(row)
-        else:
-            row.value_json = normalized
-        session.flush()
+        cls._persist(session, normalized)
         return cls.get(session, settings=settings)
 

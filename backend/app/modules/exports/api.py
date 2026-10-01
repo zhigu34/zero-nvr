@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.core.fs import resolve_within_or_none
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import (
     get_effective_camera_scope,
@@ -138,12 +139,10 @@ def _safe_output_path(
         request.app.state.settings.cache_dir
         / "exports"
     ).resolve(strict=False)
-    path = Path(raw_path).resolve(strict=False)
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return None
-    return path
+    # Resolve before delegating: the stored export path is always absolute, and
+    # resolve_within() would otherwise interpret a relative value as being
+    # relative to root, silently widening what this download route accepts.
+    return resolve_within_or_none(root, Path(raw_path).resolve(strict=False))
 
 
 @router.post(

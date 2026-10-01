@@ -5,34 +5,19 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.cameras.models import Camera
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
-        secret_key=(
-            "live-layout-test-secret-key-"
-            "32-bytes-minimum"
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'live-layout.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
+    return make_test_app(
+        tmp_path,
+        secret_key="live-layout-test-secret-key-" "32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'live-layout.db'}",
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 def test_live_view_layout_crud_default_and_scope(

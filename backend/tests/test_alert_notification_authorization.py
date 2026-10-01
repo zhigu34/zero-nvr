@@ -6,9 +6,6 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.alerts.models import Alert
 from app.modules.auth.models import Role
 from app.modules.cameras.service import CameraService
@@ -17,6 +14,7 @@ from app.modules.notifications.models import (
     NotificationDelivery,
     NotificationTarget,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -24,24 +22,11 @@ USER_PASSWORD = "scoped-user-correct-horse-battery"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
-        secret_key=(
-            "alert-notification-auth-test-"
-            "secret-key-32-bytes-minimum"
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'authorization.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
+    return make_test_app(
+        tmp_path,
+        secret_key="alert-notification-auth-test-" "secret-key-32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'authorization.db'}",
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 def login(

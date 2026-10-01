@@ -1,71 +1,15 @@
 from __future__ import annotations
 
-import base64
-import json
 import uuid
-from dataclasses import dataclass
-from datetime import UTC, datetime
 
-from sqlalchemy import and_, false, or_, select
+from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
+from app.core.pagination import Page, normalize_page_limit, paginate
 
 from .models import Alert
-
-
-@dataclass(frozen=True, slots=True)
-class AlertPageResult:
-    items: list[Alert]
-    next_cursor: str | None
-
-
-def _encode_cursor(item: Alert) -> str:
-    payload = json.dumps(
-        {
-            "created_at": item.created_at.astimezone(UTC).isoformat(),
-            "id": str(item.id),
-        },
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return base64.urlsafe_b64encode(
-        payload
-    ).decode("ascii").rstrip("=")
-
-
-def _decode_cursor(
-    value: str,
-) -> tuple[datetime, uuid.UUID]:
-    try:
-        padding = "=" * (-len(value) % 4)
-        payload = json.loads(
-            base64.urlsafe_b64decode(
-                value + padding
-            ).decode("utf-8")
-        )
-        created_at = datetime.fromisoformat(
-            payload["created_at"]
-        )
-        if (
-            created_at.tzinfo is None
-            or created_at.utcoffset() is None
-        ):
-            raise ValueError
-        return (
-            created_at.astimezone(UTC),
-            uuid.UUID(payload["id"]),
-        )
-    except (
-        ValueError,
-        KeyError,
-        TypeError,
-        json.JSONDecodeError,
-    ) as exc:
-        raise ApiError(
-            status_code=400,
-            code="alert_cursor_invalid",
-            message="Alert cursor is invalid.",
-        ) from exc
 
 
 class AlertQueryService:
@@ -74,13 +18,13 @@ class AlertQueryService:
         session: Session,
         alert_id: uuid.UUID,
     ) -> Alert:
-        alert = session.get(Alert, alert_id)
-        if alert is None:
-            raise ApiError(
-                status_code=404,
-                code="alert_not_found",
-                message="Alert was not found.",
-            )
+        alert = fetch_or_404(
+            session,
+            Alert,
+            alert_id,
+            code="alert_not_found",
+            message="Alert was not found.",
+        )
         return alert
 
     @staticmethod
@@ -94,13 +38,12 @@ class AlertQueryService:
         severity: str | None,
         cursor: str | None,
         limit: int,
-    ) -> AlertPageResult:
-        if limit < 1 or limit > 200:
-            raise ApiError(
-                status_code=400,
-                code="alert_limit_invalid",
-                message="Alert limit must be between 1 and 200.",
-            )
+    ) -> Page[Alert]:
+        normalize_page_limit(
+            limit,
+            error_code="alert_limit_invalid",
+            resource_label="Alert",
+        )
 
         statement = select(Alert)
         if camera_id is not None:
@@ -150,35 +93,14 @@ class AlertQueryService:
                 Alert.severity == severity
             )
 
-        if cursor is not None:
-            created_at, alert_id = _decode_cursor(
-                cursor
-            )
-            statement = statement.where(
-                or_(
-                    Alert.created_at < created_at,
-                    and_(
-                        Alert.created_at == created_at,
-                        Alert.id < alert_id,
-                    ),
-                )
-            )
-
-        rows = list(
-            session.scalars(
-                statement.order_by(
-                    Alert.created_at.desc(),
-                    Alert.id.desc(),
-                ).limit(limit + 1)
-            )
-        )
-        has_more = len(rows) > limit
-        items = rows[:limit]
-        return AlertPageResult(
-            items=items,
-            next_cursor=(
-                _encode_cursor(items[-1])
-                if has_more and items
-                else None
-            ),
+        return paginate(
+            session,
+            statement,
+            timestamp_column=Alert.created_at,
+            id_column=Alert.id,
+            cursor=cursor,
+            limit=limit,
+            cursor_key="created_at",
+            cursor_error_code="alert_cursor_invalid",
+            resource_label="Alert",
         )

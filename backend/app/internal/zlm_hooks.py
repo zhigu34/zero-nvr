@@ -14,6 +14,7 @@ from pydantic import (
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_raise
 from app.core.db import get_db_session
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
@@ -421,13 +422,14 @@ def zlm_record_mp4(
             profile_id = RecordingCatalogService.profile_id_from_stream(
                 body.stream
             )
-            profile = session.get(CameraStreamProfile, profile_id)
-            if profile is None:
-                raise ApiError(
-                    status_code=422,
-                    code="recording_stream_unknown",
-                    message="Recording stream profile does not exist.",
-                )
+            profile = fetch_or_raise(
+                session,
+                CameraStreamProfile,
+                profile_id,
+                status_code=422,
+                code="recording_stream_unknown",
+                message="Recording stream profile does not exist.",
+            )
 
             policy = session.scalar(
                 select(RecordingPolicy).where(

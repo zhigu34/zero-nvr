@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.http import client_source_ip, client_user_agent
 from app.core.security import redact_sensitive_value, redact_text
 
 from .models import AuditEvent
@@ -26,21 +27,10 @@ def append_audit_event(
     after: dict[str, Any] | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> AuditEvent:
-    source_ip = None
-    if (
-        request is not None
-        and request.client
-        and request.client.host
-    ):
-        source_ip = request.client.host[:64]
-
-    user_agent = (
-        request.headers.get("user-agent")
-        if request is not None
-        else None
-    )
+    source_ip = client_source_ip(request)
+    user_agent = client_user_agent(request)
     client_info = (
-        {"user_agent": user_agent[:512]}
+        {"user_agent": user_agent}
         if user_agent
         else None
     )

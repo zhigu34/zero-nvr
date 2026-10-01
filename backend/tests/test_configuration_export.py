@@ -5,9 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = (
@@ -16,24 +14,11 @@ ADMIN_PASSWORD = (
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
-        secret_key=(
-            "configuration-export-test-"
-            "secret-key-32-bytes-minimum"
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'config.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
+    return make_test_app(
+        tmp_path,
+        secret_key="configuration-export-test-" "secret-key-32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'config.db'}",
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 def test_configuration_export_is_portable_and_secret_free(
@@ -322,7 +307,6 @@ def test_configuration_export_is_portable_and_secret_free(
         )
 
 
-
 def test_configuration_import_validation_checks_refs_and_secrets(
     tmp_path: Path,
 ) -> None:
@@ -553,7 +537,6 @@ def test_configuration_import_validation_checks_refs_and_secrets(
                 "configuration_import_reference_invalid"
             )
         )
-
 
 
 def test_configuration_import_apply_merges_without_overwriting_secrets(
@@ -814,6 +797,12 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
         result = applied.json()
         assert result["mode"] == "merge"
         assert result["applied_count"] > 0
+        assert any(
+            item["resource_type"] == "retention_policy"
+            and item["target_id"] == retention.json()["id"]
+            and item["action"] == "updated"
+            for item in result["applied"]
+        )
         assert any(
             item["name"] == "Missing remote"
             and item["reason"]

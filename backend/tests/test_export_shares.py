@@ -8,11 +8,9 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.cameras.service import CameraService
 from app.modules.exports.models import ExportJob, ExportShareToken
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
@@ -20,17 +18,11 @@ SHARE_PASSWORD = "very-secure-share-password"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="export-share-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'share.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

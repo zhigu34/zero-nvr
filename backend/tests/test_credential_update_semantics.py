@@ -5,30 +5,22 @@ import uuid
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
 from app.core.errors import ApiError
-from app.main import create_app
 from app.modules.storage.service import StorageTargetService
 from app.modules.system.frigate import FrigateProviderSettingsService
 from app.modules.system.models import SystemSetting
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="credential-update-test-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'credential-update.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:

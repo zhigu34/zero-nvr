@@ -4,26 +4,18 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="camera-groups-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'camera-groups.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def create_camera(client: TestClient, name: str, host: str) -> str:

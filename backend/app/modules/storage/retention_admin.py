@@ -5,6 +5,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.modules.cameras.models import Camera, CameraGroup
 from app.modules.recordings.models import RecordingPolicy, RetentionPolicy
@@ -27,13 +28,13 @@ class RetentionPolicyAdminService:
         session: Session,
         policy_id: uuid.UUID,
     ) -> RetentionPolicy:
-        policy = session.get(RetentionPolicy, policy_id)
-        if policy is None:
-            raise ApiError(
-                status_code=404,
-                code="retention_policy_not_found",
-                message="Retention policy was not found.",
-            )
+        policy = fetch_or_404(
+            session,
+            RetentionPolicy,
+            policy_id,
+            code="retention_policy_not_found",
+            message="Retention policy was not found.",
+        )
         return policy
 
     @staticmethod

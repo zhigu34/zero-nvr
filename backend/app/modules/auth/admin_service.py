@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 
@@ -30,13 +31,13 @@ class AuthAdminService:
 
     @staticmethod
     def get_user(session: Session, user_id: uuid.UUID) -> User:
-        user = session.get(User, user_id)
-        if user is None:
-            raise ApiError(
-                status_code=404,
-                code="user_not_found",
-                message="User was not found.",
-            )
+        user = fetch_or_404(
+            session,
+            User,
+            user_id,
+            code="user_not_found",
+            message="User was not found.",
+        )
         return user
 
     @staticmethod
@@ -45,13 +46,13 @@ class AuthAdminService:
 
     @staticmethod
     def get_role(session: Session, role_id: uuid.UUID) -> Role:
-        role = session.get(Role, role_id)
-        if role is None:
-            raise ApiError(
-                status_code=404,
-                code="role_not_found",
-                message="Role was not found.",
-            )
+        role = fetch_or_404(
+            session,
+            Role,
+            role_id,
+            code="role_not_found",
+            message="Role was not found.",
+        )
         return role
 
     @staticmethod

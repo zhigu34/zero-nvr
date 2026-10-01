@@ -7,13 +7,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from pydantic import SecretStr
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.backups.recovery_kit import (
     RecoveryKitService,
 )
+from tests.factories import make_test_app
 
 
 PASSWORD = "correct-horse-battery-staple"
@@ -22,26 +20,18 @@ RESTIC_PASSWORD = "restic-secret-password"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="s" * 40,
         secret_key_previous=[SecretStr("p" * 40)],
         app_version="1.2.3",
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'recovery.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
+        database_url=f"sqlite:///{tmp_path / 'recovery.db'}",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
-        session_cookie_secure=False,
         zlm_api_secret=SecretStr("a" * 40),
         zlm_hook_secret=SecretStr("h" * 40),
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:
@@ -207,7 +197,6 @@ def test_recovery_kit_rejects_short_passphrase(
             },
         )
         assert response.status_code == 422
-
 
 
 def test_recovery_kit_extract_writes_only_expected_files(

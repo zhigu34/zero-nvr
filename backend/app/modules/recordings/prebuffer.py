@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
+from app.core.fs import replace_durably
 from app.modules.recordings.models import RecordingSegment
 
 from .catalog import RecordingCatalogService
@@ -332,9 +333,11 @@ class PrebufferPromotionService:
                 message="Promoted fragment size verification failed.",
             )
 
-        with partial.open("rb+") as handle:
-            os.fsync(handle.fileno())
-        os.replace(partial, destination)
+        # Flush the verified copy before renaming it into place: the promoted
+        # fragment is the recording of record, so a crash between the rename and
+        # the eventual writeback must not expose a short file. replace_durably
+        # owns the fsync + rename step.
+        replace_durably(partial, destination)
 
         return PromotionReceipt(
             fragment=fragment,

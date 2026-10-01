@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.core.security import SecretStore
 
@@ -193,13 +194,13 @@ class BackupPolicyService:
         session: Session,
         policy_id: uuid.UUID,
     ) -> BackupPolicy:
-        policy = session.get(BackupPolicy, policy_id)
-        if policy is None:
-            raise ApiError(
-                status_code=404,
-                code="backup_policy_not_found",
-                message="Backup policy was not found.",
-            )
+        policy = fetch_or_404(
+            session,
+            BackupPolicy,
+            policy_id,
+            code="backup_policy_not_found",
+            message="Backup policy was not found.",
+        )
         return policy
 
     @staticmethod

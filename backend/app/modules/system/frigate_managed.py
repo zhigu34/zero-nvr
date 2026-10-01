@@ -2,17 +2,17 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import json
-import os
 from pathlib import Path
 from typing import Any
-import uuid
 
 import yaml
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
+from app.core.db.repository import fetch_or_raise
 from app.core.errors import ApiError
+from app.core.fs import atomic_write_text
 from app.modules.cameras.media_runtime import (
     CameraMediaRuntimeService,
     DesiredZlmStream,
@@ -61,13 +61,14 @@ class ManagedFrigateConfigService:
         frigate_key: str,
         camera_id,
     ) -> tuple[dict[str, Any], DesiredZlmStream | None]:
-        camera = session.get(Camera, camera_id)
-        if camera is None:
-            raise ApiError(
-                status_code=409,
-                code="frigate_camera_mapping_unknown",
-                message="Managed Frigate camera mapping references a missing camera.",
-            )
+        camera = fetch_or_raise(
+            session,
+            Camera,
+            camera_id,
+            status_code=409,
+            code="frigate_camera_mapping_unknown",
+            message="Managed Frigate camera mapping references a missing camera.",
+        )
 
         binding = session.scalar(
             select(CameraStreamBinding).where(
@@ -285,34 +286,10 @@ class ManagedFrigateConfigService:
         *,
         mode: int,
     ) -> None:
-        path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-        temporary = path.with_name(
-            f".{path.name}.{uuid.uuid4().hex}.tmp"
-        )
-        descriptor = os.open(
-            temporary,
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL,
-            mode,
-        )
-        try:
-            with os.fdopen(
-                descriptor,
-                "w",
-                encoding="utf-8",
-            ) as handle:
-                handle.write(content)
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.chmod(temporary, mode)
-            os.replace(temporary, path)
-        except Exception:
-            temporary.unlink(missing_ok=True)
-            raise
+        # Managed Frigate config is a recovery input: if a crash leaves it
+        # truncated, Frigate fails to start on the next boot. The shared helper
+        # owns the unique-temp-name + fsync + rename sequence.
+        atomic_write_text(path, content, mode=mode)
 
     def persist(
         self,

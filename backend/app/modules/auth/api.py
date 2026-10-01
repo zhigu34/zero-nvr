@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
 from app.core.errors import ApiError
+from app.core.http import client_request_info
 from app.modules.audit.service import append_audit_event
 from app.modules.notifications.models import NotificationDelivery
 
@@ -68,14 +69,9 @@ def _rate_limit_error(
     )
 
 
-def _client_info(request: Request) -> dict[str, object]:
-    info: dict[str, object] = {}
-    user_agent = request.headers.get("user-agent")
-    if user_agent:
-        info["user_agent"] = user_agent[:512]
-    if request.client and request.client.host:
-        info["source_ip"] = request.client.host[:64]
-    return info
+
+
+_client_info = client_request_info
 
 
 def _set_session_cookie(

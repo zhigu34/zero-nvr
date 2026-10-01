@@ -5,10 +5,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from app.core.config import Settings
 from app.core.db import Base
 from app.core.security import SecretStore
-from app.main import create_app
 from app.modules.auth.models import SecretRecord
 from app.modules.cameras.models import (
     Camera,
@@ -16,23 +14,18 @@ from app.modules.cameras.models import (
     DeviceCredential,
     DeviceEndpoint,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="system-ntp-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'system-ntp.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
@@ -325,7 +318,6 @@ def test_apply_camera_ntp_uses_saved_servers_and_encrypted_credentials(
             current["device_time_source"]
             == "Manual"
         )
-
 
 
 def test_camera_clock_health_reports_offset_rtt_and_sanitized_errors(

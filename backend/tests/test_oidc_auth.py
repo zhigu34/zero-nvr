@@ -8,13 +8,11 @@ from fastapi.responses import (
 from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.auth.models import (
     ExternalIdentity,
     User,
 )
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = (
@@ -23,24 +21,11 @@ ADMIN_PASSWORD = (
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
-        secret_key=(
-            "oidc-auth-test-secret-key-"
-            "32-bytes-minimum"
-        ),
-        environment="test",
-        database_url=(
-            f"sqlite:///{tmp_path / 'oidc.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
+    return make_test_app(
+        tmp_path,
+        secret_key="oidc-auth-test-secret-key-" "32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'oidc.db'}",
     )
-    app = create_app(settings)
-    Base.metadata.create_all(
-        app.state.database.engine
-    )
-    return app
 
 
 class FakeOidcRemote:

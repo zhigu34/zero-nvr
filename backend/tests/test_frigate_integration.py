@@ -31,21 +31,15 @@ from app.modules.system.frigate import (
     FrigateProviderSettingsService,
 )
 from app.modules.system.models import SystemSetting
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
-        secret_key=SecretStr(
-            "frigate-test-secret-key-32-bytes-minimum"
-        ),
+    return make_test_database(
+        tmp_path,
+        secret_key=SecretStr( "frigate-test-secret-key-32-bytes-minimum" ),
         database_url=f"sqlite:///{tmp_path / 'frigate.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_camera(

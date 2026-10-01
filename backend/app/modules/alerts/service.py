@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.db.types import utc_now
 from app.core.errors import ApiError
 from app.modules.events.models import Event
@@ -76,13 +77,13 @@ class AlertPolicyService:
         session: Session,
         policy_id: uuid.UUID,
     ) -> AlertPolicy:
-        policy = session.get(AlertPolicy, policy_id)
-        if policy is None:
-            raise ApiError(
-                status_code=404,
-                code="alert_policy_not_found",
-                message="Alert policy was not found.",
-            )
+        policy = fetch_or_404(
+            session,
+            AlertPolicy,
+            policy_id,
+            code="alert_policy_not_found",
+            message="Alert policy was not found.",
+        )
         return policy
 
     @staticmethod

@@ -16,22 +16,18 @@ from app.modules.events.models import Event
 from app.modules.notifications.delivery import NotificationDeliveryService
 from app.modules.notifications.models import NotificationDelivery
 from app.modules.notifications.service import NotificationTargetService
+from tests.factories import make_test_database
 
 
 SECRET_URL = "json://user:super-secret@example.invalid/token"
 
 
 def make_database(tmp_path: Path):
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="notification-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'notifications.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_delivery(settings: Settings, database: Database):

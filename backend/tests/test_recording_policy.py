@@ -5,25 +5,20 @@ from pathlib import Path
 
 import pytest
 
-from app.core.config import Settings
 from app.core.db import Base, Database
 from app.core.errors import ApiError
 from app.modules.cameras.service import CameraService
 from app.modules.recordings.models import RecordingPolicy
 from app.modules.recordings.policy import RecordingPolicyService
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path):
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="policy-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'policy.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def test_weekly_schedule_normal_and_cross_midnight() -> None:
@@ -160,7 +155,6 @@ def test_policy_put_persists_frozen_axes(tmp_path: Path) -> None:
             assert policy.post_roll_seconds == 20
     finally:
         database.close()
-
 
 
 def test_next_schedule_boundary_uses_local_wall_clock() -> None:

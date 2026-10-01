@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.db import get_db_session
-from app.core.errors import ApiError
+from app.core.time import optional_utc
 from app.modules.auth.dependencies import (
     get_effective_camera_scope,
     require_permission,
@@ -22,20 +22,14 @@ from .schemas import AuditEventView, AuditPage
 router = APIRouter()
 
 
+# Audit filters are optional, so this points at the None-tolerant shared helper.
+# Call sites use the shorter `field=` keyword, hence the wrapper.
 def _utc(
     value: datetime | None,
     *,
     field: str,
 ) -> datetime | None:
-    if value is None:
-        return None
-    if value.tzinfo is None or value.utcoffset() is None:
-        raise ApiError(
-            status_code=422,
-            code="timezone_required",
-            message=f"{field} must include a timezone offset.",
-        )
-    return value.astimezone(UTC)
+    return optional_utc(value, field_name=field)
 
 
 def _view(item: AuditEvent) -> AuditEventView:

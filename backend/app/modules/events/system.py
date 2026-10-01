@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.core.time import require_utc
 
 from .models import Event
 
@@ -35,9 +37,16 @@ class SystemEventService:
 
     @staticmethod
     def _instant(value: datetime) -> datetime:
-        if value.tzinfo is None or value.utcoffset() is None:
-            raise ValueError("system event timestamps must be timezone-aware")
-        return value.astimezone(UTC)
+        # Internal ZLM hook callbacks supply these instants. They are now
+        # reported with the same 422 + error code as every other malformed
+        # timestamp in the product. The previous bare ValueError was caught by
+        # the generic exception handler and surfaced as an opaque 500, which
+        # made an offset-less hook payload look like a server fault.
+        return require_utc(
+            value,
+            field_name="observed_at",
+            code="event_timezone_required",
+        )
 
     @classmethod
     def is_source_loss(cls, event: Event) -> bool:

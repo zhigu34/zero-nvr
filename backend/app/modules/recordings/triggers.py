@@ -8,6 +8,7 @@ from typing import Literal
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.db.repository import fetch_or_404
 from app.core.errors import ApiError
 from app.modules.cameras.models import Camera
 
@@ -34,13 +35,13 @@ class RecordingTriggerService:
         session: Session,
         trigger_id: uuid.UUID,
     ) -> RecordingTrigger:
-        trigger = session.get(RecordingTrigger, trigger_id)
-        if trigger is None:
-            raise ApiError(
-                status_code=404,
-                code="recording_trigger_not_found",
-                message="Recording trigger was not found.",
-            )
+        trigger = fetch_or_404(
+            session,
+            RecordingTrigger,
+            trigger_id,
+            code="recording_trigger_not_found",
+            message="Recording trigger was not found.",
+        )
         return trigger
 
     @staticmethod

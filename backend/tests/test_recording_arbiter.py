@@ -13,26 +13,17 @@ from app.modules.recordings.models import (
     RecordingPolicy,
     RecordingTrigger,
 )
+from tests.factories import make_test_database
 
 
 def make_database(
     tmp_path: Path,
 ) -> tuple[Settings, Database]:
-    settings = Settings(
-        secret_key=(
-            "recording-arbiter-test-secret-"
-            "key-32-bytes-minimum"
-        ),
-        database_url=(
-            f"sqlite:///{tmp_path / 'arbiter.db'}"
-        ),
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
+    return make_test_database(
+        tmp_path,
+        secret_key="recording-arbiter-test-secret-" "key-32-bytes-minimum",
+        database_url=f"sqlite:///{tmp_path / 'arbiter.db'}",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_camera(

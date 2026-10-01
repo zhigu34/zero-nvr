@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import ApiError
+from app.core.fs import atomic_write_text
 
 from .models import BackupPolicy
 from .service import BackupPolicyService
@@ -429,21 +430,10 @@ class RecoveryKitService:
             sort_keys=True,
             separators=(",", ":"),
         ) + "\n"
-        temp = path.with_name(
-            f".{path.name}.{uuid.uuid4().hex}.tmp"
-        )
-        try:
-            temp.write_text(
-                payload,
-                encoding="utf-8",
-            )
-            os.chmod(temp, 0o600)
-            os.replace(temp, path)
-        finally:
-            try:
-                temp.unlink()
-            except FileNotFoundError:
-                pass
+        # Recovery-kit state is read back during disaster recovery, so it must
+        # survive power loss: atomic_write_text adds the fsync the previous
+        # hand-rolled temp-file dance was missing.
+        atomic_write_text(path, payload, mode=0o600)
 
     def status(
         self,
@@ -751,20 +741,6 @@ class RecoveryKitService:
         written: list[Path] = []
         for target in targets:
             value = files[target.name]
-            temp = target.with_name(
-                f".{target.name}.{uuid.uuid4().hex}.tmp"
-            )
-            try:
-                temp.write_text(
-                    value,
-                    encoding="utf-8",
-                )
-                os.chmod(temp, 0o600)
-                os.replace(temp, target)
-                written.append(target)
-            finally:
-                try:
-                    temp.unlink()
-                except FileNotFoundError:
-                    pass
+            atomic_write_text(target, value, mode=0o600)
+            written.append(target)
         return written

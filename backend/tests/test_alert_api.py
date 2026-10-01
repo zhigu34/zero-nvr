@@ -6,13 +6,11 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import Settings
-from app.core.db import Base
-from app.main import create_app
 from app.modules.alerts.models import Alert
 from app.modules.auth.models import Role
 from app.modules.cameras.service import CameraService
 from app.modules.events.models import Event
+from tests.factories import make_test_app
 
 
 ADMIN_PASSWORD = "correct-horse-battery-staple"
@@ -21,17 +19,11 @@ VIEWER_PASSWORD = "viewer-correct-horse-battery"
 
 
 def make_app(tmp_path: Path):
-    settings = Settings(
+    return make_test_app(
+        tmp_path,
         secret_key="alert-api-test-secret-key-32-bytes-minimum",
-        environment="test",
         database_url=f"sqlite:///{tmp_path / 'alert-api.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
-        session_cookie_secure=False,
     )
-    app = create_app(settings)
-    Base.metadata.create_all(app.state.database.engine)
-    return app
 
 
 def setup_admin(client: TestClient) -> None:
@@ -258,7 +250,6 @@ def test_alert_scope_and_acknowledge_permissions(
         assert acknowledged.status_code == 200
         assert acknowledged.json()["state"] == "ACKNOWLEDGED"
         assert acknowledged.json()["acknowledged_by"] == operator_id
-
 
 
 def test_password_reset_notification_target_requires_safe_mail_target(

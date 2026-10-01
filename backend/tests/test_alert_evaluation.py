@@ -17,19 +17,15 @@ from app.modules.events.service import EventIngest, EventService
 from app.modules.notifications.models import NotificationDelivery
 from app.modules.notifications.service import NotificationTargetService
 from app.modules.recordings.models import RecordingProtection
+from tests.factories import make_test_database
 
 
 def make_database(tmp_path: Path):
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="alert-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'alerts.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed_camera(settings: Settings, database: Database):

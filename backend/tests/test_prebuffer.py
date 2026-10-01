@@ -16,6 +16,7 @@ from app.modules.recordings.prebuffer import (
     PrebufferPromotionService,
 )
 from app.modules.storage.models import RecordingLocation, StorageTarget
+from tests.factories import make_test_database
 
 
 def fragment(
@@ -121,19 +122,14 @@ def test_new_continuity_does_not_rewrite_previous_fragment() -> None:
 
 
 def make_database(tmp_path: Path) -> tuple[Settings, Database]:
-    settings = Settings(
+    return make_test_database(
+        tmp_path,
         secret_key="prebuffer-test-secret-key-32-bytes-minimum",
         database_url=f"sqlite:///{tmp_path / 'prebuffer.db'}",
-        data_dir=tmp_path / "data",
-        cache_dir=tmp_path / "cache",
         recordings_dir=tmp_path / "recordings",
         prebuffer_dir=tmp_path / "prebuffer",
         prebuffer_require_tmpfs=False,
     )
-    database = Database(settings)
-    database.initialize_runtime()
-    Base.metadata.create_all(database.engine)
-    return settings, database
 
 
 def seed(
