@@ -147,9 +147,17 @@ vi.mock("vue-router", () => ({
   })
 }))
 
+const i18nStrings: Record<string, string> = {
+  "schedules.batchApply": "批量应用周计划",
+  "schedules.mode.continuous": "全天自动录像",
+  "schedules.mode.weekly": "自定义周计划",
+  "schedules.mode.events": "动检事件录像",
+  "schedules.mode.off": "停用 / 仅手动",
+}
+
 vi.mock("vue-i18n", () => ({
   useI18n: () => ({
-    t: (key: string) => key
+    t: (key: string) => i18nStrings[key] ?? key
   })
 }))
 

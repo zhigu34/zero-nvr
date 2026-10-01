@@ -610,26 +610,26 @@ onMounted(() => {
           </div>
           <div>
             <h1 class="schedule-title">录制计划 (Schedules)</h1>
-            <p class="schedule-subtitle">集中管理全网机位 24×7 自动录像、跨午夜分段周计划与动检策略</p>
+            <p class="schedule-subtitle">{{ t("schedules.subtitle") }}</p>
           </div>
         </div>
       </div>
 
       <div class="schedule-header__actions">
-        <div class="scheduler-pill" title="自动调度引擎正常工作">
+        <div class="scheduler-pill" :title="t('schedules.schedulerHealthy')">
           <span class="status-indicator-dot ok"></span>
-          <span>调度器运行中</span>
+          <span>{{ t("schedules.schedulerRunning") }}</span>
         </div>
 
         <button
           type="button"
           class="btn-action btn-action--ghost"
           :disabled="loading"
-          title="刷新录像计划列表"
+          :title="t('schedules.refreshTitle')"
           @click="loadData(true)"
         >
           <UiIcon name="refresh" :size="14" :class="{ 'animate-spin': loading }" />
-          <span>{{ loading ? '刷新中...' : '刷新' }}</span>
+          <span>{{ loading ? t("schedules.refreshing") : t("schedules.refresh") }}</span>
         </button>
 
         <button
@@ -637,11 +637,11 @@ onMounted(() => {
           type="button"
           class="btn-action btn-action--primary"
           :disabled="!selectedCameraIds.length"
-          :title="selectedCameraIds.length ? `批量应用计划到已选中的 ${selectedCameraIds.length} 路机位` : '请先勾选下方机位'"
+          :title="selectedCameraIds.length ? t('schedules.batchApplyTitle', { count: selectedCameraIds.length }) : t('schedules.batchApplyTitleNone')"
           @click="openBatchDialog"
         >
           <UiIcon name="sliders" :size="14" />
-          <span>批量应用周计划 {{ selectedCameraIds.length ? `(${selectedCameraIds.length})` : '' }}</span>
+          <span>{{ t("schedules.batchApply") }} {{ selectedCameraIds.length ? `(${selectedCameraIds.length})` : '' }}</span>
         </button>
       </div>
     </header>
@@ -657,23 +657,23 @@ onMounted(() => {
     <section class="stats-row">
       <div class="stat-card" :class="{ active: filterMode === 'all' }" @click="filterMode = 'all'">
         <div class="stat-card__val">{{ stats.total }}</div>
-        <div class="stat-card__lbl">全部机位</div>
+        <div class="stat-card__lbl">{{ t("schedules.kpi.cameras") }}</div>
       </div>
       <div class="stat-card" :class="{ active: filterMode === 'continuous' }" @click="filterMode = 'continuous'">
         <div class="stat-card__val text-continuous">{{ stats.continuous }}</div>
-        <div class="stat-card__lbl">全天自动录像 (24×7)</div>
+        <div class="stat-card__lbl">{{ t("schedules.kpi.continuous") }}</div>
       </div>
       <div class="stat-card" :class="{ active: filterMode === 'schedule' }" @click="filterMode = 'schedule'">
         <div class="stat-card__val text-schedule">{{ stats.scheduled }}</div>
-        <div class="stat-card__lbl">自定义周计划</div>
+        <div class="stat-card__lbl">{{ t("schedules.kpi.weekly") }}</div>
       </div>
       <div class="stat-card" :class="{ active: filterMode === 'events' }" @click="filterMode = 'events'">
         <div class="stat-card__val text-events">{{ stats.events }}</div>
-        <div class="stat-card__lbl">动检事件录像</div>
+        <div class="stat-card__lbl">{{ t("schedules.kpi.events") }}</div>
       </div>
       <div class="stat-card" :class="{ active: filterMode === 'disabled' }" @click="filterMode = 'disabled'">
         <div class="stat-card__val text-disabled">{{ stats.disabled }}</div>
-        <div class="stat-card__lbl">停用 / 仅手动</div>
+        <div class="stat-card__lbl">{{ t("schedules.kpi.off") }}</div>
       </div>
     </section>
 
@@ -685,7 +685,7 @@ onMounted(() => {
           v-model="searchQuery"
           type="text"
           class="search-input"
-          placeholder="搜索机位名称、IP 地址或安装位置..."
+          :placeholder="t('schedules.searchPlaceholder')"
         />
         <button
           v-if="searchQuery"
@@ -699,10 +699,10 @@ onMounted(() => {
 
       <div class="toolbar__selection-info">
         <span v-if="selectedCameraIds.length">
-          已选择 <strong>{{ selectedCameraIds.length }}</strong> / {{ filteredCameras.length }} 路机位
+          {{ t("schedules.selectedOf", { selected: selectedCameraIds.length, total: filteredCameras.length }) }}
         </span>
         <span v-else class="text-muted">
-          共 {{ filteredCameras.length }} 路机位
+          {{ t("schedules.totalCount", { count: filteredCameras.length }) }}
         </span>
       </div>
     </div>
@@ -719,12 +719,12 @@ onMounted(() => {
                 @change="toggleSelectAll"
               />
             </th>
-            <th class="col-camera">机位设备</th>
-            <th class="col-mode">录像模式</th>
-            <th class="col-schedule">周计划 / 生效时段</th>
-            <th class="col-storage">存储与切片</th>
-            <th class="col-status">调度状态</th>
-            <th class="col-actions">操作</th>
+            <th class="col-camera">{{ t("schedules.th.camera") }}</th>
+            <th class="col-mode">{{ t("schedules.th.mode") }}</th>
+            <th class="col-schedule">{{ t("schedules.th.schedule") }}</th>
+            <th class="col-storage">{{ t("schedules.th.storage") }}</th>
+            <th class="col-status">{{ t("schedules.th.status") }}</th>
+            <th class="col-actions">{{ t("schedules.th.actions") }}</th>
           </tr>
         </thead>
 
@@ -733,7 +733,7 @@ onMounted(() => {
             <td colspan="7" class="empty-state">
               <div class="empty-state__inner">
                 <UiIcon name="refresh" :size="20" class="animate-spin" />
-                <span>正在加载机位录制计划...</span>
+                <span>{{ t("schedules.loading") }}</span>
               </div>
             </td>
           </tr>
@@ -742,7 +742,7 @@ onMounted(() => {
             <td colspan="7" class="empty-state">
               <div class="empty-state__inner">
                 <UiIcon name="folder" :size="24" />
-                <span>没有符合条件的机位录制计划</span>
+                <span>{{ t("schedules.empty") }}</span>
               </div>
             </td>
           </tr>
@@ -790,16 +790,16 @@ onMounted(() => {
                 :class="`mode-badge--${getCameraEffectiveMode(camera)}`"
               >
                 <template v-if="getCameraEffectiveMode(camera) === 'continuous'">
-                  <UiIcon name="record" :size="10" /> 全天自动录像
+                  <UiIcon name="record" :size="10" /> {{ t("schedules.mode.continuous") }}
                 </template>
                 <template v-else-if="getCameraEffectiveMode(camera) === 'schedule'">
-                  <UiIcon name="calendar" :size="10" /> 自定义周计划
+                  <UiIcon name="calendar" :size="10" /> {{ t("schedules.mode.weekly") }}
                 </template>
                 <template v-else-if="getCameraEffectiveMode(camera) === 'events'">
-                  <UiIcon name="activity" :size="10" /> 动检事件录像
+                  <UiIcon name="activity" :size="10" /> {{ t("schedules.mode.events") }}
                 </template>
                 <template v-else>
-                  <UiIcon name="pause" :size="10" /> 停用 / 仅手动
+                  <UiIcon name="pause" :size="10" /> {{ t("schedules.mode.off") }}
                 </template>
               </span>
             </td>
@@ -832,7 +832,7 @@ onMounted(() => {
                   {{ getStorageTargetLabel(getCameraPolicy(camera.id)?.storage_target_id) }}
                 </span>
                 <span class="segment-text text-muted">
-                  {{ getCameraPolicy(camera.id)?.segment_target_seconds || 300 }}s 切片
+                  {{ getCameraPolicy(camera.id)?.segment_target_seconds || 300 }}s {{ t("schedules.segments") }}
                 </span>
               </div>
             </td>
@@ -854,10 +854,10 @@ onMounted(() => {
                 v-if="auth.hasPermission('camera.configure')"
                 type="button"
                 class="btn-row-action"
-                title="修改机位录像周计划"
+                :title="t('schedules.configureTitle')"
                 @click="openSingleDialog(camera)"
               >
-                <span>配置计划</span>
+                <span>{{ t("schedules.configure") }}</span>
               </button>
             </td>
           </tr>

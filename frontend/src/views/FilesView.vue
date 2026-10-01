@@ -656,7 +656,7 @@ onMounted(async () => {
 
         <!-- Camera Selector -->
         <div class="header-field">
-          <span class="field-label">机位:</span>
+          <span class="field-label">{{ t("files.filter.camera") }}</span>
           <select
             v-model="selectedCameraId"
             class="header-select"
@@ -676,7 +676,7 @@ onMounted(async () => {
         <div class="header-date-group">
           <button
             class="stepper-btn"
-            title="前一天"
+            :title="t('files.prevDay')"
             type="button"
             @click="shiftDate(-1)"
           >
@@ -690,7 +690,7 @@ onMounted(async () => {
           />
           <button
             class="stepper-btn"
-            title="后一天"
+            :title="t('files.nextDay')"
             type="button"
             @click="shiftDate(1)"
           >
@@ -699,18 +699,18 @@ onMounted(async () => {
           <button
             type="button"
             class="header-btn"
-            title="跳转到今天"
+            :title="t('files.todayTitle')"
             @click="selectedDate = getInitialDate()"
           >
-            今天
+            {{ t("files.today") }}
           </button>
           <button
             type="button"
             class="header-btn header-btn--accent"
-            title="定位最新录像"
+            :title="t('files.latestTitle')"
             @click="setLatestRecordings"
           >
-            最新录像
+            {{ t("files.latest") }}
           </button>
           <button
             type="button"
@@ -719,7 +719,7 @@ onMounted(async () => {
             @click="calendarExpanded = !calendarExpanded"
           >
             <UiIcon name="calendar" :size="13" class="text-blue-400" />
-            <span>{{ calendarExpanded ? "收起月历" : "展开月历" }}</span>
+            <span>{{ calendarExpanded ? t("files.calendarCollapse") : t("files.calendarExpand") }}</span>
           </button>
         </div>
       </div>
@@ -728,31 +728,31 @@ onMounted(async () => {
       <div class="files-header__right">
         <!-- Storage Filter -->
         <select v-model="filterStorage" class="header-filter-select" aria-label="存储源筛选">
-          <option value="all">存储源: 全部 ({{ segments.length }})</option>
-          <option value="local">本地可用 ({{ localSegmentsCount }})</option>
-          <option value="cloud">仅远端归档 ({{ cloudSegmentsCount }})</option>
-          <option value="both">双副本已同步 ({{ bothSegmentsCount }})</option>
+          <option value="all">{{ t("files.storageFilter.all") }} ({{ segments.length }})</option>
+          <option value="local">{{ t("files.storageFilter.local") }} ({{ localSegmentsCount }})</option>
+          <option value="cloud">{{ t("files.storageFilter.cloud") }} ({{ cloudSegmentsCount }})</option>
+          <option value="both">{{ t("files.storageFilter.both") }} ({{ bothSegmentsCount }})</option>
         </select>
 
         <!-- Health Filter -->
         <select v-model="filterHealth" class="header-filter-select" aria-label="健康状态筛选">
-          <option value="all">健康状态: 全部</option>
-          <option value="healthy">正常健康 ({{ segments.length - corruptedCount }})</option>
-          <option value="abnormal">异常 / 损坏 ({{ corruptedCount }})</option>
+          <option value="all">{{ t("files.healthFilter.all") }}</option>
+          <option value="healthy">{{ t("files.healthFilter.healthy") }} ({{ segments.length - corruptedCount }})</option>
+          <option value="abnormal">{{ t("files.healthFilter.abnormal") }} ({{ corruptedCount }})</option>
         </select>
 
         <!-- Archival Status Filter (Genuine) -->
         <select v-model="filterArchive" class="header-filter-select" aria-label="归档状态筛选">
-          <option value="all">归档状态: 全部</option>
-          <option value="archived">已归档 ({{ archiveCount }})</option>
-          <option value="local_only">未归档 / 仅本地 ({{ localSegmentsCount }})</option>
+          <option value="all">{{ t("files.archiveFilter.all") }}</option>
+          <option value="archived">{{ t("files.archiveFilter.archived") }} ({{ archiveCount }})</option>
+          <option value="local_only">{{ t("files.archiveFilter.localOnly") }} ({{ localSegmentsCount }})</option>
         </select>
 
         <!-- Reload List button -->
         <button
           type="button"
           class="header-refresh-btn"
-          :title="loading ? '正在加载' : '刷新录像切片列表'"
+          :title="loading ? t('files.loading') : t('files.refreshTitle')"
           :disabled="loading"
           @click="loadSegments"
         >
@@ -813,17 +813,17 @@ onMounted(async () => {
         <!-- Summary Genuine KPI Cards (5 cards across) -->
         <div class="kpi-cards-grid">
           <div class="kpi-card">
-            <div class="kpi-label">当日录像片段</div>
+            <div class="kpi-label">{{ t("files.kpi.segments") }}</div>
             <div class="kpi-value">{{ segments.length }} <span class="kpi-unit">段</span></div>
             <div class="kpi-sub text-blue-400">总计 {{ totalDurationFormatted }}</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-label">当日存储占用</div>
+            <div class="kpi-label">{{ t("files.kpi.storage") }}</div>
             <div class="kpi-value">{{ totalSizeFormatted }}</div>
             <div class="kpi-sub text-gray-400">平均 {{ avgSizeFormatted }} / 片段</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-label">云端/远端归档率</div>
+            <div class="kpi-label">{{ t("files.kpi.archiveRate") }}</div>
             <div class="kpi-value" :class="archiveCount > 0 ? 'text-emerald-400' : 'text-gray-400'">
               {{ archiveRate }}%
             </div>
@@ -832,12 +832,12 @@ onMounted(async () => {
             </div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-label">受保护锁定片段</div>
+            <div class="kpi-label">{{ t("files.kpi.protected") }}</div>
             <div class="kpi-value text-amber-400">{{ protectedCount }} <span class="kpi-unit">个</span></div>
             <div class="kpi-sub text-amber-300">{{ protectedCount > 0 ? '免除自动轮转覆盖' : '无锁定文件' }}</div>
           </div>
           <div class="kpi-card">
-            <div class="kpi-label">健康与完整性</div>
+            <div class="kpi-label">{{ t("files.kpi.health") }}</div>
             <div class="kpi-value text-emerald-400">{{ integrityRate }}%</div>
             <div class="kpi-sub text-gray-400">{{ corruptedCount > 0 ? `${corruptedCount} 处损坏` : '0 处异常 · 全部完好' }}</div>
           </div>

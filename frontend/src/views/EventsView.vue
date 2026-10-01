@@ -428,11 +428,11 @@ onBeforeUnmount(() => {
         <div class="header-divider" />
         <div class="kpi-group">
           <span class="kpi-item">
-            今日事件: <strong>{{ events.length }}</strong>
+            {{ t("events.todayCount") }}: <strong>{{ events.length }}</strong>
           </span>
           <span v-if="activeAlerts.length" class="kpi-alert-badge">
             <span class="alert-pulse" />
-            <span>待处理告警: {{ activeAlerts.length }}</span>
+            <span>{{ t("events.pendingAlerts") }}: {{ activeAlerts.length }}</span>
           </span>
           <!--
             TODO(phase-tpu): 接入本地/边缘 Frigate Coral TPU 识别状态
@@ -452,7 +452,7 @@ onBeforeUnmount(() => {
           @click="batchAcknowledgeEvents"
         >
           <UiIcon name="check" :size="13" class="text-emerald" />
-          <span>批量确认</span>
+          <span>{{ t("events.batchAcknowledge") }}</span>
         </button>
       </div>
     </header>
@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
             :class="{ 'chip-pill--active': selectedCategory === 'all' }"
             @click="selectedCategory = 'all'"
           >
-            全部 ({{ categoryCounts.all }})
+            {{ t("events.cat.all") }} ({{ categoryCounts.all }})
           </button>
           <button
             type="button"
@@ -477,7 +477,7 @@ onBeforeUnmount(() => {
             @click="selectedCategory = 'motion'"
           >
             <UiIcon name="activity" :size="12" />
-            <span>移动检测</span>
+            <span>{{ t("events.cat.motion") }}</span>
             <span class="chip-count">{{ categoryCounts.motion }}</span>
           </button>
           <button
@@ -487,7 +487,7 @@ onBeforeUnmount(() => {
             @click="selectedCategory = 'storage'"
           >
             <UiIcon name="storage" :size="12" />
-            <span>存储告警</span>
+            <span>{{ t("events.cat.storage") }}</span>
             <span class="chip-count">{{ categoryCounts.storage }}</span>
           </button>
           <button
@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
             @click="selectedCategory = 'camera'"
           >
             <UiIcon name="warning" :size="12" />
-            <span>摄像头异常</span>
+            <span>{{ t("events.cat.camera") }}</span>
             <span class="chip-count">{{ categoryCounts.camera }}</span>
           </button>
           <button
@@ -507,7 +507,7 @@ onBeforeUnmount(() => {
             @click="selectedCategory = 'protected'"
           >
             <UiIcon name="shield" :size="12" />
-            <span>加锁保护</span>
+            <span>{{ t("events.cat.protected") }}</span>
             <span class="chip-count">{{ categoryCounts.protected }}</span>
           </button>
         </div>
@@ -518,7 +518,7 @@ onBeforeUnmount(() => {
           <input
             v-model="searchQuery"
             type="search"
-            placeholder="搜索机位 / 区域 / 标签..."
+            :placeholder="t('events.searchPlaceholder')"
             class="search-input"
           />
         </div>
@@ -529,9 +529,9 @@ onBeforeUnmount(() => {
         <div class="select-group">
           <!-- Camera -->
           <div class="select-item">
-            <span class="select-label">机位:</span>
+            <span class="select-label">{{ t("events.filter.camera") }}</span>
             <select v-model="selectedCameraId" class="filter-select">
-              <option value="">全部机位</option>
+              <option value="">{{ t("events.filter.allCameras") }}</option>
               <option v-for="cam in cameras" :key="cam.id" :value="cam.id">
                 {{ cam.name }}
               </option>
@@ -540,47 +540,47 @@ onBeforeUnmount(() => {
 
           <!-- Time range -->
           <div class="select-item">
-            <span class="select-label">时段:</span>
+            <span class="select-label">{{ t("events.filter.period") }}</span>
             <select v-model="period" class="filter-select" @change="refresh">
-              <option value="24h">近 24 小时</option>
-              <option value="7d">近 7 天</option>
-              <option value="30d">近 30 天</option>
-              <option value="all">全部历史</option>
+              <option value="24h">{{ t("events.periodFilter.24h") }}</option>
+              <option value="7d">{{ t("events.periodFilter.7d") }}</option>
+              <option value="30d">{{ t("events.periodFilter.30d") }}</option>
+              <option value="all">{{ t("events.periodFilter.all") }}</option>
             </select>
           </div>
 
           <!-- Severity -->
           <div class="select-item">
-            <span class="select-label">级别:</span>
+            <span class="select-label">{{ t("events.filter.severity") }}</span>
             <select v-model="selectedSeverity" class="filter-select">
-              <option value="all">全部级别</option>
-              <option value="critical">严重 (Critical)</option>
-              <option value="warning">警告 (Warning)</option>
-              <option value="info">提示 (Info)</option>
+              <option value="all">{{ t("events.severityFilter.all") }}</option>
+              <option value="critical">{{ t("events.severityFilter.critical") }}</option>
+              <option value="warning">{{ t("events.severityFilter.warning") }}</option>
+              <option value="info">{{ t("events.severityFilter.info") }}</option>
             </select>
           </div>
 
           <!-- Status -->
           <div class="select-item">
-            <span class="select-label">处理状态:</span>
+            <span class="select-label">{{ t("events.filter.status") }}</span>
             <select v-model="selectedStatus" class="filter-select">
-              <option value="all">全部状态</option>
-              <option value="open">待处理 (Open)</option>
-              <option value="acknowledged">已确认 (Acknowledged)</option>
+              <option value="all">{{ t("events.statusFilter.all") }}</option>
+              <option value="open">{{ t("events.statusFilter.open") }}</option>
+              <option value="acknowledged">{{ t("events.statusFilter.acknowledged") }}</option>
             </select>
           </div>
 
           <button type="button" class="btn-reset" @click="resetFilters">
-            重置筛选
+            {{ t("events.reset") }}
           </button>
         </div>
 
         <!-- Sort and View Mode Toggle -->
         <div class="view-controls">
           <select v-model="sortOrder" class="filter-select sort-select">
-            <option value="newest">时间最新优先</option>
-            <option value="confidence">置信度最高</option>
-            <option value="severity">严重级别最高</option>
+            <option value="newest">{{ t("events.sort.newest") }}</option>
+            <option value="confidence">{{ t("events.sort.confidence") }}</option>
+            <option value="severity">{{ t("events.sort.severity") }}</option>
           </select>
 
           <div class="mode-toggle">
@@ -588,7 +588,7 @@ onBeforeUnmount(() => {
               type="button"
               class="mode-btn"
               :class="{ 'mode-btn--active': viewMode === 'grid' }"
-              title="网格卡片视图"
+              :title="t('events.view.gridTitle')"
               @click="viewMode = 'grid'"
             >
               <UiIcon name="grid4" :size="13" />
@@ -597,7 +597,7 @@ onBeforeUnmount(() => {
               type="button"
               class="mode-btn"
               :class="{ 'mode-btn--active': viewMode === 'table' }"
-              title="结构化表格视图"
+              :title="t('events.view.tableTitle')"
               @click="viewMode = 'table'"
             >
               <UiIcon name="menu" :size="13" />
@@ -609,7 +609,7 @@ onBeforeUnmount(() => {
       <!-- Row 3: 24-Hour Event Density Histogram -->
       <div class="toolbar-row toolbar-row--histogram">
         <div class="histogram-label">
-          <span>24H 分布直方图:</span>
+          <span>{{ t("events.histogram") }}</span>
           <span
             v-if="selectedHour !== null"
             class="active-hour-tag"
@@ -639,7 +639,7 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="peak-label">
-          峰值: <strong>{{ peakHour.count }}次 / {{ String(peakHour.hour).padStart(2, "0") }}:00</strong>
+          {{ t("events.histogramPeak") }}: <strong>{{ peakHour.count }} {{ t("events.countUnit") }} / {{ String(peakHour.hour).padStart(2, "0") }}:00</strong>
         </div>
       </div>
     </div>
@@ -810,10 +810,10 @@ onBeforeUnmount(() => {
         <!-- Empty state -->
         <div v-else class="events-empty">
           <div class="empty-icon"><UiIcon name="search" :size="26" /></div>
-          <div class="empty-title">未找到符合当前复合筛选条件的事件</div>
-          <div class="empty-desc">请尝试放宽时段、清空搜索关键字或重置分类</div>
+          <div class="empty-title">{{ t("events.empty.title") }}</div>
+          <div class="empty-desc">{{ t("events.empty.desc") }}</div>
           <button type="button" class="empty-btn" @click="resetFilters">
-            重置所有筛选
+            {{ t("events.empty.reset") }}
           </button>
         </div>
       </div>

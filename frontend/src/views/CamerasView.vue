@@ -512,7 +512,7 @@ onMounted(() => {
     <header class="devices-header">
       <div>
         <h1 class="devices-title">机位管理 (Cameras)</h1>
-        <p class="devices-subtitle">ONVIF WS-Discovery 自动探测、RTSP 批量接入与 CSV 导入管理</p>
+        <p class="devices-subtitle">{{ t("cameras.subtitle") }}</p>
       </div>
 
       <div class="devices-actions">
@@ -520,44 +520,44 @@ onMounted(() => {
           v-if="auth.hasPermission('camera.configure')"
           type="button"
           class="btn-action btn-action--primary"
-          title="启动局域网 ONVIF 组播探测"
+          :title="t('cameras.discoverTitle')"
           @click="openOnboarding('onvif')"
         >
           <UiIcon name="search" :size="14" />
-          <span>发现新摄像机 (ONVIF WS-Discovery)</span>
+          <span>{{ t("cameras.discover") }}</span>
         </button>
 
         <button
           v-if="auth.hasPermission('camera.configure')"
           type="button"
           class="btn-action"
-          title="解析并批量导入摄像机 CSV 清单"
+          :title="t('cameras.csvImportTitle')"
           @click="openOnboarding('batch_file')"
         >
           <UiIcon name="folder" :size="14" />
-          <span>CSV 批量导入</span>
+          <span>{{ t("cameras.csvImport") }}</span>
         </button>
 
         <button
           v-if="auth.hasPermission('camera.configure')"
           type="button"
           class="btn-action"
-          title="快速手动添加 RTSP 机位"
+          :title="t('cameras.addManualTitle')"
           @click="openOnboarding('rtsp')"
         >
           <UiIcon name="plus" :size="14" />
-          <span>手动添加</span>
+          <span>{{ t("cameras.addManual") }}</span>
         </button>
 
         <button
           type="button"
           class="btn-action btn-action--ghost"
           :disabled="loading"
-          title="刷新机位事实列表"
+          :title="t('cameras.refreshTitle')"
           @click="refresh"
         >
           <UiIcon name="refresh" :size="14" :class="{ 'animate-spin': loading }" />
-          <span>{{ loading ? '刷新中...' : '刷新' }}</span>
+          <span>{{ loading ? t("cameras.refreshing") : t("cameras.refresh") }}</span>
         </button>
       </div>
     </header>
@@ -577,7 +577,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'all' }"
         @click="workspace = 'cameras'; activeFilter = 'all'"
       >
-        全部摄像机 ({{ activeCameras.length }})
+        {{ t("cameras.filter.all") }} ({{ activeCameras.length }})
       </button>
 
       <button
@@ -586,7 +586,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'online' }"
         @click="workspace = 'cameras'; activeFilter = 'online'"
       >
-        <span class="status-dot status-dot--ok" /> 在线正常 ({{ onlineCameras.length }})
+        <span class="status-dot status-dot--ok" /> {{ t("cameras.filter.online") }} ({{ onlineCameras.length }})
       </button>
 
       <button
@@ -595,7 +595,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'maintenance' }"
         @click="workspace = 'cameras'; activeFilter = 'maintenance'"
       >
-        <UiIcon name="system" :size="12" /> 维护模式 ({{ maintenanceCameras.length }})
+        <UiIcon name="system" :size="12" /> {{ t("cameras.filter.maintenance") }} ({{ maintenanceCameras.length }})
       </button>
 
       <button
@@ -605,7 +605,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'issue' }"
         @click="workspace = 'cameras'; activeFilter = 'issue'"
       >
-        <UiIcon name="warning" :size="12" /> 异常 / 需检测 ({{ issueCameras.length }})
+        <UiIcon name="warning" :size="12" /> {{ t("cameras.filter.issue") }} ({{ issueCameras.length }})
       </button>
 
       <button
@@ -615,7 +615,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'disabled' }"
         @click="workspace = 'cameras'; activeFilter = 'disabled'"
       >
-        <span class="status-dot status-dot--disabled" /> 已禁用 ({{ disabledCameras.length }})
+        <span class="status-dot status-dot--disabled" /> {{ t("cameras.filter.disabled") }} ({{ disabledCameras.length }})
       </button>
 
       <button
@@ -625,7 +625,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'groups' }"
         @click="workspace = 'groups'"
       >
-        <UiIcon name="users" :size="12" /> 分组管理
+        <UiIcon name="users" :size="12" /> {{ t("cameras.filter.groups") }}
       </button>
 
       <button
@@ -635,7 +635,7 @@ onMounted(() => {
         :class="{ 'chip-btn--active': workspace === 'cameras' && activeFilter === 'retired' }"
         @click="workspace = 'cameras'; activeFilter = 'retired'"
       >
-        <UiIcon name="backup" :size="12" /> 退役归档 ({{ retiredCameras.length }})
+        <UiIcon name="backup" :size="12" /> {{ t("cameras.filter.retired") }} ({{ retiredCameras.length }})
       </button>
     </div>
 
@@ -646,7 +646,7 @@ onMounted(() => {
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="搜索机位名称、厂商、型号、IP 地址或位置..."
+          :placeholder="t('cameras.searchPlaceholder')"
           class="devices-search-input"
         />
         <button
@@ -662,12 +662,12 @@ onMounted(() => {
 
       <div class="toolbar-right-actions">
         <div class="sort-select-wrap">
-          <span class="sort-label">排序:</span>
+          <span class="sort-label">{{ t("cameras.sortLabel") }}</span>
           <select v-model="sortKey" class="devices-sort-select">
-            <option value="attention">异常优先</option>
-            <option value="name">按机位名称</option>
-            <option value="ip">按 IP 地址</option>
-            <option value="status">按运行状态</option>
+            <option value="attention">{{ t("cameras.sort.attention") }}</option>
+            <option value="name">{{ t("cameras.sort.name") }}</option>
+            <option value="ip">{{ t("cameras.sort.ip") }}</option>
+            <option value="status">{{ t("cameras.sort.status") }}</option>
           </select>
         </div>
 
@@ -676,7 +676,7 @@ onMounted(() => {
           type="button"
           class="batch-probe-btn"
           :disabled="batchProbeRunning"
-          title="一键探测所有异常与未检测机位的 RTSP 连通性并拉取分辨率"
+          :title="t('cameras.probeAllTitle')"
           @click="runBatchProbe"
         >
           <UiIcon name="search" :size="13" :class="{ 'animate-spin': batchProbeRunning }" />
@@ -684,7 +684,7 @@ onMounted(() => {
         </button>
 
         <span class="result-count-label">
-          显示 {{ filteredCameras.length }} / {{ cameras.length }} 台
+          {{ t("cameras.showing", { shown: filteredCameras.length, total: cameras.length }) }}
         </span>
       </div>
     </div>
@@ -712,10 +712,10 @@ onMounted(() => {
       >
         <UiIcon name="camera" :size="36" class="text-gray-600 mb-2" />
         <div class="text-sm font-semibold text-gray-300">
-          {{ activeFilter === 'retired' ? '无退役归档机位' : '当前筛选条件下暂无摄像机' }}
+          {{ activeFilter === 'retired' ? t('cameras.emptyRetired') : t('cameras.empty') }}
         </div>
         <p class="text-xs text-gray-500 mt-1">
-          可通过上方“发现新摄像机”或“CSV 批量导入”接入视频设备
+          {{ t("cameras.emptyHint") }}
         </p>
       </EmptyState>
 
@@ -723,10 +723,10 @@ onMounted(() => {
         <table class="devices-table">
           <thead>
             <tr>
-              <th>机位名称 & 型号/位置</th>
-              <th>多码流角色绑定 (Stream Profiles)</th>
-              <th>时钟同步与漂移 (Clock Drift)</th>
-              <th>状态</th>
+              <th>{{ t("cameras.th.name") }}</th>
+              <th>{{ t("cameras.th.profiles") }}</th>
+              <th>{{ t("cameras.th.clock") }}</th>
+              <th>{{ t("cameras.th.status") }}</th>
             </tr>
           </thead>
           <tbody>
@@ -790,19 +790,19 @@ onMounted(() => {
               <td>
                 <div class="status-cell-wrap">
                   <span v-if="camera.retired_at" class="status-pill status-pill--retired">
-                    <UiIcon name="backup" :size="10" /> 已退役
+                    <UiIcon name="backup" :size="10" /> {{ t("cameras.badge.retired") }}
                   </span>
                   <span v-else-if="camera.maintenance" class="status-pill status-pill--maintenance">
-                    <UiIcon name="system" :size="10" /> 维护中
+                    <UiIcon name="system" :size="10" /> {{ t("cameras.badge.maintenance") }}
                   </span>
                   <span v-else-if="!camera.enabled" class="status-pill status-pill--disabled">
-                    <span class="status-dot status-dot--disabled" /> 已禁用
+                    <span class="status-dot status-dot--disabled" /> {{ t("cameras.badge.disabled") }}
                   </span>
                   <span v-else-if="camera.connectivity_status === 'offline'" class="status-pill status-pill--offline">
-                    <UiIcon name="warning" :size="10" /> 离线
+                    <UiIcon name="warning" :size="10" /> {{ t("cameras.badge.offline") }}
                   </span>
                   <span v-else class="status-pill status-pill--online">
-                    <span class="status-dot status-dot--ok" /> 在线正常
+                    <span class="status-dot status-dot--ok" /> {{ t("cameras.badge.online") }}
                   </span>
                 </div>
               </td>

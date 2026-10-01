@@ -16,9 +16,27 @@ vi.mock("vue-router", () => ({
   })
 }))
 
+const i18nStrings: Record<string, string> = {
+  "cameras.discover": "发现新摄像机 (ONVIF WS-Discovery)",
+  "cameras.csvImport": "CSV 批量导入",
+  "cameras.addManual": "手动添加",
+  "cameras.filter.all": "全部摄像机",
+  "cameras.filter.online": "在线正常",
+  "cameras.filter.maintenance": "维护模式",
+  "cameras.filter.issue": "异常 / 需检测",
+  "cameras.filter.disabled": "已禁用",
+  "cameras.filter.groups": "分组管理",
+  "cameras.filter.retired": "退役归档",
+  "cameras.badge.online": "在线正常",
+  "cameras.badge.maintenance": "维护中",
+  "cameras.badge.disabled": "已禁用",
+  "cameras.badge.offline": "离线",
+  "cameras.badge.retired": "已退役",
+}
+
 vi.mock("vue-i18n", () => ({
   useI18n: () => ({
-    t: (key: string) => key,
+    t: (key: string) => i18nStrings[key] ?? key,
     te: () => false
   })
 }))

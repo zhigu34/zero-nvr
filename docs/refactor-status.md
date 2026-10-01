@@ -434,6 +434,22 @@
 
 AppShell 重排时 `logout()` 成了死代码——AccountPanel 只有改密码/会话管理，全站没有退出登录入口。按 shadcn-admin 的 NavUser 模式修复：侧栏底部用户行改为弹出菜单（用户名/用户名头部 + 账户设置 + 退出登录），`useDismissable` 处理点外/Esc 关闭，退出项用 danger 色调；侧栏移除 `overflow: hidden` 使折叠栏下菜单可越出 60px 栏体；新增 `nav.logout`（en "Sign out" / zh "退出登录"）。浏览器实测：菜单渲染正常、Sign out → 会话清除 → 跳转登录页；`vitest` 273 passed、`vue-tsc` clean。
 
+### 同日第七轮：主界面 chrome 的 i18n 迁移，语言切换全面可用（用户反馈）
+
+**诊断结论先行**：生产构建产物本身无 bug——`vite build` 后在 preview 上实测登录页 EN↔中文 一键切换正常。"部署后切换不可用"的根因是覆盖不足：SchedulesView(1,317 字)/CamerasView(854)/EventsView(528)/FilesView(1,575) 的模板硬编码中文不经过 i18n，切换后这些页面纹丝不动。
+
+**本轮迁移（约 95 组 key，en/zh 对齐）**：四个主视图的**主界面 chrome**——
+- 录制计划页：副标题、调度器状态、刷新/批量应用按钮及 title、5 张 KPI 卡、搜索占位、选中/总数计数、6 个表头、加载/空态、行内模式徽标、切片单位、配置入口；
+- 机位页：副标题、4 个动作按钮及 title、7 个筛选 chip、搜索占位、排序标签与 4 个选项、显示计数、批量探测 title、空态 ×2、4 个表头、5 个行内状态徽标；
+- 事件中心：头部 KPI（今日事件/待处理告警）、批量确认、5 个分类 chip、搜索占位、筛选标签与全部选项（时段/级别/状态）、重置、排序选项、视图切换 title、直方图标签与峰值、空态 ×3；
+- 录像文件页：机位筛选、日期导航按钮、今天/最新录像、月历展开/收起、3 组筛选 select 全部选项、刷新 title、5 张 KPI 卡标签。
+
+实现约束与冲突处理：events 命名空间已有 `period`（字符串）与 `severity`/`status` 旧 key，新增子块改名为 `periodFilter`/`severityFilter`/`statusFilter` 并同步模板引用，不动旧 key 的任何引用方。CamerasView/RecordingScheduleView 两个 spec 的透传 t() mock 补充中文映射表。i18n.spec 门禁自动验证新 key 的双语齐备与对齐。
+
+**刻意保留**：各页弹窗/表单/详情 tab 的深层文案（数百条）仍属 Wave 4 后续批次；页面标题维持固定双语格式（用户明确要求带英文）。
+
+**验证**：`vitest` **273 passed / 54 files**、`vue-tsc` clean；浏览器实测录制计划页 EN↔中文 整页 chrome 翻转（KPI/按钮/表头/空态全切换）；生产构建 preview 登录页切换正常。
+
 ### 剩余 backlog（按审计顺序，需独立成项）
 
 `cameras/api.py`（3,868 行/40 端点）拆 router、`core/jobs/runner.py`（先统一 5 个 job 引擎的错误字段/终态语义并补 golden 测试）、`system/api.py`/`worker/tasks.py`/`cli.py` 包化、Wave 4 scoped CSS 归位与模板硬编码中文迁移、`RecordingWindowsEditor` 双实现合并（含魔法字符串/星期顺序漂移的产品决策）。
