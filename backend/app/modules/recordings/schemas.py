@@ -135,10 +135,20 @@ class RecordingPolicyPut(BaseModel):
 
 
 class RecordingRuntimeView(BaseModel):
+    """Observed recorder state for one camera.
+
+    `recording` and `stream_online` are observations, not intent. `None`
+    means the media runtime could not be observed at all (for example
+    ZLMediaKit is unreachable); a client must never read that as "not
+    recording" or as "recording".
+    """
+
     desired_mode: Literal["persistent", "prebuffer", "off"]
-    recording: bool
+    recording: bool | None
+    stream_online: bool | None = None
     changed: bool
     assumed_existing_mode: bool
+    observed_at: datetime | None = None
 
 
 class RecordingPolicyView(BaseModel):

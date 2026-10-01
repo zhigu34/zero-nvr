@@ -11,20 +11,7 @@ import {
   type CameraSummary
 } from "../../api/cameras"
 import { ApiClientError, errorMessage } from "../../api/client"
-import {
-  createRecordingTrigger,
-  getRecordingPolicy,
-  listRecordingTriggers,
-  stopRecordingTrigger,
-  type RecordingPolicy,
-  type RecordingTrigger
-} from "../../api/recordings"
-import {
-  listRetentionPolicies,
-  listStorageTargets,
-  type RetentionPolicy,
-  type StorageTarget
-} from "../../api/storage"
+import { getRecordingPolicy, type RecordingPolicy } from "../../api/recordings"
 import { useAuthStore } from "../../stores/auth"
 import DrawerDialog from "../ui/DrawerDialog.vue"
 import StatusPill from "../ui/StatusPill.vue"
@@ -34,10 +21,9 @@ import UiIcon from "../ui/UiIcon.vue"
 
 import CameraDetailGeneralTab from "./detail/CameraDetailGeneralTab.vue"
 import CameraDetailStreamsTab from "./detail/CameraDetailStreamsTab.vue"
-import CameraDetailRecordingTab from "./detail/CameraDetailRecordingTab.vue"
 import { useAsyncResource } from "../../composables/useAsyncResource"
 
-type DetailTab = "general" | "streams" | "recording"
+type DetailTab = "general" | "streams"
 
 const props = defineProps<{
   camera: CameraSummary
@@ -74,8 +60,6 @@ function formFactorLabel(val?: CameraFormFactor | string | null): string {
 const tab = ref<DetailTab>("general")
 const detail = ref<CameraDetail | null>(null)
 const policy = ref<RecordingPolicy | null>(null)
-const localTargets = ref<StorageTarget[]>([])
-const retentionPolicies = ref<RetentionPolicy[]>([])
 const notice = ref<string | null>(null)
 
 // Navigation across cameras
@@ -165,15 +149,27 @@ const heroHealthClass = computed(() => {
   return "unknown"
 })
 
-// Manual Recording state on quick action bar
-const manualRecordingBusy = ref(false)
-const activeManualTrigger = ref<RecordingTrigger | null>(null)
-
-const isRecording = computed(() => {
-  return Boolean(
-    activeManualTrigger.value ||
-    policy.value?.runtime?.recording
-  )
+// Recording status is driven exclusively by the global recording schedule
+// (录制计划); the drawer only reports the observed runtime state and never
+// starts or stops recording itself.
+const recordingState = computed<{ label: string; className: string }>(() => {
+  const runtime = policy.value?.runtime
+  if (runtime?.recording === true) {
+    return { label: "正在录像", className: "text-red-400 font-semibold" }
+  }
+  if (runtime?.recording === false) {
+    return {
+      label:
+        runtime.stream_online === false
+          ? "视频流未上线 · 未录像"
+          : "流已在线 · 未录像",
+      className: "text-amber-400"
+    }
+  }
+  if (runtime) {
+    return { label: "无法获取录像状态", className: "text-amber-400" }
+  }
+  return { label: "未配置录制计划", className: "text-gray-400" }
 })
 
 function jumpToLive(): void {
@@ -184,37 +180,15 @@ function jumpToPlayback(): void {
   void router.push({ path: "/playback", query: { camera: props.camera.id } })
 }
 
-const canConfigure = computed(() => auth.hasPermission("camera.configure"))
-
-function runtimeLabel(value: string): string {
-  if (value === "prebuffer") return t("cameras.detail.runtime.prebuffering")
-  if (value === "persistent") return t("cameras.detail.runtime.recording")
-  return t("cameras.detail.runtime.idle")
+function jumpToSchedules(): void {
+  void router.push({ path: "/recording-schedules" })
 }
+
+const canConfigure = computed(() => auth.hasPermission("camera.configure"))
 
 async function load(): Promise<void> {
   await run(async () => {
-    const [cameraValue, targetValues, retentionValues] =
-      await Promise.all([
-        getCamera(props.camera.id),
-        auth.hasPermission("storage.manage")
-          ? listStorageTargets()
-          : Promise.resolve([]),
-        auth.hasPermission("storage.manage")
-          ? listRetentionPolicies()
-          : Promise.resolve([])
-      ])
-
-    detail.value = cameraValue
-    localTargets.value = targetValues.filter(
-      (item) =>
-        item.type === "local" &&
-        item.role === "recording" &&
-        item.enabled
-    )
-    retentionPolicies.value = retentionValues.filter(
-      (item) => item.enabled
-    )
+    detail.value = await getCamera(props.camera.id)
 
     try {
       policy.value = await getRecordingPolicy(props.camera.id)
@@ -229,54 +203,6 @@ async function load(): Promise<void> {
       }
     }
   })
-}
-
-async function loadManualTrigger(): Promise<void> {
-  if (!props.camera?.id) return
-  try {
-    const triggers = await listRecordingTriggers(props.camera.id)
-    const active = triggers.find(
-      (tr) => tr.type.toUpperCase() === "MANUAL" && tr.state === "ACTIVE" && !tr.planned_end_at
-    )
-    activeManualTrigger.value = active ?? null
-  } catch {
-    activeManualTrigger.value = null
-  }
-}
-
-async function handleStartManual(): Promise<void> {
-  if (!canConfigure.value || manualRecordingBusy.value) return
-  manualRecordingBusy.value = true
-  error.value = null
-  notice.value = null
-  try {
-    const trigger = await createRecordingTrigger(
-      props.camera.id,
-      "抽屉头部快捷发起手动保全录像"
-    )
-    activeManualTrigger.value = trigger
-    notice.value = "手动录像已启动，已提升 10 秒前置预录并写入保全存储区"
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    manualRecordingBusy.value = false
-  }
-}
-
-async function handleStopManual(): Promise<void> {
-  if (!canConfigure.value || manualRecordingBusy.value || !activeManualTrigger.value) return
-  manualRecordingBusy.value = true
-  error.value = null
-  notice.value = null
-  try {
-    await stopRecordingTrigger(activeManualTrigger.value.id)
-    activeManualTrigger.value = null
-    notice.value = "手动录像已停止，录像切片已归档入库"
-  } catch (caught) {
-    error.value = errorMessage(caught)
-  } finally {
-    manualRecordingBusy.value = false
-  }
 }
 
 async function handleProbeCamera(): Promise<void> {
@@ -305,14 +231,12 @@ watch(
   () => {
     stopPreview()
     void load()
-    void loadManualTrigger()
   }
 )
 
 onMounted(() => {
   window.addEventListener("keydown", handleKeyboardNav)
   void load()
-  void loadManualTrigger()
 })
 
 onBeforeUnmount(() => {
@@ -417,8 +341,8 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <dt>录像状态</dt>
-              <dd :class="isRecording ? 'text-red-400 font-semibold' : 'text-gray-400'">
-                {{ isRecording ? '正在录像' : '空闲待命' }}
+              <dd :class="recordingState.className">
+                {{ recordingState.label }}
               </dd>
             </div>
           </dl>
@@ -513,26 +437,13 @@ onBeforeUnmount(() => {
         </button>
 
         <button
-          v-if="!isRecording"
           type="button"
-          class="quick-action-btn quick-action-btn--record"
-          :disabled="!canConfigure || manualRecordingBusy"
-          title="立即发起保全录像"
-          @click="handleStartManual"
+          class="quick-action-btn"
+          title="录像策略统一在录制计划中集中配置"
+          @click="jumpToSchedules"
         >
-          <UiIcon name="play" :size="13" />
-          <span>启动录像</span>
-        </button>
-        <button
-          v-else
-          type="button"
-          class="quick-action-btn quick-action-btn--stop"
-          :disabled="!canConfigure || manualRecordingBusy"
-          title="停止当前录像并归档"
-          @click="handleStopManual"
-        >
-          <UiIcon name="pause" :size="13" />
-          <span>停止录像</span>
+          <UiIcon name="calendar" :size="13" />
+          <span>录制计划</span>
         </button>
 
         <button
@@ -567,13 +478,7 @@ onBeforeUnmount(() => {
           }}
         </StatusPill>
         <span>{{ detail?.adapter_type || "manual" }}</span>
-        <span v-if="policy?.runtime">
-          {{
-            policy.runtime.recording
-              ? t("cameras.detail.recording")
-              : runtimeLabel(policy.runtime.desired_mode)
-          }}
-        </span>
+        <span v-if="policy?.runtime">{{ recordingState.label }}</span>
       </div>
 
       <!-- Tab Navigation -->
@@ -591,13 +496,6 @@ onBeforeUnmount(() => {
           @click="tab = 'streams'"
         >
           {{ t("cameras.detail.streams") }}
-        </button>
-        <button
-          type="button"
-          :class="{ 'camera-detail-tab--active': tab === 'recording' }"
-          @click="tab = 'recording'"
-        >
-          {{ t("cameras.detail.recording") }}
         </button>
       </nav>
 
@@ -632,17 +530,6 @@ onBeforeUnmount(() => {
           :camera="detail"
           :can-configure="canConfigure"
           @updated="detail = $event"
-          @changed="emit('changed')"
-          @notice="notice = $event"
-          @error="error = $event"
-        />
-
-        <CameraDetailRecordingTab
-          v-else-if="tab === 'recording'"
-          :camera="detail"
-          :can-configure="canConfigure"
-          :local-targets="localTargets"
-          :retention-policies="retentionPolicies"
           @changed="emit('changed')"
           @notice="notice = $event"
           @error="error = $event"
@@ -1134,28 +1021,6 @@ onBeforeUnmount(() => {
 .quick-action-btn--ptz:hover:not(:disabled) {
   background: rgba(59, 130, 246, 0.16);
   color: #60a5fa;
-}
-
-.quick-action-btn--record {
-  border-color: rgba(239, 68, 68, 0.4);
-  color: #ef4444;
-  background: rgba(239, 68, 68, 0.08);
-}
-
-.quick-action-btn--record:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.16);
-  color: #f87171;
-}
-
-.quick-action-btn--stop {
-  border-color: rgba(245, 158, 11, 0.4);
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.08);
-}
-
-.quick-action-btn--stop:hover:not(:disabled) {
-  background: rgba(245, 158, 11, 0.16);
-  color: #fbbf24;
 }
 
 /* Status & Tabs */

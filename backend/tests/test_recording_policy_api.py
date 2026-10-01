@@ -11,6 +11,7 @@ import app.modules.recordings.api as recording_api
 from app.core.config import Settings
 from app.core.db import Base
 from app.core.errors import ApiError
+from app.integrations.zlm import ZlmIntegrationError
 from app.main import create_app
 from app.modules.audit.models import AuditEvent
 from app.modules.auth.models import Role
@@ -231,12 +232,12 @@ def test_recording_policy_put_get_audit_and_runtime(tmp_path: Path, monkeypatch)
         body = saved.json()
         assert body["baseline_mode"] == "continuous"
         assert body["event_recording_enabled"] is False
-        assert body["runtime"] == {
-            "desired_mode": "persistent",
-            "recording": True,
-            "changed": True,
-            "assumed_existing_mode": False,
-        }
+        runtime = body["runtime"]
+        assert runtime["desired_mode"] == "persistent"
+        assert runtime["recording"] is True
+        assert runtime["changed"] is True
+        assert runtime["assumed_existing_mode"] is False
+        assert runtime["observed_at"] is not None
         assert calls[0]["kind"] == "media"
         assert calls[1] == {
             "kind": "recorder",
@@ -249,7 +250,9 @@ def test_recording_policy_put_get_audit_and_runtime(tmp_path: Path, monkeypatch)
             f"/api/v1/cameras/{camera_id}/recording-policy"
         )
         assert fetched.status_code == 200
-        assert fetched.json()["runtime"] is None
+        # A bound RECORD camera always reports its observed runtime, even
+        # when the media runtime cannot be reached.
+        assert fetched.json()["runtime"]["recording"] is None
         assert fetched.json()["baseline_mode"] == "continuous"
 
         # A no-op policy PUT must not force recorder path reconfiguration.
@@ -505,12 +508,12 @@ def test_policy_put_when_stream_is_offline_succeeds_with_offline_runtime(
         assert response.status_code == 200
         body = response.json()
         assert body["baseline_mode"] == "continuous"
-        assert body["runtime"] == {
-            "desired_mode": "persistent",
-            "recording": False,
-            "changed": False,
-            "assumed_existing_mode": False,
-        }
+        runtime = body["runtime"]
+        assert runtime["desired_mode"] == "persistent"
+        assert runtime["recording"] is False
+        assert runtime["stream_online"] is False
+        assert runtime["changed"] is False
+        assert runtime["assumed_existing_mode"] is False
         # Verify background reconciliation task was enqueued
         assert len(app.state.recording_tasks.runtime_calls) == 1
         assert app.state.recording_tasks.runtime_calls[0] == (
@@ -577,25 +580,20 @@ def test_policy_runtime_resolution_when_active(tmp_path: Path, monkeypatch):
                 mode="persistent",
             )
 
-        # GET single policy returns active runtime
+        # GET single policy: the desired mode still comes from the tracker,
+        # but recording state must come from the media runtime. Without a
+        # reachable media runtime that is "unknown", never "recording".
         get_res = client.get(f"/api/v1/cameras/{camera_id}/recording-policy")
         assert get_res.status_code == 200
-        assert get_res.json()["runtime"] == {
-            "desired_mode": "persistent",
-            "recording": True,
-            "changed": False,
-            "assumed_existing_mode": False,
-        }
+        runtime = get_res.json()["runtime"]
+        assert runtime["desired_mode"] == "persistent"
+        assert runtime["recording"] is None
+        assert runtime["stream_online"] is None
 
-        # GET list returns active runtime
+        # GET list reports the same honest state
         list_res = client.get("/api/v1/recording-policies")
         assert list_res.status_code == 200
-        assert list_res.json()[0]["runtime"] == {
-            "desired_mode": "persistent",
-            "recording": True,
-            "changed": False,
-            "assumed_existing_mode": False,
-        }
+        assert list_res.json()[0]["runtime"]["recording"] is None
 
 
 def test_auto_close_resolution_for_background_streams(tmp_path: Path):
@@ -636,3 +634,134 @@ def test_auto_close_resolution_for_background_streams(tmp_path: Path):
 
 
 
+
+
+class FakeZlmAdapter:
+    """Minimal ZLM stand-in for recorder observation."""
+
+    def __init__(self, settings, items) -> None:
+        self.settings = settings
+        self.items = items
+        self.queries: list[tuple[str, str]] = []
+
+    def __enter__(self) -> "FakeZlmAdapter":
+        return self
+
+    def __exit__(self, *args) -> None:
+        return None
+
+    def get_media_list(self, *, app, stream, schema="rtsp"):
+        self.queries.append((app, stream))
+        if isinstance(self.items, Exception):
+            raise self.items
+        return list(self.items)
+
+
+def patch_zlm_observation(monkeypatch, items) -> list[FakeZlmAdapter]:
+    created: list[FakeZlmAdapter] = []
+
+    def factory(settings):
+        adapter = FakeZlmAdapter(settings, items)
+        created.append(adapter)
+        return adapter
+
+    monkeypatch.setattr(
+        recording_api,
+        "ZlmAdapter",
+        factory,
+    )
+    return created
+
+
+def test_continuous_policy_reports_not_recording_when_stream_is_offline(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    """The 24x7 policy is on, but nothing is recorded: say so.
+
+    This is the exact production symptom: a policy that says "全天录像"
+    while the media runtime has no online stream. The API must report the
+    observation instead of echoing the policy back as "recording".
+    """
+
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    patch_zlm_observation(monkeypatch, [])
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        put_res = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert put_res.status_code == 200
+
+        list_res = client.get("/api/v1/recording-policies")
+        assert list_res.status_code == 200
+        runtime = list_res.json()[0]["runtime"]
+
+        assert runtime["stream_online"] is False
+        assert runtime["recording"] is False
+        assert runtime["observed_at"] is not None
+
+
+def test_continuous_policy_reports_recording_when_media_runtime_says_so(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    patch_zlm_observation(
+        monkeypatch,
+        [{"stream": "profile-1", "isRecordingMP4": True}],
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        put_res = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert put_res.status_code == 200
+
+        list_res = client.get("/api/v1/recording-policies")
+        runtime = list_res.json()[0]["runtime"]
+
+        assert runtime["stream_online"] is True
+        assert runtime["recording"] is True
+
+
+def test_runtime_is_unknown_when_media_runtime_is_unreachable(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    app = make_app(tmp_path)
+    patch_runtime_success(monkeypatch)
+    patch_zlm_observation(
+        monkeypatch,
+        ZlmIntegrationError(
+            code="zlm_unreachable",
+            message="media runtime unavailable",
+        ),
+    )
+
+    with TestClient(app) as client:
+        setup_admin(client)
+        camera_id = seed_camera_and_storage(app)
+
+        put_res = client.put(
+            f"/api/v1/cameras/{camera_id}/recording-policy",
+            json=continuous_payload(),
+        )
+        assert put_res.status_code == 200
+
+        list_res = client.get("/api/v1/recording-policies")
+        runtime = list_res.json()[0]["runtime"]
+
+        # Unreachable media runtime is not the same as "not recording".
+        assert runtime["stream_online"] is None
+        assert runtime["recording"] is None

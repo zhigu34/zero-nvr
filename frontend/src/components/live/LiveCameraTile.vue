@@ -42,12 +42,6 @@ import {
   type LiveSource
 } from "../../api/live"
 import {
-  createRecordingTrigger,
-  listRecordingTriggers,
-  stopRecordingTrigger,
-  type RecordingTrigger
-} from "../../api/recordings"
-import {
   detectLivePlaybackCapabilities,
   needsFastPreview,
   resolveLivePlaybackTransports
@@ -89,9 +83,6 @@ const loading = ref(true)
 const error = ref<string | null>(null)
 const playing = ref(false)
 const muted = ref(true)
-const recordingTrigger = ref<RecordingTrigger | null>(null)
-const recordingBusy = ref(false)
-const recordingError = ref<string | null>(null)
 const ptzOpen = ref(false)
 const ptzError = ref<string | null>(null)
 const ptzHolding = ref(false)
@@ -162,7 +153,6 @@ let statsTimer: number | null = null
 let statsPreviousBytes = 0
 let statsPreviousAt = 0
 let streamStartedAt = 0
-let recordingErrorTimer: number | null = null
 let ptzMovePromise: Promise<void> | null = null
 let ptzStopPromise: Promise<void> | null = null
 let visibilityObserver: IntersectionObserver | null = null
@@ -389,33 +379,6 @@ function handleSourceSelection(event: Event): void {
   if (!playbackSuspended.value) {
     void loadStream()
   }
-}
-
-const manualRecordingActive = computed(() => {
-  const trigger = recordingTrigger.value
-  return Boolean(
-    trigger &&
-      trigger.type === "MANUAL" &&
-      trigger.state === "ACTIVE" &&
-      trigger.planned_end_at === null
-  )
-})
-
-function clearRecordingError(): void {
-  if (recordingErrorTimer !== null) {
-    window.clearTimeout(recordingErrorTimer)
-    recordingErrorTimer = null
-  }
-  recordingError.value = null
-}
-
-function showRecordingError(message: string): void {
-  clearRecordingError()
-  recordingError.value = message
-  recordingErrorTimer = window.setTimeout(() => {
-    recordingErrorTimer = null
-    recordingError.value = null
-  }, 5000)
 }
 
 async function stopPtzNow(): Promise<void> {
@@ -1700,53 +1663,6 @@ async function attachPreferredStream(
   }
 }
 
-async function loadRecordingState(): Promise<void> {
-  recordingTrigger.value = null
-  if (!auth.hasPermission("recording.view")) return
-
-  try {
-    const items = await listRecordingTriggers(
-      props.camera.id
-    )
-    recordingTrigger.value =
-      items.find(
-        (item) =>
-          item.type === "MANUAL" &&
-          item.state === "ACTIVE" &&
-          item.planned_end_at === null
-      ) ?? null
-  } catch {
-    recordingTrigger.value = null
-  }
-}
-
-async function toggleManualRecording(): Promise<void> {
-  if (
-    !auth.hasPermission("camera.control") ||
-    recordingBusy.value
-  ) {
-    return
-  }
-
-  recordingBusy.value = true
-  clearRecordingError()
-  try {
-    if (manualRecordingActive.value && recordingTrigger.value) {
-      await stopRecordingTrigger(recordingTrigger.value.id)
-      recordingTrigger.value = null
-    } else {
-      recordingTrigger.value = await createRecordingTrigger(
-        props.camera.id,
-        "Live view manual recording"
-      )
-    }
-  } catch (caught) {
-    showRecordingError(errorMessage(caught))
-  } finally {
-    recordingBusy.value = false
-  }
-}
-
 async function resetLiveSourceAttemptAndWait(): Promise<void> {
   stopFastPreview()
   releaseWebRtcSession()
@@ -2042,7 +1958,6 @@ onMounted(() => {
   } else {
     void loadStream()
   }
-  void loadRecordingState()
 
   window.addEventListener("pointerup", endPtz)
   window.addEventListener("pointercancel", endPtz)
@@ -2102,12 +2017,9 @@ watch(
     reconnectAttempt = 0
     destroyPlayer()
     descriptor.value = null
-    recordingTrigger.value = null
-    clearRecordingError()
     if (!playbackSuspended.value) {
       void loadStream()
     }
-    void loadRecordingState()
   }
 )
 
@@ -2144,7 +2056,6 @@ onBeforeUnmount(() => {
     handlePageVisibilityChange
   )
   destroyPlayer()
-  clearRecordingError()
 })
 </script>
 
@@ -2291,13 +2202,6 @@ onBeforeUnmount(() => {
             </option>
           </optgroup>
         </select>
-        <span
-          v-if="manualRecordingActive"
-          class="live-recording-badge"
-        >
-          <i />
-          REC
-        </span>
         <span v-if="descriptor" class="live-quality-badge">
           {{
             descriptor.source_role === "sub"
@@ -2401,13 +2305,6 @@ onBeforeUnmount(() => {
       <span v-if="ptzError" class="live-ptz-error">
         {{ ptzError }}
       </span>
-    </div>
-
-    <div
-      v-if="recordingError"
-      class="live-tile__action-error"
-    >
-      {{ recordingError }}
     </div>
 
     <footer class="live-tile__controls">
@@ -2533,29 +2430,6 @@ onBeforeUnmount(() => {
         </button>
 
         <button
-          v-if="auth.hasPermission('camera.control')"
-          class="media-button"
-          :class="{
-            'media-button--recording': manualRecordingActive
-          }"
-          type="button"
-          :disabled="recordingBusy"
-          :aria-label="
-            manualRecordingActive
-              ? t('live.tile.stopManualRecording')
-              : t('live.tile.startManualRecording')
-          "
-          :title="
-            manualRecordingActive
-              ? t('live.tile.stopManualRecording')
-              : t('live.tile.startManualRecording')
-          "
-          @click.stop="toggleManualRecording"
-        >
-          <UiIcon name="record" :size="16" />
-        </button>
-
-        <button
           class="media-button"
           type="button"
           :aria-label="t('live.tile.downloadSnapshot')"
@@ -2645,35 +2519,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-.live-recording-badge {
-  display: inline-flex;
-  min-height: 20px;
-  align-items: center;
-  gap: 4px;
-  padding: 0 6px;
-  border: 1px solid rgba(255, 93, 107, 0.28);
-  border-radius: 4px;
-  background: rgba(20, 8, 10, 0.72);
-  color: #ff7f8b;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  backdrop-filter: blur(8px);
-}
-
-.live-recording-badge i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 3px rgba(255, 93, 107, 0.12);
-}
-
-.media-button--recording {
-  background: rgba(207, 63, 79, 0.22);
-  color: #ff8691;
-}
-
 .live-ptz-panel {
   position: absolute;
   right: 10px;
@@ -2742,21 +2587,5 @@ onBeforeUnmount(() => {
   color: #ff9da6;
   font-size: 7px;
   line-height: 1.35;
-}
-
-.live-tile__action-error {
-  position: absolute;
-  right: 10px;
-  bottom: 50px;
-  left: 10px;
-  z-index: 5;
-  padding: 7px 8px;
-  border: 1px solid rgba(224, 106, 119, 0.24);
-  border-radius: var(--radius-sm);
-  background: rgba(20, 8, 10, 0.86);
-  color: #ff9da6;
-  font-size: 8px;
-  line-height: 1.35;
-  backdrop-filter: blur(10px);
 }
 </style>

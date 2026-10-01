@@ -560,6 +560,37 @@ describe("LiveCameraTile", () => {
     wrapper.unmount()
   })
 
+  it("offers no manual recording control in the live tile", async () => {
+    liveMocks.getCameraLiveStream.mockResolvedValueOnce(descriptor)
+    Object.defineProperty(
+      HTMLMediaElement.prototype,
+      "canPlayType",
+      {
+        configurable: true,
+        value: vi.fn(() => "probably")
+      }
+    )
+
+    const wrapper = mount(LiveCameraTile, {
+      props: {
+        camera,
+        quality: "low",
+        playbackEnabled: true
+      },
+      global: { stubs: { UiIcon: true } }
+    })
+    await flushPromises()
+
+    // Recording is plan-driven only: no record button, no REC badge, no error strip
+    expect(wrapper.find(".media-button--recording").exists()).toBe(false)
+    expect(wrapper.find(".live-recording-badge").exists()).toBe(false)
+    expect(wrapper.find(".live-tile__action-error").exists()).toBe(false)
+    expect(wrapper.text()).not.toContain("REC")
+    expect(wrapper.html()).not.toContain("ManualRecording")
+
+    wrapper.unmount()
+  })
+
   it("unregisters a pending shared preview when the tile unmounts", async () => {
     const h265Descriptor: CameraLiveStream = {
       ...descriptor,

@@ -106,6 +106,14 @@ const editForm = reactive({
   showAdvanced: false
 })
 
+// AI 目标筛选 (labels / zones / min_confidence) 不在本页编辑，保存时原样回写，
+// 避免任何一次计划保存都把已配置的事件筛选清空。
+const preservedEventFilter = ref<{
+  labels?: string[]
+  zones?: string[]
+  min_confidence?: number
+}>({})
+
 // The composable owns the timer, so it cannot outlive the view.
 const { message: toastMessage, showToast } = useToast(4000)
 
@@ -190,55 +198,78 @@ function isDayActiveInSchedule(camera: CameraSummary, dayIndex: number): boolean
   return weekly.some((w) => normalizedDays(w.days).includes(dayIndex))
 }
 
+function isWithinScheduleWindow(policy: RecordingPolicy): boolean {
+  if (policy.baseline_mode !== "schedule") return false
+  const now = new Date()
+  const currentDay = (now.getDay() + 6) % 7 // 0=Mon, ..., 6=Sun
+  const currentMinutes = now.getHours() * 60 + now.getMinutes()
+  const windows = policy.schedule?.weekly || []
+
+  return windows.some((w) => {
+    if (!normalizedDays(w.days).includes(currentDay)) return false
+    const [sh, sm] = w.start.split(":").map(Number)
+    const [eh, em] = w.end.split(":").map(Number)
+    if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false
+    const s = sh * 60 + sm
+    const e = eh * 60 + em
+    if (s <= e) {
+      return currentMinutes >= s && currentMinutes < e
+    }
+    // Crosses midnight
+    return currentMinutes >= s || currentMinutes < e
+  })
+}
+
+/**
+ * Reflect the observed recorder state, never the policy text.
+ *
+ * The policy says what *should* happen; `runtime` is what the media runtime
+ * actually reports. A 24x7 policy therefore never renders as "recording" on
+ * its own — otherwise a camera that records nothing looks identical to one
+ * that records fine.
+ */
 function getRuntimeStateInfo(camera: CameraSummary): { label: string; tone: "ok" | "standby" | "off" | "warn" } {
   if (!camera.enabled) return { label: "机位已禁用", tone: "off" }
-  if (camera.connectivity_status === "offline") return { label: "机位离线 (等待连接)", tone: "warn" }
-  const p = getCameraPolicy(camera.id)
-  if (!p || !p.enabled) return { label: "仅手动录像", tone: "off" }
 
-  // 1. Explicitly confirmed recording
-  if (p.runtime?.recording) {
+  const p = getCameraPolicy(camera.id)
+  if (!p || !p.enabled) return { label: "未启用录像", tone: "off" }
+
+  const runtime = p.runtime
+
+  // 1. Observed: the media runtime confirms an active recorder.
+  if (runtime?.recording === true) {
     return { label: "正在录制", tone: "ok" }
   }
 
-  // 2. 24x7 Continuous mode
-  if (p.baseline_mode === "continuous") {
-    return { label: "全天录像中", tone: "ok" }
-  }
-
-  // 3. Weekly Schedule mode (calculate active window)
-  if (p.baseline_mode === "schedule") {
-    const now = new Date()
-    const currentDay = (now.getDay() + 6) % 7 // 0=Mon, ..., 6=Sun
-    const currentMinutes = now.getHours() * 60 + now.getMinutes()
-    const windows = p.schedule?.weekly || []
-
-    const inWindow = windows.some((w) => {
-      if (!normalizedDays(w.days).includes(currentDay)) return false
-      const [sh, sm] = w.start.split(":").map(Number)
-      const [eh, em] = w.end.split(":").map(Number)
-      if (!Number.isFinite(sh) || !Number.isFinite(eh)) return false
-      const s = sh * 60 + sm
-      const e = eh * 60 + em
-      if (s <= e) {
-        return currentMinutes >= s && currentMinutes < e
-      } else {
-        // Crosses midnight
-        return currentMinutes >= s || currentMinutes < e
-      }
-    })
-
-    if (inWindow) {
-      return { label: "时段内录像中", tone: "ok" }
+  // 2. Observed: reachable media runtime, but nothing is being recorded.
+  //    Report *why* instead of echoing the configured mode.
+  if (runtime && runtime.recording === false) {
+    if (runtime.stream_online === false) {
+      return { label: "视频流未上线 · 未录制", tone: "warn" }
     }
-    return { label: "计划时段外待机", tone: "standby" }
+    if (runtime.stream_online === true) {
+      return { label: "流已在线 · 录制器未运行", tone: "warn" }
+    }
+    return { label: "未在录制", tone: "warn" }
   }
 
-  // 4. Motion / Event only
+  // 3. Unobservable media runtime: say so instead of guessing.
+  if (runtime?.recording === null || (runtime && runtime.recording == null)) {
+    return { label: "无法获取录制状态", tone: "warn" }
+  }
+
+  // 4. No runtime report at all (camera has no RECORD stream binding yet).
+  if (camera.connectivity_status === "offline") {
+    return { label: "机位离线 (等待连接)", tone: "warn" }
+  }
+  if (p.baseline_mode === "schedule") {
+    return isWithinScheduleWindow(p)
+      ? { label: "计划时段内 · 待录制", tone: "standby" }
+      : { label: "计划时段外待机", tone: "standby" }
+  }
   if (p.event_recording_enabled) {
     return { label: "动检监听待命中", tone: "standby" }
   }
-
   return { label: "未启用", tone: "off" }
 }
 
@@ -372,6 +403,7 @@ function openSingleDialog(camera: CameraSummary): void {
     editForm.postRoll = 10
     editForm.storageTargetId = ""
     editForm.retentionPolicyId = ""
+    preservedEventFilter.value = {}
   } else {
     if (p.baseline_mode === "schedule") editForm.mode = "schedule"
     else if (p.baseline_mode === "continuous") editForm.mode = "continuous"
@@ -387,6 +419,7 @@ function openSingleDialog(camera: CameraSummary): void {
     editForm.postRoll = p.post_roll_seconds || 10
     editForm.storageTargetId = p.storage_target_id || ""
     editForm.retentionPolicyId = p.retention_policy_id || ""
+    preservedEventFilter.value = { ...(p.event_filter ?? {}) }
   }
 
   editForm.showAdvanced = false
@@ -420,6 +453,7 @@ function openBatchDialog(): void {
     editForm.postRoll = p.post_roll_seconds || 10
     editForm.storageTargetId = p.storage_target_id || ""
     editForm.retentionPolicyId = p.retention_policy_id || ""
+    preservedEventFilter.value = { ...(p.event_filter ?? {}) }
   } else {
     editForm.mode = "continuous"
     editForm.windows = [{ days: [...WORK_DAYS], start: "08:00", end: "18:00" }]
@@ -429,6 +463,7 @@ function openBatchDialog(): void {
     editForm.postRoll = 10
     editForm.storageTargetId = ""
     editForm.retentionPolicyId = ""
+    preservedEventFilter.value = {}
   }
 
   editForm.showAdvanced = false
@@ -524,9 +559,9 @@ function buildPolicyPayload(): RecordingPolicyPut {
     storage_target_id: editForm.storageTargetId || null,
     retention_policy_id: editForm.retentionPolicyId || null,
     event_filter: {
-      labels: [],
-      zones: [],
-      min_confidence: 0.6
+      labels: [...(preservedEventFilter.value.labels ?? [])],
+      zones: [...(preservedEventFilter.value.zones ?? [])],
+      min_confidence: preservedEventFilter.value.min_confidence ?? 0.6
     }
   }
 }

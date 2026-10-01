@@ -5,6 +5,10 @@ import CameraDetailPanel from "./CameraDetailPanel.vue"
 
 const camId = "00000000-0000-0000-0000-000000000001"
 
+const routerMocks = vi.hoisted(() => ({
+  push: vi.fn()
+}))
+
 vi.mock("vue-i18n", () => ({
   useI18n: () => ({
     t: (key: string) => key,
@@ -14,7 +18,7 @@ vi.mock("vue-i18n", () => ({
 
 vi.mock("vue-router", () => ({
   useRouter: () => ({
-    push: vi.fn()
+    push: routerMocks.push
   })
 }))
 
@@ -68,7 +72,7 @@ vi.mock("../../api/storage", () => ({
   listRetentionPolicies: apiMocks.listRetentionPolicies
 }))
 
-describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
+describe("CameraDetailPanel - Drawer Surface (Recording Delegated To Schedules)", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     Object.defineProperty(HTMLMediaElement.prototype, "pause", {
@@ -144,7 +148,7 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
     apiMocks.listRetentionPolicies.mockResolvedValue([])
   })
 
-  it("renders recording configuration and switches modes", async () => {
+  it("delegates recording control to the recording schedule view", async () => {
     const wrapper = mount(CameraDetailPanel, {
       props: {
         camera: {
@@ -164,232 +168,91 @@ describe("CameraDetailPanel - Recording Policy & Manual Controls", () => {
 
     await flushPromises()
 
-    // Switch to recording tab
+    // Only general + streams tabs remain; the recording tab is gone
     const tabs = wrapper.findAll(".camera-detail-tabs button")
-    await tabs[2].trigger("click")
-    await flushPromises()
+    expect(tabs.length).toBe(2)
+    expect(tabs.map((tab) => tab.text())).toEqual([
+      "cameras.detail.general",
+      "cameras.detail.streams"
+    ])
 
-    expect(wrapper.text()).toContain("即时手动录制 (Manual Recording)")
-    expect(wrapper.text()).toContain("录制策略基线模式")
-    expect(wrapper.text()).toContain("全天候连续录制")
-    expect(wrapper.text()).toContain("计划排程定时录制")
-    expect(wrapper.text()).toContain("仅事件触发录制")
+    // No manual recording trigger buttons anywhere in the drawer
+    expect(wrapper.text()).not.toContain("启动录像")
+    expect(wrapper.text()).not.toContain("停止录像")
+    expect(wrapper.find(".quick-action-btn--record").exists()).toBe(false)
+    expect(wrapper.find(".quick-action-btn--stop").exists()).toBe(false)
+
+    // Recording state is reported from the schedule runtime only
+    expect(wrapper.find(".device-hero-card").text()).toContain("正在录像")
+
+    // Quick action bar links straight to the recording schedule page
+    const scheduleBtn = wrapper
+      .findAll(".quick-action-btn")
+      .find((btn) => btn.text().includes("录制计划"))
+    expect(scheduleBtn).toBeDefined()
+    await scheduleBtn!.trigger("click")
+
+    expect(routerMocks.push).toHaveBeenCalledWith({ path: "/recording-schedules" })
+    expect(apiMocks.createRecordingTrigger).not.toHaveBeenCalled()
+    expect(apiMocks.putRecordingPolicy).not.toHaveBeenCalled()
   })
 
-  it("triggers manual recording and handles stop", async () => {
-    apiMocks.createRecordingTrigger.mockResolvedValue({
-      id: "trigger-1",
-      camera_id: camId,
-      type: "MANUAL",
-      source: "api",
-      requested_at: new Date().toISOString(),
-      pre_roll_seconds: 10,
-      post_roll_seconds: 15,
-      planned_start_at: new Date().toISOString(),
-      planned_end_at: null,
-      state: "ACTIVE",
-      reason: "夜巡异常排查",
-      correlation_id: "corr-1"
-    })
-    apiMocks.stopRecordingTrigger.mockResolvedValue({
-      id: "trigger-1",
-      state: "COMPLETED"
-    })
+  it("shows the observed recording state in the hero card", async () => {
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ recording: true, stream_online: true }, "正在录像"],
+      [{ recording: false, stream_online: true }, "流已在线 · 未录像"],
+      [{ recording: false, stream_online: false }, "视频流未上线 · 未录像"],
+      [{ recording: null, stream_online: null }, "无法获取录像状态"]
+    ]
 
-    const wrapper = mount(CameraDetailPanel, {
-      props: {
-        camera: {
-          id: camId,
-          name: "Front Door 4K",
-          enabled: true,
-          maintenance: false,
-          retired_at: null,
-          location: "Entrance",
-          storage_label: null,
-          adapter_type: "onvif",
-          time_sync_mode: "manage_ntp",
-          ptz_capable: false
-        }
-      }
-    })
-
-    await flushPromises()
-    const tabs = wrapper.findAll(".camera-detail-tabs button")
-    await tabs[2].trigger("click")
-    await flushPromises()
-
-    // Enter memo and start manual record
-    const reasonInput = wrapper.find(".manual-reason-input")
-    await reasonInput.setValue("夜巡异常排查")
-
-    const startBtn = wrapper.find(".manual-action-btn")
-    await startBtn.trigger("click")
-    await flushPromises()
-
-    expect(apiMocks.createRecordingTrigger).toHaveBeenCalledWith(camId, "夜巡异常排查")
-    expect(wrapper.text()).toContain("正在录制")
-
-    // Stop manual record
-    const stopBtn = wrapper.find(".button--danger")
-    await stopBtn.trigger("click")
-    await flushPromises()
-
-    expect(apiMocks.stopRecordingTrigger).toHaveBeenCalledWith("trigger-1")
-  })
-
-  it("applies schedule presets and toggles smart tags", async () => {
-    const wrapper = mount(CameraDetailPanel, {
-      props: {
-        camera: {
-          id: camId,
-          name: "Front Door 4K",
-          enabled: true,
-          maintenance: false,
-          retired_at: null,
-          location: "Entrance",
-          storage_label: null,
-          adapter_type: "onvif",
-          time_sync_mode: "manage_ntp",
-          ptz_capable: false
-        }
-      }
-    })
-
-    await flushPromises()
-    const tabs = wrapper.findAll(".camera-detail-tabs button")
-    await tabs[2].trigger("click")
-    await flushPromises()
-
-    // Select schedule mode
-    const modeInputs = wrapper.findAll('input[name="recording-mode"]')
-    await modeInputs[1].setValue() // schedule
-    await flushPromises()
-
-    // Click workdays preset
-    const presetButtons = wrapper.findAll(".preset-chip")
-    expect(presetButtons.length).toBe(4)
-    await presetButtons[1].trigger("click") // workdays
-    await flushPromises()
-
-    // Check smart tags
-    const tagChips = wrapper.findAll(".smart-tag-chip")
-    expect(tagChips.length).toBe(6)
-
-    // Tag for person is initially selected (from policy event_filter labels)
-    expect(tagChips[0].classes()).toContain("smart-tag-chip--active")
-
-    // Click package tag to toggle it on
-    await tagChips[4].trigger("click")
-    await flushPromises()
-    expect(tagChips[4].classes()).toContain("smart-tag-chip--active")
-  })
-
-  it("saves recording policy with accurate parameters", async () => {
-    apiMocks.putRecordingPolicy.mockResolvedValue({
-      id: "policy-1",
-      camera_id: camId,
-      baseline_mode: "continuous",
-      schedule: {},
-      schedule_timezone: "Asia/Shanghai",
-      event_recording_enabled: true,
-      event_filter: { labels: ["person"] },
-      segment_target_seconds: 300,
-      pre_roll_seconds: 10,
-      post_roll_seconds: 15,
-      storage_target_id: null,
-      retention_policy_id: null,
-      enabled: true,
-      runtime: null
-    })
-
-    const wrapper = mount(CameraDetailPanel, {
-      props: {
-        camera: {
-          id: camId,
-          name: "Front Door 4K",
-          enabled: true,
-          maintenance: false,
-          retired_at: null,
-          location: "Entrance",
-          storage_label: null,
-          adapter_type: "onvif",
-          time_sync_mode: "manage_ntp",
-          ptz_capable: false
-        }
-      }
-    })
-
-    await flushPromises()
-    const tabs = wrapper.findAll(".camera-detail-tabs button")
-    await tabs[2].trigger("click")
-    await flushPromises()
-
-    const form = wrapper.find(".camera-recording-editor")
-    await form.trigger("submit")
-    await flushPromises()
-
-    expect(apiMocks.putRecordingPolicy).toHaveBeenCalledWith(
-      camId,
-      expect.objectContaining({
+    for (const [runtime, expected] of cases) {
+      apiMocks.getRecordingPolicy.mockResolvedValue({
+        id: "policy-1",
+        camera_id: camId,
         baseline_mode: "continuous",
-        event_recording_enabled: true,
+        schedule: {},
+        schedule_timezone: null,
+        event_recording_enabled: false,
+        event_filter: {},
+        segment_target_seconds: 300,
         pre_roll_seconds: 10,
-        post_roll_seconds: 15,
-        segment_target_seconds: 300
-      })
-    )
-  })
-
-  it("shows offline stream notice when recording policy is saved but stream is offline", async () => {
-    apiMocks.putRecordingPolicy.mockResolvedValue({
-      id: "policy-1",
-      camera_id: camId,
-      baseline_mode: "continuous",
-      schedule: {},
-      schedule_timezone: "Asia/Shanghai",
-      event_recording_enabled: false,
-      event_filter: {},
-      segment_target_seconds: 300,
-      pre_roll_seconds: 10,
-      post_roll_seconds: 15,
-      storage_target_id: null,
-      retention_policy_id: null,
-      enabled: true,
-      runtime: {
-        desired_mode: "persistent",
-        recording: false,
-        changed: false,
-        assumed_existing_mode: false
-      }
-    })
-
-    const wrapper = mount(CameraDetailPanel, {
-      props: {
-        camera: {
-          id: camId,
-          name: "Front Door 4K",
-          enabled: true,
-          maintenance: false,
-          retired_at: null,
-          location: "Entrance",
-          storage_label: null,
-          adapter_type: "onvif",
-          time_sync_mode: "manage_ntp",
-          ptz_capable: false
+        post_roll_seconds: 10,
+        storage_target_id: null,
+        retention_policy_id: null,
+        enabled: true,
+        runtime: {
+          desired_mode: "persistent",
+          changed: false,
+          assumed_existing_mode: false,
+          ...runtime
         }
-      }
-    })
+      })
 
-    await flushPromises()
-    const tabs = wrapper.findAll(".camera-detail-tabs button")
-    await tabs[2].trigger("click")
-    await flushPromises()
+      const wrapper = mount(CameraDetailPanel, {
+        props: {
+          camera: {
+            id: camId,
+            name: "Front Door 4K",
+            enabled: true,
+            maintenance: false,
+            retired_at: null,
+            location: "Entrance",
+            storage_label: "local-fast",
+            adapter_type: "onvif",
+            time_sync_mode: "manage_ntp",
+            ptz_capable: false
+          }
+        }
+      })
+      await flushPromises()
 
-    const form = wrapper.find(".camera-recording-editor")
-    await form.trigger("submit")
-    await flushPromises()
+      const hero = wrapper.find(".device-hero-card")
+      expect(hero.text(), JSON.stringify(runtime)).toContain(expected)
+      // A 24x7 policy must never render as an idle "waiting" state.
+      expect(hero.text(), JSON.stringify(runtime)).not.toContain("空闲待命")
 
-    expect(wrapper.text()).toContain("录像策略已保存。提示：摄像机当前流未在线，当视频流恢复时系统将自动开始录像。")
+      wrapper.unmount()
+    }
   })
 
   it("renders hero card, fast navigation between cameras, and triggers probe", async () => {

@@ -568,6 +568,7 @@ def test_configuration_import_apply_merges_without_overwriting_secrets(
             ),
             changed=True,
             assumed_existing_mode=False,
+            stream_online=True,
         ),
     )
 

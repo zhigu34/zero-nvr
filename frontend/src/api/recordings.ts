@@ -27,12 +27,24 @@ export interface RecordingPolicy {
   storage_target_id: string | null
   retention_policy_id: string | null
   enabled: boolean
-  runtime: {
-    desired_mode: "persistent" | "prebuffer" | "off"
-    recording: boolean
-    changed: boolean
-    assumed_existing_mode: boolean
-  } | null
+  runtime: RecordingRuntime | null
+}
+
+/**
+ * Observed recorder state.
+ *
+ * `recording` / `stream_online` are observations from the media runtime:
+ * `true` means confirmed recording, `false` means confirmed not recording,
+ * and `null` means it could not be observed at all (media runtime
+ * unreachable). Never treat `null` as "not recording".
+ */
+export interface RecordingRuntime {
+  desired_mode: "persistent" | "prebuffer" | "off"
+  recording: boolean | null
+  stream_online?: boolean | null
+  changed: boolean
+  assumed_existing_mode: boolean
+  observed_at?: string | null
 }
 
 export interface RecordingPolicyPut {

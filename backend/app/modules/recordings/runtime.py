@@ -50,6 +50,7 @@ class RecorderReconcileResult:
     observed_recording: bool
     changed: bool
     assumed_existing_mode: bool
+    stream_online: bool | None = None
 
 
 class RecorderModeTracker:
@@ -246,6 +247,7 @@ class RecordingRuntimeService:
             )
 
         with self._zlm_factory(self.settings) as zlm:
+            target_online: bool | None = None
             if (
                 desired is not None
                 and desired.mode != "off"
@@ -271,6 +273,7 @@ class RecordingRuntimeService:
                             "running."
                         ),
                     )
+                target_online = True
 
             changed = False
             previous_online = zlm.is_stream_online(
@@ -343,6 +346,7 @@ class RecordingRuntimeService:
             observed_recording=current,
             changed=changed,
             assumed_existing_mode=False,
+            stream_online=target_online,
         )
 
     def reconcile(
@@ -357,6 +361,7 @@ class RecordingRuntimeService:
                 observed_recording=False,
                 changed=False,
                 assumed_existing_mode=False,
+                stream_online=None,
             )
 
         known_mode = self.mode_tracker.get(
@@ -383,6 +388,7 @@ class RecordingRuntimeService:
                     observed_recording=False,
                     changed=False,
                     assumed_existing_mode=False,
+                    stream_online=False,
                 )
 
             if not online:
@@ -420,6 +426,7 @@ class RecordingRuntimeService:
                     observed_recording=current,
                     changed=changed,
                     assumed_existing_mode=False,
+                    stream_online=True,
                 )
 
             if desired.target_root is None:
@@ -436,6 +443,7 @@ class RecordingRuntimeService:
                         observed_recording=True,
                         changed=False,
                         assumed_existing_mode=False,
+                        stream_online=True,
                     )
 
                 if known_mode is None and not force_reconfigure:
@@ -448,6 +456,7 @@ class RecordingRuntimeService:
                         observed_recording=True,
                         changed=False,
                         assumed_existing_mode=True,
+                        stream_online=True,
                     )
 
                 if known_mode != desired.mode or force_reconfigure:
@@ -489,6 +498,7 @@ class RecordingRuntimeService:
             observed_recording=current,
             changed=changed,
             assumed_existing_mode=assumed,
+            stream_online=True,
         )
 
     @staticmethod

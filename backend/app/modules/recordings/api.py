@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from app.core.db import get_db_session
 from app.core.errors import ApiError
 from app.core.time import require_utc
-from app.integrations.zlm import ZlmIntegrationError
+from app.integrations.zlm import ZlmAdapter, ZlmIntegrationError
 from app.modules.audit.service import append_audit_event
 from app.modules.auth.dependencies import (
     get_auth_context,
@@ -332,15 +332,44 @@ def _runtime_signature(
     )
 
 
+def _observe_recorder(
+    zlm: Any,
+    *,
+    app: str,
+    stream: str,
+) -> tuple[bool | None, bool | None]:
+    """Return (stream_online, recording) as observed from the media runtime.
+
+    One media list call answers both questions. `None` means the media
+    runtime could not be observed at all, which is deliberately different
+    from "observed and not recording".
+    """
+
+    try:
+        items = zlm.get_media_list(
+            app=app,
+            stream=stream,
+            schema="rtsp",
+        )
+    except Exception:
+        return None, None
+
+    recording = any(
+        bool(item.get("isRecordingMP4", False))
+        for item in items
+    )
+    return bool(items), recording
+
+
 def _resolve_policy_runtime_map(
     request: Request,
     session: Session,
     policies: list[RecordingPolicy],
 ) -> dict[uuid.UUID, RecordingRuntimeView]:
-    tracker = getattr(request.app.state, "recorder_modes", None)
-    if tracker is None or not policies:
+    if not policies:
         return {}
 
+    tracker = getattr(request.app.state, "recorder_modes", None)
     cam_ids = [p.camera_id for p in policies]
     bindings = list(
         session.scalars(
@@ -350,25 +379,40 @@ def _resolve_policy_runtime_map(
             )
         )
     )
+    if not bindings:
+        return {}
+
+    observed_at = datetime.now(UTC)
     result: dict[uuid.UUID, RecordingRuntimeView] = {}
-    for b in bindings:
-        ref = CameraMediaRuntimeService.reference_for(
-            camera_id=b.camera_id,
-            profile_id=b.stream_profile_id,
-        )
-        mode = tracker.get(app=ref.app, stream=ref.stream)
-        if mode is None:
-            continue
-        is_recording = mode != "off"
-        desired_mode: Literal["persistent", "prebuffer", "off"] = (
-            mode if mode in ("persistent", "prebuffer") else "off"
-        )
-        result[b.camera_id] = RecordingRuntimeView(
-            desired_mode=desired_mode,
-            recording=is_recording,
-            changed=False,
-            assumed_existing_mode=False,
-        )
+    with ZlmAdapter(request.app.state.settings) as zlm:
+        for b in bindings:
+            ref = CameraMediaRuntimeService.reference_for(
+                camera_id=b.camera_id,
+                profile_id=b.stream_profile_id,
+            )
+            online, recording = _observe_recorder(
+                zlm,
+                app=ref.app,
+                stream=ref.stream,
+            )
+            mode = (
+                tracker.get(app=ref.app, stream=ref.stream)
+                if tracker is not None
+                else None
+            )
+            desired_mode: Literal["persistent", "prebuffer", "off"] = (
+                mode
+                if mode in ("persistent", "prebuffer")
+                else "off"
+            )
+            result[b.camera_id] = RecordingRuntimeView(
+                desired_mode=desired_mode,
+                recording=recording,
+                stream_online=online,
+                changed=False,
+                assumed_existing_mode=False,
+                observed_at=observed_at,
+            )
     return result
 
 
@@ -579,6 +623,7 @@ def put_recording_policy(
                 observed_recording=False,
                 changed=False,
                 assumed_existing_mode=False,
+                stream_online=False,
             )
         else:
             raise ApiError(
@@ -601,6 +646,7 @@ def put_recording_policy(
                 observed_recording=False,
                 changed=False,
                 assumed_existing_mode=False,
+                stream_online=False,
             )
         else:
             raise ApiError(
@@ -634,8 +680,10 @@ def put_recording_policy(
         runtime=RecordingRuntimeView(
             desired_mode=runtime_result.desired_mode,
             recording=runtime_result.observed_recording,
+            stream_online=runtime_result.stream_online,
             changed=runtime_result.changed,
             assumed_existing_mode=runtime_result.assumed_existing_mode,
+            observed_at=datetime.now(UTC),
         ),
     )
 

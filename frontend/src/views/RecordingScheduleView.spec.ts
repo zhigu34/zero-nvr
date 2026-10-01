@@ -260,6 +260,45 @@ describe("RecordingScheduleView.vue", () => {
     )
   })
 
+  it("preserves the existing AI event filter when saving a schedule", async () => {
+    apiMocks.listRecordingPolicies.mockResolvedValue(
+      mockPolicies.map((policy) =>
+        policy.camera_id === "cam-02"
+          ? {
+              ...policy,
+              event_filter: {
+                labels: ["person", "vehicle"],
+                zones: ["driveway"],
+                min_confidence: 0.72
+              }
+            }
+          : policy
+      )
+    )
+
+    const wrapper = mount(RecordingScheduleView)
+    await flushPromises()
+
+    const actionBtns = wrapper.findAll(".btn-row-action")
+    await actionBtns[1].trigger("click")
+    await flushPromises()
+
+    const saveBtn = wrapper.find(".btn-footer--save")
+    await saveBtn.trigger("click")
+    await flushPromises()
+
+    expect(apiMocks.putRecordingPolicy).toHaveBeenCalledWith(
+      "cam-02",
+      expect.objectContaining({
+        event_filter: {
+          labels: ["person", "vehicle"],
+          zones: ["driveway"],
+          min_confidence: 0.72
+        }
+      })
+    )
+  })
+
   it("supports multi-camera selection and batch schedule application", async () => {
     const wrapper = mount(RecordingScheduleView)
     await flushPromises()
@@ -310,3 +349,65 @@ describe("RecordingScheduleView.vue", () => {
     )
   })
 })
+
+  it("reports the observed recorder state instead of echoing the policy", async () => {
+    const policyWith = (
+      cameraId: string,
+      runtime: Record<string, unknown>
+    ) => ({
+      id: `pol-${cameraId}`,
+      camera_id: cameraId,
+      baseline_mode: "continuous" as const,
+      enabled: true,
+      event_recording_enabled: false,
+      schedule: {},
+      schedule_timezone: null,
+      segment_target_seconds: 300,
+      pre_roll_seconds: 10,
+      post_roll_seconds: 10,
+      storage_target_id: "target-01",
+      retention_policy_id: null,
+      event_filter: {},
+      runtime: {
+        desired_mode: "persistent",
+        changed: false,
+        assumed_existing_mode: false,
+        ...runtime
+      }
+    })
+
+    const cases: Array<[string, Record<string, unknown>, string]> = [
+      ["recording", { recording: true, stream_online: true }, "正在录制"],
+      [
+        "recorder not running on an online stream",
+        { recording: false, stream_online: true },
+        "流已在线 · 录制器未运行"
+      ],
+      [
+        "stream offline",
+        { recording: false, stream_online: false },
+        "视频流未上线 · 未录制"
+      ],
+      [
+        "media runtime unreachable",
+        { recording: null, stream_online: null },
+        "无法获取录制状态"
+      ]
+    ]
+
+    for (const [name, runtime, expected] of cases) {
+      apiMocks.listRecordingPolicies.mockResolvedValue([
+        policyWith("cam-01", runtime)
+      ])
+
+      const wrapper = mount(RecordingScheduleView)
+      await flushPromises()
+
+      const status = wrapper.find(".runtime-status-cell")
+      expect(status.text(), name).toContain(expected)
+      // The 24x7 policy text must never be shown as proof of recording.
+      expect(status.text(), name).not.toContain("全天录像中")
+
+      wrapper.unmount()
+    }
+  })
