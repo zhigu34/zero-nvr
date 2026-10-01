@@ -32,7 +32,6 @@ defineProps<{
   multiCameraMode: boolean
   syncMode: "tolerant" | "strict"
   playbackParticipants: CameraLabel[]
-  skipGaps: boolean
   activeSegmentId: string | null
   activeTimelineSegment: TimelineSegment | null
   standbySegment: TimelineSegment | null
@@ -116,8 +115,6 @@ const { t } = useI18n({ useScope: "global" })
             </dd>
           </div>
           <div>
-            <dt>{{ t("playback.skipGapsLabel") }}</dt>
-            <dd>{{ skipGaps ? t("playback.on") : t("playback.off") }}</dd>
           </div>
         </dl>
       </section>

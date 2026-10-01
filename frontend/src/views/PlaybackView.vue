@@ -39,7 +39,6 @@ import {
   type RecordingProtection
 } from "../api/recordings"
 import {
-  findNextPlayableTimelineTime,
   findTimelineSegmentAt,
   getAlignedCameraTimelines,
   getCameraTimeline,
@@ -50,7 +49,8 @@ import {
   type PlaybackResolve,
   type PlaybackTimeline,
   type TimelineDetailLevel,
-  type TimelineSegment
+  type TimelineSegment,
+  findNextPlayableTimelineTime
 } from "../api/playback"
 import PlaybackActionPanel from "../components/playback/PlaybackActionPanel.vue"
 import PlaybackCameraPanel from "../components/playback/PlaybackCameraPanel.vue"
@@ -192,7 +192,6 @@ const error = ref<string | null>(null)
 const playing = ref(false)
 const muted = ref(true)
 const fullscreen = ref(false)
-const skipGaps = ref(false)
 const diagnosticsOpen = ref(false)
 const actionPanelOpen = ref(false)
 const actionMode = ref<"protect" | "export">("export")
@@ -804,11 +803,10 @@ function synchronizedTimelines():
     )
 }
 
+
 function findSkipGapTarget(
   timeMs: number
 ): number | null {
-  if (!skipGaps.value) return null
-
   const tracks = synchronizedTimelines()
   if (
     !tracks.length ||
@@ -1712,26 +1710,6 @@ async function resolveAt(
     playbackResult.value = result
 
     if (result.status === "gap") {
-      if (
-        skipGaps.value &&
-        autoplay
-      ) {
-        const target =
-          findSkipGapTarget(
-            at.getTime()
-          )
-        if (
-          target !== null &&
-          target > at.getTime()
-        ) {
-          void resolveAt(
-            new Date(target),
-            true
-          )
-          return
-        }
-      }
-
       setMasterClockTime(
         at.getTime(),
         "paused"
@@ -2569,7 +2547,6 @@ onBeforeUnmount(() => {
       <PlaybackTopBar
         v-model:camera-panel-open="cameraPanelOpen"
         v-model:selected-date="selectedDate"
-        v-model:skip-gaps="skipGaps"
         :cameras="cameras"
         :active-camera-id="activeCameraId"
         :active-camera-name="activeCamera?.name ?? null"
@@ -2584,7 +2561,6 @@ onBeforeUnmount(() => {
         @select-today="selectPlaybackToday"
         @set-sync-mode="setSyncMode"
         @go-to-files="goToFilesManager"
-        @open-action="openActionPanel"
         @set-zoom="setZoom"
         @toggle-fullscreen="toggleFullscreen"
       />
@@ -2752,7 +2728,6 @@ onBeforeUnmount(() => {
         :multi-camera-mode="multiCameraMode"
         :sync-mode="syncMode"
         :playback-participants="playbackParticipants"
-        :skip-gaps="skipGaps"
         :active-segment-id="activeSegmentId"
         :active-timeline-segment="activeTimelineSegment"
         :standby-segment="standbySegment"

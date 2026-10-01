@@ -450,6 +450,12 @@ AppShell 重排时 `logout()` 成了死代码——AccountPanel 只有改密码/
 
 **验证**：`vitest` **273 passed / 54 files**、`vue-tsc` clean；浏览器实测录制计划页 EN↔中文 整页 chrome 翻转（KPI/按钮/表头/空态全切换）；生产构建 preview 登录页切换正常。
 
+### 同日第八轮：回放顶栏去重 + 移除"跳过空档"开关（用户反馈）
+
+- **重复按钮**：顶栏的 加锁保护/剪辑导出 与底部控制栏的 保护/导出 完全重复（同样经 `openActionPanel` 打开操作面板）。删除顶栏两个按钮及 `open-action` 契约；底部控制栏为唯一入口（含权限门控 can-protect/can-export）。
+- **跳过空档开关**：作用是"落进录像空档时自动向前寻位继续播放"，默认关闭，且空档界面本就提供 上一段/下一段 手动跳转——开关冗余，整条链路移除：顶栏按钮、`skipGaps` 状态、单机位 resolve 的自动跳转分支、诊断面板的 skip-gaps 展示行、`playback.skipGaps*` i18n key。**刻意保留** `findSkipGapTarget` + `skipSynchronizedGap`：多机位同步播放的跳空档是无条件行为（有自己的 multiCameraMode+playing 守卫，不受被删开关控制），属真实功能。
+- 验证：`vitest` **273 passed / 54 files**、`vue-tsc` clean；浏览器实测 1366px 下顶栏单行排布（时光回放 | 机位 | 面板 | 日期 | 容错/严格 | 管理当前文件 | 缩放 | 全屏）。
+
 ### 剩余 backlog（按审计顺序，需独立成项）
 
 `cameras/api.py`（3,868 行/40 端点）拆 router、`core/jobs/runner.py`（先统一 5 个 job 引擎的错误字段/终态语义并补 golden 测试）、`system/api.py`/`worker/tasks.py`/`cli.py` 包化、Wave 4 scoped CSS 归位与模板硬编码中文迁移、`RecordingWindowsEditor` 双实现合并（含魔法字符串/星期顺序漂移的产品决策）。

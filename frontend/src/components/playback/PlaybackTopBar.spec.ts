@@ -21,7 +21,6 @@ const baseProps = {
   selectedDate: "2026-09-28",
   isToday: false,
   syncMode: "tolerant" as const,
-  skipGaps: false,
   zoomHours: 6 as const,
   zoomOptions: [1, 6, 24] as (1 | 6 | 24)[],
   fullscreen: false
@@ -49,21 +48,17 @@ describe("PlaybackTopBar", () => {
     expect(wrapper.emitted("select-today")).toHaveLength(1)
   })
 
-  it("routes sync, export, zoom and fullscreen controls", async () => {
+  it("routes sync, zoom and fullscreen controls", async () => {
     const wrapper = mount(PlaybackTopBar, { props: baseProps })
 
     await wrapper.findAll(".topbar-icon-btn")[0].trigger("click")
     await wrapper.findAll(".sync-btn")[1].trigger("click")
-    await wrapper.find('button[title="选定时段导出剪辑"]').trigger("click")
     await wrapper.findAll(".zoom-btn")[2].trigger("click")
-    await wrapper.find('button[title="playback.skipGapsTitle"]').trigger("click")
     await wrapper.findAll(".topbar-icon-btn")[1].trigger("click")
 
     expect(wrapper.emitted("update:cameraPanelOpen")?.[0]).toEqual([true])
     expect(wrapper.emitted("set-sync-mode")?.[0]).toEqual(["strict"])
-    expect(wrapper.emitted("open-action")?.[0]).toEqual(["export"])
     expect(wrapper.emitted("set-zoom")?.[0]).toEqual([24])
-    expect(wrapper.emitted("update:skipGaps")?.[0]).toEqual([true])
     expect(wrapper.emitted("toggle-fullscreen")).toHaveLength(1)
   })
 })

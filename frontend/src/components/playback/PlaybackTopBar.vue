@@ -20,7 +20,6 @@ defineProps<{
 
 const cameraPanelOpen = defineModel<boolean>("cameraPanelOpen", { required: true })
 const selectedDate = defineModel<string>("selectedDate", { required: true })
-const skipGaps = defineModel<boolean>("skipGaps", { required: true })
 
 const emit = defineEmits<{
   "select-camera": [cameraId: string]
@@ -29,7 +28,6 @@ const emit = defineEmits<{
   "select-today": []
   "set-sync-mode": [mode: "tolerant" | "strict"]
   "go-to-files": []
-  "open-action": [mode: "protect" | "export"]
   "set-zoom": [hours: ZoomHours]
   "toggle-fullscreen": []
 }>()
@@ -223,40 +221,6 @@ function selectPlaybackCamera(cameraId: string): void {
         <span>管理当前文件</span>
       </button>
 
-      <!-- Recording Protection (加锁保护) -->
-      <button
-        class="action-pill-btn action-pill-btn--amber"
-        type="button"
-        title="对当前时段切片添加锁定保护防自动覆盖清理"
-        @click="emit('open-action', 'protect')"
-      >
-        <UiIcon name="shield" :size="13" class="text-amber" />
-        <span>加锁保护</span>
-      </button>
-
-      <!-- UniFi Scissors Clip Exporter -->
-      <button
-        class="action-pill-btn action-pill-btn--blue"
-        type="button"
-        title="选定时段导出剪辑"
-        @click="emit('open-action', 'export')"
-      >
-        <UiIcon name="export" :size="13" />
-        <span>剪辑导出</span>
-      </button>
-
-      <div class="topbar-divider" />
-
-      <!-- Skip Gaps Toggle -->
-      <button
-        class="action-pill-btn"
-        :class="{ 'action-pill-btn--active': skipGaps }"
-        type="button"
-        :title="t('playback.skipGapsTitle')"
-        @click="skipGaps = !skipGaps"
-      >
-        {{ t("playback.skipGaps") }}
-      </button>
 
       <!-- Zoom Switcher -->
       <div class="zoom-pill">
