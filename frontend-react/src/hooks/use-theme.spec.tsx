@@ -1,6 +1,11 @@
 import { act, render, renderHook } from "@testing-library/react"
 import { beforeEach, describe, expect, it } from "vitest"
-import { App } from "../components/AppShell"
+import {
+  RouterProvider,
+  createMemoryHistory,
+  createRouter,
+} from "@tanstack/react-router"
+import { routeTree } from "../routes/router"
 import { useTheme } from "./use-theme"
 
 /**
@@ -45,7 +50,14 @@ describe("useTheme", () => {
   it("keeps the dark class off any descendant of the app", () => {
     // The real shell, not just the hook: the bug was a wrapper div in the
     // component tree, so asserting on the hook alone would not catch it.
-    const { container } = render(<App />)
+    const { container } = render(
+      <RouterProvider
+        router={createRouter({
+          routeTree,
+          history: createMemoryHistory({ initialEntries: ["/live"] }),
+        })}
+      />,
+    )
     expect(container.querySelector(".dark")).toBeNull()
     expect(document.documentElement.classList.contains("dark")).toBe(false)
   })

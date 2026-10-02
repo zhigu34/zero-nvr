@@ -13,15 +13,37 @@ import {
   Users,
   Video,
 } from "lucide-react"
+import { ROLES, type RoleName } from "../api/auth"
 
 export type NavItem = {
   key: string
   label: string
+  /** URL path. Differs from `key` only for 录制计划, kept as the legacy alias. */
+  path: string
   icon: LucideIcon
   /** Prototype note: not all items are in the same maturity band. */
   badge?: "optional" | "not-configured"
   description: string
+  /**
+   * Lowest role that can open the page at all. Derived from the permission
+   * each module's read endpoints actually require, not assumed from role
+   * names — e.g. every storage endpoint requires `storage.manage`, so the
+   * page is Administrator-only even though an Operator can view cameras.
+   */
+  requires: RoleName
+  /** Lowest role that can change something here. */
+  manage: RoleName
+  /**
+   * `immersive` pages own the whole viewport with no page padding — a
+   * media surface with a header and inset margin is wrong. Kept here so the
+   * shell and the router read the same source as the label and the guard.
+   */
+  layout: "immersive" | "standard"
 }
+
+const A = ROLES.ADMIN
+const O = ROLES.OPERATOR
+const V = ROLES.VIEWER
 
 export type NavGroup = {
   label: string
@@ -40,6 +62,10 @@ export const navigation: NavGroup[] = [
     items: [
       {
         key: "live",
+        path: "/live",
+        layout: "immersive",
+        requires: V,
+        manage: O,
         label: "实时监控",
         icon: Video,
         description:
@@ -47,6 +73,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "playback",
+        path: "/playback",
+        layout: "immersive",
+        requires: V,
+        manage: O,
         label: "录像回放",
         icon: MonitorPlay,
         description:
@@ -54,6 +84,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "timeline",
+        path: "/timeline",
+        layout: "standard",
+        requires: V,
+        manage: V,
         label: "事件时间轴",
         icon: Clock,
         description:
@@ -66,6 +100,10 @@ export const navigation: NavGroup[] = [
     items: [
       {
         key: "cameras",
+        path: "/cameras",
+        layout: "standard",
+        requires: V,
+        manage: O,
         label: "摄像机",
         icon: Camera,
         description:
@@ -73,6 +111,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "schedules",
+        path: "/recording-schedules",
+        layout: "standard",
+        requires: V,
+        manage: O,
         label: "录制计划",
         icon: Gauge,
         description:
@@ -80,6 +122,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "events",
+        path: "/events",
+        layout: "immersive",
+        requires: V,
+        manage: O,
         label: "事件",
         icon: Activity,
         description:
@@ -87,6 +133,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "alerts",
+        path: "/alerts",
+        layout: "standard",
+        requires: V,
+        manage: O,
         label: "告警规则",
         icon: Bell,
         description:
@@ -99,6 +149,10 @@ export const navigation: NavGroup[] = [
     items: [
       {
         key: "storage",
+        path: "/storage",
+        layout: "standard",
+        requires: A,
+        manage: A,
         label: "存储",
         icon: HardDrive,
         description:
@@ -107,6 +161,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "files",
+        path: "/files",
+        layout: "immersive",
+        requires: V,
+        manage: O,
         label: "文件",
         icon: FileVideo,
         description:
@@ -119,6 +177,10 @@ export const navigation: NavGroup[] = [
     items: [
       {
         key: "system",
+        path: "/system",
+        layout: "standard",
+        requires: V,
+        manage: A,
         label: "系统设置",
         icon: Settings,
         description:
@@ -126,6 +188,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "users",
+        path: "/users",
+        layout: "standard",
+        requires: A,
+        manage: A,
         label: "用户与权限",
         icon: Users,
         description:
@@ -133,6 +199,10 @@ export const navigation: NavGroup[] = [
       },
       {
         key: "audit",
+        path: "/audit",
+        layout: "standard",
+        requires: A,
+        manage: A,
         label: "审计日志",
         icon: ShieldCheck,
         description: "敏感操作留痕：谁改了机位、谁删了录像、谁看过凭据。",
@@ -141,3 +211,7 @@ export const navigation: NavGroup[] = [
     ],
   },
 ]
+
+export function findNavItem(key: string): NavItem | undefined {
+  return navigation.flatMap((g) => g.items).find((i) => i.key === key)
+}

@@ -129,12 +129,18 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 
 ## Implementation order
 
-1. **PR-1 骨架**：`frontend-react/` 初始化，移植 theme.css + layout 组件，产出静态原型供走查
-2. **PR-2 认证与外壳**：登录、session、AppShell 导航分组、权限守卫
+1. **PR-1 骨架**：`frontend-react/` 初始化，移植 theme.css + layout 组件，产出静态原型供走查 —— **已完成**（`6ec78ed`）
+2. **PR-2 认证与外壳**：登录、session、AppShell 导航分组、权限守卫 —— **已完成**（认证门禁、TanStack Router 路由树、角色过滤、用户菜单）
 3. **PR-3 只读页**：Dashboard / Cameras 列表 / Events / Storage 列表（TanStack Table 模式验证）
 4. **PR-4 媒体页**：Live / Playback（hls.js 传输层 + 播放容错 + 补测试）
 5. **PR-5 写操作页**：机位编辑 / 录制计划 / 告警规则 / 系统设置
 6. **PR-6 切换**：删除 `frontend/`，`frontend-react/` 升为唯一前端
+
+### PR-2 的两个既定事实
+
+**权限按模块整体授予，粒度已由后端决定而非前端猜测。** 逐模块核对 `require_permission` 调用点后确认：存储模块**全部**端点要 `storage.manage`，用户模块要 `user.manage`，审计要 `audit.view` —— 后两者 Operator 角色都没有。因此**存储、用户与权限、审计日志三页只对管理员开放**，而系统设置对所有角色可看、仅管理员可写。前端按角色名判定，不按 19 个细粒度权限点，以便收敛后不波及页面。
+
+**路由路径字面量写死，配套测试锁一致性。** 用 `moduleRoute(key: string)` 之类的辅助函数会把 `path` 退化成 `string`，TanStack Router 就无法为 `Link to={...}` 生成类型。改为 12 条路由逐条显式声明，代价是路径在 `routes/router.tsx` 与 `lib/navigation.ts` 各存一份——`routes/router.spec.ts` 断言两者一致。
 
 ## Related
 

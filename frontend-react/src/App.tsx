@@ -1,5 +1,3 @@
-import { App as AppShell } from "./components/AppShell"
-
-export function App() {
-  return <AppShell />
-}
+export { AppShell } from "./components/AppShell"
+export { AuthGate } from "./components/AuthGate"
+export { router, routeTree } from "./routes/router"

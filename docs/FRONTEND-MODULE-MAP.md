@@ -88,6 +88,23 @@ ADR-0014 决定 RBAC 收敛为固定三角色（迁移的前置工作，见 §5�
 | 11 | 系统 | 用户与权限 | `users` | `/users` | standard | **提级**（现为系统设置内 tab） |
 | 12 | 系统 | 审计日志 | `audit` | `/audit` | standard | **未接入**（后端有端点，前端无入口） |
 
+### 角色可访问性（PR-2 实测，非推测）
+
+逐模块核对后端 `require_permission` 调用点后的实际门槛，与「三级角色」一节对齐：
+
+| 模块 | 可打开 | 可修改 | 依据 |
+|---|---|---|---|
+| 实时监控 / 录像回放 / 事件时间轴 | 浏览者 | 操作员 | `camera.view` / `recording.view` / `event.view` |
+| 摄像机 / 录制计划 | 浏览者 | 操作员 | 读 `camera.view`，写 `camera.configure` |
+| 事件 / 告警规则 | 浏览者 | 操作员 | `event.view` / `alert.manage` |
+| 文件 | 浏览者 | 操作员 | 读 `recording.view`，写 `recording.export` |
+| 系统设置 | 浏览者 | 管理员 | 读 `system.view`，写 `system.manage` |
+| **存储** | **管理员** | 管理员 | 模块内**全部**端点都要 `storage.manage` |
+| **用户与权限** | **管理员** | 管理员 | `user.manage` |
+| **审计日志** | **管理员** | 管理员 | `audit.view`，Operator 角色不含此项 |
+
+三个加粗项是核对权限调用点时才暴露的结果，与直觉不符：如果只看角色描述会以为操作员能看存储水位。`routes/router.spec.ts` 对这三项有专门断言。
+
 ### 分组逻辑
 
 不是照抄 shadcn-admin 的 Overview / Management / Others，而是按**操作频率**划分：
