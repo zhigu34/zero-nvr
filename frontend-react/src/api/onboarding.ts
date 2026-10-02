@@ -83,6 +83,7 @@
  * because afterwards there is nowhere to say it.
  */
 import { api, ApiError } from "./client"
+import type { CameraSummary } from "./cameras"
 
 /* -------------------------------------------------------------------------- */
 /* Discovery                                                                  */
@@ -190,8 +191,15 @@ export type OnvifImportInput = OnvifProbeInput & {
 export type OnvifImportResult = {
   device_id: string
   reconfigured: boolean
-  /** Grouped by `video_source_token`, so this can exceed the profile count. */
-  cameras: unknown[]
+  /**
+   * Grouped by `video_source_token`, so this can exceed the profile count.
+   *
+   * Typed as `CameraSummary` rather than `unknown[]`: the response is
+   * `list[CameraDetail]`, which is the summary plus `streams` and `bindings`
+   * (`cameras/schemas.py:182`). The wizard only needs the summary fields, and
+   * typing it keeps the cast-and-re-narrow out of every call site.
+   */
+  cameras: CameraSummary[]
 }
 
 export type OnvifRefreshDiff = {
@@ -207,7 +215,7 @@ export type OnvifRefreshDiff = {
 export type OnvifCapabilityRefreshResult = {
   device_id: string
   diff: OnvifRefreshDiff
-  cameras: unknown[]
+  cameras: CameraSummary[]
 }
 
 /* -------------------------------------------------------------------------- */
@@ -307,9 +315,16 @@ export function importOnvifDevice(body: OnvifImportInput) {
   return api.post<OnvifImportResult>("/cameras/onvif/import", body)
 }
 
-/** Re-read capabilities for a device already onboarded. */
-export function refreshOnvifCapabilities(cameraId: string) {
-  return api.post<OnvifCapabilityRefreshResult>(`/cameras/${cameraId}/onvif/refresh`)
+/**
+ * Re-read capabilities for a device already onboarded.
+ *
+ * The path segment is a **device** id, not a camera id — the result carries
+ * `device_id` and the response is a list of every camera on that device
+ * (`cameras/api.py:916`). Naming the parameter `cameraId` invites a caller to
+ * pass a camera id and get a 404, so it is `deviceId` on purpose.
+ */
+export function refreshOnvifCapabilities(deviceId: string) {
+  return api.post<OnvifCapabilityRefreshResult>(`/cameras/${deviceId}/onvif/refresh`)
 }
 
 /** Opens a real ZLM proxy per stream, 12 s timeout (`settings.py:64`). */
@@ -498,16 +513,35 @@ export function validateOnvifForm(form: OnvifForm): OnvifFormError[] {
     })
   }
 
-  // Only a *touched* empty selection is an error. An untouched one means "all
-  // profiles", which is a legitimate ask and a different request body.
-  if (form.selectionTouched && form.selectedProfileTokens.length === 0) {
-    errors.push({
-      field: "profiles",
-      message: "已取消全部勾选将导入 0 个码流。请至少选一个，或恢复默认的「全部」。",
-    })
-  }
-
   return errors
+}
+
+/**
+ * Whether the profile selection is something the import endpoint can act on.
+ *
+ * **Separate from `validateOnvifForm` on purpose.** An untouched empty selection
+ * is not a malformed form — it is the encoding of "every profile", a perfectly
+ * valid ask. It only becomes a problem at the point where a body is built, and
+ * folding it into form validity would let a caller gate the *inspection* step on
+ * a rule that has nothing to do with inspecting. Two steps, two validators.
+ */
+export function validateProfileSelection(
+  form: OnvifForm,
+): OnvifFormError[] {
+  if (form.selectionTouched && form.selectedProfileTokens.length === 0) {
+    return [
+      {
+        field: "profiles",
+        message: "已取消全部勾选将导入 0 个码流。请至少选一个，或恢复默认的「全部」。",
+      },
+    ]
+  }
+  return []
+}
+
+/** Both validators, for the one place that is about to submit. */
+export function validateOnvifForImport(form: OnvifForm): OnvifFormError[] {
+  return [...validateOnvifForm(form), ...validateProfileSelection(form)]
 }
 
 export function buildOnvifProbeInput(form: OnvifForm): OnvifProbeInput {
@@ -670,12 +704,27 @@ export function buildManualCameraInput(
 /* Presentation                                                               */
 /* -------------------------------------------------------------------------- */
 
-/** The four server-side timeouts, for setting a client-side budget. */
+/** The server-side timeouts, for setting a client-side budget. */
 export const ONVIF_TIMEOUT_BUDGET_MS = {
   discovery: 3_000,
   inspection: 10_000,
   probePerStream: 12_000,
 } as const
+
+/**
+ * What one import actually costs, worst case.
+ *
+ * The import re-runs the inspection and then probes every selected profile, so
+ * a client-side timeout has to clear the sum or it will abort a call the server
+ * is still legitimately working on. `profileCount` of 0 still pays for the
+ * inspection.
+ */
+export function importBudgetMs(profileCount: number): number {
+  return (
+    ONVIF_TIMEOUT_BUDGET_MS.inspection +
+    Math.max(0, profileCount) * ONVIF_TIMEOUT_BUDGET_MS.probePerStream
+  )
+}
 
 export function describeProfile(profile: OnvifProfileView): string {
   const parts: string[] = [profile.codec || "未知编码"]

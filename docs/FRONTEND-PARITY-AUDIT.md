@@ -144,8 +144,8 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 分类 | 组件数 | Vue 行数 | 受影响的 Vue spec |
 |---|---|---|---|
 | ✅ 已被 React 取代 | 19 | 8,373 | 0（都有 React 对应测试） |
-| ✅ 本轮补齐 | 7 | 3,511 | 3（`SystemNotificationsTab` / `SystemAiTab` / `SystemBackupTab`） |
-| ❌ **仍然完全缺失** | **16** | **4,273** | **12** |
+| ✅ 本轮补齐 | 13 | 8,293 | 12 |
+| ❌ **仍然完全缺失** | **10** | **492** | **6** |
 | 🟡 部分覆盖 / 形态不同 | 5 | 2,578 | 3 |
 | ⚪ 两侧都是死代码 | 2 | — | 0 |
 
@@ -168,8 +168,8 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 5 | 备份策略 + 恢复包 | 1,213 | 1 个 spec | ✅ 已补齐 |
 | 6 | 机位分组 CRUD | 595 | 无 | ✅ 已补齐 |
 | 7 | 个人账号设置（改密码/邮箱） | 531 | 无 | ✅ 已补齐 |
-| 8 | 回放操作（手动触发/保护/历史）+ 诊断面板 | 799 | 4 个 spec | ⬜ |
-| 9 | 摄像机接入向导（ONVIF/手动/CSV） | 2,208 | 6 个 spec，最复杂 | ⬜ |
+| 8 | 回放操作（手动触发/保护/历史）+ 诊断面板 | 799 | 4 个 spec | ✅ 已补齐 |
+| 9 | 摄像机接入向导（ONVIF/手动/CSV） | 2,208 | 6 个 spec，最复杂 | ✅ 已补齐 |
 | 10 | 角色 → 权限矩阵（= PR-0） | — | 需先裁决 RBAC 收敛范围 | ⬜ |
 | 11 | 摄像机详情抽屉（码流绑定/健康/时钟） | 2,035 | 1 个 spec | ⬜ |
 | 12 | 文件日历 / 热力图 / 预览播放器 | 983 | 3 个 spec，需产品决策 | ⬜ |
@@ -433,7 +433,88 @@ unreadable 单独一行并明说「这 N 条已经算在上面了」。
 
 ---
 
-## 13. PR-6 切换还需要改什么
+## 13. 补齐 8–9/13：回放操作与诊断 / 摄像机接入向导
+
+13 项里最复杂的两块，拆成 3 个并行任务：回放操作+诊断、接入向导、批量 CSV。
+零后端改动。
+
+### 一条决定性发现
+
+**后端没有任何诊断端点。** Vue 的 `PlaybackDiagnosticsPanel.vue` 279 行**全是
+客户端的**——`HTMLMediaElement` 状态 + `masterClock` + 本地解析器。`backend/app`
+下不存在 `/diagnostics`、`/health`（在 `/api/v1` 下）或 `/metrics`。
+
+所以诊断面板按「本地状态 + 录制策略运行块」建模，**没有发明诊断请求**。这正是
+「文档说『没有』之前先去代码里找一遍」那条规则的又一次应用——如果按面板的名字
+去猜后端有什么，会凭空造出一个端点。
+
+诊断 worker 进一步报出：**`driftMs` 目前无法渲染**。`MasterPlaybackClock` 被
+`useMasterClock` 放在 ref 里（`hooks/useMasterClock.ts:28-32`），没有 store、没有
+context、没有 DOM 标记把它发布出来，只给 `cameraId` 的面板拿不到播放头。面板
+如实显示「无法读取」并说明原因，而不是显示一个假的 0。修它需要改 hook，超出补齐
+范围。
+
+### 三个新的「已持久化却报 503」
+
+手动触发（`details.trigger_persisted`）和接入导入（`details.configuration_persisted`）
+是这个模式的**第三、第四个实例**，前两个是通知与备份。四处都遵循同一条规则：
+行先 commit 再入队，所以 503 可能意味着**它成功了**。报成失败会诱导重试，而重试
+会造出第二份没人分辨得了的记录。四个模块现在各有自己的判别器，形态一致。
+
+### 接入向导的四个陷阱
+
+- **`profile_tokens: null` 是「全部 profile」，`[]` 是「一个都不要」**且会走到
+  422（`onvif_onboarding.py:229-230`）。表单初始什么都不勾，自然会发 `[]`。
+- **N 个 profile 不等于 N 个机位**：机位按 `video_source_token` 分组
+  （`:1149-1176`），多通道设备一次导入产出「<name> 1」「<name> 2」。
+- **`confirm_existing_device_id` 必须原样回传**服务端的 `matched_device_id`；
+  本地推导会得到**另一个** 409（`:490, :547`）——同一个用户错误两种提示。
+- **422 `onvif_connection_failed` 同时覆盖密码错、IP 错、防火墙拦截**
+  （`onvif_adapter.py:471-479`），不能按状态码声称知道是哪个。
+
+### 批量接入：100% 客户端，且不可预览
+
+没有服务端端点、没有 CSV 解析、**没有试运行**——`onvif/import` 是唯一的「校验」
+而它会写库。所以批量**不原子**、第 N 行失败时前 N-1 行已建成且无回滚。CSV 解析
+自己写（要处理 BOM、CRLF、引号内逗号与 `""` 转义、按名而非按位匹配表头），
+逐行**串行**执行，可中途停止。`review` 状态与 `failed` 分开：身份不是 `new_device`
+的行没有被导入，标成 failed 会诱导重试。
+
+### 并行的第三次收获
+
+三个 worker 报出六个契约层问题，都已修。其中一个是**真设计缺陷**：
+
+> `validateOnvifForm` 把「profile 勾选为空」也算作表单无效。但未触碰的空勾选
+> **不是表单填错**，它是请求体表达「全部 profile」的方式。折进表单有效性里，
+> 调用方就会拿它去卡**检查设备**这一步——而这条规则与检查毫无关系。
+
+已拆成 `validateProfileSelection`（请求体语义）与 `validateOnvifForm`（表单语义），
+再加一个 `validateOnvifForImport` 给真正要提交的那一处用。两个步骤，两个校验器。
+
+其余五个：`refreshOnvifCapabilities` 的参数其实是 **device id** 不是 camera id
+（叫 `cameraId` 会让人传错拿 404）；`OnvifImportResult.cameras` 是 `unknown[]`
+逼着每个调用点强转；`describeFailure` 是私有的，两个 worker 各自复制了一份中文
+映射（现在导出）；`ONVIF_TIMEOUT_BUDGET_MS` 没有总预算（补了 `importBudgetMs`）。
+
+一个 worker 在自己的代码里抓到真 bug：快照初始化跑在 stage 元素进 DOM 之前，
+面板会一直说「没有媒体元素」直到第一次媒体事件。测试抓到的。
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| `npx tsc --noEmit` | 干净 |
+| `npx vitest run` | **1098 passed / 67 files**（本轮 +95） |
+| `npm run build` | 通过 |
+| `git diff main...HEAD -- backend/` | 空 |
+
+新增测试：`api/playbackActions.spec.ts`(29) + `api/onboarding.spec.ts`(29) +
+`PlaybackPanels.spec.tsx`(33) + `OnboardingWizard.spec.tsx`(31) +
+`batchCsv.spec.ts`(27)。
+
+---
+
+## 14. PR-6 切换还需要改什么
 
 即使 13 项全部补齐，切换本身还要动这些：
 
@@ -451,7 +532,7 @@ unreadable 单独一行并明说「这 N 条已经算在上面了」。
 
 ---
 
-## 14. 待裁决
+## 15. 待裁决
 
 1. **i18n**：React 侧是否重建多语言？这决定 13 项之外是否还有第 14 项。
 2. **文件页形态**：日历 + 热力图是否保留，还是接受 PR-5e 的「浏览并导出」？

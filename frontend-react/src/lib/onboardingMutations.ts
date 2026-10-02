@@ -9,6 +9,7 @@ import {
   testManualCamera,
   type CameraCreateInput,
   type OnvifImportInput,
+  type OnvifImportResult,
   type OnvifInspectionView,
   type OnvifProbeInput,
 } from "../api/onboarding"
@@ -70,7 +71,7 @@ export function useInspectOnvif() {
  * device, so the message says not to.
  */
 export function useImportOnvifDevice() {
-  return useSave<OnvifImportInput, unknown>({
+  return useSave<OnvifImportInput, OnvifImportResult>({
     mutationFn: (body) => importOnvifDevice(body),
     invalidates: [CAMS.list(), CAMS.list(true), CAMERA_ONBOARDING.devices],
     success: () => ({
@@ -123,7 +124,12 @@ export function useCreateManualCamera() {
   })
 }
 
-function describeFailure(error: unknown): string {
+/**
+ * Exported because the wizard needs to explain a failure at the step that
+ * caused it, and a second private copy of this table would drift from the first
+ * within one release.
+ */
+export function describeFailure(error: unknown): string {
   const code = (error as { code?: string } | null)?.code
   switch (code) {
     case "onvif_connection_failed":

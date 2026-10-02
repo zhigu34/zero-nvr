@@ -15,6 +15,7 @@ import {
   startDiscovery,
   validateManualCameraForm,
   validateOnvifForm,
+  validateProfileSelection,
   type ManualCameraForm,
   type OnvifForm,
   type OnvifIdentityView,
@@ -170,13 +171,11 @@ describe("profile selection", () => {
     // form refuses to submit it, because [] reaches 422 on the server.
     const form = onvifForm({ selectionTouched: true, selectedProfileTokens: [] })
     expect(buildOnvifImportInput(form, identity()).profile_tokens).toEqual([])
-    expect(validateOnvifForm(form).map((e) => e.field)).toContain("profiles")
+    expect(validateProfileSelection(form).map((e) => e.field)).toContain("profiles")
   })
 
-  it("an untouched empty selection is not an error", () => {
-    expect(validateOnvifForm(onvifForm()).map((e) => e.field)).not.toContain(
-      "profiles",
-    )
+  it("an untouched empty selection is not an error in either validator", () => {
+    expect(validateProfileSelection(onvifForm())).toEqual([])
   })
 
   it("filters out profiles with no usable stream URI", () => {
@@ -390,5 +389,46 @@ describe("describeProbeStream", () => {
     expect(
       describeProbeStream({ role: "secondary", name: "m", video: track, audio: track }),
     ).toBe("子码流：h264 · 1920×1080 · 25fps · 含音频")
+  })
+})
+
+describe("the profile rule is a request-body concern, not form validity", () => {
+  it("validateOnvifForm does NOT complain about a profile selection", () => {
+    // An untouched empty selection is the encoding of "every profile" — a
+    // valid ask. Folding it into form validity would let a caller gate the
+    // inspection step on a rule that has nothing to do with inspecting.
+    const untouched = onvifForm()
+    expect(untouched.selectedProfileTokens).toEqual([])
+    expect(validateOnvifForm(untouched).map((e) => e.field)).not.toContain(
+      "profiles",
+    )
+  })
+
+  it("validateProfileSelection catches only a deliberately emptied selection", async () => {
+    const { validateOnvifForm: formOnly, validateProfileSelection, validateOnvifForImport } =
+      await import("./onboarding")
+    const emptied = onvifForm({ selectionTouched: true, selectedProfileTokens: [] })
+    expect(validateProfileSelection(emptied).map((e) => e.field)).toEqual(["profiles"])
+    expect(formOnly(emptied).map((e) => e.field)).not.toContain("profiles")
+    expect(validateOnvifForImport(emptied).map((e) => e.field)).toContain("profiles")
+  })
+
+  it("a real selection passes both", async () => {
+    const { validateOnvifForImport } = await import("./onboarding")
+    expect(
+      validateOnvifForImport(
+        onvifForm({ selectionTouched: true, selectedProfileTokens: ["p1"] }),
+      ),
+    ).toEqual([])
+  })
+})
+
+describe("importBudgetMs", () => {
+  it("sums the inspection plus one probe per selected profile", async () => {
+    const { importBudgetMs } = await import("./onboarding")
+    expect(importBudgetMs(0)).toBe(10_000)
+    expect(importBudgetMs(4)).toBe(10_000 + 4 * 12_000)
+    // A negative count must not produce a budget below the inspection.
+    expect(importBudgetMs(-3)).toBe(10_000)
   })
 })

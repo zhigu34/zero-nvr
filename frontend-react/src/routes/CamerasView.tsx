@@ -16,6 +16,8 @@ import { useCameras, useCamera, useCameraGroups } from "../lib/queries"
 import { useProbeCamera, useRetireCamera, useSetCameraEnabled } from "../lib/cameraMutations"
 import { CameraEditor } from "../components/cameras/CameraEditor"
 import { CameraGroupsPanel } from "../components/cameras/CameraGroupsPanel"
+import { OnboardingWizard } from "../components/cameras/OnboardingWizard"
+import { OnboardingBatch } from "../components/cameras/OnboardingBatch"
 import {
   ROW_ACTION_LABEL,
   rowActionFor,
@@ -44,7 +46,7 @@ function statusLabel(c: CameraSummary): string {
   return s === "online" ? "在线" : s === "offline" ? "离线" : s === "degraded" ? "抖动" : "未知"
 }
 
-type CameraTab = "cameras" | "groups"
+type CameraTab = "cameras" | "groups" | "onboarding" | "batch"
 
 export function CamerasView() {
   const [tab, setTab] = useState<CameraTab>("cameras")
@@ -264,6 +266,8 @@ export function CamerasView() {
           onChange={(key) => setTab(key as CameraTab)}
           tabs={[
             { key: "cameras", label: "机位" },
+            { key: "onboarding", label: "接入设备" },
+            { key: "batch", label: "批量接入" },
             { key: "groups", label: "分组", count: groupCount },
           ]}
         />
@@ -272,6 +276,14 @@ export function CamerasView() {
       {tab === "groups" ? (
         <div className="flex-1 space-y-4 overflow-auto p-5">
           <CameraGroupsPanel />
+        </div>
+      ) : tab === "onboarding" ? (
+        <div className="flex-1 space-y-4 overflow-auto p-5">
+          <OnboardingWizard />
+        </div>
+      ) : tab === "batch" ? (
+        <div className="flex-1 space-y-4 overflow-auto p-5">
+          <OnboardingBatch />
         </div>
       ) : (
       <div className="flex flex-1 overflow-hidden">

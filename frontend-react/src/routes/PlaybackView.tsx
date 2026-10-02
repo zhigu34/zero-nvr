@@ -11,6 +11,8 @@ import {
   ToolbarSpacer,
 } from "../components/ui/display"
 import { PlaybackStage } from "../components/playback/PlaybackStage"
+import { PlaybackActionPanel } from "../components/playback/PlaybackActionPanel"
+import { PlaybackDiagnosticsPanel } from "../components/playback/PlaybackDiagnosticsPanel"
 import { TimelineTrack } from "../components/playback/TimelineTrack"
 import { useMasterClock } from "../hooks/useMasterClock"
 import { useCameraTimeline, useCameras } from "../lib/queries"
@@ -106,6 +108,16 @@ export function PlaybackView({
     [clock],
   )
 
+  /**
+   * The operator side panel, toggled from the toolbar.
+   *
+   * It is a side panel rather than a third tab because both of its halves need
+   * the camera the stage is currently showing: a manual recording trigger or a
+   * protection window is meaningless for a camera you are not looking at. A tab
+   * would hide the stage and take the selection context with it.
+   */
+  const [sidePanel, setSidePanel] = useState<"actions" | null>(null)
+
   const currentGap = gapAt(timelineQuery.data ?? null, clock.currentMs)
   const cameraName =
     camerasQuery.data?.find((camera) => camera.id === cameraId)?.name ?? null
@@ -188,8 +200,16 @@ export function PlaybackView({
         >
           回到当前时间
         </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setSidePanel((panel) => (panel === null ? "actions" : null))}
+        >
+          {sidePanel === "actions" ? "收起操作面板" : "操作与诊断"}
+        </Button>
       </Toolbar>
 
+      <div className="flex min-h-0 flex-1">
       <div className="flex flex-1 flex-col gap-3 p-4">
         {timelineQuery.isError ? (
           <Callout tone="offline" title="无法加载录像时间轴">
@@ -271,6 +291,19 @@ export function PlaybackView({
             </p>
           ) : null}
         </div>
+      </div>
+
+        {/* The toolbar defaults to the first camera, but the state is nullable
+            until that effect lands; the panel needs a real id, not a maybe. */}
+        {sidePanel === "actions" && cameraId ? (
+          <aside
+            aria-label="操作与诊断"
+            className="w-[30rem] shrink-0 space-y-4 overflow-auto border-l border-border p-4"
+          >
+            <PlaybackActionPanel cameraId={cameraId} />
+            <PlaybackDiagnosticsPanel cameraId={cameraId} />
+          </aside>
+        ) : null}
       </div>
     </div>
   )
