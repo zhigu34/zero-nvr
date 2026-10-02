@@ -12,6 +12,9 @@ import * as usersApi from "../api/users"
 import * as auditApi from "../api/audit"
 import * as alertsApi from "../api/alerts"
 import * as notificationsApi from "../api/notifications"
+import * as tokensApi from "../api/apiTokens"
+import * as secretStoreApi from "../api/secretStore"
+import * as frigateApi from "../api/frigate"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -508,5 +511,67 @@ export function useNotificationDeliveries(
       const inFlight = items.some((d) => d.state === "PENDING" || d.state === "SENDING")
       return inFlight ? 4_000 : false
     },
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* API tokens                                                                 */
+/* -------------------------------------------------------------------------- */
+
+export const TOKENS = {
+  /** Personal tokens belong to one account, so the list is not paged. */
+  list: ["auth", "api-tokens"] as const,
+}
+
+export function useApiTokens() {
+  return useQuery({
+    queryKey: TOKENS.list,
+    queryFn: ({ signal }) => tokensApi.listApiTokens(signal),
+    // Token state changes only when this account creates or revokes one.
+    staleTime: 30_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Secret store                                                               */
+/* -------------------------------------------------------------------------- */
+
+export const SECRET_STORE = {
+  health: ["system", "secret-store"] as const,
+}
+
+/**
+ * The health report decrypts every stored secret to count it
+ * (`secret_store.py:422-435`). That is real work on every call, and nothing
+ * about it changes on its own — a key only moves when a deployment ships one —
+ * so the staleness window is generous rather than the usual few seconds.
+ */
+export function useSecretStoreHealth() {
+  return useQuery({
+    queryKey: SECRET_STORE.health,
+    queryFn: ({ signal }) => secretStoreApi.getSecretStoreHealth(signal),
+    staleTime: 60_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Frigate                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const FRIGATE = {
+  provider: ["system", "frigate"] as const,
+}
+
+/**
+ * 404s with `frigate_not_configured` on first run, which is the normal state
+ * rather than a failure — the panel branches on `isNotConfigured(error)` and
+ * shows a form instead of an error banner. `retry: false` keeps that 404 from
+ * being retried into a delay before the empty state appears.
+ */
+export function useFrigateProvider() {
+  return useQuery({
+    queryKey: FRIGATE.provider,
+    queryFn: ({ signal }) => frigateApi.getFrigateProvider(signal),
+    staleTime: 60_000,
   })
 }
