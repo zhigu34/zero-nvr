@@ -64,6 +64,11 @@ export function useChangeOwnPassword(onChanged?: (user: unknown) => void) {
     }),
     failure: (error) => {
       const code = (error as { code?: string } | null)?.code
+      // The form renders this one on the `current_password` field itself, with
+      // `aria-invalid`. `useSave` documents `null` as "already surfaced
+      // elsewhere" and suppresses the toast — returning a message here would
+      // show the same sentence twice, once inline and once as a toast.
+      if (code === "invalid_current_password") return null
       return {
         title: "修改密码失败",
         detail: PASSWORD_CHANGE_FAILURE[code ?? ""] ??

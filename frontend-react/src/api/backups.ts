@@ -233,11 +233,28 @@ export type RecoveryKitStatusView = {
 
 export type RecoveryKitRequest = {
   policy_id: string
-  /** Min 16 characters at the schema, min 16 UTF-8 **bytes** at the service. */
   passphrase: string
 }
 
+/**
+ * Minimum passphrase length, in **characters**.
+ *
+ * The schema checks characters (`min_length=16`, `schemas.py:113-118`) but the
+ * service re-checks **UTF-8 bytes** and the byte count wins
+ * (`recovery_kit.py:514-522`). For ASCII they agree; for anything else the
+ * service is stricter, and sixteen CJK characters is 48 bytes. A UI that wants
+ * to match the server exactly should check bytes.
+ */
 export const RECOVERY_PASSPHRASE_MIN = 16
+
+export function passphraseByteLength(passphrase: string): number {
+  return new TextEncoder().encode(passphrase).length
+}
+
+/** Whether the service would accept this passphrase. */
+export function passphraseAccepted(passphrase: string): boolean {
+  return passphraseByteLength(passphrase) >= RECOVERY_PASSPHRASE_MIN
+}
 
 /* -------------------------------------------------------------------------- */
 /* Endpoints                                                                  */
@@ -574,6 +591,12 @@ export function buildRetention(
  * The schedule drafts start with a usable timezone rather than an empty string
  * so the common case — "type a cron, keep the system zone" — needs no extra
  * click, and so `buildSchedule` has somewhere to read it from.
+ *
+ * `credentialsAction` is `"replace"`, unlike the edit path's `"keep"`. A create
+ * body has `credentials` as a **required** field (`schemas.py:17-34`), so
+ * "keep" on a form with nothing stored would post an empty password and fail
+ * with a message about a field the operator never saw. There is nothing to
+ * keep on a new policy.
  */
 export function emptyPolicyForm(timezone: string): BackupPolicyForm {
   return {
@@ -588,9 +611,7 @@ export function emptyPolicyForm(timezone: string): BackupPolicyForm {
     retention: {},
     verifyAfterBackup: true,
     includeDeploymentConfig: false,
-    // "Keep" is the only honest initial state: the stored repository URL and
-    // password are unreadable, so there is nothing to pre-fill.
-    credentialsAction: "keep",
+    credentialsAction: "replace",
     credentials: { password: "", environment: {} },
   }
 }

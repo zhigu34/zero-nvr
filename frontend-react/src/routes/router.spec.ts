@@ -158,3 +158,34 @@ describe("landing route follows the weakest role", () => {
     }
   })
 })
+
+describe("/account", () => {
+  const registered = flatPaths()
+
+  it("is registered as a real route", () => {
+    expect(Object.values(registered)).toContain("/account")
+  })
+
+  it("is not a navigation module, so it is not in the sidebar", () => {
+    // It belongs to the user menu, not to the module list — and the
+    // router ↔ navigation test above only requires one direction.
+    const flat = navigation.flatMap((g) => g.items)
+    expect(flat.some((i) => i.key === "account")).toBe(false)
+  })
+
+  it("carries no role guard of its own, while the module routes keep theirs", () => {
+    // Every module route declares a minimum role; this one must not, because
+    // it is the signed-in user's own account. A Viewer who needs to change a
+    // leaked password has to be able to reach it.
+    const routes = Object.values(router.routesById)
+    const account = routes.find((r) => r.fullPath === "/account")
+    expect(account).toBeTruthy()
+    expect(account?.options?.beforeLoad).toBeUndefined()
+
+    // Spot-check the contrast against a privileged module and a free one.
+    for (const path of ["/users", "/audit", "/live"]) {
+      const route = routes.find((r) => r.fullPath === path)
+      expect(route?.options?.beforeLoad).toBeTruthy()
+    }
+  })
+})

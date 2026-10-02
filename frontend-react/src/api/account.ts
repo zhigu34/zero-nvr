@@ -213,12 +213,26 @@ export function passwordsMatch(form: PasswordForm): boolean {
 /* Failures the UI branches on                                               */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Whether the credential itself is the problem, as opposed to the request.
+ *
+ * Covers both `interactive_session_required` (403 — the caller is an API token)
+ * and `authentication_required` (401 — the session expired). Both mean "this
+ * screen is the wrong place to fix it", so one predicate is the useful thing to
+ * have; `isSessionExpired` below is the strict one for callers that must tell
+ * them apart.
+ */
 export function isInteractiveSessionRequired(error: unknown): boolean {
   return (
     error instanceof ApiError &&
     (error.code === "interactive_session_required" ||
       error.code === "authentication_required")
   )
+}
+
+/** Strictly a 401 — the session is gone, as opposed to the wrong credential type. */
+export function isSessionExpired(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "authentication_required"
 }
 
 export function isWrongCurrentPassword(error: unknown): boolean {

@@ -4,6 +4,7 @@ import {
   changeOwnPassword,
   describeSessionSource,
   isInteractiveSessionRequired,
+  isSessionExpired,
   isWrongCurrentPassword,
   listSessions,
   PASSWORD_MIN,
@@ -181,5 +182,15 @@ describe("failure codes", () => {
       ),
     ).toBe(true)
     expect(isInteractiveSessionRequired(new Error("boom"))).toBe(false)
+  })
+
+  it("separates an expired session from the wrong credential type", () => {
+    // The combined predicate is deliberately coarse; this is the strict one.
+    expect(isSessionExpired(new ApiError(401, "authentication_required", "x"))).toBe(
+      true,
+    )
+    expect(
+      isSessionExpired(new ApiError(403, "interactive_session_required", "x")),
+    ).toBe(false)
   })
 })

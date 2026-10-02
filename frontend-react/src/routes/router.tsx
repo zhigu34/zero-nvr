@@ -22,6 +22,7 @@ import { FilesView } from "./FilesView"
 import { SystemView } from "./SystemView"
 import { UsersView } from "./UsersView"
 import { AuditView } from "./AuditView"
+import { AccountPanel } from "../components/account/AccountPanel"
 import { findNavItem, navigation } from "../lib/navigation"
 import { useAuthStore } from "../stores/auth"
 
@@ -227,6 +228,22 @@ const usersRoute = createRoute({
   beforeLoad: guard("users"),
 })
 
+/**
+ * The signed-in account's own page.
+ *
+ * **No `guard(...)`**, deliberately — `guard` resolves a navigation module and
+ * a minimum role, and this page is the opposite of a privileged one: it is the
+ * signed-in user's own sessions, password and API tokens. Every endpoint on it
+ * is scoped to the caller's own account by the server, so an Operator and an
+ * Administrator get the same page. A role check here would lock out exactly the
+ * users who most need a way to change a leaked password.
+ */
+const accountRoute = createRoute({
+  getParentRoute: () => shellRoute,
+  path: "/account",
+  component: AccountPanel,
+})
+
 const auditRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/audit",
@@ -265,6 +282,7 @@ export const routeTree = rootRoute.addChildren([
     filesRoute,
     systemRoute,
     usersRoute,
+    accountRoute,
     auditRoute,
   ]),
 ])

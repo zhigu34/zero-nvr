@@ -6,14 +6,16 @@ import { DataTable } from "../components/ui/data-table"
 import {
   Callout,
   PageHeader,
+  Tabs,
   StatCard,
   StatusDot,
   type HealthTone,
 } from "../components/ui/display"
 import { type CameraSummary, normalizeConnectivity } from "../api/cameras"
-import { useCameras, useCamera } from "../lib/queries"
+import { useCameras, useCamera, useCameraGroups } from "../lib/queries"
 import { useProbeCamera, useRetireCamera, useSetCameraEnabled } from "../lib/cameraMutations"
 import { CameraEditor } from "../components/cameras/CameraEditor"
+import { CameraGroupsPanel } from "../components/cameras/CameraGroupsPanel"
 import {
   ROW_ACTION_LABEL,
   rowActionFor,
@@ -42,7 +44,13 @@ function statusLabel(c: CameraSummary): string {
   return s === "online" ? "在线" : s === "offline" ? "离线" : s === "degraded" ? "抖动" : "未知"
 }
 
+type CameraTab = "cameras" | "groups"
+
 export function CamerasView() {
+  const [tab, setTab] = useState<CameraTab>("cameras")
+  const groups = useCameraGroups()
+  const groupCount = groups.data?.length
+
   const [includeRetired, setIncludeRetired] = useState(false)
   const [q, setQ] = useState("")
   const [statusFilter, setStatusFilter] = useState("all")
@@ -245,22 +253,40 @@ export function CamerasView() {
   )
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full flex-col">
+      <div className="shrink-0 px-5 pt-5">
+        <PageHeader
+          title="摄像机"
+          description="设备接入、在线状态与机位分组。"
+        />
+        <Tabs
+          active={tab}
+          onChange={(key) => setTab(key as CameraTab)}
+          tabs={[
+            { key: "cameras", label: "机位" },
+            { key: "groups", label: "分组", count: groupCount },
+          ]}
+        />
+      </div>
+
+      {tab === "groups" ? (
+        <div className="flex-1 space-y-4 overflow-auto p-5">
+          <CameraGroupsPanel />
+        </div>
+      ) : (
+      <div className="flex flex-1 overflow-hidden">
       <div className="flex-1 space-y-4 overflow-auto p-5">
-      <PageHeader
-        title="摄像机"
-        description="设备接入与在线状态。码流绑定与时钟偏差不在列表接口里，见下方说明。"
-        actions={
-          <>
-            <Button variant="outline" size="sm">
-              <Upload /> 批量导入
-            </Button>
-            <Button size="sm">
-              <Plus /> 添加机位
-            </Button>
-          </>
-        }
-      />
+      {/* Per-tab actions live in the tab, not the shared page header: the
+          header spans both tabs and a button that only works on one of them
+          would be a lie about what the click does. */}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm">
+          <Upload /> 批量导入
+        </Button>
+        <Button size="sm">
+          <Plus /> 添加机位
+        </Button>
+      </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="机位总数" value={stats.total} unit="路" />
@@ -339,6 +365,8 @@ export function CamerasView() {
           />
         </div>
       ) : null}
+      </div>
+      )}
     </div>
   )
 }

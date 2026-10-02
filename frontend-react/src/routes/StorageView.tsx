@@ -22,10 +22,12 @@ import {
   Select,
 } from "../components/ui/primitives"
 import { DataTable } from "../components/ui/data-table"
+import { BackupPanel } from "../components/storage/BackupPanel"
 import {
   Callout,
   EmptyState,
   PageHeader,
+  Tabs,
   ProgressBar,
   Section,
   StatCard,
@@ -382,7 +384,18 @@ function TargetCard({
 
 /* --------------------------------------------------------------- Page */
 
+type StorageTab = "storage" | "backups"
+
+/**
+ * Storage targets and retention on one tab, backup policies on the other.
+ *
+ * Which page backup belongs to is still open (D-3); it is here because the
+ * module map's default is "keep data-safety things together", and because a
+ * backup policy's most important input is a storage target. The tab makes the
+ * move cheap if the decision goes the other way.
+ */
 export function StorageView() {
+  const [tab, setTab] = useState<StorageTab>("storage")
   const [probes, setProbes] = useState<Record<string, ProbeState>>({})
   const [q, setQ] = useState("")
   const [scope, setScope] = useState("all")
@@ -532,6 +545,17 @@ export function StorageView() {
 
   return (
     <div className="space-y-4 p-5">
+      <Tabs
+        active={tab}
+        onChange={(key) => setTab(key as StorageTab)}
+        tabs={[
+          { key: "storage", label: "存储目标" },
+          { key: "backups", label: "备份与恢复" },
+        ]}
+      />
+      {tab === "backups" ? <BackupPanel /> : null}
+      {tab !== "backups" ? (
+      <>
       <PageHeader
         title="存储"
         description="存储目标、容量水位与保留策略。容量不来自列表接口，需要逐个目标主动检测。"
@@ -696,6 +720,8 @@ export function StorageView() {
         在那之前，页面上「检测容量」按目标逐个触发，结果只存在于本次会话：响应里连探测时间戳都没有，
         刷新页面就回到「尚未检测」，因此这里也不显示「上次检测时间」。
       </Callout>
+      </>
+      ) : null}
     </div>
   )
 }

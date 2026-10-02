@@ -11,6 +11,8 @@ import {
   policyFormFromView,
   getRecoveryKitStatus,
   isVerifiable,
+  passphraseAccepted,
+  passphraseByteLength,
   listBackupPolicies,
   listBackupSets,
   RETENTION_MAX,
@@ -362,6 +364,38 @@ describe("form factories", () => {
   it("an empty saved schedule becomes a blank draft keeping the system zone", () => {
     const form = policyFormFromView({ ...view, schedule: {} }, "Asia/Shanghai")
     expect(form.schedule).toEqual({ cron: "", timezone: "Asia/Shanghai" })
+  })
+
+  it("starts a new policy on 'replace', because a create body requires credentials", () => {
+    // "Keep" on a form with nothing stored would post an empty password and
+    // fail about a field the operator never saw.
+    expect(emptyPolicyForm(TZ).credentialsAction).toBe("replace")
+    // The edit path is the opposite: the stored values are unreadable.
+    const view = {
+      id: "p1",
+      name: "x",
+      enabled: true,
+      database_backend: "sqlite" as const,
+      schedule: {},
+      retention: {},
+      verify_after_backup: true,
+      repository_check_schedule: {},
+      include_deployment_config: false,
+      repository_configured: true,
+      credentials_configured: true,
+    }
+    expect(policyFormFromView(view, TZ).credentialsAction).toBe("keep")
+  })
+})
+
+describe("passphrase length", () => {
+  it("measures bytes, because the service does", () => {
+    // Sixteen CJK characters is 48 UTF-8 bytes: the schema would pass it and
+    // so would this, but sixteen 2-byte characters would fail the service.
+    expect(passphraseAccepted("a".repeat(16))).toBe(true)
+    expect(passphraseAccepted("安".repeat(16))).toBe(true)
+    expect(passphraseAccepted("a".repeat(15))).toBe(false)
+    expect(passphraseByteLength("安")).toBe(3)
   })
 })
 

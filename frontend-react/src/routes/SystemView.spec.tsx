@@ -329,7 +329,7 @@ describe("SystemView 的 tab 外壳", () => {
     expect(await screen.findByText("还没有通知目标")).toBeTruthy()
   })
 
-  it("五个 tab 都在，且设置表单不因为切走再回来而丢状态以外的东西", async () => {
+  it("四个 tab 都在，且令牌不在这里", async () => {
     renderView()
     await waitFor(() => {
       expect(screen.getByText("系统名称")).toBeTruthy()
@@ -337,8 +337,8 @@ describe("SystemView 的 tab 外壳", () => {
     for (const name of ["系统设置", "通知渠道", "密钥环", "Frigate 集成"]) {
       expect(screen.getByRole("tab", { name: new RegExp(name) })).toBeTruthy()
     }
-    // Named "我的" because the endpoints are the signed-in account's own
-    // resources — an admin cannot manage anyone else's token (G-32).
-    expect(screen.getByRole("tab", { name: /我的/ })).toBeTruthy()
+    // Personal tokens are the signed-in account's own resource and live on
+    // /account (G-32); an admin page is the wrong place to imply otherwise.
+    expect(screen.queryByRole("tab", { name: /令牌/ })).toBeNull()
   })
 })

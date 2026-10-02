@@ -161,6 +161,11 @@ export function buildGroupTree(groups: CameraGroupView[]): GroupNode[] {
  * This is what a scope grant actually expands to (`auth/camera_scope.py:237-252`),
  * so it is the set a picker must show as "covered by this checkbox" — offering
  * a parent group as if it covered only itself would understate the grant.
+ *
+ * **Iteration order is not meaningful.** The traversal uses a stack, so the
+ * result comes back depth-first-last-in-first-out rather than in stored order.
+ * Sort before rendering a list; never assert on it (and never persist an index
+ * derived from it).
  */
 export function descendantsOf(
   groups: CameraGroupView[],

@@ -14,7 +14,6 @@ import { useTheme } from "../hooks/use-theme"
 import { navigation } from "../lib/navigation"
 import { cn } from "../lib/utils"
 import { useAuthStore } from "../stores/auth"
-import { ChangePasswordDialog } from "../routes/ChangePasswordDialog"
 
 const ROLE_LABEL: Record<string, string> = {
   Administrator: "管理员",
@@ -25,7 +24,6 @@ const ROLE_LABEL: Record<string, string> = {
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false)
   const [menuOpen, setMenuOpen] = useState(false)
-  const [pwdOpen, setPwdOpen] = useState(false)
   const { isDark, toggle } = useTheme()
   const navigate = useNavigate()
   const pathname = useRouterState({ select: (s) => s.location.pathname })
@@ -191,17 +189,14 @@ export function AppShell() {
                       {user?.email ? ` · ${user.email}` : ""}
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMenuOpen(false)
-                      setPwdOpen(true)
-                    }}
+                  <Link
+                    to="/account"
+                    onClick={() => setMenuOpen(false)}
                     className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left text-sm transition-colors hover:bg-accent"
                   >
                     <KeyRound className="size-3.5 text-muted-foreground" />
-                    修改密码
-                  </button>
+                    我的账号
+                  </Link>
                   <Link
                     to="/users"
                     onClick={() => setMenuOpen(false)}
@@ -229,7 +224,6 @@ export function AppShell() {
         </main>
       </div>
 
-      <ChangePasswordDialog open={pwdOpen} onClose={() => setPwdOpen(false)} />
     </div>
   )
 }
