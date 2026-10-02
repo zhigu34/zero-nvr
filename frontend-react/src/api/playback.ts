@@ -98,6 +98,11 @@ export type TimelineRange = {
   end_at: string
 }
 
+/** `recording_ranges` elements carry availability; plain ranges do not. */
+export type TimelineRecordingRange = TimelineRange & {
+  availability: SegmentAvailability
+}
+
 export type TimelineGap = {
   start_at: string
   end_at: string
@@ -122,7 +127,7 @@ export type PlaybackTimelineView = {
   detail: string
   range: TimelineRange
   segments: TimelineSegmentRef[]
-  recording_ranges: TimelineRange[]
+  recording_ranges: TimelineRecordingRange[]
   gaps: TimelineGap[]
   events: TimelineEventMarker[]
 }
