@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react"
 import { RouterProvider } from "@tanstack/react-router"
+import { QueryProvider } from "../lib/queries"
 import { createAppRouter, type AppRouter } from "../routes/router"
 import { useAuthStore } from "../stores/auth"
 
@@ -60,5 +61,9 @@ export function AuthGate({ router: injected }: { router?: AppRouter } = {}) {
     )
   }
 
-  return <RouterProvider router={router} />
+  return (
+    <QueryProvider>
+      <RouterProvider router={router} />
+    </QueryProvider>
+  )
 }

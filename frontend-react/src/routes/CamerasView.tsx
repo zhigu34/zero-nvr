@@ -1,60 +1,197 @@
-import { useState } from "react"
-import { Download, Plus, RefreshCw, Upload, Wand2 } from "lucide-react"
-import {
-  Badge,
-  Button,
-  Input,
-  Select,
-  Table,
-  TBody,
-  TD,
-  TH,
-  THead,
-  TR,
-} from "../components/ui/primitives"
+import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { Plus, Upload, Wifi, WifiOff } from "lucide-react"
+import { Badge, Button, Input, Select, Switch } from "../components/ui/primitives"
+import { DataTable } from "../components/ui/data-table"
 import {
   Callout,
-  Checkbox,
   PageHeader,
-  ProgressBar,
-  RowActions,
-  Segmented,
   StatCard,
   StatusDot,
-  Toolbar,
-  ToolbarSpacer,
+  type HealthTone,
 } from "../components/ui/display"
-import { cameras, type Camera } from "../lib/mock"
-import { cn } from "../lib/utils"
+import { type CameraSummary, normalizeConnectivity } from "../api/cameras"
+import { useCameras } from "../lib/queries"
+import { formatRelative } from "../lib/format"
 
-const healthMeta: Record<
-  Camera["health"],
-  { label: string; tone: "online" | "offline" | "degraded" | "unknown" }
-> = {
-  online: { label: "在线", tone: "online" },
-  offline: { label: "离线", tone: "offline" },
-  degraded: { label: "抖动", tone: "degraded" },
-  unknown: { label: "未接入", tone: "unknown" },
+const TONE_BY_STATUS: Record<string, HealthTone> = {
+  online: "online",
+  offline: "offline",
+  degraded: "degraded",
+  unknown: "unknown",
+}
+
+function statusTone(c: CameraSummary): HealthTone {
+  if (c.retired_at) return "unknown"
+  if (!c.enabled || c.maintenance) return "degraded"
+  return TONE_BY_STATUS[normalizeConnectivity(c.connectivity_status)] ?? "unknown"
+}
+
+function statusLabel(c: CameraSummary): string {
+  if (c.retired_at) return "已退役"
+  if (c.maintenance) return "维护中"
+  if (!c.enabled) return "已停用"
+  const s = normalizeConnectivity(c.connectivity_status)
+  return s === "online" ? "在线" : s === "offline" ? "离线" : s === "degraded" ? "抖动" : "未知"
 }
 
 export function CamerasView() {
+  const [includeRetired, setIncludeRetired] = useState(false)
   const [q, setQ] = useState("")
-  const [group, setGroup] = useState("all")
-  const [sel, setSel] = useState<string[]>([])
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [selected, setSelected] = useState<string | null>(null)
 
-  const rows = cameras.filter(
-    (c) =>
-      (group === "all" || c.group === group) &&
-      (q === "" || c.name.includes(q) || c.vendor.includes(q)),
+  const { data, isLoading, error, refetch } = useCameras(includeRetired)
+
+  // Guard the shape before deriving from it. `CameraSummary[]` is what the
+  // endpoint promises, but a cached value from an older build (or a
+  // contract drift) must degrade to the error/empty state rather than crash
+  // the page on `.filter`.
+  const list = Array.isArray(data) ? data : null
+  const failed = error ?? (data !== undefined && !Array.isArray(data) ? new TypeError("机位列表响应不是数组") : null)
+
+  const rows = useMemo(() => {
+    const all = list ?? []
+    return all.filter((c) => {
+      if (q && !`${c.name}${c.manufacturer ?? ""}${c.model ?? ""}${c.location ?? ""}`.includes(q)) {
+        return false
+      }
+      if (statusFilter === "on") return normalizeConnectivity(c.connectivity_status) === "online"
+      if (statusFilter === "off") return normalizeConnectivity(c.connectivity_status) !== "online"
+      return true
+    })
+  }, [list, q, statusFilter])
+
+  const stats = useMemo(() => {
+    const all = list ?? []
+    return {
+      total: all.length,
+      online: all.filter((c) => normalizeConnectivity(c.connectivity_status) === "online").length,
+      ptz: all.filter((c) => c.ptz_capable).length,
+      unknown: all.filter((c) => normalizeConnectivity(c.connectivity_status) === "unknown").length,
+    }
+  }, [list])
+
+  const columns = useMemo<ColumnDef<CameraSummary, unknown>[]>(
+    () => [
+      {
+        accessorKey: "name",
+        header: "机位",
+        cell: ({ row }) => {
+          const c = row.original
+          return (
+            <div className="flex items-center gap-2">
+              <StatusDot tone={statusTone(c)} pulse={statusTone(c) === "online"} />
+              <div className="min-w-0">
+                <p className="truncate font-medium">{c.name}</p>
+                {c.location && (
+                  <p className="truncate text-[11px] text-muted-foreground">{c.location}</p>
+                )}
+              </div>
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: "manufacturer",
+        header: "厂商 / 型号",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {row.original.manufacturer ?? "—"}
+            {row.original.model ? ` / ${row.original.model}` : ""}
+          </span>
+        ),
+      },
+      {
+        accessorKey: "adapter_type",
+        header: "接入",
+        cell: ({ row }) => (
+          <Badge variant={row.original.adapter_type ? "secondary" : "outline"}>
+            {row.original.adapter_type ?? "—"}
+          </Badge>
+        ),
+      },
+      {
+        id: "status",
+        accessorFn: (c) => statusLabel(c),
+        header: "状态",
+        cell: ({ row }) => {
+          const c = row.original
+          return (
+            <div className="flex items-center gap-2">
+              <span className="text-xs">{statusLabel(c)}</span>
+              {c.retired_at ? (
+                <Badge variant="muted">已退役</Badge>
+              ) : !c.enabled ? (
+                <Badge variant="muted">停用</Badge>
+              ) : c.maintenance ? (
+                <Badge variant="warning">维护</Badge>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        id: "resolution",
+        accessorFn: (c) => c.width ?? 0,
+        header: "分辨率",
+        cell: ({ row }) => {
+          const c = row.original
+          if (!c.width || !c.height) return <span className="text-xs text-muted-foreground">—</span>
+          return (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {c.width}×{c.height}
+              {c.fps ? ` · ${Math.round(c.fps)}fps` : ""}
+              {c.video_codec ? ` · ${c.video_codec}` : ""}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "ptz_capable",
+        header: "PTZ",
+        cell: ({ row }) =>
+          row.original.ptz_capable ? (
+            <Wifi className="size-3.5 text-status-online" />
+          ) : (
+            <WifiOff className="size-3.5 text-muted-foreground/50" />
+          ),
+      },
+      {
+        accessorKey: "time_sync_mode",
+        header: "时钟",
+        cell: ({ row }) => (
+          <Badge
+            variant={
+              row.original.time_sync_mode === "manage_ntp" ? "success" : "outline"
+            }
+          >
+            {row.original.time_sync_mode === "manage_ntp"
+              ? "托管 NTP"
+              : row.original.time_sync_mode === "monitor"
+                ? "仅监测"
+                : "忽略"}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "last_probe_at",
+        header: "最后探测",
+        cell: ({ row }) => (
+          <span className="text-xs text-muted-foreground">
+            {formatRelative(row.original.last_probe_at)}
+          </span>
+        ),
+      },
+    ],
+    [],
   )
-  const online = cameras.filter((c) => c.health === "online").length
-  const recording = cameras.filter((c) => c.recording).length
 
   return (
     <div className="space-y-4 p-5">
       <PageHeader
         title="摄像机"
-        description="设备接入、码流档案与用途绑定。一个机位可有多条码流，分别绑定录像 / 预览 / AI 检测 / 抓图 / 音频。"
+        description="设备接入与在线状态。码流绑定与时钟偏差不在列表接口里，见下方说明。"
         actions={
           <>
             <Button variant="outline" size="sm">
@@ -68,203 +205,72 @@ export function CamerasView() {
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="机位总数" value={cameras.length} unit="路" icon={<Wand2 className="size-4" />} />
-        <StatCard label="在线" value={online} unit={`/ ${cameras.length}`} tone="online" />
-        <StatCard label="录制中" value={recording} unit="路" tone="online" />
+        <StatCard label="机位总数" value={stats.total} unit="路" />
+        <StatCard label="在线" value={stats.online} unit={`/ ${stats.total}`} tone="online" />
+        <StatCard label="支持 PTZ" value={stats.ptz} unit="路" />
         <StatCard
-          label="异常"
-          value={cameras.length - online}
+          label="状态未知"
+          value={stats.unknown}
           unit="路"
-          tone={cameras.length - online > 0 ? "degraded" : "online"}
-          hint="1 路离线 · 1 路时钟偏差超阈值"
+          tone={stats.unknown > 0 ? "degraded" : "online"}
+          hint="后端 connectivity_status 不是已知取值"
         />
       </div>
 
-      <Toolbar>
-        <Input
-          className="w-48"
-          placeholder="搜索机位名称 / 厂商"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
-        <Select
-          className="w-32"
-          value={group}
-          onChange={(e) => setGroup(e.target.value)}
-        >
-          <option value="all">全部分组</option>
-          <option value="一层">一层</option>
-          <option value="室外">室外</option>
-          <option value="地下">地下</option>
-          <option value="仓库">仓库</option>
-        </Select>
-        <Segmented
-          value="all"
-          onChange={() => {}}
-          options={[
-            { value: "all", label: "全部" },
-            { value: "on", label: "在线" },
-            { value: "off", label: "离线" },
-          ]}
-        />
-        {sel.length > 0 && (
-          <span className="text-xs text-muted-foreground">已选 {sel.length} 项</span>
-        )}
-        <ToolbarSpacer />
-        <Button variant="outline" size="icon-sm" title="刷新">
-          <RefreshCw className="size-3.5" />
-        </Button>
-        <Button variant="outline" size="sm">
-          <Download /> 导出 CSV
-        </Button>
-      </Toolbar>
+      <DataTable
+        columns={columns}
+        data={rows}
+        isLoading={isLoading}
+        error={failed}
+        selectedKey={selected}
+        onRowClick={(c) => setSelected((cur) => (cur === c.id ? null : c.id))}
+        onRetry={() => void refetch()}
+        emptyTitle="没有匹配的机位"
+        emptyDescription="调整搜索词或状态筛选，或先添加一个机位。"
+        toolbar={
+          <>
+            <Input
+              className="w-48"
+              placeholder="搜索名称 / 厂商 / 位置"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <Select
+              className="w-32"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="all">全部状态</option>
+              <option value="on">仅在线</option>
+              <option value="off">非在线</option>
+            </Select>
+            <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Switch
+                aria-checked={includeRetired}
+                onClick={() => setIncludeRetired((v) => !v)}
+              />
+              含已退役
+            </label>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {rows.length} / {list?.length ?? 0} 路
+            </span>
+          </>
+        }
+      />
 
-      <Callout tone="degraded" title="萤石设备不走 ONVIF 接入">
-        本页的 ONVIF 探测 / 局域网发现仅适用于能本地直连的设备。萤石无
-        Linux SDK、局域网能力只覆盖手机端，事件只经公网 HTTPS WebHook 到达，
-        因此它被归为「事件源」配置，不在本页出现。
+      <Callout tone="degraded" title="列表接口不返回码流绑定与时钟偏差">
+        GET /api/v1/cameras 返回的是 CameraSummary，其中没有码流绑定、时钟偏差、
+        录像占用。这些分别要 GET /cameras/:id（CameraDetail 带 streams 与 bindings）
+        和 GET /cameras/:id/clock 逐台拉取。在列表里画这两列会对每行发一次请求，
+        所以这里没有画——点开某台机位再取详情是正确的做法。另有一点：录像、
+        实时主/子码流、AI 检测、抓图、音频这六种用途绑定是逐机位独立配置的。
       </Callout>
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
-          <THead>
-            <TR>
-              <TH className="w-10">
-                <Checkbox
-                  checked={sel.length === rows.length && rows.length > 0}
-                  onChange={(e) =>
-                    setSel(e.target.checked ? rows.map((r) => r.id) : [])
-                  }
-                />
-              </TH>
-              <TH>机位</TH>
-              <TH>分组</TH>
-              <TH>厂商 / 型号</TH>
-              <TH>接入</TH>
-              <TH>状态</TH>
-              <TH>码流绑定</TH>
-              <TH>时钟偏差</TH>
-              <TH className="w-24">占用</TH>
-              <TH>最后心跳</TH>
-              <TH className="text-right">操作</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((c) => {
-              const m = healthMeta[c.health]
-              return (
-                <TR key={c.id}>
-                  <TD>
-                    <Checkbox
-                      checked={sel.includes(c.id)}
-                      onChange={(e) =>
-                        setSel((prev) =>
-                          e.target.checked
-                            ? [...prev, c.id]
-                            : prev.filter((x) => x !== c.id),
-                        )
-                      }
-                    />
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-2">
-                      <StatusDot
-                        tone={m.tone}
-                        pulse={c.health === "online"}
-                      />
-                      <span className="font-medium">{c.name}</span>
-                      {c.aiEnabled && (
-                        <Badge variant="outline" className="text-[10px]">
-                          AI
-                        </Badge>
-                      )}
-                    </div>
-                  </TD>
-                  <TD className="text-muted-foreground">{c.group}</TD>
-                  <TD className="text-muted-foreground">
-                    {c.vendor}
-                    <span className="mx-1 text-border">/</span>
-                    {c.model}
-                  </TD>
-                  <TD>
-                    <Badge
-                      variant={c.protocol === "ONVIF" ? "secondary" : "outline"}
-                    >
-                      {c.protocol}
-                    </Badge>
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={cn(
-                          "text-xs",
-                          m.tone === "online" && "text-status-online",
-                          m.tone === "offline" && "text-status-offline",
-                          m.tone === "degraded" && "text-status-degraded",
-                          m.tone === "unknown" && "text-muted-foreground",
-                        )}
-                      >
-                        {m.label}
-                      </span>
-                      {c.recording && (
-                        <Badge variant="danger" className="text-[10px]">
-                          录制中
-                        </Badge>
-                      )}
-                    </div>
-                  </TD>
-                  <TD>
-                    <div className="flex flex-col gap-0.5 text-[11px] text-muted-foreground">
-                      <span>录像 · {c.mainStream}</span>
-                      <span>预览 · {c.subStream}</span>
-                    </div>
-                  </TD>
-                  <TD>
-                    {c.clockSkewMs > 1000 ? (
-                      <Badge variant="warning">
-                        {(c.clockSkewMs / 1000).toFixed(1)}s
-                      </Badge>
-                    ) : c.clockSkewMs === 0 ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <span className="text-xs tabular-nums text-muted-foreground">
-                        {c.clockSkewMs} ms
-                      </span>
-                    )}
-                  </TD>
-                  <TD>
-                    {c.storageUsedPct > 0 ? (
-                      <ProgressBar
-                        value={c.storageUsedPct}
-                        tone={
-                          c.storageUsedPct > 85
-                            ? "degraded"
-                            : c.storageUsedPct > 0
-                              ? "online"
-                              : "unknown"
-                        }
-                        showLabel
-                      />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TD>
-                  <TD className="text-xs text-muted-foreground">
-                    {c.lastSeen}
-                  </TD>
-                  <TD>
-                    <RowActions>
-                      <Button variant="ghost" size="icon-sm" title="编辑">
-                        <Wand2 className="size-3.5" />
-                      </Button>
-                    </RowActions>
-                  </TD>
-                </TR>
-              )
-            })}
-          </TBody>
-        </Table>
-      </div>
+      <Callout tone="degraded" title="萤石设备不走 ONVIF 接入">
+        本页的 ONVIF 探测 / 局域网发现仅适用于能本地直连的设备。萤石无 Linux
+        SDK、局域网能力只覆盖手机端，事件只经公网 HTTPS WebHook 到达，因此它被归为
+        「事件源」配置，不在本页出现。
+      </Callout>
     </div>
   )
 }

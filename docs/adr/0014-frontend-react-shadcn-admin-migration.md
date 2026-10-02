@@ -93,6 +93,20 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 - **i18n 键名冻结**：现有 3587 行文案的键结构不变，只换加载方式。`i18n.spec.ts` 的守卫测试（如 gap reason 完整性检查）必须继续通过。
 - **RBAC 收敛先行**：迁移前先把 19 个细粒度权限点 + `principal_camera_scopes` 摄像头级授权收敛为 3 个固定角色（Administrator / Operator / Viewer）。**理由**：权限模型是每个页面的守卫逻辑，迁移中同时改权限和改框架会让问题无法定位。
 
+### 7. 迁移走独立分支，不合入 main
+
+本次前端迁移**不合并到 `main`**。全部工作留在 `codex/frontend-react-shell`（或后续拆分出的独立分支），`main` 保持为当前可运行的 Vue 版本，直到 React 侧达到可交付状态后一次性切换。
+
+理由：
+
+1. **PR-6 的切换是切换，不是合并。** 最终形态是 `frontend/` 被删除、`frontend-react/` 取而代之。在那之前 `main` 上同时存在两套前端没有意义，只会让每个改动都背上一份暂时性的双栈负担。
+2. **迁移期允许中间态不可用。** 页面会逐批从 mock 数据换成真实 API，中间必然存在只接了一半的页面。独立分支让这些中间态不被误当成可发布状态。
+3. **保留随时丢弃的选项。** 独立分支 + 独立 commit 粒度意味着任何阶段都可以整体放弃而不影响 `main`。
+
+**后续可能拆分为独立 repo。** `frontend-react/` 已经不依赖 `frontend/` 的任何代码，只通过 `/api/v1` 与后端通信。若迁移继续推进、Vue 侧确认删除，把 `frontend-react/` 连同其构建与部署配置整体拆到新 repo 是可行路径。拆分前需确认：新 repo 的后端 API 契约与本仓库 `main` 上的后端保持同步（`backend/app/api/v1` 是唯一接口面）。
+
+推论：**`main` 上不接受的妥协，不适用于本分支。** 例如为迁就旧组件而写的兼容层、为让页面「看起来能用」而 mock 的字段，都不进入这条分支。
+
 ## Consequences
 
 ### 正面
@@ -131,7 +145,7 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 
 1. **PR-1 骨架**：`frontend-react/` 初始化，移植 theme.css + layout 组件，产出静态原型供走查 —— **已完成**（`6ec78ed`）
 2. **PR-2 认证与外壳**：登录、session、AppShell 导航分组、权限守卫 —— **已完成**（认证门禁、TanStack Router 路由树、角色过滤、用户菜单）
-3. **PR-3 只读页**：Dashboard / Cameras 列表 / Events / Storage 列表（TanStack Table 模式验证）
+3. **PR-3 只读页**：Dashboard / Cameras 列表 / Events / Storage 列表（TanStack Table 模式验证）—— **已完成**（三页接真实 API、游标分页、容量探测入口；TanStack Table 模式定版）
 4. **PR-4 媒体页**：Live / Playback（hls.js 传输层 + 播放容错 + 补测试）
 5. **PR-5 写操作页**：机位编辑 / 录制计划 / 告警规则 / 系统设置
 6. **PR-6 切换**：删除 `frontend/`，`frontend-react/` 升为唯一前端
@@ -141,6 +155,14 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 **权限按模块整体授予，粒度已由后端决定而非前端猜测。** 逐模块核对 `require_permission` 调用点后确认：存储模块**全部**端点要 `storage.manage`，用户模块要 `user.manage`，审计要 `audit.view` —— 后两者 Operator 角色都没有。因此**存储、用户与权限、审计日志三页只对管理员开放**，而系统设置对所有角色可看、仅管理员可写。前端按角色名判定，不按 19 个细粒度权限点，以便收敛后不波及页面。
 
 **路由路径字面量写死，配套测试锁一致性。** 用 `moduleRoute(key: string)` 之类的辅助函数会把 `path` 退化成 `string`，TanStack Router 就无法为 `Link to={...}` 生成类型。改为 12 条路由逐条显式声明，代价是路径在 `routes/router.tsx` 与 `lib/navigation.ts` 各存一份——`routes/router.spec.ts` 断言两者一致。
+
+### PR-3 的三个既定事实
+
+**百分比有两种标度，不能共用一个格式化函数。** 事件置信度是 0–1 的小数，存储 `used_percent` 是 0–100 的百分数（`storage/capacity.py:169` 做了 `min(100.0, max(0.0, used/total*100))` 钳位）。一个无参的 `formatPercent` 会把 0.425 渲染成 42.5%、把 42.5 渲染成 4250%。`lib/format.ts` 因此拆成 `formatFraction`（0–1）与 `formatPercent`（0–100）两个具名函数，让调用点必须自己声明标度。
+
+**事件列表用游标分页，不显示总条数。** `events/api.py:64` 的 `GET /events` 返回 `next_cursor`，没有 `total`。手写「上一页 + 下一页」的游标累积逻辑会让新取回的页不显示在列表里（页数据进了 state，渲染列表仍在读第一页），改用 `useInfiniteQuery` 后由框架保证累积。页面上不允许出现 `page=` 参数或总条数。
+
+**接口缺口在文档里留档，不在前端 mock 填充。** 接真实数据暴露出的契约缺口记录在 `docs/FRONTEND-CONTRACT-GAPS.md`（G-1 存储无只读容量、G-2 事件无机位名、G-3 机位列表缺绑定与时钟偏差、G-4 裸字符串枚举、G-5 游标分页、G-6 状态位语义重叠）。其中 G-1 是阻塞级：存储容量必须用户主动触发探测，未探测时显示「尚未检测」而不是画一条 0% 水位线。
 
 ## Related
 

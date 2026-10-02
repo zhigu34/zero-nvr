@@ -1,467 +1,436 @@
-import { useState } from "react"
-import {
-  Activity,
-  Check,
-  Download,
-  Eye,
-  Play,
-  RefreshCw,
-  Sparkles,
-  X,
-} from "lucide-react"
-import {
-  Badge,
-  Button,
-  Input,
-  Select,
-  Switch,
-  Table,
-  TBody,
-  TD,
-  TH,
-  THead,
-  TR,
-} from "../components/ui/primitives"
+import { useMemo, useState } from "react"
+import type { ColumnDef } from "@tanstack/react-table"
+import { Filter, RotateCcw } from "lucide-react"
+import { Badge, Button, Card, CardContent, Input, Select } from "../components/ui/primitives"
+import { DataTable } from "../components/ui/data-table"
 import {
   Callout,
-  Checkbox,
   KeyValue,
   PageHeader,
   ProgressBar,
-  RowActions,
   Segmented,
   StatCard,
   StatusDot,
-  StatusLabel,
-  Toolbar,
-  ToolbarSpacer,
-  type HealthTone,
 } from "../components/ui/display"
 import {
-  cameras,
   categoryLabel,
-  events,
-  overviewStats,
-  stateLabel,
-  systemHealth,
-  type Camera,
-  type CameraEvent,
-} from "../lib/mock"
+  type EventView,
+  type EventFilters,
+} from "../api/events"
+import { useCameras, useEvents } from "../lib/queries"
+import { formatClock, formatFraction, formatTime } from "../lib/format"
 import { cn } from "../lib/utils"
 
-const CATEGORIES = Object.keys(categoryLabel) as CameraEvent["category"][]
+const RANGES = [
+  { value: "today", label: "今天" },
+  { value: "24h", label: "24 小时" },
+  { value: "7d", label: "7 天" },
+] as const
 
-const HEALTH_LABEL: Record<Camera["health"], string> = {
-  online: "在线",
-  offline: "离线",
-  degraded: "抖动",
-  unknown: "未接入",
-}
-
-const STATE_VARIANT: Record<
-  CameraEvent["state"],
-  "danger" | "warning" | "muted"
-> = { new: "danger", acknowledged: "warning", resolved: "muted" }
-
-const STATE_TONE: Record<CameraEvent["state"], HealthTone> = {
-  new: "offline",
-  acknowledged: "degraded",
-  resolved: "online",
-}
-
-const CAMERAS_IN_USE = [...new Set(events.map((e) => e.camera))]
-
-/** A 1-frame placeholder — no real image is shipped with the prototype. */
-function Thumb({ id }: { id: string }) {
-  return (
-    <div className="relative h-9 w-16 overflow-hidden rounded bg-black">
-      <div
-        className="absolute inset-0 opacity-[0.18]"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 10px)",
-        }}
-      />
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-[8px] text-white/50">{id}</span>
-      </div>
-    </div>
-  )
+function rangeBounds(range: string): { from?: string; to?: string } {
+  const now = new Date()
+  if (range === "today") {
+    const start = new Date(now)
+    start.setHours(0, 0, 0, 0)
+    return { from: start.toISOString(), to: now.toISOString() }
+  }
+  if (range === "24h") {
+    return {
+      from: new Date(now.getTime() - 24 * 3600_000).toISOString(),
+      to: now.toISOString(),
+    }
+  }
+  if (range === "7d") {
+    return {
+      from: new Date(now.getTime() - 7 * 24 * 3600_000).toISOString(),
+      to: now.toISOString(),
+    }
+  }
+  return {}
 }
 
 export function EventsView() {
-  const [frigate, setFrigate] = useState(systemHealth.frigate.enabled)
-  const [source, setSource] = useState("all")
-  const [category, setCategory] = useState("all")
-  const [camera, setCamera] = useState("all")
-  const [q, setQ] = useState("")
-  const [range, setRange] = useState("today")
-  const [sel, setSel] = useState<string[]>([])
-  const [open, setOpen] = useState<string | null>(null)
-  const [states, setStates] = useState<Record<string, CameraEvent["state"]>>({})
+  const [range, setRange] = useState<string>("24h")
+  const [source, setSource] = useState("")
+  const [category, setCategory] = useState("")
+  const [minConfidence, setMinConfidence] = useState("")
+  const [selected, setSelected] = useState<EventView | null>(null)
 
-  const stateOf = (e: CameraEvent) => states[e.id] ?? e.state
-
-  const rows = events.filter(
-    (e) =>
-      (frigate || e.source !== "AI 检测") &&
-      (source === "all" || e.source === source) &&
-      (category === "all" || e.category === category) &&
-      (camera === "all" || e.camera === camera) &&
-      (q === "" || e.camera.includes(q) || e.id.includes(q)),
+  const baseFilters: EventFilters = useMemo(
+    () => ({
+      ...rangeBounds(range),
+      source: source || undefined,
+      category: category || undefined,
+      minConfidence: minConfidence ? Number(minConfidence) : undefined,
+      limit: 50,
+    }),
+    [range, source, category, minConfidence],
   )
 
-  const aiShare = events.filter((e) => e.source === "AI 检测").length / events.length
-  const withRecording =
-    rows.filter((e) => e.hasRecording).length / Math.max(1, rows.length)
-  const unresolved = rows.filter((e) => stateOf(e) !== "resolved").length
-  const detail = events.find((e) => e.id === open)
+  const query = useEvents(baseFilters)
+  const { data: camData } = useCameras()
 
-  const setState = (id: string, s: CameraEvent["state"]) =>
-    setStates((prev) => ({ ...prev, [id]: s }))
+  const cameraNames = useMemo(() => {
+    const m = new Map<string, string>()
+    // Same shape guard as the camera list: a non-array here must degrade to
+    // "unknown camera", never crash the table.
+    if (!Array.isArray(camData)) return m
+    for (const c of camData) m.set(c.id, c.name)
+    return m
+  }, [camData])
+
+  // Keyset pagination can repeat an item across a page boundary, so merge by
+  // id rather than concatenating.
+  const items = useMemo(() => {
+    const seen = new Set<string>()
+    const out: EventView[] = []
+    for (const page of query.data?.pages ?? []) {
+      for (const e of page.items ?? []) {
+        if (seen.has(e.id)) continue
+        seen.add(e.id)
+        out.push(e)
+      }
+    }
+    return out
+  }, [query.data])
+
+  const stats = useMemo(() => {
+    const ai = items.filter((e) => e.source.toLowerCase().includes("frigate"))
+    const withScore = items.filter((e) => e.confidence !== null)
+    return {
+      total: items.length,
+      withSnapshot: items.filter((e) => e.snapshot_ref).length,
+      open: items.filter((e) => e.ended_at === null).length,
+      avgConfidence: withScore.length
+        ? withScore.reduce((s, e) => s + (e.confidence ?? 0), 0) / withScore.length
+        : null,
+      ai: ai.length,
+    }
+  }, [items])
+
+  /**
+   * Changing a filter must discard every page already fetched, otherwise the
+   * table would keep rows that no longer match the new conditions. A new
+   * query key does that automatically; this only clears the open detail row.
+   */
+  function resetPages() {
+    setSelected(null)
+  }
+
+  const columns = useMemo<ColumnDef<EventView, unknown>[]>(
+    () => [
+      {
+        accessorKey: "started_at",
+        header: "开始时间",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums">
+            {formatTime(row.original.started_at)}
+          </span>
+        ),
+      },
+      {
+        id: "camera",
+        accessorFn: (e) => (e.camera_id ? cameraNames.get(e.camera_id) ?? "" : ""),
+        header: "机位",
+        cell: ({ row }) => {
+          const e = row.original
+          if (!e.camera_id) {
+            return <span className="text-xs text-muted-foreground">无关联机位</span>
+          }
+          const name = cameraNames.get(e.camera_id)
+          return (
+            <span className={cn("text-xs", !name && "text-muted-foreground")}>
+              {name ?? `未知机位 ${e.camera_id.slice(0, 8)}`}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "source",
+        header: "来源",
+        cell: ({ row }) => (
+          <Badge
+            variant={row.original.source.toLowerCase().includes("frigate") ? "default" : "secondary"}
+          >
+            {row.original.source}
+          </Badge>
+        ),
+      },
+      {
+        accessorKey: "category",
+        header: "类别",
+        cell: ({ row }) => <span className="text-xs">{categoryLabel(row.original.category)}</span>,
+      },
+      {
+        id: "confidence",
+        accessorFn: (e) => e.confidence ?? -1,
+        header: "置信度",
+        cell: ({ row }) => {
+          const c = row.original.confidence
+          if (c === null) return <span className="text-xs text-muted-foreground">—</span>
+          return (
+            <div className="flex w-24 items-center gap-2">
+              <ProgressBar
+                value={c * 100}
+                tone={c >= 0.8 ? "online" : c >= 0.6 ? "degraded" : "unknown"}
+              />
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {formatFraction(c)}
+              </span>
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: "severity",
+        header: "严重度",
+        cell: ({ row }) => {
+          const s = row.original.severity
+          if (!s) return <span className="text-xs text-muted-foreground">—</span>
+          return (
+            <Badge variant={s.toLowerCase() === "high" ? "danger" : "outline"}>{s}</Badge>
+          )
+        },
+      },
+      {
+        id: "state",
+        accessorFn: (e) => (e.ended_at === null ? 0 : 1),
+        header: "状态",
+        cell: ({ row }) => {
+          const open = row.original.ended_at === null
+          return (
+            <span className="inline-flex items-center gap-1.5 text-xs">
+              <StatusDot tone={open ? "degraded" : "online"} />
+              {open ? "进行中" : "已结束"}
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: "ended_at",
+        header: "结束时间",
+        cell: ({ row }) => (
+          <span className="text-xs tabular-nums text-muted-foreground">
+            {row.original.ended_at ? formatTime(row.original.ended_at) : "—"}
+          </span>
+        ),
+      },
+    ],
+    [cameraNames],
+  )
+
+  const hasMore = query.hasNextPage ?? false
 
   return (
     <div className="space-y-4 p-5">
       <PageHeader
         title="事件"
-        description="ONVIF 事件与 AI 检测事件的归一化视图。两者共用一套字段，差异只在来源与置信度。"
+        description="ONVIF 事件与 AI 检测事件的归一化视图。列表按游标分页，不提供总条数。"
         actions={
-          <>
-            <Button variant="outline" size="sm">
-              <RefreshCw /> 刷新
-            </Button>
-            <Button size="sm">
-              <Download /> 导出 CSV
-            </Button>
-          </>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setRange("24h")
+              setSource("")
+              setCategory("")
+              setMinConfidence("")
+              resetPages()
+            }}
+          >
+            <RotateCcw /> 重置筛选
+          </Button>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="已加载事件" value={items.length} unit="条" />
         <StatCard
-          label="今日事件"
-          value={overviewStats.eventsToday}
+          label="进行中"
+          value={stats.open}
           unit="条"
-          icon={<Activity className="size-4" />}
-          hint={`当前筛选 ${rows.length} 条`}
+          tone={stats.open > 0 ? "degraded" : "online"}
+          hint="ended_at 为空"
         />
         <StatCard
-          label="未处理"
-          value={overviewStats.eventsUnacknowledged}
+          label="平均置信度"
+          value={stats.avgConfidence === null ? "—" : formatFraction(stats.avgConfidence)}
+          hint={`${items.length - stats.ai} 条无置信度或非 AI 来源`}
+        />
+        <StatCard
+          label="有快照"
+          value={stats.withSnapshot}
           unit="条"
-          tone={overviewStats.eventsUnacknowledged > 0 ? "degraded" : "online"}
-          hint={`本视图可见 ${unresolved} 条待处理`}
-        />
-        <StatCard
-          label="AI 检测占比"
-          value={frigate ? (aiShare * 100).toFixed(0) : "—"}
-          unit={frigate ? "%" : undefined}
-          tone={frigate ? "online" : "unknown"}
-          hint={frigate ? "Frigate 已启用 · CPU 检测器" : "Frigate 未启用，本项不适用"}
-        />
-        <StatCard
-          label="关联录像比例"
-          value={(withRecording * 100).toFixed(0)}
-          unit="%"
-          tone={withRecording > 0.5 ? "online" : "degraded"}
-          hint="有录像才谈得上回放与取证"
+          tone={stats.withSnapshot === 0 && items.length > 0 ? "degraded" : "online"}
         />
       </div>
 
-      <Toolbar>
-        <Select
-          className="w-28"
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-        >
-          <option value="all">全部来源</option>
-          <option value="ONVIF">ONVIF</option>
-          <option value="AI 检测">AI 检测{frigate ? "" : "（未启用）"}</option>
-        </Select>
-        <Select
-          className="w-32"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          <option value="all">全部类别</option>
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {categoryLabel[c]}
-            </option>
-          ))}
-        </Select>
-        <Select
-          className="w-40"
-          value={camera}
-          onChange={(e) => setCamera(e.target.value)}
-        >
-          <option value="all">全部机位</option>
-          {CAMERAS_IN_USE.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
-        <Input
-          className="w-44"
-          placeholder="搜索机位 / 事件 ID"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-        />
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5">
         <Segmented
           value={range}
-          onChange={setRange}
-          options={[
-            { value: "today", label: "今天" },
-            { value: "24h", label: "24 小时" },
-            { value: "7d", label: "7 天" },
-          ]}
+          onChange={(v) => {
+            setRange(v)
+            resetPages()
+          }}
+          options={RANGES.map((r) => ({ value: r.value, label: r.label }))}
         />
-        {sel.length > 0 && (
-          <span className="text-xs text-muted-foreground">已选 {sel.length} 项</span>
-        )}
-        <ToolbarSpacer />
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <Switch
-            aria-checked={frigate}
-            onClick={() => {
-              setFrigate((v) => !v)
-              setSource("all")
-            }}
-            title="Frigate 为可选检测源"
-          />
-          <Sparkles className="size-3.5" />
-          Frigate（可选）
-        </label>
-      </Toolbar>
+        <Select
+          className="w-36"
+          value={source}
+          onChange={(e) => {
+            setSource(e.target.value)
+            resetPages()
+          }}
+        >
+          <option value="">全部来源</option>
+          <option value="onvif">ONVIF</option>
+          <option value="frigate">Frigate（AI）</option>
+        </Select>
+        <Select
+          className="w-36"
+          value={category}
+          onChange={(e) => {
+            setCategory(e.target.value)
+            resetPages()
+          }}
+        >
+          <option value="">全部类别</option>
+          <option value="person">人员</option>
+          <option value="vehicle">车辆</option>
+          <option value="animal">动物</option>
+          <option value="motion">移动侦测</option>
+          <option value="intrusion">区域入侵</option>
+          <option value="line">越线</option>
+        </Select>
+        <Input
+          className="w-32"
+          type="number"
+          min={0}
+          max={1}
+          step={0.05}
+          placeholder="置信度 ≥"
+          value={minConfidence}
+          onChange={(e) => {
+            setMinConfidence(e.target.value)
+            resetPages()
+          }}
+        />
+        <span className="ml-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Filter className="size-3.5" />
+          游标分页 · 每页 50
+        </span>
+      </div>
 
-      <Callout tone="degraded" title="Frigate 是可选事件源，不是前提">
-        关闭「Frigate（可选）」后本页照常工作：来源只剩 ONVIF，AI 检测占比显示
-        为「—」，AI 专属筛选项不再是筛选条件，而是缺席。任何依赖 AI 的统计都必须
-        在未启用时给出「不适用」，而不是 0。
-      </Callout>
+      <DataTable
+        columns={columns}
+        data={items}
+        isLoading={query.isPending}
+        error={query.error}
+        onRetry={() => void query.refetch()}
+        selectedKey={selected?.id ?? null}
+        onRowClick={(e) => setSelected((cur) => (cur?.id === e.id ? null : e))}
+        emptyTitle="该条件下没有事件"
+        emptyDescription="放宽时间范围或清除筛选条件再试。"
+      />
 
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <Table>
-          <THead>
-            <TR>
-              <TH className="w-10">
-                <Checkbox
-                  checked={sel.length === rows.length && rows.length > 0}
-                  onChange={(e) =>
-                    setSel(e.target.checked ? rows.map((r) => r.id) : [])
-                  }
-                />
-              </TH>
-              <TH>缩略图</TH>
-              <TH>时间</TH>
-              <TH>机位</TH>
-              <TH>来源</TH>
-              <TH>类别</TH>
-              <TH className="w-32">置信度</TH>
-              <TH>状态</TH>
-              <TH>关联录像</TH>
-              <TH className="text-right">操作</TH>
-            </TR>
-          </THead>
-          <TBody>
-            {rows.map((e) => {
-              const st = stateOf(e)
-              return (
-                <TR
-                  key={e.id}
-                  onClick={() => setOpen(open === e.id ? null : e.id)}
-                  className={cn("cursor-pointer", open === e.id && "bg-accent/50")}
-                >
-                  <TD onClick={(ev) => ev.stopPropagation()}>
-                    <Checkbox
-                      checked={sel.includes(e.id)}
-                      onChange={(ev) =>
-                        setSel((prev) =>
-                          ev.target.checked
-                            ? [...prev, e.id]
-                            : prev.filter((x) => x !== e.id),
-                        )
-                      }
-                    />
-                  </TD>
-                  <TD>
-                    <Thumb id={e.id} />
-                  </TD>
-                  <TD className="text-xs tabular-nums">
-                    {range === "today" ? e.time : `09-30 ${e.time}`}
-                  </TD>
-                  <TD className="font-medium">{e.camera}</TD>
-                  <TD>
-                    <div className="flex items-center gap-1.5">
-                      <Badge
-                        variant={
-                          e.source === "AI 检测"
-                            ? frigate
-                              ? "default"
-                              : "outline"
-                            : "secondary"
-                        }
-                      >
-                        {e.source}
-                      </Badge>
-                      {!frigate && e.source === "AI 检测" && (
-                        <span className="text-[10px] text-muted-foreground">
-                          来源已停用
-                        </span>
-                      )}
-                    </div>
-                  </TD>
-                  <TD className="text-muted-foreground">
-                    {categoryLabel[e.category]}
-                  </TD>
-                  <TD>
-                    <ProgressBar
-                      value={e.confidence * 100}
-                      tone={
-                        e.confidence >= 0.85
-                          ? "online"
-                          : e.confidence >= 0.7
-                            ? "degraded"
-                            : "unknown"
-                      }
-                      showLabel
-                    />
-                  </TD>
-                  <TD>
-                    <div className="flex items-center gap-1.5">
-                      <StatusDot tone={STATE_TONE[st]} />
-                      <span className="text-xs">{stateLabel[st]}</span>
-                    </div>
-                  </TD>
-                  <TD>
-                    {e.hasRecording ? (
-                      <Badge variant="success">已关联</Badge>
-                    ) : (
-                      <span className="text-xs text-status-degraded">缺失</span>
-                    )}
-                  </TD>
-                  <TD onClick={(ev) => ev.stopPropagation()}>
-                    <RowActions>
-                      {st !== "resolved" && (
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          title="标记已处理"
-                          onClick={() => setState(e.id, "resolved")}
-                        >
-                          <Check className="size-3.5" />
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="查看"
-                        onClick={() => setOpen(e.id)}
-                      >
-                        <Eye className="size-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title="回放"
-                        disabled={!e.hasRecording}
-                      >
-                        <Play className="size-3.5" />
-                      </Button>
-                    </RowActions>
-                  </TD>
-                </TR>
-              )
-            })}
-          </TBody>
-        </Table>
-        {rows.length === 0 && (
-          <p className="px-4 py-10 text-center text-sm text-muted-foreground">
-            没有符合条件的事件。放宽筛选，或确认 Frigate 是否处于停用状态。
-          </p>
+      <div className="flex items-center justify-center gap-2">
+        {hasMore ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void query.fetchNextPage()}
+            disabled={query.isFetchingNextPage}
+          >
+            {query.isFetchingNextPage ? "加载中…" : "加载更多"}
+          </Button>
+        ) : (
+          items.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              已到末尾 · 共加载 {items.length} 条
+            </span>
+          )
         )}
       </div>
 
-      {detail && (
-        <div className="rounded-xl border border-border bg-card">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold">事件 {detail.id}</h3>
-              <Badge variant={STATE_VARIANT[stateOf(detail)]}>
-                {stateLabel[stateOf(detail)]}
-              </Badge>
-            </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              title="收起"
-              onClick={() => setOpen(null)}
-            >
-              <X className="size-3.5" />
-            </Button>
-          </div>
-          <div className="grid gap-x-8 px-4 py-1 sm:grid-cols-2 lg:grid-cols-4">
-            <KeyValue label="时间">
-              <span className="tabular-nums">2026-10-02 {detail.time}</span>
-            </KeyValue>
-            <KeyValue label="机位">{detail.camera}</KeyValue>
-            <KeyValue label="来源">
-              <Badge
-                variant={detail.source === "AI 检测" ? "default" : "secondary"}
-              >
-                {detail.source}
-              </Badge>
-            </KeyValue>
-            <KeyValue label="类别">{categoryLabel[detail.category]}</KeyValue>
-            <KeyValue label="置信度">
-              <span className="tabular-nums">
-                {(detail.confidence * 100).toFixed(0)}%
-              </span>
-            </KeyValue>
-            <KeyValue label="关联录像">
-              {detail.hasRecording ? "seg 片段已索引" : "缺失 · 需检查存储"}
-            </KeyValue>
-            <KeyValue label="缩略图">
-              <span className="font-mono text-xs">{detail.thumbnail}</span>
-            </KeyValue>
-            <KeyValue label="机位状态">
-              <CameraHealth camera={detail.camera} />
-            </KeyValue>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-3">
-            <Button
-              size="sm"
-              variant={stateOf(detail) === "resolved" ? "outline" : "default"}
-              onClick={() =>
-                setState(
-                  detail.id,
-                  stateOf(detail) === "resolved" ? "new" : "resolved",
-                )
-              }
-            >
-              <Check />
-              {stateOf(detail) === "resolved" ? "撤销处理" : "标记已处理"}
-            </Button>
-            <Button size="sm" disabled={!detail.hasRecording}>
-              <Play /> 在回放中打开
-            </Button>
-            <Button variant="ghost" size="sm">
-              标记误报
-            </Button>
-            <span className="ml-auto text-xs text-muted-foreground">
-              处理动作会写入审计日志
-            </span>
-          </div>
-        </div>
-      )}
+      {selected && <EventDetail event={selected} cameraName={selected.camera_id ? cameraNames.get(selected.camera_id) : undefined} />}
+
+      <Callout tone="degraded" title="机位列是客户端 join 的结果">
+        GET /api/v1/events 只返回 camera_id，不带机位名，所以这一列要拿
+        GET /api/v1/cameras 的结果在客户端拼。camera_id 为空的事件来自非摄像机源，
+        显示「无关联机位」；id 在机位列表里找不到时显示「未知机位 + id 前 8 位」，
+        而不是留空——留空会和"没加载出来"混淆。
+      </Callout>
+
+      <Callout tone="degraded" title="Frigate 是可选事件源">
+        未配置 AI 引擎时事件流里只会有 ONVIF 来源，来源筛选依然可用。本页不把
+        AI 相关筛选项当作必备功能渲染。
+      </Callout>
     </div>
   )
 }
 
-/** Camera health for the detail panel, resolved from the camera fixture. */
-function CameraHealth({ camera }: { camera: string }) {
-  const cam = cameras.find((c) => c.name === camera)
-  if (!cam) return <span className="text-muted-foreground">—</span>
-  return <StatusLabel tone={cam.health}>{HEALTH_LABEL[cam.health]}</StatusLabel>
+function EventDetail({
+  event,
+  cameraName,
+}: {
+  event: EventView
+  cameraName?: string
+}) {
+  const meta = Object.entries(event.metadata ?? {})
+
+  return (
+    <Card>
+      <CardContent className="space-y-1 py-2">
+        <div className="px-2 pb-2 text-sm font-semibold">
+          事件详情 · {categoryLabel(event.category)}
+        </div>
+        <div className="divide-y divide-border">
+          <KeyValue label="事件 ID">{event.id}</KeyValue>
+          <KeyValue label="来源">
+            {event.source}
+            {event.source_instance_id ? ` · ${event.source_instance_id}` : ""}
+          </KeyValue>
+          <KeyValue label="来源事件 ID">{event.source_event_id ?? "—"}</KeyValue>
+          <KeyValue label="机位">{cameraName ?? (event.camera_id ? event.camera_id : "无关联机位")}</KeyValue>
+          <KeyValue label="开始 / 结束">
+            {formatClock(event.started_at)} → {event.ended_at ? formatClock(event.ended_at) : "进行中"}
+          </KeyValue>
+          <KeyValue label="置信度">{formatFraction(event.confidence)}</KeyValue>
+          <KeyValue label="严重度">{event.severity ?? "—"}</KeyValue>
+          <KeyValue label="区域">{event.zone ?? "—"}</KeyValue>
+          <KeyValue label="标签">{event.label ?? "—"}</KeyValue>
+          <KeyValue label="关联 ID">{event.correlation_id ?? "—"}</KeyValue>
+          <KeyValue label="快照">{event.snapshot_ref ?? "无"}</KeyValue>
+        </div>
+        {meta.length > 0 && (
+          <div className="mt-2 border-t border-border pt-2">
+            <p className="px-2 pb-1 text-xs font-medium text-muted-foreground">
+              原始 metadata（{meta.length} 项）
+            </p>
+            <div className="divide-y divide-border">
+              {meta.map(([k, v]) => (
+                <KeyValue key={k} label={k}>
+                  <span className="font-mono text-xs">
+                    {renderMetaValue(v)}
+                  </span>
+                </KeyValue>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+/** metadata is `dict[str, object]` — values may be null, nested, or absent. */
+function renderMetaValue(v: unknown): string {
+  if (v === null || v === undefined) return "—"
+  if (typeof v === "string") return v
+  if (typeof v === "number" || typeof v === "boolean") return String(v)
+  try {
+    return JSON.stringify(v)
+  } catch {
+    return "[无法序列化]"
+  }
 }

@@ -6,6 +6,13 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   server: {
     port: 5273,
+    watch: {
+      // `npm run build` runs `tsc -b`, which writes tsconfig.tsbuildinfo into
+      // the project root. The dev file watcher sees that, fires a full page
+      // reload, and the app appears to "flash" back to the bootstrap spinner
+      // while you are just reading it.
+      ignored: ["**/tsconfig.tsbuildinfo", "**/dist/**", "**/node_modules/**"],
+    },
     // Same shape as frontend/vite.config.ts. Proxying (rather than pointing
     // the client at an absolute origin) is what keeps the session cookie
     // first-party: the cookie is HttpOnly + SameSite=Lax, so a cross-origin

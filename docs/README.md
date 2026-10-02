@@ -35,6 +35,7 @@ A conflict should be fixed rather than left as permanent dual truth.
 
 - [adr/0014-frontend-react-shadcn-admin-migration.md](adr/0014-frontend-react-shadcn-admin-migration.md) — 前端栈迁移到 React 19 + shadcn-admin（取代 ADR-0013 的第 1、4 条）
 - [FRONTEND-MODULE-MAP.md](FRONTEND-MODULE-MAP.md) — 12 个模块逐页功能定义、路由表、Vue 页面映射、待裁决问题
+- [FRONTEND-CONTRACT-GAPS.md](FRONTEND-CONTRACT-GAPS.md) — 迁移中发现的接口契约缺口（存储无只读容量、事件无机位名、机位列表缺绑定与时钟偏差等）
 
 ## Design-freeze plan
 
