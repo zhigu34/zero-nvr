@@ -8,6 +8,8 @@ import * as policyApi from "../api/recordingPolicies"
 import * as systemApi from "../api/systemSettings"
 import * as exportsApi from "../api/exports"
 import * as protectionsApi from "../api/protections"
+import * as usersApi from "../api/users"
+import * as auditApi from "../api/audit"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -330,5 +332,82 @@ export function useExportShares(exportId: string | null) {
     queryFn: ({ signal }) => exportsApi.listExportShares(exportId!, signal),
     enabled: Boolean(exportId),
     staleTime: 5_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Users & audit                                                              */
+/* -------------------------------------------------------------------------- */
+
+export const ADMIN = {
+  users: ["admin", "users"] as const,
+  roles: ["admin", "roles"] as const,
+  cameraGroups: ["admin", "camera-groups"] as const,
+  userScope: (userId: string) => ["admin", "user-scope", userId] as const,
+  audit: (filters: Record<string, string | undefined>) =>
+    ["admin", "audit", filters] as const,
+}
+
+/**
+ * The user list is a plain array — `GET /users` has no cursor
+ * (`admin_api.py:116-123`), so there is no pagination to get wrong. Long
+ * stale time: a user row only changes when an admin changes it, and this is
+ * also the join source for actor names on the audit page.
+ */
+export function useUsers() {
+  return useQuery({
+    queryKey: ADMIN.users,
+    queryFn: ({ signal }) => usersApi.listUsers(signal),
+    staleTime: 60_000,
+  })
+}
+
+export function useCameraGroups() {
+  return useQuery({
+    queryKey: ADMIN.cameraGroups,
+    queryFn: ({ signal }) => usersApi.listCameraGroups(signal),
+    staleTime: 300_000,
+  })
+}
+
+export function useRoles() {
+  return useQuery({
+    queryKey: ADMIN.roles,
+    queryFn: ({ signal }) => usersApi.listRoles(signal),
+    staleTime: 300_000,
+  })
+}
+
+/** Only fetched for the user whose scope sheet is open. */
+export function useUserCameraScope(userId: string | null) {
+  return useQuery({
+    queryKey: ADMIN.userScope(userId ?? ""),
+    queryFn: ({ signal }) => usersApi.getUserCameraScope(userId!, signal),
+    enabled: Boolean(userId),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Keyset paginated with server-side filters, so the query key carries every
+ * filter — a page that kept filters in component state would show the previous
+ * filter's rows next to the new filter's header.
+ */
+export function useAuditEvents(filters: auditApi.AuditFilters) {
+  return useInfiniteQuery({
+    queryKey: ADMIN.audit({
+      actorId: filters.actorId,
+      action: filters.action,
+      resourceType: filters.resourceType,
+      cameraId: filters.cameraId,
+      result: filters.result,
+      from: filters.from,
+      to: filters.to,
+    }),
+    queryFn: ({ pageParam, signal }) =>
+      auditApi.listAuditEvents({ ...filters, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    staleTime: 10_000,
   })
 }
