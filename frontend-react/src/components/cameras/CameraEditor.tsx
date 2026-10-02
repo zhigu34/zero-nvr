@@ -194,14 +194,11 @@ export function CameraEditor({ camera, onClose }: CameraEditorProps) {
         </Callout>
 
         <Callout tone="degraded" title="厂商与型号无法编辑">
-          <code>PATCH</code> 接受 manufacturer / model / form_factor，但仅当该机位
-          关联了设备记录时才真正保存；没有关联时后端会静默丢弃并返回 200
-          （<code>cameras/service.py:438</code>）。而 <code>CameraDetail</code>{" "}
-          只有 <code>streams</code> 与 <code>bindings</code>，<strong>
-            不返回 <code>device_id</code>
-          </strong>
-          ，前端无从判断这台机位会不会被丢弃——所以这里不提供输入框，
-          免得填完刷新就没了。
+          这三个字段写在<strong>设备</strong>上，不在机位上（
+          <code>cameras/service.py:437-448</code>）。两种结果都不是我们想要的：
+          机位没有关联设备时后端静默丢弃并返回 <code>200</code>；而多通道 NVR 的
+          几个机位共用一台设备时，写入会<strong>同时改掉同一设备的所有通道</strong>，
+          审计里却只记成这一个机位变了。所以这里不提供输入框。
         </Callout>
 
         {camera.bindings?.length ? (

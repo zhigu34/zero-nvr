@@ -744,6 +744,11 @@ Frigate 的操作员看到的是一个**报错横幅**而不是配置表单—�
 这个对比本身就是本条缺口的分量：**同一件运维上必然发生的事（换密码），ONVIF
 设备有一次昂贵但可用的重导入，手动 RTSP 设备则完全没有。**
 
+**根治方案见 [ADR 0015](adr/0015-camera-channel-model.md)**：把通道身份从设备手里
+收归系统（`channel_no` 与 `device_channel_key` 拆开），并新增
+`PUT /cameras/{id}/binding`。本条缺口是该 ADR 要解决的主要目标，在其落地前
+无法在前端绕过。
+
 **建议修法**：给 `CameraUpdate` 加
 `credentials_action: keep|replace|clear` + `rtsp_credentials: SecretStr | null`，
 与通知/备份保持同一套动词协议；或者新增
