@@ -1,188 +1,180 @@
-import { useState } from "react"
-import {
-  Camera,
-  Grid2x2,
-  Grid3x3,
-  LayoutGrid,
-  Maximize2,
-  Save,
-  Square,
-  Volume2,
-  VolumeX,
-} from "lucide-react"
-import { Badge, Button, Input, Select } from "../components/ui/primitives"
+import { useMemo, useState } from "react"
+
+import { LiveTile } from "../components/live/LiveTile"
 import {
   Callout,
+  EmptyState,
+  PageHeader,
   Segmented,
-  StatusDot,
   Toolbar,
   ToolbarSpacer,
 } from "../components/ui/display"
-import { cameras } from "../lib/mock"
+import { Button } from "../components/ui/primitives"
+import { Checkbox } from "../components/ui/display"
+import { useCameras } from "../lib/queries"
 import { cn } from "../lib/utils"
 
-const TILES = [
-  { cam: cameras[0], transport: "WebRTC", hls: false },
-  { cam: cameras[1], transport: "WebRTC", hls: false },
-  { cam: cameras[2], transport: "WebRTC", hls: false },
-  { cam: cameras[5], transport: "HLS", hls: true },
-  { cam: cameras[6], transport: "WebRTC", hls: false },
-  { cam: cameras[7], transport: "WebRTC", hls: false },
-  { cam: cameras[9], transport: "HLS", hls: true },
-  { cam: cameras[3], transport: "HLS", hls: true, degraded: true },
-  { cam: cameras[4], transport: "—", hls: false, down: true },
-]
+/**
+ * Live monitoring wall.
+ *
+ * Layouts are limited to the same slot counts the backend's preview wall
+ * accepts (4 / 9 / 16) so that switching a layout here cannot produce a
+ * configuration the rest of the media stack would refuse. Note there is no
+ * single-tile option: the smallest supported wall is four.
+ *
+ * Selection is capped at 16 for the same reason, and the cap is enforced in
+ * the UI rather than by letting the backend reject the sync message later.
+ */
 
-/** A tile with no real stream: dark panel, name, clock, and a transport tag. */
-function Tile({ t }: { t: (typeof TILES)[number] }) {
-  const [muted, setMuted] = useState(true)
+const LAYOUTS = [
+  { value: "4", label: "4 画面", columns: 2 },
+  { value: "9", label: "9 画面", columns: 3 },
+  { value: "16", label: "16 画面", columns: 4 },
+] as const
 
-  return (
-    <div className="group relative aspect-video overflow-hidden rounded-lg border border-border bg-neutral-950">
-      {/* Faux picture area — diagonals so it never reads as a real feed. */}
-      <div
-        className="absolute inset-0 opacity-[0.18]"
-        style={{
-          backgroundImage:
-            "repeating-linear-gradient(45deg, #fff 0 1px, transparent 1px 14px)",
-        }}
-      />
-      {t.down ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-neutral-500">
-          <Camera className="size-6" />
-          <p className="text-xs">无信号</p>
-          <p className="text-[10px] text-neutral-600">最后心跳 2 小时 14 分前</p>
-        </div>
-      ) : (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <span className="rounded bg-black/45 px-2 py-0.5 text-[10px] text-neutral-400">
-            静态原型 · 无真实画面
-          </span>
-        </div>
-      )}
-
-      {/* Top overlay */}
-      <div className="absolute inset-x-0 top-0 flex items-center gap-1.5 bg-gradient-to-b from-black/70 to-transparent p-2">
-        {t.cam.health === "online" && (
-          <StatusDot tone={t.cam.recording ? "offline" : "online"} />
-        )}
-        <span className="truncate text-xs font-medium text-white">{t.cam.name}</span>
-        <span className="ml-auto shrink-0 text-[10px] tabular-nums text-neutral-300">
-          14:58:{String(t.cam.id.length * 7).padStart(2, "0")}
-        </span>
-      </div>
-
-      {/* Bottom overlay */}
-      {!t.down && (
-        <div className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/75 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
-          <Badge
-            variant={t.transport === "WebRTC" ? "success" : t.degraded ? "warning" : "secondary"}
-            className="bg-black/40 text-[10px] text-white backdrop-blur-sm"
-          >
-            {t.transport}
-          </Badge>
-          <span className="text-[10px] text-neutral-400">
-            {t.cam.subStream}
-          </span>
-          <span className="ml-auto flex items-center gap-1">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => setMuted((v) => !v)}
-              className="size-6 text-white hover:bg-white/15"
-              title={muted ? "打开音频" : "静音"}
-            >
-              {muted ? <VolumeX className="size-3.5" /> : <Volume2 className="size-3.5" />}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-6 text-white hover:bg-white/15"
-              title="抓图"
-            >
-              <Square className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-6 text-white hover:bg-white/15"
-              title="全屏"
-            >
-              <Maximize2 className="size-3.5" />
-            </Button>
-          </span>
-        </div>
-      )}
-
-      {t.degraded && (
-        <div className="absolute inset-x-0 top-8 flex items-center justify-center">
-          <span className="rounded bg-status-degraded/90 px-1.5 py-0.5 text-[10px] font-medium text-black">
-            H.265 不支持 WebRTC · 已回退 HLS
-          </span>
-        </div>
-      )}
-    </div>
-  )
-}
+const MAX_TILES = 16
 
 export function LiveView() {
-  const [grid, setGrid] = useState("4")
-  const [filter, setFilter] = useState("all")
+  const camerasQuery = useCameras()
+  const [selected, setSelected] = useState<string[]>([])
+  const [layout, setLayout] = useState<"4" | "9" | "16">("4")
 
-  const cols =
-    grid === "2" ? "sm:grid-cols-2" : grid === "4" ? "sm:grid-cols-2 xl:grid-cols-4" : "sm:grid-cols-2 lg:grid-cols-3"
+  const active = useMemo(
+    () => camerasQuery.data?.filter((camera) => selected.includes(camera.id)) ?? [],
+    [camerasQuery.data, selected],
+  )
 
-  const shown = filter === "rec" ? TILES.filter((t) => t.cam.recording) : TILES
+  const columns = LAYOUTS.find((entry) => entry.value === layout)!.columns
+  const capacity = Number(layout)
+
+  const toggle = (cameraId: string) => {
+    setSelected((current) => {
+      if (current.includes(cameraId)) {
+        return current.filter((id) => id !== cameraId)
+      }
+      if (current.length >= capacity) return current
+      return [...current, cameraId]
+    })
+  }
+
+  if (camerasQuery.isPending) {
+    return (
+      <div className="p-6">
+        <PageHeader title="实时监控" description="正在加载机位列表…" />
+      </div>
+    )
+  }
+
+  if (camerasQuery.isError) {
+    return (
+      <div className="p-6">
+        <PageHeader title="实时监控" />
+        <Callout tone="offline" title="无法加载机位列表">
+          {camerasQuery.error instanceof Error
+            ? camerasQuery.error.message
+            : "未知错误"}
+        </Callout>
+      </div>
+    )
+  }
 
   return (
     <div className="flex h-full flex-col">
-      <div className="shrink-0 p-4 pb-3">
-        <Toolbar>
-          <Segmented
-            value={grid}
-            onChange={setGrid}
-            options={[
-              { value: "2", label: <Grid2x2 /> },
-              { value: "4", label: <LayoutGrid /> },
-              { value: "9", label: <Grid3x3 /> },
-            ]}
-          />
-          <Select
-            className="w-36"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          >
-            <option value="all">全部机位</option>
-            <option value="rec">仅录制中</option>
-            <option value="offline">仅离线</option>
-          </Select>
-          <Select className="w-32" defaultValue="layout-a">
-            <option value="layout-a">布局：默认九宫格</option>
-            <option value="layout-b">布局：大门 + 周界</option>
-            <option value="layout-c">布局：仓库巡检</option>
-          </Select>
-          <Input className="w-44" placeholder="按名称过滤机位" />
-          <ToolbarSpacer />
-          <Button variant="outline" size="sm">
-            <Save /> 保存为个人布局
+      <PageHeader
+        title="实时监控"
+        description={`已选择 ${active.length} / ${capacity} 路`}
+      />
+
+      <Toolbar>
+        <Segmented
+          options={LAYOUTS.map((entry) => ({
+            value: entry.value,
+            label: entry.label,
+          }))}
+          value={layout}
+          onChange={(value) => {
+            const next = value as "4" | "9" | "16"
+            setLayout(next)
+            // Shrinking the wall must not leave tiles the layout cannot show.
+            setSelected((current) => current.slice(0, Number(next)))
+          }}
+        />
+        <ToolbarSpacer />
+        {active.length ? (
+          <Button variant="outline" size="sm" onClick={() => setSelected([])}>
+            清空
           </Button>
-        </Toolbar>
-      </div>
+        ) : null}
+      </Toolbar>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-        <div className={cn("grid gap-2.5", cols)}>
-          {shown.map((t) => (
-            <Tile key={t.cam.id} t={t} />
-          ))}
-        </div>
+      <div className="flex flex-1 flex-col gap-3 overflow-auto p-4">
+        {camerasQuery.data.length === 0 ? (
+          <EmptyState
+            title="还没有可监控的机位"
+            description="先在机位管理中添加并启用摄像机。"
+          />
+        ) : null}
 
-        <div className="mt-3 space-y-2">
-          <Callout tone="degraded" title="传输选择说明">
-            瓦片按 WebRTC（WHEP）优先、失败回退 HLS；H.265 码流浏览器无法解码，强制走
-            HLS。原型中「电梯厅（东）」演示了这一回退路径。
-          </Callout>
-        </div>
+        {/*
+          The picker stays mounted once a tile is running. Hiding it after the
+          first selection left no way to add a second camera without clearing
+          the wall, which made a "wall" impossible to build.
+        */}
+        {camerasQuery.data.length > 0 ? (
+          <div className="rounded-lg border border-border p-4">
+            <p className="mb-3 text-sm font-medium">
+              选择要监控的机位
+              <span className="ml-2 text-xs text-muted-foreground">
+                当前布局最多 {capacity} 路
+              </span>
+            </p>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              {camerasQuery.data.map((camera) => {
+                const chosen = selected.includes(camera.id)
+                const full = selected.length >= capacity
+                return (
+                  <label
+                    key={camera.id}
+                    className={cn(
+                      "flex items-center gap-2 rounded border border-border px-2.5 py-2 text-sm",
+                      // A disabled-but-checked row must stay clickable, or the
+                      // user cannot deselect the last camera either.
+                      full && !chosen && "opacity-50",
+                    )}
+                  >
+                    <Checkbox
+                      checked={chosen}
+                      disabled={full && !chosen}
+                      onChange={() => toggle(camera.id)}
+                    />
+                    <span className="min-w-0 truncate">{camera.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+        ) : null}
+
+        {active.length > 0 ? (
+          <div
+            className="grid gap-2"
+            style={{
+              gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+            }}
+          >
+            {active.map((camera) => (
+              <LiveTile
+                key={camera.id}
+                cameraId={camera.id}
+                cameraName={camera.name}
+                className={cn("aspect-video")}
+              />
+            ))}
+          </div>
+        ) : null}
       </div>
     </div>
   )
 }
+
+export { MAX_TILES }

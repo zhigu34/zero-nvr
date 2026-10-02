@@ -176,6 +176,10 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 
 **严重漂移交给服务端重新解析，不硬跳浏览器。** 媒体元素在 ZLM VOD 上做 `currentTime` 硬跳会丢掉已缓冲数据并可见卡顿；重新向服务端要一段已对齐偏移的流则直接落在正确位置。`playback/serverResync.ts` 把这段仲裁从 608 行的组件里抽成纯逻辑，并用一次性闸门避免「重解析→新流起点偏差→再次重解析」的自激循环。
 
+**直播会话有两个截止时间，续期只覆盖其中一个。** `keepalive` 延长的是服务端 media session 的租期，**不重新签发 `hls_url`**——后者是带 HMAC 签名的地址，TTL 固定 30 分钟（`zlm/access.py:20`），到点必然 403。所以 `live/useLiveTile.ts` 分别排两个定时器：keepalive 在租期到期前 60 秒续期，签名在到期前 120 秒**重新调用 `GET /cameras/{id}/live`** 并释放旧 session。只有前者的话，一个整晚没关的监控页会持续显示「续期成功」而所有瓦片同时变黑——这比直接报错更难排查。
+
+**播放器工厂必须从依赖数组里移出去。** `useLiveTile` 若把 `createHls` 放进 `useCallback` 依赖，调用方传一个内联箭头函数就会让每次渲染都产生新的函数标识 → 重跑加载 effect → setState → 再次渲染，形成对后端的无上限重解析循环。工厂读自 ref，effect 只以「真正决定播放内容的东西」为键。
+
 ## Related
 
 - ADR-0013 — 前一版设计语言决策，其框架保留部分被本 ADR 取代
