@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
 import * as camerasApi from "../api/cameras"
 import * as eventsApi from "../api/events"
 import * as storageApi from "../api/storage"
+import * as playbackApi from "../api/playback"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -84,6 +85,83 @@ export function useRetentionPolicies() {
     queryKey: STORAGE.retention,
     queryFn: ({ signal }) => storageApi.listRetentionPolicies(signal),
     staleTime: 300_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Playback                                                                  */
+/* -------------------------------------------------------------------------- */
+
+export const PLAYBACK = {
+  timeline: (
+    cameraId: string,
+    from: string,
+    to: string,
+    detail: string,
+  ) => ["playback", "timeline", cameraId, from, to, detail] as const,
+}
+
+/**
+ * One camera's record track over a wall-clock range.
+ *
+ * This is a query rather than a poll: the track only changes when the clock
+ * window moves, and a viewer parked on one moment should not generate traffic.
+ * It does go stale quickly, because a recording that was absent a minute ago
+ * can be written at any moment by a policy or a restore finishing.
+ */
+export function useCameraTimeline(
+  cameraId: string | null,
+  range: { from: string; to: string; detail?: playbackApi.TimelineDetail },
+  signal?: AbortSignal,
+) {
+  return useQuery({
+    queryKey: PLAYBACK.timeline(
+      cameraId ?? "",
+      range.from,
+      range.to,
+      range.detail ?? "minute",
+    ),
+    queryFn: ({ signal: querySignal }) =>
+      playbackApi.getCameraTimeline(
+        cameraId!,
+        { from: range.from, to: range.to, detail: range.detail },
+        signal ?? querySignal,
+      ),
+    enabled: Boolean(cameraId) && Boolean(range.from) && Boolean(range.to),
+    staleTime: 15_000,
+  })
+}
+
+/**
+ * Multi-camera tracks for a synchronised review.
+ *
+ * Keyed on the sorted id list so that re-selecting the same cameras in a
+ * different order reuses the cache instead of refetching the same batch.
+ */
+export function useAlignedTimelines(
+  cameraIds: readonly string[],
+  range: { from: string; to: string; detail?: playbackApi.TimelineDetail },
+) {
+  const key = [...cameraIds].sort().join(",")
+  return useQuery({
+    queryKey: ["playback", "aligned", key, range.from, range.to, range.detail ?? "minute"],
+    queryFn: ({ signal }) =>
+      playbackApi.getAlignedTimeline(
+        {
+          cameraIds: [...cameraIds],
+          from: range.from,
+          to: range.to,
+          detail: range.detail,
+        },
+        signal,
+      ),
+    // One camera is not a synchronised review; the endpoint rejects it.
+    enabled:
+      cameraIds.length >= playbackApi.MIN_ALIGNED_CAMERAS &&
+      cameraIds.length <= playbackApi.MAX_ALIGNED_CAMERAS &&
+      Boolean(range.from) &&
+      Boolean(range.to),
+    staleTime: 15_000,
   })
 }
 

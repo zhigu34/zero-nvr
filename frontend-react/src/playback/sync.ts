@@ -110,12 +110,17 @@ const PLAYABLE_AVAILABILITY: ReadonlySet<SegmentAvailability> = new Set([
   "cached_remote",
 ])
 
+function recordingRangesOf(timeline: PlaybackTimelineView) {
+  return Array.isArray(timeline.recording_ranges) ? timeline.recording_ranges : []
+}
+
 function timelineHasPlayableAt(
   timeline: PlaybackTimelineView,
   atMs: number,
 ): boolean {
-  return timeline.recording_ranges.some(
+  return recordingRangesOf(timeline).some(
     (range) =>
+      range?.availability != null &&
       PLAYABLE_AVAILABILITY.has(range.availability) &&
       new Date(range.start_at).getTime() <= atMs &&
       atMs < new Date(range.end_at).getTime(),
@@ -143,7 +148,8 @@ export function findNextPlayableTime(
 
   let next: number | null = null
   for (const timeline of timelines) {
-    for (const range of timeline.recording_ranges) {
+    for (const range of recordingRangesOf(timeline)) {
+      if (!range?.start_at || !range?.end_at) continue
       if (!PLAYABLE_AVAILABILITY.has(range.availability)) continue
       const startMs = new Date(range.start_at).getTime()
       if (startMs <= afterMs) continue
