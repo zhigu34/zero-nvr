@@ -146,7 +146,7 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 1. **PR-1 骨架**：`frontend-react/` 初始化，移植 theme.css + layout 组件，产出静态原型供走查 —— **已完成**（`6ec78ed`）
 2. **PR-2 认证与外壳**：登录、session、AppShell 导航分组、权限守卫 —— **已完成**（认证门禁、TanStack Router 路由树、角色过滤、用户菜单）
 3. **PR-3 只读页**：Dashboard / Cameras 列表 / Events / Storage 列表（TanStack Table 模式验证）—— **已完成**（三页接真实 API、游标分页、容量探测入口；TanStack Table 模式定版）
-4. **PR-4 媒体页**：Live / Playback（hls.js 传输层 + 播放容错 + 补测试）
+4. **PR-4 媒体页**：Live / Playback（hls.js 传输层 + 播放容错 + 补测试）—— **已完成**（回放与直播均接真实媒体链路；原 Vue 侧 5400+ 行组件中零覆盖的纯逻辑拆为 11 个可测模块）
 5. **PR-5 写操作页**：机位编辑 / 录制计划 / 告警规则 / 系统设置
 6. **PR-6 切换**：删除 `frontend/`，`frontend-react/` 升为唯一前端
 
