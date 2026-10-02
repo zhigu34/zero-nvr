@@ -97,7 +97,7 @@ describe("CameraEditor", () => {
     renderEditor()
     // Offering a field the endpoint ignores would look like it saved.
     expect(screen.queryByLabelText(/RTSP 地址/)).toBeNull()
-    expect(screen.getByText("RTSP 地址不可在此修改")).toBeTruthy()
+    expect(screen.getByText("换不掉背后的设备")).toBeTruthy()
   })
 
   it("does not offer manufacturer or model, which would be silently dropped", () => {
@@ -105,6 +105,11 @@ describe("CameraEditor", () => {
     expect(screen.queryByLabelText("厂商")).toBeNull()
     expect(screen.queryByLabelText("型号")).toBeNull()
     expect(screen.getByText("厂商与型号无法编辑")).toBeTruthy()
+    // The reason is not only "no device_id, so it is dropped". On a multi-channel
+    // NVR the write *succeeds* and changes every channel at once, while the audit
+    // records one camera. Saying only the first half would invite someone to
+    // enable these fields the moment `device_id` is exposed.
+    expect(screen.getByText(/同时改掉同一设备的所有通道/)).toBeTruthy()
   })
 
   it("offers only ignore for a manual RTSP camera's time sync", () => {
@@ -164,8 +169,11 @@ describe("CameraEditor", () => {
 
   it("explains the restore behaviour on a retired camera", () => {
     renderEditor({ ...BASE, retired_at: "2026-10-01T00:00:00Z" })
-    expect(screen.getByText("机位已退役")).toBeTruthy()
-    expect(screen.getByText(/恢复后机位仍为停用状态/)).toBeTruthy()
+    expect(screen.getByText("这条通道已退役")).toBeTruthy()
+    // Two claims that must both survive: the channel comes back disabled, and
+    // retiring keeps the binding rather than unbinding it.
+    expect(screen.getByText(/需要再启用一次才会开始取流/)).toBeTruthy()
+    expect(screen.getByText(/不会解开背后的设备/)).toBeTruthy()
   })
 
   it("lists existing stream bindings read-only", () => {

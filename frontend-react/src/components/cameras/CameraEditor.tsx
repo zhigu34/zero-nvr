@@ -182,15 +182,18 @@ export function CameraEditor({ camera, onClose }: CameraEditorProps) {
         </label>
 
         {camera.retired_at ? (
-          <Callout tone="degraded" title="机位已退役">
-            退役会同时停用该机位并关闭其手动录制触发器。恢复后机位仍为停用状态，
-            需要再启用一次才会开始取流。
+          <Callout tone="degraded" title="这条通道已退役">
+            退役会把通道从列表里摘下并停止取流，<strong>但绑定、录制计划、录像保护
+            与分组全部保留</strong>，恢复后原样回来。它不会解开背后的设备，
+            恢复后仍是同一台。恢复后通道仍为停用状态，需要再启用一次才会开始取流。
           </Callout>
         ) : null}
 
-        <Callout tone="degraded" title="RTSP 地址不可在此修改">
-          <code>PATCH /cameras/:id</code> 不接受码流字段，改地址意味着删除后重建。
-          如需更换设备来源，请新建机位再退役旧的。
+        <Callout tone="degraded" title="换不掉背后的设备">
+          <code>PATCH /cameras/:id</code> 不接受码流与凭据字段，而
+          <code> PUT /cameras/:id/binding</code> 还不存在。所以今天要换设备只能
+          新建一条通道再把旧的退役掉——通道号、计划与保护都带不过去。
+          <strong>ADR-0015</strong> 记录了通道与绑定分离的完整方案。
         </Callout>
 
         <Callout tone="degraded" title="厂商与型号无法编辑">

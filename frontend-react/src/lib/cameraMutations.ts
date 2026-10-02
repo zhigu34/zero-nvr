@@ -12,6 +12,8 @@
  * status line. "Saved, but the camera is not streaming yet" and "nothing was
  * saved" are different situations and the operator's next action differs.
  */
+import { useCallback } from "react"
+import { useQueryClient } from "@tanstack/react-query"
 import {
   disableCamera,
   enableCamera,
@@ -60,59 +62,86 @@ export function useSaveCamera(cameraId: string) {
   })
 }
 
-export function useSetCameraEnabled(cameraId: string) {
-  const enable = useSave<void, unknown>({
-    mutationFn: () => enableCamera(cameraId),
-    invalidates: [CAMS.list(false), CAMS.list(true), CAMS.detail(cameraId)],
+/**
+ * Row actions take the camera id as a mutation variable, not as a hook argument.
+ *
+ * These used to be built from a `selected` camera id captured at mount. That was
+ * wrong for a table: the action buttons live on every row and stop propagation
+ * (`CamerasView.tsx`), so clicking one never updates the selection. Every row
+ * action therefore acted on whichever camera happened to be open — clicking
+ * "停用" on row B would disable row A, silently and successfully.
+ *
+ * A confirmation prompt makes it worse: the prompt can outlive the selection it
+ * was opened from, so the id has to travel with the click, not with the render.
+ */
+function useInvalidateCamera() {
+  const queryClient = useQueryClient()
+  return useCallback(
+    (id: string) => {
+      void queryClient.invalidateQueries({ queryKey: CAMS.list(false) })
+      void queryClient.invalidateQueries({ queryKey: CAMS.list(true) })
+      void queryClient.invalidateQueries({ queryKey: CAMS.detail(id) })
+    },
+    [queryClient],
+  )
+}
+
+export function useSetCameraEnabled() {
+  const invalidate = useInvalidateCamera()
+  const enable = useSave<string, unknown>({
+    mutationFn: (id) => enableCamera(id),
     success: () => ({ title: "已启用" }),
     failure: partialFailure("启用"),
+    onSuccess: (_data, id) => invalidate(id),
   })
-  const disable = useSave<void, unknown>({
-    mutationFn: () => disableCamera(cameraId),
-    invalidates: [CAMS.list(false), CAMS.list(true), CAMS.detail(cameraId)],
+  const disable = useSave<string, unknown>({
+    mutationFn: (id) => disableCamera(id),
     success: () => ({ title: "已停用" }),
     failure: partialFailure("停用"),
+    onSuccess: (_data, id) => invalidate(id),
   })
   return {
-    enable: () => enable.mutate(undefined),
-    disable: () => disable.mutate(undefined),
+    enable: (id: string) => enable.mutate(id),
+    disable: (id: string) => disable.mutate(id),
     isPending: enable.isPending || disable.isPending,
   }
 }
 
-export function useRetireCamera(cameraId: string) {
-  const retire = useSave<void, unknown>({
-    mutationFn: () => retireCamera(cameraId),
-    invalidates: [CAMS.list(false), CAMS.list(true), CAMS.detail(cameraId)],
+export function useRetireCamera() {
+  const invalidate = useInvalidateCamera()
+  const retire = useSave<string, unknown>({
+    mutationFn: (id) => retireCamera(id),
     failure: partialFailure("退役"),
+    onSuccess: (_data, id) => invalidate(id),
   })
-  const restore = useSave<void, unknown>({
-    mutationFn: () => restoreCamera(cameraId),
-    invalidates: [CAMS.list(false), CAMS.list(true), CAMS.detail(cameraId)],
+  const restore = useSave<string, unknown>({
+    mutationFn: (id) => restoreCamera(id),
     // Restoring deliberately does not re-enable the camera: the server keeps
     // `enabled = false` so a retired camera cannot start streaming the moment
     // somebody restores it by accident.
     success: () => ({
       title: "已恢复",
-      detail: "机位已回到列表，但仍处于停用状态，需要再点一次「启用」才会开始取流。",
+      detail: "通道已回到列表，但仍处于停用状态，需要再点一次「启用」才会开始取流。",
     }),
+    onSuccess: (_data, id) => invalidate(id),
   })
   return {
-    retire: () => retire.mutate(undefined),
-    restore: () => restore.mutate(undefined),
+    retire: (id: string) => retire.mutate(id),
+    restore: (id: string) => restore.mutate(id),
     isPending: retire.isPending || restore.isPending,
   }
 }
 
-export function useProbeCamera(cameraId: string) {
-  return useSave<void, unknown>({
-    mutationFn: () => probeCamera(cameraId),
-    invalidates: [CAMS.list(false), CAMS.list(true), CAMS.detail(cameraId)],
+export function useProbeCamera() {
+  const invalidate = useInvalidateCamera()
+  return useSave<string, unknown>({
+    mutationFn: (id) => probeCamera(id),
     success: () => ({ title: "已重新探测" }),
     failure: (error) => ({
       title: "探测失败",
       detail: error instanceof Error ? error.message : String(error),
     }),
+    onSuccess: (_data, id) => invalidate(id),
   })
 }
 

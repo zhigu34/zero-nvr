@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import type { ColumnDef } from "@tanstack/react-table"
 import { Plus, Upload, Wifi, WifiOff } from "lucide-react"
 import { Badge, Button, Input, Select, Switch } from "../components/ui/primitives"
+import { useConfirm } from "../components/ui/Confirm"
 import { DataTable } from "../components/ui/data-table"
 import {
   Callout,
@@ -15,6 +16,7 @@ import { type CameraSummary, normalizeConnectivity } from "../api/cameras"
 import { useCameras, useCamera, useCameraGroups } from "../lib/queries"
 import { useProbeCamera, useRetireCamera, useSetCameraEnabled } from "../lib/cameraMutations"
 import { CameraEditor } from "../components/cameras/CameraEditor"
+import { BindingSummary } from "../components/cameras/BindingSummary"
 import { CameraGroupsPanel } from "../components/cameras/CameraGroupsPanel"
 import { OnboardingWizard } from "../components/cameras/OnboardingWizard"
 import { OnboardingBatch } from "../components/cameras/OnboardingBatch"
@@ -63,7 +65,31 @@ export function CamerasView() {
   // editor needs the detail, and fetching it only when a row is opened keeps
   // the list at one request instead of one per row.
   const detailQuery = useCamera(selected)
-  const actions = useCameraRowActions(selected)
+  const actions = useCameraRowActions()
+  const confirm = useConfirm()
+
+  /**
+   * The id travels with the click, not with the render.
+   *
+   * The prompt stays open while the operator can still click another row or
+   * open a different camera, so reading `selected` when the answer arrives would
+   * retire whatever happened to be open at that moment.
+   */
+  const askRetire = useCallback(
+    async (camera: CameraSummary) => {
+      const ok = await confirm({
+        title: "退役这条通道",
+        message:
+          `「${camera.name}」会立即停止取流与录制，其上的录制计划、录像保护与分组` +
+          `都会保留，随时可以恢复。不会删除任何数据。`,
+        confirmLabel: "退役",
+        danger: true,
+      })
+      if (!ok) return
+      actions.retire.retire(camera.id)
+    },
+    [confirm, actions],
+  )
 
   // Guard the shape before deriving from it. `CameraSummary[]` is what the
   // endpoint promises, but a cached value from an older build (or a
@@ -125,13 +151,10 @@ export function CamerasView() {
         ),
       },
       {
-        accessorKey: "adapter_type",
-        header: "接入",
-        cell: ({ row }) => (
-          <Badge variant={row.original.adapter_type ? "secondary" : "outline"}>
-            {row.original.adapter_type ?? "—"}
-          </Badge>
-        ),
+        id: "binding",
+        accessorFn: (c) => c.adapter_type ?? "",
+        header: "当前绑定",
+        cell: ({ row }) => <BindingSummary camera={row.original} />,
       },
       {
         id: "status",
@@ -212,11 +235,13 @@ export function CamerasView() {
         cell: ({ row }) => {
           const camera = row.original
           const action = rowActionFor(camera)
+          // Busy is global, not per row: these mutations no longer know which
+          // row they belong to until they are called, so a single in-flight
+          // write disables every row's actions rather than the wrong one.
           const busy =
-            selected === camera.id &&
-            (actions.setEnabled.isPending ||
-              actions.retire.isPending ||
-              actions.probe.isPending)
+            actions.setEnabled.isPending ||
+            actions.retire.isPending ||
+            actions.probe.isPending
 
           return (
             <div
@@ -227,7 +252,7 @@ export function CamerasView() {
                 variant="ghost"
                 size="sm"
                 disabled={busy}
-                onClick={() => actions.probe.mutate(undefined)}
+                onClick={() => actions.probe.mutate(camera.id)}
                 title="重新探测码流"
               >
                 探测
@@ -237,21 +262,45 @@ export function CamerasView() {
                 size="sm"
                 disabled={busy}
                 onClick={() => {
-                  if (action.kind === "enable") actions.setEnabled.enable()
+                  if (action.kind === "enable")
+                    actions.setEnabled.enable(camera.id)
                   else if (action.kind === "disable")
-                    actions.setEnabled.disable()
-                  else if (action.kind === "restore") actions.retire.restore()
-                  else actions.retire.retire()
+                    actions.setEnabled.disable(camera.id)
+                  else actions.retire.restore(camera.id)
                 }}
               >
                 {ROW_ACTION_LABEL[action.kind]}
               </Button>
+              {/* Retire is the "lift the channel out of service" action, and it
+                  is the only one here that needs asking about: it force-disables
+                  the camera and stops its manual recording triggers
+                  (`cameras/service.py:488-491`). Nothing is destroyed — the
+                  binding, the plans and the protections all stay, and restore
+                  brings them back untouched. Reversible, but it silently stops
+                  recording, which is exactly the kind of thing an operator
+                  deserves a prompt about.
+
+                  Reachable from here for the first time: `rowActionFor` never
+                  returns "retire", so the old `else actions.retire.retire()`
+                  branch was dead code and the whole retire/restore lifecycle
+                  had no entry point. */}
+              {!camera.retired_at && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-muted-foreground"
+                  disabled={busy}
+                  onClick={() => void askRetire(camera)}
+                >
+                  退役
+                </Button>
+              )}
             </div>
           )
         },
       },
     ],
-    [selected, actions],
+    [selected, actions, askRetire],
   )
 
   return (

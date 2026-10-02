@@ -1,6 +1,6 @@
 import { QueryClient } from "@tanstack/react-query"
 import { renderWithProviders } from "../test-utils"
-import { fireEvent, screen, waitFor } from "@testing-library/react"
+import { fireEvent, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CamerasView } from "./CamerasView"
 import { CAMS } from "../lib/queries"
@@ -198,7 +198,7 @@ describe("CamerasView writes", () => {
     })
     // The list endpoint has no streams or bindings; the editor must be fed
     // from the detail endpoint rather than from the row.
-    expect(screen.getByText("RTSP 地址不可在此修改")).toBeTruthy()
+    expect(screen.getByText("换不掉背后的设备")).toBeTruthy()
   })
 
   it("offers restore for a retired camera once retired ones are shown", async () => {
@@ -244,5 +244,161 @@ describe("CamerasView writes", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "启用" })).toBeTruthy()
     })
+  })
+})
+
+/**
+ * Retire used to have no entry point at all.
+ *
+ * `rowActionFor` returns only enable / disable / restore, so the table's
+ * `else actions.retire.retire()` was unreachable — the backend had
+ * `POST /cameras/{id}/retire`, the mutation wrapped it, the label existed, and
+ * nothing led there. Since retire is the one operation that takes a channel out
+ * of service while keeping its plans and protections, it is the closest thing
+ * the product has to the "lift the channel out, keep the data" model, and it was
+ * simply not wired up.
+ */
+describe("CamerasView retire", () => {
+  function renderSeeded(over: Partial<CameraSummary> = {}) {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    qc.setQueryData(CAMS.list(false), [camera({ name: "前门", ...over })])
+    return renderWithProviders(<CamerasView />, { client: qc })
+  }
+
+  it("offers retire for a live channel", async () => {
+    renderSeeded()
+    await screen.findByText("前门")
+    expect(screen.getByRole("button", { name: "退役" })).toBeTruthy()
+  })
+
+  it("does not offer retire twice for an already retired channel", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    qc.setQueryData(CAMS.list(false), [])
+    qc.setQueryData(CAMS.list(true), [
+      // Not named "已退役": that string is also the status label and the badge,
+      // so the row would match three ways.
+      camera({ name: "楼顶球机", retired_at: new Date().toISOString(), enabled: false }),
+    ])
+    renderWithProviders(<CamerasView />, { client: qc })
+    fireEvent.click(screen.getByRole("switch"))
+    await screen.findByText("楼顶球机")
+    // Restore is the way back; a second retire would be a no-op 409.
+    expect(screen.getByRole("button", { name: "恢复" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "退役" })).toBeNull()
+  })
+
+  it("asks before retiring, and cancelling writes nothing", async () => {
+    const posts: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") posts.push(String(input))
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+    try {
+      renderSeeded()
+      fireEvent.click(await screen.findByRole("button", { name: "退役" }))
+
+      // The prompt names the channel, so cancelling is unambiguous.
+      const dialog = await screen.findByRole("alertdialog")
+      expect(dialog.textContent).toContain("前门")
+      fireEvent.click(screen.getByRole("button", { name: "取消" }))
+      await waitFor(() =>
+        expect(screen.queryByRole("alertdialog")).toBeNull(),
+      )
+      expect(posts).toHaveLength(0)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it("retires the channel the operator asked about", async () => {
+    const posts: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") posts.push(String(input))
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+    try {
+      renderSeeded()
+      fireEvent.click(await screen.findByRole("button", { name: "退役" }))
+      // Scoped to the dialog: the row button and the confirm button share the
+      // label on purpose, so an unscoped lookup matches both.
+      const dialog = await screen.findByRole("alertdialog")
+      fireEvent.click(within(dialog).getByRole("button", { name: "退役" }))
+      await waitFor(() => expect(posts).toHaveLength(1))
+      expect(posts[0]).toContain("/cameras/cam-1/retire")
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  /**
+   * Row actions used to act on the *open* camera, not the clicked one.
+   *
+   * The buttons stop propagation, so clicking one never changed the selection,
+   * while the mutations were built from the selected id. Disabling row B would
+   * disable row A — successfully, with a success toast, on the wrong camera.
+   */
+  it("acts on the row that was clicked, not the one that is open", async () => {
+    const posts: string[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "POST") posts.push(String(input))
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+    try {
+      const qc = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      })
+      qc.setQueryData(CAMS.list(false), [
+        camera({ id: "cam-1", name: "前门" }),
+        camera({ id: "cam-2", name: "后院" }),
+      ])
+      // Seeded so the editor really opens on cam-1: the dangerous case is a
+      // *different* camera being open, not an empty selection.
+      qc.setQueryData(CAMS.detail("cam-1"), {
+        ...camera({ id: "cam-1", name: "前门" }),
+        streams: [],
+        bindings: [],
+      })
+      renderWithProviders(<CamerasView />, { client: qc })
+
+      // Open the first camera, so a selection exists and is *not* the target.
+      fireEvent.click(await screen.findByText("前门"))
+      await waitFor(() => expect(screen.getByLabelText("名称")).toBeTruthy())
+
+      // Now click the second row's action.
+      const rows = screen.getAllByRole("row")
+      const backRow = rows.find((row) => row.textContent?.includes("后院"))
+      const disable = within(backRow as HTMLElement).getByRole("button", {
+        name: "停用",
+      })
+      fireEvent.click(disable)
+
+      await waitFor(() => expect(posts).toHaveLength(1))
+      expect(posts[0]).toContain("/cameras/cam-2/disable")
+      expect(posts[0]).not.toContain("cam-1")
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 })

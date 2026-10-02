@@ -11,23 +11,25 @@ import {
  * Per-row write actions for the camera table.
  *
  * Hooks cannot be called conditionally, so a table with N rows cannot mount N
- * of these. One instance keyed on the currently selected camera is enough:
- * the table only ever offers actions for a row the operator has opened.
+ * of these. One instance is enough — **because every action takes the camera id
+ * as an argument**. The row buttons stop propagation, so clicking one never
+ * changes the selection; binding the mutations to a selected camera made every
+ * row action apply to whichever row was open instead of the one clicked.
  */
-export function useCameraRowActions(cameraId: string | null) {
-  const enabled = useSetCameraEnabled(cameraId ?? "")
-  const retired = useRetireCamera(cameraId ?? "")
-  const probe = useProbeCamera(cameraId ?? "")
+export function useCameraRowActions() {
+  const enabled = useSetCameraEnabled()
+  const lifecycle = useRetireCamera()
+  const probe = useProbeCamera()
 
   return useMemo(
     () => ({
       setEnabled: enabled,
-      retire: retired,
+      retire: lifecycle,
       probe,
       isPending:
-        enabled.isPending || retired.isPending || probe.isPending,
+        enabled.isPending || lifecycle.isPending || probe.isPending,
     }),
-    [enabled, retired, probe],
+    [enabled, lifecycle, probe],
   )
 }
 

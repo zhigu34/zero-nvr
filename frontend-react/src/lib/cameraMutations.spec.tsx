@@ -67,8 +67,10 @@ describe("wasPersisted", () => {
 })
 
 function EnableButton({ status }: { status: number }) {
-  const { enable } = useSetCameraEnabled("cam-1")
-  return <button onClick={enable}>启用</button>
+  // The id is passed at the call site now, not bound at mount — a row action
+  // must act on the row it was clicked on, not on the open one.
+  const { enable } = useSetCameraEnabled()
+  return <button onClick={() => enable("cam-1")}>启用</button>
 }
 
 function renderWithStubbedFetch(status: number, body: unknown) {
