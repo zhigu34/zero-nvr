@@ -1,0 +1,76 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "./theme.css";
+
+/*
+ * shadcn's dark mode is a `.dark` class on the document root, driven by
+ * `class` strategy. Without this variant declaration, `dark:` utilities are
+ * silently dropped by Tailwind v4.
+ *
+ * It MUST be the document root, not a wrapper element: theme.css declares
+ * `--sidebar: var(--background)` in `:root`, so the alias is substituted on
+ * <html>. Toggling `.dark` on a nested div would change `--background` for
+ * descendants but leave `--sidebar` holding the already-resolved light value —
+ * the sidebar would stay light while the main area went dark.
+ */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * shadcn-admin tokens are imported verbatim from ./theme.css.
+ * Everything below is zero-nvr specific: status colors for the NVR
+ * domain (camera online / recording / degraded) which have no shadcn
+ * equivalent, plus the media grid used by Live and Playback.
+ */
+
+:root {
+  /* NVR status semantics — not part of the shadcn palette. */
+  --status-online: oklch(0.596 0.118 163.225);
+  --status-offline: oklch(0.577 0.245 27.325);
+  --status-recording: oklch(0.577 0.245 27.325);
+  --status-degraded: oklch(0.769 0.188 70.08);
+  --status-unknown: oklch(0.554 0.046 257.417);
+}
+
+.dark {
+  --status-online: oklch(0.696 0.17 162.48);
+  --status-offline: oklch(0.704 0.191 22.216);
+  --status-recording: oklch(0.704 0.191 22.216);
+  --status-degraded: oklch(0.769 0.188 70.08);
+  --status-unknown: oklch(0.704 0.04 256.788);
+}
+
+@theme inline {
+  --color-status-online: var(--status-online);
+  --color-status-offline: var(--status-offline);
+  --color-status-recording: var(--status-recording);
+  --color-status-degraded: var(--status-degraded);
+  --color-status-unknown: var(--status-unknown);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family:
+      system-ui,
+      -apple-system,
+      "Segoe UI",
+      "PingFang SC",
+      "Microsoft YaHei",
+      sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+}
