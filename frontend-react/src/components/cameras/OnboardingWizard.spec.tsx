@@ -480,7 +480,7 @@ describe("接入向导 · 身份四态", () => {
     expect(Object.hasOwn(sent, "confirm_existing_device_id")).toBe(false)
   })
 
-  it("已在本系统里就只提供重新读取，不再提供导入", async () => {
+  it("已在本系统里提供重新读取，并且不提供「新建机位」的措辞", async () => {
     renderWizard()
     on(
       postTo("/cameras/dev-7/onvif/refresh"),
@@ -496,6 +496,66 @@ describe("接入向导 · 身份四态", () => {
     fireEvent.click(screen.getByRole("button", { name: "重新读取设备能力" }))
     await waitFor(() => expect(postsTo("/cameras/dev-7/onvif/refresh")).toHaveLength(1))
     expect(postsTo("/cameras/onvif/import")).toHaveLength(0)
+  })
+
+  // `CameraUpdate` has no credential fields and `POST /cameras/{id}/onvif/refresh`
+  // takes no body, so this button is the only thing in the whole product that can
+  // change an already-imported ONVIF device's password. Without it the operator has
+  // no path at all; this test exists to make its removal fail loudly.
+  it("已在本系统里也能改密码：重新导入走同一条路径，且不带确认 id", async () => {
+    renderWizard()
+    on(
+      postTo("/cameras/onvif/import"),
+      reply({
+        device_id: "dev-7",
+        reconfigured: true,
+        cameras: [{ id: "cam-7", name: "后院" }],
+      }),
+    )
+    await importDevice({
+      identity: identity({ state: "same_device", matched_device_id: "dev-7" }),
+    })
+
+    // The two buttons must not be confusable: one is read-only, one writes.
+    fireEvent.click(screen.getByRole("button", { name: "重新读取设备能力" }))
+    await waitFor(() => expect(postsTo("/cameras/dev-7/onvif/refresh")).toHaveLength(1))
+
+    // Editing the password drops the last inspection on purpose: the profile list
+    // and the identity verdict described a host checked with the *old* secret.
+    typeInto("设备密码", "rotated-secret")
+    expect(screen.queryByRole("button", { name: "重新导入以更新凭据" })).toBeNull()
+
+    // Re-checking with the new password is what brings the re-import back.
+    await inspectDevice()
+    fireEvent.click(screen.getByRole("button", { name: "重新导入以更新凭据" }))
+
+    await waitFor(() => expect(postsTo("/cameras/onvif/import")).toHaveLength(1))
+    const sent = bodyOf("/cameras/onvif/import")
+    expect(sent.password).toBe("rotated-secret")
+    // `same_device` needs no echo: the server accepts a bare import for it
+    // (`onvif_onboarding.py:483-505`). Sending one would still pass, but only
+    // because it happens to equal `matched_device_id` — not because it was asked for.
+    expect(Object.hasOwn(sent, "confirm_existing_device_id")).toBe(false)
+
+    // And the result must not claim it created a camera: this run updated one.
+    const panel = await screen.findByRole("group", { name: "本次重新导入更新的机位" })
+    expect(within(panel).getByText("重新导入完成：已更新已有的 1 个机位，没有新建设备。")).toBeTruthy()
+    expect(within(panel).getByText("· 后院")).toBeTruthy()
+  })
+
+  it("没有可导入的码流时不提供重新导入，只留重新读取", async () => {
+    renderWizard()
+    on(
+      postTo("/cameras/dev-7/onvif/refresh"),
+      reply({ device_id: "dev-7", diff: {}, cameras: [] }),
+    )
+    await importDevice({
+      identity: identity({ state: "same_device", matched_device_id: "dev-7" }),
+      profiles: [profile({ stream_uri_available: false })],
+    })
+
+    expect(screen.getByRole("button", { name: "重新读取设备能力" })).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "重新导入以更新凭据" })).toBeNull()
   })
 
   it("疑似同一台要先显式确认，再原样回传服务端的 matched_device_id", async () => {

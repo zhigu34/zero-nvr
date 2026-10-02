@@ -80,10 +80,15 @@ import {
  *    the inspection and then opens a real ZLM proxy per selected profile
  *    (`onvif_onboarding.py:1149-1176`), 12 s each. Four profiles is about a
  *    minute, so the pending state names the budget instead of spinning.
- * 3. **Identity is a four-state machine.** `new_device` imports, `same_device`
- *    refreshes instead, `probable_match_requires_confirmation` needs an
+ * 3. **Identity is a four-state machine.** `new_device` imports,
+ *    `same_device` offers *two* different things (read-only refresh, and
+ *    re-import to reconfigure), `probable_match_requires_confirmation` needs an
  *    explicit confirmation, and `identity_conflict` has no forward path at all
  *    (`onvif_onboarding.py:462-481`) — so no button is rendered for it.
+ *    `same_device` must not collapse to just the refresh: `CameraUpdate` has no
+ *    credential fields and `POST /cameras/{id}/onvif/refresh` takes no body, so
+ *    re-import (`_reconfigure_existing`, `onvif_onboarding.py:590`) is the *only*
+ *    way an already-imported device's password can ever be changed.
  * 4. **`POST /cameras` does not probe.** It validates `invalid_rtsp_url` syntax
  *    only (`cameras/service.py:104,112`), so the manual path keeps test and
  *    create as two operator-driven steps, and the create button appears only
@@ -960,16 +965,53 @@ function ImportSection({
       {!persisted && action === "refresh" && (
         <>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
-            这台设备已经在本系统里，再导入会撞上已存在的 host:port。要做的是重新读取它的能力与码流差异，而不是新建一台。
+            这台设备已经在本系统里，不会新建第二台记录。下面两件事不同，按需要选：
           </p>
           {identity.matched_device_id ? (
-            <Button size="sm" disabled={refreshing} onClick={onRefresh}>
-              {refreshing ? "重新读取中…" : "重新读取设备能力"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={refreshing || importing}
+                onClick={onRefresh}
+              >
+                {refreshing ? "重新读取中…" : "重新读取设备能力"}
+              </Button>
+              <span className="text-[11px] text-muted-foreground">
+                只读。不碰任何已存的配置。
+              </span>
+            </div>
           ) : (
             <Callout tone="offline" title="无法重新读取">
               服务端没有给出设备 id，这里没有可以调用的对象。请到机位列表中确认这条记录。
             </Callout>
+          )}
+          {/* The only path that can rotate an ONVIF device's credentials.
+              `POST /cameras/{id}/onvif/refresh` takes no body, and `CameraUpdate`
+              has no credential fields, so a changed password can only reach the
+              secret store by re-running import — which the server routes into
+              `_reconfigure_existing` (`onvif_onboarding.py:590`). Without this
+              button the wizard can read an existing device but never fix its
+              password. */}
+          {canImport && (
+            <div className="rounded-lg border border-border p-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  size="sm"
+                  disabled={importing || refreshing}
+                  onClick={onImport}
+                >
+                  <Download />
+                  {importing ? "重新导入中…" : "重新导入以更新凭据"}
+                </Button>
+                <span className="text-[11px] text-muted-foreground">
+                  改了上面表格里的密码、地址或码流勾选，就用这个。
+                </span>
+              </div>
+              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                仍然走同一条导入路径：重新连接设备、逐个重探所选码流，然后更新这一台已有设备——不会新建机位，也不会动其它机位。密码确实变了才会换掉旧密钥；名称、位置与存储标签按当前表单一起写入。
+              </p>
+            </div>
           )}
         </>
       )}
@@ -1049,17 +1091,25 @@ function ImportBudgetNote({ form }: { form: OnvifForm }) {
  */
 function ImportedCameras({ result }: { result: OnvifImportResult }) {
   const cameras = Array.isArray(result.cameras) ? result.cameras : []
+  // `reconfigured: true` means the server matched an existing device and updated
+  // it in place (`_reconfigure_existing`) — nothing was created. Saying "created
+  // N cameras" there would be a lie the operator then has to disprove by hand.
+  const reconfigured = result.reconfigured === true
   return (
     <div
       role="group"
-      aria-label="本次导入创建的机位"
+      aria-label={reconfigured ? "本次重新导入更新的机位" : "本次导入创建的机位"}
       className="rounded-lg border border-status-online/30 bg-status-online/5 p-2"
     >
       <p className="text-[11px] font-medium text-status-online">
-        {`导入完成：实际创建 ${cameras.length} 个机位。`}
+        {reconfigured
+          ? `重新导入完成：已更新已有的 ${cameras.length} 个机位，没有新建设备。`
+          : `导入完成：实际创建 ${cameras.length} 个机位。`}
       </p>
       <p className="mt-0.5 text-[11px] text-muted-foreground">
-        机位按 video_source_token 分组，数量由设备决定，与所选码流数不一定相同。
+        {reconfigured
+          ? "这轮用的是当前表格里的地址、凭据与码流勾选，密码变了才换密钥。机位按 video_source_token 分组。"
+          : "机位按 video_source_token 分组，数量由设备决定，与所选码流数不一定相同。"}
       </p>
       <ul className="mt-1.5 space-y-0.5">
         {cameras.map((camera, index) => (
