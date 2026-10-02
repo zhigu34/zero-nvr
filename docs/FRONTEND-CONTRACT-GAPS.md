@@ -6,7 +6,7 @@
 
 状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞
 
-**当前合计 37 条**（🔴 12 · 🟡 20 · ⚪ 5）。全部来自 PR-3 至 PR-6 逐模块核对
+**当前合计 40 条**（🔴 13 · 🟡 22 · ⚪ 5）。全部来自 PR-3 至 PR-6 逐模块核对
 真实契约与原型假设的差异，按 ADR-0014 决策 4 一律**不在本迁移中修改后端**，
 修复走独立流程。
 
@@ -709,6 +709,83 @@ Frigate 的操作员看到的是一个**报错横幅**而不是配置表单—�
    失败原因），让操作员知道该处理什么。
 
 第 1 条更小且能立刻消除 500；第 2 条才能真正让人走出来。
+
+---
+
+## G-38 手动相机的 RTSP 地址与凭据无法修改，只能删除重建 🔴
+
+**事实**：`CameraUpdate` 只有
+`name, location, storage_label, maintenance, time_sync_mode, manufacturer, model, form_factor`
+（`cameras/schemas.py:36`）——**没有任何 stream 或 credential 字段**。
+`POST /cameras` 接受一个新的 `SecretStr`（`schemas.py:12`），但之后就没有任何
+端点能再改它。ONVIF 侧只能靠**重走一次 import**（`onvif_onboarding.py:745-765`），
+手动侧连这条都没有。
+
+注意这与本文件里其它「只写字段」条目**不同**：通知、备份、Frigate 的秘密都带
+`action: keep|replace|clear` 动词，唯独相机没有。`POST /cameras` 每次都要求一个
+全新 `SecretStr`，`PUT /cameras/{id}/stream-bindings` 换的也只是 profile 绑定，
+不碰 URL 与凭据。
+
+**影响**：操作员改了摄像机密码，在界面上**唯一**的办法是删除该相机再建一个。
+而删除会连带丢掉这个机位上的录制计划、录像保护、告警范围、分组成员关系——
+这些都没有导出再导入的路径。改一个密码的代价是重建整套配置。
+
+**当前处理**：手动接入表单在创建成功后明确写出「RTSP 地址与密码之后无法在此
+修改，密码变更需要删除并重建该机位（会丢失其上的计划与保护）」。不提供一个
+指向 `PATCH /cameras/{id}` 的编辑入口——那个端点会静默忽略凭据字段。
+
+**建议修法**：给 `CameraUpdate` 加
+`credentials_action: keep|replace|clear` + `rtsp_credentials: SecretStr | null`，
+与通知/备份保持同一套动词协议；或者新增
+`PUT /cameras/{id}/streams`，让主/子码流可整体替换。这是四个模块里唯一
+**没有**这套动词的地方，协议已经不统一了。
+
+---
+
+## G-39 批量接入没有服务端端点、没有 CSV 解析、没有试运行 🟡
+
+**事实**：`backend/app/modules/cameras/` 下**没有**任何 bulk / batch / CSV 路由。
+`grep` 到的 `config_import_cameras.py` 属于另一套功能（配置导入导出），不是接入
+向导。批量完全是客户端行为：Vue 面板对候选与 CSV 行**串行**循环
+（`CameraOnboardingPanel.vue:811-878, 940`），每行先 `inspectOnvif` 再
+`importOnvif`，或 `testManualCamera` + `createManualCamera`。
+
+**没有 dry-run。** `POST /cameras/onvif/import` 是唯一的「校验」，而它**会写库**。
+CSV 的列名与格式只存在于 `frontend/src/cameraBatchCsv.ts` 与面板的模板字符串里，
+服务端一处都不校验。
+
+**影响**：
+- 批量**不可能原子**。第 37 行失败时前 36 行已经建成，且没有回滚手段。
+- 每行要串行等 10s 探测 + 每 profile 12s 的 ZLM 探测（超时见
+  `core/config/settings.py:64,75`），N 行是线性增长的等待，界面必须能中途停下来。
+- 一次误传 CSV 就是一次不可撤销的批量创建，没有预览。
+
+**当前处理**：逐行结果状态（`running|success|failed|partial|review`）如实呈现，
+`review`（身份不是 `new_device`）与 `failed` 区分开；批量区域不做「全部成功」的
+汇总承诺。
+
+**建议修法**：新增 `POST /cameras/onboarding/batch`，接受结构化行 + 一个
+`dry_run: bool`，逐行返回与现在同样的结果数组。`dry_run` 只跑身份解析与
+`_usable_profiles`（`onvif_onboarding.py:229-252`），不落库。这一条能让批量从
+「不可预览」变成「可预览」，比原子性更值钱。
+
+---
+
+## G-40 `connectivity_status` 默认 online 但从不填充 🟡
+
+**事实**：`CameraSummary.connectivity_status` 在 schema 里默认 `"online"`
+（`cameras/schemas.py:133`），而 `_camera_summary`（`api.py:278-328`）**不填这个
+字段**。所以任何一台从未被探测过的相机，读出来都是 `online`。
+
+**影响**：一个刚填完地址、从未连通过的机位，在列表里显示为「在线」。这与告警页
+那个「录制时区当前不生效」是同一类问题——**一个看起来正常、实际什么都没说**的
+字段，比没有这个字段更糟。
+
+**当前处理**：`normalizeConnectivity`（`frontend-react/src/api/cameras.ts`）把
+缺值当作 unknown 而不是 healthy；列表按「未知」单独统计，与「在线」分开显示。
+
+**建议修法**：要么从 schema 去掉默认值让缺值可辨，要么在 `_camera_summary` 里
+按 `Device.enabled` 与最近一次探测结果真实填充。
 
 ---
 

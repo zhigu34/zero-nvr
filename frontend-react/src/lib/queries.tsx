@@ -18,6 +18,7 @@ import * as frigateApi from "../api/frigate"
 import * as accountApi from "../api/account"
 import * as backupsApi from "../api/backups"
 import * as triggersApi from "../api/recordingTriggers"
+import * as onboardingApi from "../api/onboarding"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -691,3 +692,28 @@ export function useRecordingTriggers(cameraId: string | null) {
     staleTime: 15_000,
   })
 }
+
+/* -------------------------------------------------------------------------- */
+/* Camera onboarding                                                          */
+/* -------------------------------------------------------------------------- */
+
+export const CAMERA_ONBOARDING = {
+  /**
+   * Prefixed but never queried: discovery is a POST whose result arrives with
+   * the response, so there is nothing to read back. It exists as an
+   * invalidation target because a completed import changes what the camera
+   * picker should offer.
+   */
+  devices: ["cameras", "onboarding", "devices"] as const,
+}
+
+/**
+ * No discovery query.
+ *
+ * `POST /cameras/discovery` is synchronous and returns the finished session
+ * (`cameras/api.py:1222-1282`), so a 3-second spinner plus the response is the
+ * whole flow. `GET /cameras/discovery/{id}` exists for re-reading a session that
+ * failed — the row is committed with `status="failed"` and the id arrives in
+ * `details.discovery_id` — and the panel surfaces that id as a "view the failed
+ * session" affordance rather than caching it.
+ */
