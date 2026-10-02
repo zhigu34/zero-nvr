@@ -585,6 +585,65 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
+### G-33 `PATCH /alert-policies/{id}` 整体替换 `match`，无字段级合并 🔴
+
+**事实**：`AlertPolicyUpdate.match` 是 `dict[str, object] | None`
+（`alerts/schemas.py:25-34`），`alerts/service.py` 里**没有任何按字段合并的逻辑**
+——PATCH 提交什么，服务端就整体替换成什么。
+
+**影响**：任何「按表单字段重建 `match`」的编辑器都会**静默删除**表单未渲染的
+key，而且返回 200。这不是理论问题：旧 Vue 页面
+`SystemAlertRulesPanel.vue:275-298` 的 `buildMatch()` 正是从零重建，
+于是任何带 `severities` 的规则**在 UI 里点一次保存就丢掉该字段**。
+未来后端新增白名单 key 时，同样的问题会自动复发。
+
+**当前处理**：`api/alerts.ts` 的 `mergeMatch(existing, draft)` 以**服务端现有对象**
+为基底，只对 12 个已知 key 施加表单值（清空即删除），未知 key 原样透传；
+`alertMutations.ts` 在 mutation 内部再合并一次作为兜底。
+`api/alerts.spec.ts` 与 `AlertsView.spec.tsx` 覆盖「保留未知 key」「删除已清空 key」
+「不改动传入对象」三种情形。
+
+**遗留耦合**：因为已知 key 以表单为准，**表单必须为 `MATCH_KEYS` 每一项都渲染一个
+输入框**，否则新增的 key 会在每次保存时被清掉。这条由
+`AlertsView.spec.tsx` 的「编辑器覆盖了每一个后端接受的 key」断言守住。
+
+**建议修法**：把 `match` 改成 PATCH 语义（只更新提交的 key），或在
+`AlertPolicyUpdate` 里加 `match_patch` 字段与 `match` 二选一。
+
+### G-34 告警策略没有 `camera_id` 列，摄像机范围藏在 `match` 里 🟡
+
+**事实**：`AlertPolicyView`（`alerts/schemas.py:36-45`）没有 `camera_id`，
+摄像机范围只能写在 `match.camera_ids`（≤256，`service.py:195-211` 会校验存在性）。
+而录制策略是**按 camera_id 唯一**的（`recording_policies/models.py:102`）。
+
+**影响**：两套配置之间**没有连接键**——1 条录制策略对 N 条全局告警策略。
+任何「同步」都是扇出语义，必须先定义「一条录制策略同步到哪几条告警策略」。
+这也是 D-2 三个方案都贵的原因之一。
+
+**当前处理**：不做同步。告警页把录制过滤作为**只读参考**呈现，只对
+`labels` 与 `min_confidence` 两个两侧语义一致的字段提供逐字段复制；
+`zones` 明确拒绝并解释原因（读的是不同字段，见 D-2 §2）。
+该形态在 D-2 的任何裁决结果下都不会是错的。
+
+**建议修法**：与 D-2 一并裁决。若最终选择合并，需要先给 `alert_policies`
+加 `camera_id` 或引入分组维度。
+
+### G-35 告警动作里的录像保护与录制策略互不知情 ⚪
+
+**事实**：`AlertPolicy.actions` 支持 `protect_recording` 与
+`protect_before_seconds` / `protect_after_seconds` / `protect_expires_days`
+（`alerts/service.py:44-50`）。它写的是 `RecordingProtection`——
+按机位的时间窗（见 G-27），**只保护已有录像不被清理，不启动录制**，
+也不经过 `event_filter`。
+
+**影响**：操作者容易以为「开了 protect_recording 就等于这段会录下来」。
+实际上如果录制策略是 `disabled`，事件过滤不通过就根本没有录像可保护。
+
+**当前处理**：告警规则编辑器的动作区按契约原样呈现，界面说明其语义是
+「保护已有录像」而非「触发录制」。
+
+---
+
 ## 写操作的标度陷阱
 
 同一批接口里「时长」有**三套单位**，混用会产生量级错误：

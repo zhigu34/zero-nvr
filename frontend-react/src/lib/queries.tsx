@@ -10,6 +10,7 @@ import * as exportsApi from "../api/exports"
 import * as protectionsApi from "../api/protections"
 import * as usersApi from "../api/users"
 import * as auditApi from "../api/audit"
+import * as alertsApi from "../api/alerts"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -409,5 +410,52 @@ export function useAuditEvents(filters: auditApi.AuditFilters) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.next_cursor ?? undefined,
     staleTime: 10_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Alerts                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export const ALERTS = {
+  policies: ["alerts", "policies"] as const,
+  list: (filters: Record<string, string | undefined>) =>
+    ["alerts", "list", filters] as const,
+}
+
+export function useAlertPolicies() {
+  return useQuery({
+    queryKey: ALERTS.policies,
+    queryFn: ({ signal }) => alertsApi.listAlertPolicies(signal),
+    // A plain array with no cursor, like the user list.
+    staleTime: 30_000,
+  })
+}
+
+/**
+ * Alerts move on their own — an event fires and a row appears — so this
+ * polls while anything is still open, and stops once everything is resolved.
+ * A log that only refreshes on navigation hides the alert it was opened to
+ * look for.
+ */
+export function useAlerts(filters: alertsApi.AlertFilters) {
+  return useInfiniteQuery({
+    queryKey: ALERTS.list({
+      cameraId: filters.cameraId,
+      state: filters.state,
+      severity: filters.severity,
+    }),
+    queryFn: ({ pageParam, signal }) =>
+      alertsApi.listAlerts({ ...filters, cursor: pageParam }, signal),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? []
+      const live = pages.some((page) =>
+        page.items.some((alert) => alert.state !== "RESOLVED"),
+      )
+      return live ? 10_000 : false
+    },
   })
 }

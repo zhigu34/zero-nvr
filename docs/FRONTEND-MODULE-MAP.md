@@ -343,11 +343,11 @@ GET               /events/{id}/snapshot
 
 **提级说明**：现有 Vue 端 `AlertsView.vue`（936 行）**没有被任何路由使用**——`/alerts` 被重定向到 `/events`，规则实际实现在 `SystemView` 的 alerts tab 里。本模块是把死代码复活并提为一级导航。
 
-**页面区块**
-- 规则列表：名称、启用状态、匹配摘要、命中计数
-- 匹配条件编辑器：摄像机、来源、类别、标签、置信度阈值、时段
-- 命中动作：发送通知、创建录像保护、告警风暴抑制
-- 告警收件箱：待处理 / 已确认 / 已解决
+**页面区块**（PR-5h 实现）
+- 规则列表：名称、启用状态、严重度、匹配条件数、冷却
+- 匹配条件编辑器：**12 个字段全覆盖**（后端白名单，见下）
+- **只读参考区**：所选机位的录制事件过滤，逐字段复制
+- 告警收件箱：未处理 / 已确认 / 已解决，可确认与标记解决
 
 **数据来源**
 ```
@@ -355,13 +355,30 @@ GET|POST          /alert-policies, GET|PATCH|DELETE /alert-policies/{id}
 GET               /alerts, GET /alerts/{id}
 POST              /alerts/{id}/acknowledge
 POST              /alerts/{id}/resolve
+GET               /recording-policies            (只读参考用)
 ```
 
 **最严重病灶 —— 两套真相源**：`recording_policies.event_filter_json`（录制策略内的事件过滤）与 `alert_policies.match_json`（告警规则）**字段重叠但完全独立配置、互不同步**。同一个「只关心 person 和 vehicle」的条件，用户要在两个页面各填一次，改一处另一处不动。
 
 `recording_policies` 的事件过滤消费端是 `recordings/triggers.py:91-116` 的 `_event_matches`，由 `upsert_provider` 在 `:166-172` 调用，**且仅对新事件判定**（不追溯已录制片段）。
 
-**迁移必须在动框架之前裁决这个**，见 §6 D-2。带着两套真相源换框架，迁移后问题无法定位。
+**迁移必须在动框架之前裁决这个**，见 §6 D-2 与
+[`D-2-DECISION-MATERIAL.md`](D-2-DECISION-MATERIAL.md)。带着两套真相源换框架，
+迁移后问题无法定位。
+
+**PR-5h 的处置：D-2 未裁决，因此选一个不会错的形态。**
+规则编辑器完整实现 12 个 key 的编辑（后端白名单 `alerts/service.py:27-40`），
+但**不做任何自动同步**。录制过滤以只读参考呈现，逐字段提供复制，
+且**只对 `labels` 与 `min_confidence` 开放**——这两项两侧语义一致；
+`zones` 明确拒绝并写明原因（录制侧读 `metadata_json["zones"]`，告警侧读
+`Event.zone`，同一事件会出现「录了但没告警」）。拒绝的判定放在
+`lib/alertValidation.ts` 的 `importFromRecordingFilter` 里而不是组件里，
+因此将来加「一键全部复制」也绕不过去。
+
+**另一处必须处理的缺陷**：`PATCH /alert-policies/{id}` **整体替换** `match`，
+服务端无字段级合并。旧 Vue 的 `buildMatch()` 从零重建，导致带 `severities`
+的规则在 UI 里保存一次就丢字段且返回 200（**G-33**）。现由 `mergeMatch`
+以服务端现有对象为基底合并，未知 key 透传。
 
 **权限**：Operator 以上。
 
@@ -671,7 +688,7 @@ GET /auth/me
 | **PR-2** | 认证与外壳：登录、session、导航分组、权限守卫、布局形态二分 | PR-0 |
 | **PR-3** | 只读页：事件 / 摄像机列表 / 存储列表（验证 TanStack Table 模式） | 已完成 |
 | **PR-4** | 媒体页：实时监控 / 录像回放（传输层 + 容错 + 补测试） | 已完成 |
-| **PR-5** | 写操作页：机位编辑 / 录制计划 / 告警规则 / 系统设置 / 文件导出 | PR-4 |
+| **PR-5** | 写操作页：机位编辑 / 录制计划 / 告警规则 / 系统设置 / 文件导出 / 时间轴 / 用户 / 审计 | **已完成** |
 | **PR-6** | 切换：删除 `frontend/`，`frontend-react/` 升为唯一前端 | PR-5 |
 
 迁移期间 Vue 应用必须保持可运行，两套前端由不同路径服务（`/` → Vue，`/next/*` → React）。
