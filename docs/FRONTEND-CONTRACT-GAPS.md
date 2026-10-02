@@ -6,13 +6,16 @@
 
 状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞 · ✅ 已修
 
-**当前合计 45 条**（🔴 14 · 🟡 24 · ⚪ 6 · ✅ 1），G-1 ~ G-45 无缺号。全部来自
+**当前合计 46 条**（🔴 14 · 🟡 24 · ⚪ 6 · ✅ 2），G-1 ~ G-46 无缺号。全部来自
 PR-3 至 PR-6 逐模块核对真实契约与原型假设的差异。
 
 按 ADR-0014 决策 4，本迁移**原则上不修改后端**，缺口修复走独立流程。唯一的
 例外是 **G-45**：为了让文件页显示真实体积而不是 Vue 那套编造的估算值，经明确
 批准新增了 `GET /cameras/{id}/recordings/daily` 按日聚合端点（`recordings/daily_query.py`）。
 这是本分支上唯一的后端改动。
+
+**G-46 是本迁移自己引入的回退**，不是原代码的缺陷：保存录制计划会清空该机位的
+事件过滤。已在同一轮修复并补了两条回归测试。
 
 🔴 中有三条已经在本迁移里被前端绕开并留下了实现注释，缺口本身仍在：
 **G-17**（写入「已存未生效」）与 **G-33**（`match` 整体替换）各有对应的
@@ -959,6 +962,63 @@ GET /cameras/{id}/recordings/daily?from=&to=&time_zone=
 通道都要能读。热力图分桶用列表已经拿到的分段精确边界按显示时区算，**不再发第二个
 请求**，页面不足时明说「只有第一页」。所有数字都是真实的 `size_bytes` /
 `duration_sec`，Vue 的 `dur * 450_000` 没有任何对应物。
+
+---
+
+## G-46 保存录制计划会静默清空事件过滤 ✅ 已修
+
+**这是 React 重写自己引入的回退**，与 G-45 不同——G-45 是原代码的缺陷，本条是
+重写时**没有**把 Vue 的「原样回写」带过来。
+
+**事实**：`PUT /cameras/{id}/recording-policy`（`recordings/api.py:490`）是整体
+替换，handler 无条件把 body 摊到模型上：
+
+```text
+event_filter_json=body.event_filter          # api.py
+policy.event_filter_json = validate_event_filter(
+    event_filter if isinstance(event_filter, dict) else {}
+)                                              # policy.py:375-379
+```
+
+而 `RecordingPolicyPut.event_filter` 的 schema 是
+`dict[str, object] = Field(default_factory=dict)`（`schemas.py:128`）。**省略这个
+key 不会变成「不修改」，而是变成「写入空过滤」。** 这是与 PATCH 端点的决定性
+区别——所有 PATCH 都用 `model_dump(exclude_unset=True)`，省略即不触碰；PUT +
+`default_factory` 则省略即清空。
+
+`PolicyEditor.submit`（`components/schedules/PolicyEditor.tsx`）构造的提交体
+只含它渲染的字段，**不含 `event_filter`**，且这是该页唯一的保存路径。
+
+**影响**：操作员在录制页打开任意机位、点一次保存，该机位配置的事件过滤就被
+清空，接口返回 **HTTP 200**。这不是「不生效」而是**静默破坏已有配置**，而且
+没有任何 UI 迹象——因为录制侧**根本没有事件过滤 UI**，用户连自己有过滤都不知道。
+
+与 **G-33 是同一类缺陷**（`PATCH /alert-policies` 整体替换 `match`）。当时用
+`mergeMatch()` 修掉了告警侧，**录制侧的同构漏洞没被一起修**。
+
+**已修**：与告警侧同形——`useSaveRecordingPolicy(cameraId, existingEventFilter)`
+在 mutation 层兜底回填，`PolicyEditor` 再显式带上 `policy?.event_filter`。
+语义与告警侧不同：告警是「UI 编辑子集、合并保留其余」，录制侧**没有 UI**，因此
+是**原样透传**而非合并。
+
+两条回归测试，其中夹具**故意用非空过滤**（默认夹具 `event_filter: {}` 会让这个
+bug 隐形）。两条测试在修复前均失败。
+
+### 46.1 同类缺陷的检测方法（不要只靠个案）
+
+本条是第二次出现的同一类缺陷，因此把排查方法记下来：
+
+| 步骤 | 做法 |
+|---|---|
+| 1 | 列出全部**整体替换**端点：`@router.put`（5 个）+ 确认是否为替换语义的 `@router.patch`（7 个） |
+| 2 | 对 PATCH，看是否 `model_dump(exclude_unset=True)` —— 有则省略=不动，**安全** |
+| 3 | 对 PUT，看 schema 里每个字段**省略时的默认值**：有 `default_factory` / 具体默认值 = 省略即写入该值，**危险** |
+| 4 | 找到前端调用方，比对「后端落库的字段」与「提交体里的字段」，差集即丢失字段 |
+| 5 | 只读字段（`SecretStr` 凭据）另查：是否有显式的 `keep`/`replace` 三态 |
+
+本轮按此方法扫完全部 12 个端点，**录制策略是这一类里唯一的实例**。
+Frigate 凭据（`credentials_action: keep`/`replace`）与 stream-bindings
+（`collectBindings` 以已加载列表为基线发全量）经查均为正确处理。
 
 ---
 

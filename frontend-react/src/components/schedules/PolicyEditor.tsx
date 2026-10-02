@@ -63,7 +63,10 @@ export function PolicyEditor({
   const [preRoll, setPreRoll] = useState(policy?.pre_roll_seconds ?? 10)
   const [postRoll, setPostRoll] = useState(policy?.post_roll_seconds ?? 10)
 
-  const save = useSaveRecordingPolicy(cameraId)
+  const save = useSaveRecordingPolicy(
+    cameraId,
+    policy?.event_filter ?? {},
+  )
 
   const errors: PolicyFieldError[] = useMemo(
     () =>
@@ -105,6 +108,10 @@ export function PolicyEditor({
     save.mutate({
       baseline_mode: baselineMode,
       enabled,
+      // Carried through unchanged: this screen has no event-filter UI, and the
+      // endpoint replaces the whole policy. Omitting the key would clear the
+      // operator's filter (the schema default is `{}`, not "unset").
+      event_filter: policy?.event_filter ?? {},
       // Both keys are sent as null rather than omitted in the wrong mode:
       // the backend rejects a non-empty schedule alongside a non-schedule
       // mode, and an explicit null is what clears a previously saved one.
