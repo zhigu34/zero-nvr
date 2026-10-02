@@ -35,6 +35,15 @@ Usage:
   ./deploy.sh feature disable <frigate|mqtt|openlist|postgres|turn>
   ./deploy.sh feature restart <frigate|mqtt|openlist|postgres|turn>
 
+Operational verification (arguments are passed through to scripts/ unchanged):
+  ./deploy.sh benchmark <8|16> [--samples N] [--interval SECONDS]
+  ./deploy.sh soak <8|16> [--duration SECONDS] [--interval SECONDS]
+  ./deploy.sh small-host-soak <2|4> [--duration SECONDS] [--interval SECONDS]
+  ./deploy.sh resource-baseline [--settle SECONDS] [--samples N] [--interval SECONDS]
+  ./deploy.sh resource-check <static|idle>
+  ./deploy.sh resource-bounds-check
+  ./deploy.sh camera-acceptance <prepare|restart|status|verify> [args...]
+
 Core deployment is intentionally three containers:
   zero-nvr API + zero-nvr worker + ZLMediaKit
 EOF
@@ -1142,6 +1151,42 @@ case "$command" in
     ;;
   -h|--help|help)
     usage
+    ;;
+  benchmark|soak|small-host-soak|resource-baseline|resource-check|resource-bounds-check|camera-acceptance)
+    # Operational verification commands. Each has exactly one implementation
+    # under scripts/, and it owns its own argument validation and its own
+    # usage text — dispatch passes the arguments through untouched rather than
+    # re-implementing the checks here, so the two can never drift apart.
+    #
+    # The script names do not all follow the command names (`soak` is `soak.sh`
+    # but `small-host-soak` is `small_host_soak.py`), so the mapping is explicit.
+    case "$command" in
+      benchmark) script="benchmark.sh" ;;
+      soak) script="soak.sh" ;;
+      small-host-soak) script="small_host_soak.py" ;;
+      resource-baseline) script="resource-baseline.sh" ;;
+      resource-check) script="resource_check.py" ;;
+      resource-bounds-check) script="resource_bounds_check.py" ;;
+      camera-acceptance) script="camera-acceptance.sh" ;;
+    esac
+
+    if [[ "$#" -eq 0 ]]; then
+      # These commands all require arguments, and not all of them can print
+      # their own help before reading the environment
+      # (`resource_bounds_check.py` needs `.env` first), so the usage shown here
+      # is the one that is always available.
+      echo "error: $command requires arguments" >&2
+      usage >&2
+      exit 2
+    fi
+    if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+      "$SCRIPT_DIR/$script" "$@"
+      exit $?
+    fi
+
+    # The shell scripts read the deployment environment themselves; the Python
+    # ones read a data directory from it. Both resolve it the same way.
+    ZERO_NVR_ENV_FILE="$ENV_FILE" "$SCRIPT_DIR/$script" "$@"
     ;;
   *)
     echo "error: unknown command: $command" >&2
