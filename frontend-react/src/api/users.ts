@@ -211,14 +211,12 @@ export function hasErrors(errors: UserFieldErrors): boolean {
  * (`cameras/api.py`). Writing `camera_group_ids: []` because "groups are not
  * implemented" would silently strip every group-scoped assignment.
  */
-export type CameraGroupView = {
-  id: string
-  name: string
-  description: string | null
-  parent_id: string | null
-  camera_ids: string[]
-}
-
-export function listCameraGroups(signal?: AbortSignal) {
-  return api.get<CameraGroupView[]>("/camera-groups", signal)
-}
+/**
+ * Re-exported rather than redeclared.
+ *
+ * The type and the list call used to live here, which meant two definitions of
+ * the same wire shape and two places to forget the PATCH-is-a-whole-replace
+ * rule for `camera_ids`. `api/cameraGroups.ts` is now the single home; this
+ * re-export keeps the user scope picker's import working.
+ */
+export { listCameraGroups, type CameraGroupView } from "./cameraGroups"

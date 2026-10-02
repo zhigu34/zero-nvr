@@ -15,6 +15,8 @@ import * as notificationsApi from "../api/notifications"
 import * as tokensApi from "../api/apiTokens"
 import * as secretStoreApi from "../api/secretStore"
 import * as frigateApi from "../api/frigate"
+import * as accountApi from "../api/account"
+import * as backupsApi from "../api/backups"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -572,6 +574,92 @@ export function useFrigateProvider() {
   return useQuery({
     queryKey: FRIGATE.provider,
     queryFn: ({ signal }) => frigateApi.getFrigateProvider(signal),
+    staleTime: 60_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Self account                                                               */
+/* -------------------------------------------------------------------------- */
+
+export const ACCOUNT = {
+  sessions: ["account", "sessions"] as const,
+}
+
+/**
+ * Active sessions of the signed-in user. Changes only when one is opened or
+ * closed, and the user cannot see anyone else's.
+ */
+export function useSessions() {
+  return useQuery({
+    queryKey: ACCOUNT.sessions,
+    queryFn: ({ signal }) => accountApi.listSessions(signal),
+    staleTime: 30_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Backups                                                                    */
+/* -------------------------------------------------------------------------- */
+
+export const BACKUPS = {
+  policies: ["backups", "policies"] as const,
+  /**
+   * Prefix for invalidation. `sets()` below is the per-filter key; a write has
+   * to invalidate the prefix so every cursor and state combination refetches.
+   */
+  setList: ["backups", "sets"] as const,
+  sets: (filters: Record<string, string | undefined>) =>
+    ["backups", "sets", filters] as const,
+}
+
+export function useBackupPolicies() {
+  return useQuery({
+    queryKey: BACKUPS.policies,
+    queryFn: ({ signal }) => backupsApi.listBackupPolicies(signal),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Backup sets move through PENDING → RUNNING → COMPLETED/FAILED on their own,
+ * so this polls while anything is in flight and stops once the list settles.
+ * A backup of a large database legitimately takes minutes, hence the long gap.
+ */
+export function useBackupSets(filters: backupsApi.BackupListFilters = {}) {
+  const keyFilters = {
+    policyId: filters.policyId,
+    state: filters.state,
+    cursor: filters.cursor,
+  }
+  return useQuery({
+    queryKey: BACKUPS.sets(keyFilters),
+    queryFn: ({ signal }) => backupsApi.listBackupSets(filters, signal),
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const items = query.state.data?.items ?? []
+      const inFlight = items.some(
+        (b) => b.state === "PENDING" || b.state === "RUNNING",
+      )
+      return inFlight ? 10_000 : false
+    },
+  })
+}
+
+export const RECOVERY_KITS = {
+  /** Prefix — a generation invalidates the status of whichever policy ran. */
+  prefix: ["recovery-kit"] as const,
+  status: (policyId: string) => ["recovery-kit", "status", policyId] as const,
+}
+
+export function useRecoveryKitStatus(policyId: string | null) {
+  return useQuery({
+    queryKey: RECOVERY_KITS.status(policyId ?? ""),
+    queryFn: ({ signal }) =>
+      backupsApi.getRecoveryKitStatus(policyId as string, signal),
+    // Disabled without a policy: the endpoint takes `policy_id` as a required
+    // query parameter, so there is nothing to ask about.
+    enabled: Boolean(policyId),
     staleTime: 60_000,
   })
 }

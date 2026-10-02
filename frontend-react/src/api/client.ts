@@ -107,6 +107,27 @@ type RequestOptions = {
 
 const BASE = "/api/v1"
 
+/** A non-JSON success body: bytes plus the filename the server suggested. */
+export interface BinaryResponse {
+  blob: Blob
+  /**
+   * From `Content-Disposition`, or `null`.
+   *
+   * The recovery kit sets `attachment; filename="….znrk"`; without this a
+   * browser saves it as `download`. Null when the header is absent — the caller
+   * then supplies its own name rather than inventing one silently.
+   */
+  filename: string | null
+}
+
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null
+  const quoted = header.match(/filename="([^"]*)"/)
+  if (quoted?.[1]) return quoted[1]
+  const bare = header.match(/filename=([^;]+)/)
+  return bare?.[1]?.trim() || null
+}
+
 export async function request<T>(
   path: string,
   { method, body, signal, headers }: RequestOptions = {},
@@ -142,4 +163,33 @@ export const api = {
     body: unknown,
     headers: Record<string, string>,
   ) => request<T>(path, { method: "POST", body, headers }),
+
+  /**
+   * A POST whose success body is not JSON.
+   *
+   * The recovery kit is exactly this: an authenticated POST with a JSON body
+   * that answers with `application/octet-stream`. It cannot be a navigation —
+   * an `<a href>` or `window.open` issues a GET — so the client has to fetch
+   * the bytes and hand them to a blob download.
+   */
+  postBlob: async (
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<BinaryResponse> => {
+    const response = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    })
+    if (!response.ok) throw await toApiError(response)
+    return {
+      blob: await response.blob(),
+      filename: filenameFromDisposition(
+        response.headers.get("Content-Disposition"),
+      ),
+    }
+  },
 }
