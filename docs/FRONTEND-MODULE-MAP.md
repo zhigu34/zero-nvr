@@ -410,25 +410,34 @@ GET|POST          /backups/recovery-kit/status, /backups/recovery-kit
 
 ### 3.9 文件 `/files`
 
-**职责**：按目录浏览录像并导出。
+**职责**：按机位浏览录像，并把一段时间范围导出为单个 mp4 或公开分享链接。
 
-**页面区块**
-- 目录树：按机位 → 日期 → 小时
-- 片段列表：时长、分辨率、大小、存储位置（本地/归档/备份）
-- 批量选择与操作
-- 导出任务列表：状态、进度、下载、分享链接
+**页面区块**（PR-5e 实现后，已按真实契约修正）
+- 机位选择 + 时间范围选择（时区显式，默认取系统显示时区）
+- 片段列表：起止、时长、编码/容器、大小、触发原因、**时间基准**、完整性、保护标记
+- 导出任务列表：状态、已耗时、下载、分享链接
+
+**原型假设与真实契约的四处偏差**（PR-5e 逐条核对的结果）：
+
+| 原型设计 | 真实契约 | 处理 |
+|---|---|---|
+| 目录树 机位→日期→小时，根节点「全部录像」跨机位 | 只有 `GET /cameras/{id}/recordings`，**无跨机位端点** | 改为按机位浏览（**G-25**） |
+| 勾选 N 个片段 → 导出 N 个 mp4 | `ExportCreate` 是**单机位 + 时间范围**，一个范围一个 mp4 | 改为范围导出 |
+| 进度条 62% | `ExportView` **无进度字段** | 改为状态 + 已耗时（**G-24**） |
+| 逐行「存储位置」「分辨率」「保护锁」 | 位置在独立端点（N+1）；无分辨率；保护是机位时间窗 | 位置/分辨率不画；保护只读标记，**G-26 / G-27** |
 
 **关键操作**
-- 浏览 / 选择 / 批量选择片段
-- 创建导出任务 `POST /exports`
-- 下载 `GET /exports/{id}/download`
-- 创建 / 撤销公网分享链接
+- 浏览 `GET /cameras/{id}/recordings`（keyset 分页）
+- 创建导出 `POST /exports`（带 `Idempotency-Key`）
+- 下载 `GET /exports/{id}/download`（仅 `COMPLETED` 且未过期）
+- 取消 `DELETE /exports/{id}`
+- 创建 / 撤销分享 `POST|DELETE /exports/{id}/shares`
 
 **数据来源**
 ```
 GET               /cameras/{id}/recordings
-GET               /recordings/{id}, /recordings/{id}/locations
-POST              /exports
+GET               /cameras/{id}/recording-protections     (只读标记，本地求交)
+POST              /exports                                 (Idempotency-Key 必带)
 GET               /exports, GET /exports/{id}
 DELETE            /exports/{id}
 GET               /exports/{id}/download
@@ -437,7 +446,14 @@ DELETE            /exports/{id}/shares/{share_id}
 GET               /shared/exports/{token}/download      (免登录)
 ```
 
-**分享链接是公网可达的**，是全系统唯一不需要登录即可访问录像的路径。创建/撤销必须限 Operator 以上，且 UI 上要有明确风险提示和「谁创建的、何时创建」的记录。
+**分享链接是公网可达的**，是全系统唯一不需要登录即可访问录像的路径（**G-19**）。
+后端在创建响应里返回 `token` 与 `download_path`，**之后再无任何接口能读回**，
+因此 UI 必须在创建时把完整 URL 显示出来并提示只此一次可见。
+创建/撤销必须限 Operator 以上。
+
+**已知契约缺口**：入队失败会留下一条永远不会被执行的记录，且用同一
+`Idempotency-Key` 重试会拿回这条记录并返回 201（**G-23**）。前端已按
+「作废幂等键 + 显式提示 + 提示取消」处理，但不能从根本上解决。
 
 **权限**：浏览需登录；导出与分享需 Operator 以上。
 

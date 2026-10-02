@@ -112,10 +112,55 @@ const liveRoute = createRoute({
   beforeLoad: guard("live"),
 })
 
+/**
+ * Deep-link parameters.
+ *
+ * Both are optional so the page behaves exactly as it did before them when it
+ * is opened bare, which is still the common case. They exist so a "review this
+ * moment" link from the file browser actually lands on that moment instead of
+ * on whatever the camera happened to be showing — and, incidentally, so a
+ * playback URL can be pasted to a colleague and mean the same thing.
+ *
+ * `at` stays a string on both sides of the parse. TanStack Router types what
+ * you *write* into a link from the same declaration it types what you *read*,
+ * so returning a parsed number here would make the outgoing link a number
+ * while every producer of it — a segment's `start_at` — is a string. The page
+ * parses it, and drops a value that does not parse.
+ */
+function playbackSearch(search: Record<string, unknown>) {
+  return {
+    camera: typeof search.camera === "string" ? search.camera : undefined,
+    at: typeof search.at === "string" ? search.at : undefined,
+  }
+}
+
+/**
+ * Adapts the deep-link search params to the view's props.
+ *
+ * The parse lives here rather than in `playbackSearch` so that the param
+ * keeps one type on both sides: TanStack types an outgoing `Link`'s search
+ * from the same declaration it types an incoming read, so returning a parsed
+ * number would make every producer of the link — a segment's `start_at`, a
+ * string — a type error. A value that does not parse is dropped rather than
+ * passed on as NaN, which downstream renders as an empty timeline and reads
+ * as "there is no footage here".
+ */
+function PlaybackRouteComponent() {
+  const { camera, at } = playbackRoute.useSearch()
+  const atMs = at === undefined ? undefined : Date.parse(at)
+  return (
+    <PlaybackView
+      initialCameraId={camera}
+      initialAtMs={atMs === undefined || Number.isNaN(atMs) ? undefined : atMs}
+    />
+  )
+}
+
 const playbackRoute = createRoute({
   getParentRoute: () => shellRoute,
   path: "/playback",
-  component: PlaybackView,
+  component: PlaybackRouteComponent,
+  validateSearch: playbackSearch,
   beforeLoad: guard("playback"),
 })
 

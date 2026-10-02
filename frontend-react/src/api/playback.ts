@@ -64,6 +64,8 @@ export type RecordingSegmentView = {
   container: string
   integrity_status: string
   completion_reason: string | null
+  /** When the catalog row was written — not when the footage was recorded. */
+  created_at: string
 }
 
 export type RecordingLocationView = {
@@ -345,4 +347,63 @@ export function needsRemoteRestore(
   availability: SegmentAvailability,
 ): boolean {
   return availability === "remote" || availability === "cached_remote"
+}
+
+/* -------------------------------------------------------------------------- */
+/* Segment vocabulary                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `RecordingCatalogService.recording_reasons` (`catalog.py:71-110`) builds
+ * this from a fixed set of lowercase literals. A reason the backend has added
+ * since is passed through rather than dropped, so a new recording cause shows
+ * up as itself instead of as a blank cell.
+ */
+const REASON_LABEL: Record<string, string> = {
+  continuous: "连续录像",
+  schedule: "计划录像",
+  manual: "手动触发",
+  event: "事件触发",
+}
+
+export function recordingReasonLabel(reason: string): string {
+  return REASON_LABEL[reason] ?? reason
+}
+
+/**
+ * `PROVISIONAL` means the segment's time origin is still the ZLM hook's raw
+ * stamp and has not been reconciled against a continuous media session — the
+ * distinction ADR-0011 turns on. A file browser that hides it would let an
+ * operator pull a clip for evidence without ever learning its timestamps are
+ * not yet trustworthy, so it is shown rather than normalised away.
+ */
+const TIMING_STATUS_LABEL: Record<string, { label: string; tone: "online" | "degraded" | "unknown" }> = {
+  FINAL: { label: "时间已校正", tone: "online" },
+  PROVISIONAL: { label: "时间为暂定值", tone: "degraded" },
+}
+
+export function timingStatusLabel(status: string) {
+  return TIMING_STATUS_LABEL[status] ?? { label: status, tone: "unknown" as const }
+}
+
+const TIMING_SOURCE_LABEL: Record<string, string> = {
+  HOOK_RAW: "ZLM 原始戳",
+  RECOVERY: "恢复重建",
+  EXPLICIT_STOP: "显式停止",
+  NORMALIZED: "已归一化",
+}
+
+export function timingSourceLabel(source: string): string {
+  return TIMING_SOURCE_LABEL[source] ?? source
+}
+
+const INTEGRITY_LABEL: Record<string, { label: string; tone: "online" | "offline" | "degraded" | "unknown" }> = {
+  OK: { label: "完整", tone: "online" },
+  UNKNOWN: { label: "未校验", tone: "unknown" },
+  TRUNCATED: { label: "不完整", tone: "degraded" },
+  CORRUPT: { label: "已损坏", tone: "offline" },
+}
+
+export function integrityLabel(status: string) {
+  return INTEGRITY_LABEL[status] ?? { label: status, tone: "unknown" as const }
 }

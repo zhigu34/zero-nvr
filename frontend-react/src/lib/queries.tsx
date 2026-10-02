@@ -6,6 +6,8 @@ import * as storageApi from "../api/storage"
 import * as playbackApi from "../api/playback"
 import * as policyApi from "../api/recordingPolicies"
 import * as systemApi from "../api/systemSettings"
+import * as exportsApi from "../api/exports"
+import * as protectionsApi from "../api/protections"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -232,5 +234,101 @@ export function useCameraClockHealth() {
     queryKey: SYSTEM.clockHealth,
     queryFn: ({ signal }) => systemApi.getCameraClockHealth(signal),
     staleTime: 60_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Files: recordings browse + exports                                         */
+/* -------------------------------------------------------------------------- */
+
+export const FILES = {
+  segments: (cameraId: string, from: string, to: string) =>
+    ["files", "segments", cameraId, from, to] as const,
+  protections: (cameraId: string) => ["files", "protections", cameraId] as const,
+  exports: (state: string) => ["files", "exports", state] as const,
+  shares: (exportId: string) => ["files", "shares", exportId] as const,
+}
+
+/**
+ * One camera's recording segments over a wall-clock window.
+ *
+ * Per camera, and only per camera: `GET /cameras/{id}/recordings` is the only
+ * segment listing in the contract, so the old page's cross-camera "全部录像"
+ * root has nothing behind it and is not reproduced here.
+ *
+ * Keyset paginated, hence an infinite query — hand-rolled page accumulation in
+ * component state is what produced a "load more shows nothing" bug once
+ * already on the events screen.
+ */
+export function useCameraRecordings(
+  cameraId: string | null,
+  range: { from: string; to: string },
+) {
+  return useInfiniteQuery({
+    queryKey: FILES.segments(cameraId ?? "", range.from, range.to),
+    queryFn: ({ pageParam, signal }) =>
+      playbackApi.listCameraRecordings(
+        cameraId!,
+        { from: range.from, to: range.to, cursor: pageParam },
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    enabled: Boolean(cameraId) && Boolean(range.from) && Boolean(range.to),
+    staleTime: 15_000,
+  })
+}
+
+/**
+ * The camera's protection windows.
+ *
+ * Fetched once per camera and intersected locally so the segment table can
+ * mark protected rows without an N+1 over `/recordings/{id}`.
+ */
+export function useCameraProtections(cameraId: string | null) {
+  return useQuery({
+    queryKey: FILES.protections(cameraId ?? ""),
+    queryFn: ({ signal }) => protectionsApi.listCameraProtections(cameraId!, signal),
+    enabled: Boolean(cameraId),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Export jobs, newest first, optionally filtered by state.
+ *
+ * Polls while anything is unsettled. A job in PENDING or RUNNING is the only
+ * thing on this screen that changes without the operator acting, and a job
+ * that silently stops moving is indistinguishable from a slow one — so the
+ * poll is what turns "stuck" into something the operator can see and act on.
+ */
+export function useExports(state?: string) {
+  return useInfiniteQuery({
+    queryKey: FILES.exports(state ?? ""),
+    queryFn: ({ pageParam, signal }) =>
+      exportsApi.listExports(
+        { state, cursor: pageParam, limit: 50 },
+        signal,
+      ),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.next_cursor ?? undefined,
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const pages = query.state.data?.pages ?? []
+      const unsettled = pages.some((page) =>
+        page.items.some((job) => !exportsApi.isSettled(job.state)),
+      )
+      return unsettled ? 4_000 : false
+    },
+  })
+}
+
+/** The share links on one export. Loaded only when a row is expanded. */
+export function useExportShares(exportId: string | null) {
+  return useQuery({
+    queryKey: FILES.shares(exportId ?? ""),
+    queryFn: ({ signal }) => exportsApi.listExportShares(exportId!, signal),
+    enabled: Boolean(exportId),
+    staleTime: 5_000,
   })
 }

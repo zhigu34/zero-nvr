@@ -46,13 +46,37 @@ const RATES = [0.5, 1, 2, 4, 8] as const
 /** Speed at or above which audio is muted, because it is unintelligible. */
 const HIGH_SPEED_MUTE_FROM = 4
 
-export function PlaybackView() {
+/**
+ * `initialCameraId` / `initialAtMs` come from the route's search params (see
+ * `PlaybackRouteComponent` in `router.tsx`), which is what makes
+ * `/playback?camera=…&at=…` land on that camera at that moment instead of on
+ * whatever was showing. They are props rather than a `useSearch` call inside
+ * here so the view stays a plain component that renders without a router —
+ * which is also what lets this screen be tested at all.
+ *
+ * Both are optional, and a later change to either takes over from wherever the
+ * operator has since dragged to, so following a new link mid-session works.
+ */
+export function PlaybackView({
+  initialCameraId,
+  initialAtMs,
+}: {
+  initialCameraId?: string
+  initialAtMs?: number
+}) {
   const camerasQuery = useCameras()
-  const [cameraId, setCameraId] = useState<string | null>(null)
+  const [cameraId, setCameraId] = useState<string | null>(initialCameraId ?? null)
   const [windowMs, setWindowMs] = useState<number>(2 * 60 * 60 * 1000)
-  const [anchorMs, setAnchorMs] = useState(() => Date.now())
+  const [anchorMs, setAnchorMs] = useState(() => initialAtMs ?? Date.now())
   const [detail, setDetail] = useState<TimelineDetail>("minute")
   const [seekGeneration, setSeekGeneration] = useState(0)
+
+  useEffect(() => {
+    if (initialCameraId) setCameraId(initialCameraId)
+  }, [initialCameraId])
+  useEffect(() => {
+    if (initialAtMs !== undefined) setAnchorMs(initialAtMs)
+  }, [initialAtMs])
 
   // Default to the first camera once the list arrives.
   useEffect(() => {

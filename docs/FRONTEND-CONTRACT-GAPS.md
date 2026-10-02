@@ -376,6 +376,113 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
+### G-23 导出排队失败会留下一条永远不会被执行的记录，且重试会骗过操作者 🔴
+
+**事实**：`POST /exports` 先提交事务再入队，且**只在 `created` 为真时入队**
+（`exports/api.py:195-225`）。因此任务队列不可用时：
+
+```text
+1. 事务提交          →  库里多一条 state=PENDING 的记录
+2. 入队失败          →  没有任何 worker 会拿到这条任务
+3. 返回 503          →  code=export_task_queue_unavailable
+                        details={export_persisted: true, export_id: "..."}
+```
+
+而重试这一次请求（同一个 `Idempotency-Key`）会命中
+`ExportService._existing_idempotent`，**返回这条卡住的记录并返回 201**
+（`exports/service.py:57-71`）。任务始终没有入队。
+
+**影响**：操作者看到 201、列表里出现一条「排队中」的导出、然后它永远停在
+排队中。**看起来成功的重试比原本的 503 更糟**——它把一个明确的失败变成了
+一个沉默的失败。`details.export_id` 的存在说明后端意识到这条记录要靠人去
+收拾，但契约里没有任何办法让它重新入队。
+
+**当前处理**：前端在收到 `export_persisted: true` 的 503 时**作废**幂等键并
+明说「这条导出不会被自动执行，请取消后重新创建」；列表里 `PENDING` 超过 2 分钟
+的记录会显式提示「再等下去不会自行完成」。逻辑在 `lib/exportIntent.ts`
+（`strandedExportId` / `retryIsSafe`）与 `lib/exportMutations.ts`。
+
+**建议修法**：三选一，从优到劣——
+
+1. 入队失败时把状态置为一个独立的 `NOT_QUEUED`（而非 `PENDING`），并提供
+   `POST /exports/{id}/retry` 重新入队
+2. 入队失败时回滚事务（则 503 不带 `export_persisted`，语义变简单）
+3. 保留现状但**响应里带 `queued: false`**，让前端能区分「已排队」与「已记录」
+
+第 1 条最好：它同时解决了 G-24。
+
+### G-24 `ExportView` 没有进度，也没有「是否已入队」 🔴
+
+**事实**：`ExportView`（`exports/schemas.py:19-38`）有 `state` / `started_at`
+/ `completed_at`，**没有进度百分比**，也**没有 `queued_at`**（只有 `created_at`）。
+`created_at` 是事务写入时刻，`started_at` 是 worker 真正开始时刻。
+
+**影响**：
+
+- **进度**只能靠已耗时外推，那是「披着进度条外衣的编造数字」。前端不画进度条，
+  改为显示状态与已耗时。
+- **是否卡住**只能靠 `now - created_at > N 分钟` 猜测。一个正常排队 5 分钟的
+  导出和一个（G-23 的）永远不会被执行的导出，在这个字段下无法区分。
+  前端用「PENDING 超过 2 分钟就提示」作为近似判据，阈值是拍的。
+
+**建议修法**：`ExportView` 增加 `queued_at: datetime | null` 与
+`progress_percent: int | null`（worker 自己报，不让前端外推）。
+
+### G-25 没有跨机位的录像片段列表接口 🟡
+
+**事实**：`GET /cameras/{camera_id}/recordings` 是**唯一**的片段列表端点
+（`recordings/api.py:1123`），必须带 `camera_id`。契约里没有
+`GET /recordings?from=&to=` 这种跨机位查询。
+
+**影响**：一个「文件」页面天然想做的是「全部录像」。这个根节点没有接口支撑。
+旧 Vue 页面的 `buildTree()` 用 fixture 造了它，看起来能跑。
+
+**当前处理**：React 版按机位浏览，左侧机位选择器取代跨机位树。
+一次导出也只覆盖一个机位（`ExportCreate.camera_id` 是单值）。
+
+**建议修法**：新增 `GET /recordings?from=&to=&camera_id=`（`camera_id` 可选），
+复用 `RecordingCatalogQueryService.list_camera` 的过滤逻辑即可，
+前端筛选逻辑不用动。
+
+### G-26 片段没有分辨率，存储位置要 N+1 才能拿到 🟡
+
+**事实**：`RecordingSegmentView`（`recordings/schemas.py:200-215`）有 `codec` /
+`container` / `size_bytes`，**没有分辨率**。而「本地 / 已归档 / 备份」这个位置
+语义在 `GET /recordings/{id}/locations` 上，每个片段一次请求。
+
+**影响**：片段列表想显示两列都做不到——
+
+- 分辨率：字段根本不存在
+- 存储位置：一页 100 行 = 100 个请求
+
+**当前处理**：两列都不画。保护状态改用**按机位一次取回**的保护时间窗在本地
+求交（`api/protections.ts` 的 `overlapsProtection`），因为保护本来就是
+「机位 + 时间窗」而不是逐片段字段。
+
+**建议修法**：`RecordingSegmentView` 加 `width` / `height`（catalog 写入时
+就有，`RecordingSegment` 表里有 stream 关联），并在列表响应里带一个
+`locations: [{storage_type, storage_role, state}]` 摘要数组——
+同一次查询 LEFT JOIN 出来，不增加往返。
+
+### G-27 保护没有片段维度，只能靠时间重叠推导 🟡
+
+**事实**：`RecordingProtectionCreate`（`recordings/schemas.py:284-288`）是
+`{started_at, ended_at, reason, expires_at}`，作用域是**机位**，模型里
+**没有 `segment_id`**。查询也只有 `GET /cameras/{id}/recording-protections`。
+
+**影响**：旧 Vue 页面的逐片段「保护锁」开关在契约里不存在，而且**如果照搬会
+产生误导**——同一时间窗内的所有片段会一起被锁上，而不是用户点的那一个。
+
+**当前处理**：只做只读标记。「与保护时间窗重叠」在本地求交得出，
+并用半开区间（`[start, end)`）——这一点在本项目已经咬过人
+（见 PR-4 的 `previousPlayableInstant`）。半开语义由
+`api/protections.spec.ts` 钉住。
+
+**建议修法**：如果产品确实需要「锁这一段」，契约要么加 `segment_id`，
+要么在 UI 上明确它是时间窗操作（后者成本为零）。
+
+---
+
 ## 写操作的标度陷阱
 
 同一批接口里「时长」有**三套单位**，混用会产生量级错误：

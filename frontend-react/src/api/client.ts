@@ -97,18 +97,27 @@ type RequestOptions = {
   method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"
   body?: unknown
   signal?: AbortSignal
+  /**
+   * Extra headers. Added for `Idempotency-Key` on export creation, which is a
+   * property of the request rather than of its payload — growing the body
+   * shape to carry it would put a transport concern in the wire contract.
+   */
+  headers?: Record<string, string>
 }
 
 const BASE = "/api/v1"
 
 export async function request<T>(
   path: string,
-  { method = "GET", body, signal }: RequestOptions = {},
+  { method, body, signal, headers }: RequestOptions = {},
 ): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
-    method,
+    method: method ?? "GET",
     credentials: "include",
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    headers: {
+      ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      ...headers,
+    },
     body: body === undefined ? undefined : JSON.stringify(body),
     signal,
   })
@@ -128,4 +137,9 @@ export const api = {
   patch: <T,>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body }),
   del: <T,>(path: string) => request<T>(path, { method: "DELETE" }),
+  postWithHeaders: <T,>(
+    path: string,
+    body: unknown,
+    headers: Record<string, string>,
+  ) => request<T>(path, { method: "POST", body, headers }),
 }

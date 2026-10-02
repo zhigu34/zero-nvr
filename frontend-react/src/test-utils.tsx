@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, type RenderOptions, type RenderResult } from "@testing-library/react"
+import {
+  createMemoryHistory,
+  createRootRoute,
+  createRoute,
+  createRouter,
+  RouterProvider,
+} from "@tanstack/react-router"
 
 import { ToastProvider } from "./components/ui/Toast"
 
@@ -35,6 +42,52 @@ export function renderWithProviders(
       <ToastProvider>{ui}</ToastProvider>
     </QueryClientProvider>,
     renderOptions,
+  )
+
+  return { ...result, client }
+}
+
+/**
+ * The same, plus a minimal in-memory router.
+ *
+ * Needed by any page that navigates — `useNavigate` throws without a router
+ * context rather than degrading. The real route tree is deliberately not
+ * reused here: it carries auth guards, so a page test would have to fake a
+ * signed-in session to get past a redirect that has nothing to do with what
+ * it is testing. A two-route tree renders the page and nothing else.
+ */
+export function renderWithRouter(
+  ui: React.ReactElement,
+  options: ProviderOptions & { path?: string } = {},
+): RenderResult & { client: QueryClient } {
+  const { client: provided, path = "/", ...rest } = options
+  const client =
+    provided ??
+    new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+
+  const rootRoute = createRootRoute({ component: () => ui })
+  const indexRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/",
+    component: () => ui,
+  })
+  const router = createRouter({
+    routeTree: rootRoute.addChildren([indexRoute]),
+    history: createMemoryHistory({ initialEntries: [path] }),
+  })
+
+  const result = render(
+    <QueryClientProvider client={client}>
+      <ToastProvider>
+        <RouterProvider router={router} />
+      </ToastProvider>
+    </QueryClientProvider>,
+    rest,
   )
 
   return { ...result, client }
