@@ -5,6 +5,7 @@ import * as eventsApi from "../api/events"
 import * as storageApi from "../api/storage"
 import * as playbackApi from "../api/playback"
 import * as policyApi from "../api/recordingPolicies"
+import * as systemApi from "../api/systemSettings"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -195,5 +196,41 @@ export function useRecordingPolicies() {
         Array.isArray(page?.items) ? page.items : [],
       ),
     staleTime: 30_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* System                                                                     */
+/* -------------------------------------------------------------------------- */
+
+export const SYSTEM = {
+  settings: ["system", "settings"] as const,
+  health: ["system", "health"] as const,
+  info: ["system", "info"] as const,
+  clockHealth: ["system", "clock-health"] as const,
+}
+
+export function useSystemSettings() {
+  return useQuery({
+    queryKey: SYSTEM.settings,
+    queryFn: ({ signal }) => systemApi.getSystemSettings(signal),
+    staleTime: 60_000,
+  })
+}
+
+export function useSystemHealth() {
+  return useQuery({
+    queryKey: SYSTEM.health,
+    queryFn: ({ signal }) => systemApi.getSystemHealth(signal),
+    staleTime: 10_000,
+    refetchInterval: 30_000,
+  })
+}
+
+export function useCameraClockHealth() {
+  return useQuery({
+    queryKey: SYSTEM.clockHealth,
+    queryFn: ({ signal }) => systemApi.getCameraClockHealth(signal),
+    staleTime: 60_000,
   })
 }
