@@ -179,6 +179,50 @@ export type PlaybackResolve =
   | PlaybackResolveGap
 
 /* -------------------------------------------------------------------------- */
+/* Per-day aggregates                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * One local calendar day of recorded material.
+ *
+ * `day` is a **local** date in the timezone that was asked for, so a segment at
+ * 16:00Z belongs to the *next* day in `Asia/Shanghai`. Bucketing in UTC would
+ * split the same footage across two days for most of the world and shift the
+ * hour axis of a day heatmap by the offset.
+ *
+ * `size_bytes` is the real sum of `recording_segments.size_bytes` — not a
+ * duration-to-bytes estimate. (The Vue files page had to invent one, because
+ * the timeline endpoint carries no size at all; see G-45.)
+ *
+ * There is deliberately **no** cloud/remote count. Availability is decided by
+ * `PlaybackTimelineService._availability` across segment integrity, location
+ * state and storage target type; a second, coarser SQL approximation of that
+ * rule is exactly the kind of thing that disagrees with playback.
+ */
+export type RecordingDayStat = {
+  day: string
+  count: number
+  duration_sec: number
+  size_bytes: number
+}
+
+export function listCameraRecordingsDaily(
+  cameraId: string,
+  range: { from: string; to: string; timeZone: string },
+  signal?: AbortSignal,
+) {
+  const qs = new URLSearchParams({
+    from: range.from,
+    to: range.to,
+    time_zone: range.timeZone,
+  })
+  return api.get<RecordingDayStat[]>(
+    `/cameras/${cameraId}/recordings/daily?${qs}`,
+    signal,
+  )
+}
+
+/* -------------------------------------------------------------------------- */
 /* Requests                                                                   */
 /* -------------------------------------------------------------------------- */
 

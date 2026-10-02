@@ -4,11 +4,15 @@
 
 这些不是 bug，是**接口设计缺口**。原型阶段用 fixture 数据把它们盖住了，接真实数据时才暴露。每条都记录了影响面与建议的修法。
 
-状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞
+状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞 · ✅ 已修
 
-**当前合计 40 条**（🔴 13 · 🟡 22 · ⚪ 5）。全部来自 PR-3 至 PR-6 逐模块核对
-真实契约与原型假设的差异，按 ADR-0014 决策 4 一律**不在本迁移中修改后端**，
-修复走独立流程。
+**当前合计 45 条**（🔴 14 · 🟡 24 · ⚪ 6 · ✅ 1），G-1 ~ G-45 无缺号。全部来自
+PR-3 至 PR-6 逐模块核对真实契约与原型假设的差异。
+
+按 ADR-0014 决策 4，本迁移**原则上不修改后端**，缺口修复走独立流程。唯一的
+例外是 **G-45**：为了让文件页显示真实体积而不是 Vue 那套编造的估算值，经明确
+批准新增了 `GET /cameras/{id}/recordings/daily` 按日聚合端点（`recordings/daily_query.py`）。
+这是本分支上唯一的后端改动。
 
 🔴 中有三条已经在本迁移里被前端绕开并留下了实现注释，缺口本身仍在：
 **G-17**（写入「已存未生效」）与 **G-33**（`match` 整体替换）各有对应的
@@ -913,29 +917,48 @@ Administrator / Operator / Viewer 在每次启动时按 `BUILTIN_ROLE_PERMISSION
 
 ---
 
-## G-45 时间线端点不返回体积，月视图的「占用空间」是编造的 🟡
+## G-45 时间线端点不返回体积，月视图的「占用空间」是编造的 ✅ 已修
 
 **事实**：`TimelineSegmentView` 只有
-`id / playback_ref / start_at / end_at / availability`（`recordings/schemas.py:54-60`），
-**没有 `size_bytes`**。真实体积在 `RecordingSegmentView.size_bytes`
-（`:200-227`），但那只是 `GET /cameras/{id}/recordings` 的单片段/分页响应。
+`id / playback_ref / start_at / end_at / availability`（`recordings/schemas.py`），
+**没有 `size_bytes`**。真实体积在 `RecordingSegmentView.size_bytes`，但那只是
+`GET /cameras/{id}/recordings` 的分页响应。
 
 Vue 的月视图因此自己编了一个数字：`const bytes = dur * 450_000`
 （`FilesView.vue:262`，450 kB/s 写死），并把它喂给日历的「本月占用」汇总
-（`FilesMonthCalendar.vue` 的 `monthTotalBytes`）。
+（`FilesMonthCalendar.vue` 的 `monthTotalBytes`）。一个 H.265 高码率通道会被系统性
+低估，低码率通道被高估——拿它做容量判断会得出错误结论。
 
-**影响**：月历上显示的「占用空间」是**按固定码率反推的估算值**，不是磁盘上
-的真实占用。一个 H.265 高码率通道会被系统性低估，一个低码率通道被高估。拿它
-做容量判断会得出错误结论。
+**修法**（本分支唯一的后端改动，经明确批准）：新增按日聚合端点
 
-**当前处理**：React 侧的文件页没有月历（PR-5e 的形态是「浏览并导出」），因此
-**从不显示任何编造的体积**。若后续补齐月历，只能按「段数 / 时长 / 是否有云端
-片段」三个真实维度着色，**不画体积**。
+```text
+GET /cameras/{id}/recordings/daily?from=&to=&time_zone=
+→ [{day, count, duration_sec, size_bytes}]
+```
 
-**建议修法**：给 `TimelineSegmentView` 加 `size_bytes: int | None`（segment 表上
-已有 `size_bytes` 列，聚合时求和即可），或者新增一个按天的聚合端点
-`GET /cameras/{id}/recordings/daily?from=&to=`。前者改动更小，且时间线、回放、
-文件页三处可以共用同一份体积口径。
+`recordings/daily_query.py`。选它而不是给 `TimelineSegmentView` 加字段，是因为
+时间线的 `detail` 参数只粗化事件标记、**分段永远全分辨率**
+（`recordings/timeline.py:564-583`）：一个月长的窗口仍会拉回约 86,000 行，
+逐行补字段解决不了「看一个月要下载 86,000 行」这个问题。聚合端点把它变成一次
+有界查询。
+
+几个刻意的取舍：
+
+- **逐日本地午夜用 `zoneinfo` 算成 UTC 瞬间**，再按范围扫描。SQLite 没有时区库，
+  `strftime` 做不了本地日分桶，写死 UTC 偏移在换季那 1~2 小时会错
+  （DST 短日因此天然正确：纽约 2026-03-08 只有 23 小时）。
+- **没有录像的日子不出现在响应里**（稀疏而非稠密零行）。画日历的人关心哪几天有
+  料，零行是还要再过滤一遍的噪声。
+- **范围上限 366 天**（`_DAILY_RANGE_MAX_DAYS`），因为逐日聚合是 N 次查询，
+  不封顶就能被一个宽范围放大成上千次。
+- 未知时区名返回 400 而不是悄悄回落到 UTC。
+
+前端据此重做文件页的信息架构：**范围浏览为主**（保留），加一条按日密度条
+（`DayDensityStrip`）+ 点某天后的 24 小时热力图（`DayHeatmap`）。密度条的底色
+按**区间内最忙的一天**缩放而非绝对阈值，一个每天录 4 秒的通道和一个每天录 4 小时的
+通道都要能读。热力图分桶用列表已经拿到的分段精确边界按显示时区算，**不再发第二个
+请求**，页面不足时明说「只有第一页」。所有数字都是真实的 `size_bytes` /
+`duration_sec`，Vue 的 `dur * 450_000` 没有任何对应物。
 
 ---
 
@@ -950,3 +973,9 @@ ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-16 / G
 3. 缺口修复后前端单独一次 PR 跟进
 
 这样每一步都可验证，且前端迁移的「零后端改动」承诺保持成立。
+
+**一处有意例外**：G-45 需要一个后端端点才能让文件页显示真实体积，否则唯一的
+选择是继续不显示体积或继续显示估算值。经明确批准后新增
+`GET /cameras/{id}/recordings/daily`（`recordings/daily_query.py` + 8 项后端测试），
+这是本分支上**唯一**的后端改动，且是纯新增、不改动任何既有端点的行为。其余 44 条
+仍按上面的三步走。

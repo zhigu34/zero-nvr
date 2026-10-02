@@ -57,10 +57,11 @@ Vue 的 `SystemTab` 定义在 `SystemView.vue:93-103`。
 | users | SystemAccessControlPanel (1305) | `/users` `/roles` `/permissions` `/roles/{id}/camera-scope` | UsersView + RoleEditor + RoleScopeSection | ✅ 已补齐 |
 | alerts | SystemAlertRulesPanel (969) | `/alert-policies` | AlertsView | ✅ |
 | audit | SystemAuditTab (269) | `/audit` | AuditView | ✅ |
-| **tokens** | SystemApiTokensPanel (376) | `/api-tokens` | — | ❌ |
-| **notifications** | SystemNotificationsTab (237) | `/notification-targets` `/notification-deliveries` | — | ❌ |
-| **ai** | SystemAiTab (218) | `/integrations/frigate` `+/test` `+/backfill` | — | ❌ |
-| **backup** | SystemBackupTab (813) + SystemRecoveryKitPanel (400) | `/backups/*` `/recovery-kit/*` | — | ❌ |
+| **tokens** | SystemApiTokensPanel (376) | `/api-tokens` | ApiTokensPanel | ✅ 已补齐 |
+| **notifications** | SystemNotificationsTab (237) | `/notification-targets` `/notification-deliveries` | NotificationsPanel | ✅ 已补齐 |
+| **ai** | SystemAiTab (218) | `/integrations/frigate` `+/test` `+/backfill` | FrigatePanel | ✅ 已补齐 |
+| **backup** | SystemBackupTab (813) + SystemRecoveryKitPanel (400) | `/backups/*` `/recovery-kit/*` | BackupPanel | ✅ 已补齐 |
+| — | SystemSecretStorePanel (435) | `/secrets/*` | SecretStorePanel | ✅ 已补齐 |
 
 ### 3.1 `SystemAccessControlPanel` 1305 行 vs `UsersView`
 
@@ -71,18 +72,21 @@ React 只用到了后者的一半——`MATCH_KEY_META` 之外没有渲染任何
 这正是 **PR-0（RBAC 收敛）**的实际工作量所在。之前把 PR-0 记为「与 D-2 同批」
 也是错的：它不依赖 D-2，它依赖这个矩阵界面存在。
 
+**已补齐**，见 §16。
+
 ---
 
 ## 4. 摄像机页
 
 | Vue 组件（行数） | 说明 | React | 状态 |
 |---|---|---|---|
-| CameraOnboardingPanel (1248) + 5 个步骤 (960) | ONVIF 探测 / 手动接入 / CSV 批量，**6 个 spec** | — | ❌ **最大单项** |
-| CameraDetailPanel (1147) + General/Streams 两个 tab (888) | `CameraDetailDrawer` + `CameraStreamsPanel` / `CameraHealthPanel` / `CameraClockPanel` | — | ✅ 已补齐 |
-| CameraGroupsPanel (595) | 机位分组 CRUD | 仅在用户范围面板里只读列出 | ❌ |
+| CameraOnboardingPanel (1248) + 5 个步骤 (960) | ONVIF 探测 / 手动接入 / CSV 批量，**6 个 spec** | OnboardingWizard | ✅ 已补齐 |
+| CameraDetailPanel (1147) + General/Streams 两个 tab (888) | `CameraDetailDrawer` + `CameraStreamsPanel` / `CameraHealthPanel` / `CameraClockPanel` | ✅ 已补齐 |
+| CameraGroupsPanel (595) | 机位分组 CRUD | CameraGroupsPanel | ✅ 已补齐 |
 | CameraDeviceGlyph (92) | 设备图标 | lucide 图标 | ✅ |
 
-后端 `POST /camera-groups` `PATCH` `DELETE` 齐全，**只是没有界面**。
+后端 `POST /camera-groups` `PATCH` `DELETE` 齐全，**只是没有界面**——这一点现在
+也改过来了，见 §15。
 
 ---
 
@@ -93,17 +97,42 @@ React 的 FilesView 是按契约重写的另一种形态。两者不是同一件
 
 | Vue 组件（行数） | React | 状态 |
 |---|---|---|
-| FilesMonthCalendar (376) | — | ❌ |
-| FilesHeatmap (298) | — | ❌ |
-| FilesPreviewPlayer (309) | — | ❌ |
+| FilesMonthCalendar (376) | `DayDensityStrip`（在 RecordingDensity.tsx 内） | ✅ 已补齐，形态不同 |
+| FilesHeatmap (298) | `DayHeatmap`（同上） | ✅ 已补齐，形态不同 |
+| FilesPreviewPlayer (309) | 跳转回放页 | ⚠️ 见下 |
 | FilesSegmentInspector (235) | 片段详情侧栏 | 🟡 形态不同 |
 | FilesSegmentTable (333) | SegmentTable | ✅ |
 
-**这 3 个组件共 983 行、5 个 spec，功能是「按月/按天浏览录像密度」。**
-React 的时间轴页部分覆盖了「看录像覆盖」这个需求，但**没有日历与热力图形态**。
+**已裁决**：文件页保留**范围浏览**形态（PR-5e 的既有信息架构），在其上补一条
+按日密度条 + 点某天后的 24 小时热力图，而不是照搬 Vue 的月历。
 
-这是一个**产品决策**，不是单纯的补齐：文件页到底是「浏览并导出」还是
-「日历式回看」，PR-5e 已经按前者实现了。需要确认后者是否要。
+密度条和热力图**不是** Vue 那两个组件的移植，它们建立在 Vue 没有的东西上：
+
+- 体积是**真实的** `size_bytes`。Vue 的月历显示 `dur * 450_000`（`FilesView.vue:262`，
+  450 kB/s 写死），因为时间线端点不带体积——见 G-45。为拿到真值新增了按日聚合端点
+  `GET /cameras/{id}/recordings/daily`（本分支唯一的后端改动）。
+- 底色按**区间内最忙的一天**缩放，不按绝对阈值。一个每天录 4 秒的通道和一个每天录
+  4 小时的通道都要能读出形状。
+- 热力图分桶用的是**列表已经拿到的分段**的精确边界，按显示时区算，**不发第二个请求**；
+  页面不足时明说「只有第一页」，不假装是全天。
+- 没有录像的日子**保留为空格**而不是隐藏——日历上的断层是信息。
+
+**FilesPreviewPlayer 是一个明确的取舍，不算「已取代」**：
+
+Vue 的预览播放器内联在检视器里，对选中的单个片段调
+`resolveRecordingSegment(item.id)` 拿 URL 播放，支持上一段/下一段和自动连播。React
+侧点「播放」是**跳到回放页**并按 `camera + start_at` 解析（`SegmentTable.onPlay` →
+`/playback` → `PlaybackStage` 调 `resolveCameraPlayback`）。
+
+片段级解析器 `resolveSegmentPlayback` 在 React 里**只有 API 绑定和它自己的测试，
+没有任何组件调用**。这是有意的：内联预览会引入第二套播放栈——它没有主时钟、
+没有漂移校正、没有服务端 resync，而这些正是 `PlaybackStage` 已经处理的东西。为了
+在一个列表页里放一个小 `<video>` 而复制一套更弱的播放逻辑，是拿正确性换便利。
+同一个理由已经用在摄像机详情抽屉上（不提供实时预览）。
+
+代价要说清楚：**「在文件页里原地看这一段」这个操作 React 目前做不到**，必须跳到回放页。
+如果这个操作对操作员重要，正确的补法是给回放页加一个「从文件页带入片段」的状态，
+而不是在文件页里再放一个播放器。
 
 ---
 
@@ -112,12 +141,12 @@ React 的时间轴页部分覆盖了「看录像覆盖」这个需求，但**没
 | Vue 组件（行数） | React | 状态 |
 |---|---|---|
 | PlaybackTopBar (701) + TolerantPlaybackTile (608) + PlaybackTimelineCanvas (1063) + Controls (169) + CameraPanel (155) | PR-4 拆为 11 个可测模块 + PlaybackView | ✅ 已被取代（且修掉 3 个旧缺陷） |
-| **PlaybackActionPanel (171) + Form (172) + History (177)** | — | ❌ **3 个 spec**（回放中的手动触发录像、保护录像、操作历史） |
+| **PlaybackActionPanel (171) + Form (172) + History (177)** | PlaybackPanels | ✅ 已补齐（**3 个 spec**） |
 | **PlaybackShareEditor (308)** | FilesView 有分享面板 | 🟡 入口不同 |
-| **PlaybackDiagnosticsPanel (279)** | — | ❌ **1 个 spec** |
+| **PlaybackDiagnosticsPanel (279)** | PlaybackPanels | ✅ 已补齐（**1 个 spec**） |
 
 「回放中的操作」——手动触发录像、保护录像、操作历史——是回放页的另一半，
-React 目前只有「看」没有「做」。
+React 此前只有「看」没有「做」，现已补齐，见 §13。
 
 ---
 
@@ -126,36 +155,46 @@ React 目前只有「看」没有「做」。
 | 项 | React | 状态 |
 |---|---|---|
 | LiveCameraTile (2591) | PR-4 拆为传输层 + `useLiveTile` + 9 个 spec | ✅ 已被取代 |
-| **AccountPanel (531)** | — | ❌ 个人账号设置：改密码、邮箱、语言 |
-| ConfirmDialog (57) + useConfirm | — | ❌ **本轮已补**，见 §9 |
-| DrawerDialog (81) | `components/ui/Drawer.tsx` | ✅ 已补齐 |
-| **LanguageControl (189) + i18n** | 无 i18n | ❌ 全应用硬编码中文 |
+| **AccountPanel (531)** | AccountPanel | ✅ 已补齐 |
+| ConfirmDialog (57) + useConfirm | `components/ui/Confirm.tsx` | ✅ 已补齐，见 §9 |
+| DrawerDialog (81) | `components/ui/Drawer.tsx` | ✅ |
+| **LanguageControl (189) + i18n** | 无 i18n | ⚠️ **已裁决不做**，见 §17 |
 | ThemeControl (190) | `use-theme.ts` | ✅ |
 | NoticeBanner / StatusPill / EmptyState / ToastHost | Callout / StatusDot / EmptyState / Toast | ✅ |
 
-**i18n 是一条独立的决策**：Vue 侧有 `vue-i18n` 与 `LanguageControl`，
-React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃多语言**，
-除非决定在 React 侧重建 i18n 体系。这需要明确裁决，不能默认丢掉。
+**i18n 已裁决不做**：Vue 侧有 `vue-i18n` 与 `LanguageControl`，
+React 侧全部硬编码中文。删掉 `frontend/` 意味着放弃多语言，
+这个决定已经明确做出——删掉的是切换器，不是被切换的内容，
+因此**不产生功能缺口**。
 
 ---
 
 ## 8. 汇总
 
-| 分类 | 组件数 | Vue 行数 | 受影响的 Vue spec |
+下表是 `frontend/src/components/` 下**全部 50 个 `.vue` 组件**的互斥归类，
+每行都有对应测试或明确的取舍理由。行数为 `wc -l` 实测。
+
+| 分类 | 组件数 | Vue 行数 | 对应 Vue spec |
 |---|---|---|---|
-| ✅ 已被 React 取代 | 19 | 8,373 | 0（都有 React 对应测试） |
-| ✅ 本轮补齐 | 18 | 12,833 | 26 |
-| ❌ **仍然完全缺失** | **6** | **272** | **3** |
-| 🟡 部分覆盖 / 形态不同 | 5 | 2,578 | 3 |
-| ⚪ 两侧都是死代码 | 2 | — | 0 |
+| ✅ 已被 React 取代（基线既有） | 20 | 8,454 | 15 |
+| ✅ 本轮补齐（13 项） | 26 | 10,683 | 16 |
+| 🟡 形态不同 | 2 | 543 | 2 |
+| ⚠️ **有意不补**（附理由） | 2 | 498 | 1 |
+| **合计** | **50** | **20,178** | **34** |
 
-行数为 `wc -l` 实测，非估算。
+**「仍然完全缺失」现在是 0。** 13 项补齐全部落地后，剩下的两处是**明确决定
+不做的**，不是遗漏：
 
-**完全缺失的 23 个组件对应的后端端点全部已经实现并有测试覆盖。**
-换句话说这不是「后端没做」，是「前端没做」。
+- `FilesPreviewPlayer`（309 行）——内联片段预览会引入第二套播放栈，见 §5
+- `LanguageControl`（189 行）——i18n 已裁决不做，见 §17
 
-**54 个 Vue spec 中，19 个测的是 React 完全没有的功能**——删除 `frontend/`
-会让这 19 个文件连同它们覆盖的行为一起消失。
+对应地，**54 个 Vue spec 中只有 1 个**（`FilesPreviewPlayer.spec.ts`）测的是 React
+没有的行为。删除 `frontend/` 会让这 1 个 spec 消失，其余 33 个都有 React 侧的
+等价覆盖。
+
+这个数字是本轮**第一次站得住**的版本：此前的汇总表把 §3/§4/§6/§7 里已经标
+✅ 的组件重复计进了「已补齐」，而条目表里的 10-13 还停在 ⬜。现在的分类由脚本
+按实际文件清单生成，50 个组件与 34 个 spec 全部归位，无遗漏也无虚构。
 
 按建议顺序（依赖少、价值高在前）：
 
@@ -165,15 +204,16 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 2 | API 令牌（自己的账号） | 376 | 无 | ✅ 已补齐 |
 | 3 | 密钥环查看与轮换 | 435 | 无 | ✅ 已补齐 |
 | 4 | Frigate 集成（配置/连通性/回填） | 218 | 无 | ✅ 已补齐 |
-| 5 | 备份策略 + 恢复包 | 1,213 | 1 个 spec | ✅ 已补齐 |
+| 5 | 备份策略 + 恢复包 | 1,213 | 2 个 spec | ✅ 已补齐 |
 | 6 | 机位分组 CRUD | 595 | 无 | ✅ 已补齐 |
 | 7 | 个人账号设置（改密码/邮箱） | 531 | 无 | ✅ 已补齐 |
 | 8 | 回放操作（手动触发/保护/历史）+ 诊断面板 | 799 | 4 个 spec | ✅ 已补齐 |
 | 9 | 摄像机接入向导（ONVIF/手动/CSV） | 2,208 | 6 个 spec，最复杂 | ✅ 已补齐 |
-| 10 | 角色 → 权限矩阵（= PR-0） | — | 需先裁决 RBAC 收敛范围 | ⬜ |
-| 11 | 摄像机详情抽屉（码流绑定/健康/时钟） | 2,035 | 1 个 spec | ⬜ |
-| 12 | 文件日历 / 热力图 / 预览播放器 | 983 | 3 个 spec，需产品决策 | ⬜ |
-| 13 | i18n 体系 | 189+ | 需明确是否放弃多语言 | ⬜ |
+| 10 | 角色 → 权限矩阵（= PR-0） | 1,305 | 需先裁决 RBAC 收敛范围 | ✅ 已补齐 |
+| 11 | 摄像机详情抽屉（码流绑定/健康/时钟） | 2,035 | 1 个 spec | ✅ 已补齐 |
+| 12 | 文件日历 / 热力图 | 674 | 3 个 spec，需产品决策 | ✅ 已补齐（密度条 + 热力图，形态已裁决） |
+| 13 | i18n 体系 | 189 | 需明确是否放弃多语言 | ✅ 已裁决不做 |
+| — | 文件页内联片段预览（`FilesPreviewPlayer`） | 309 | 会引入第二套播放栈 | ⚠️ **有意不补**，见 §5 |
 
 ---
 
@@ -642,21 +682,17 @@ G-41（`auto` 静默丢弃显式选择 🔴）/ G-42（时钟无按通道刷新�
   移植。Vue 侧 `LanguageControl` 与全部 i18n 字典随 `frontend/` 一并删除，
   **不产生功能缺口**——删掉的是切换器，不是被切换的内容。
 
+- **文件页形态：保留范围浏览 + 加密度条与热力图**，不照搬 Vue 的月历。
+  原来的疑问是「Vue 月历显示的占用空间是编造的（`dur * 450_000`），所以画不出
+  体积」——这个约束已经解除：新增的 `GET /cameras/{id}/recordings/daily`
+  聚合的是真实的 `size_bytes`（G-45 已修，见 §5）。密度条与热力图因此能显示
+  真实体积，而 Vue 那个月历显示的从来就不是真值。
+  信息架构仍以「选一段时间范围」为入口，日期密度条是范围之上的一个导航维度。
+
+- **文件页内联片段预览：有意不补。** 见 §5。React 的替代是「跳到回放页」，
+  代价是失去「在文件页原地看这一段」这个操作。
+
 ### 待定
-
-- **文件页形态**：日历 + 热力图是否保留。**这条在补齐 10 之后比之前更需要
-  重新判断**，因为它是 13 项补齐里最后一块真实功能（983 行 / 3 个 spec），
-  且两套形态的信息架构本来就不同：
-
-  | | Vue | React 现状（PR-5e） |
-  |---|---|---|
-  | 入口 | 选一个**日期** | 选一段**时间范围** |
-  | 上下文 | 月历 + 24 小时热力图 | 段列表 + 筛选 + 导出 |
-  | 数据 | 每次一次 `granularity=day` 拉整月 + 一次拉当天 | 一次范围查询 |
-
-  另有一个新事实影响这个决定：Vue 月历显示的「占用空间」是**编造的**
-  （`dur * 450_000`，见 G-45），真实体积在时间线端点里根本没有。所以补月历
-  只能着色「段数 / 时长 / 是否有云端片段」三个真实维度，画不出体积。
 
 - **D-2**：录制事件过滤 `event_filter` 与告警匹配 `match` 两套真相源。
   结构性障碍：录制策略按 `camera_id` 唯一（1:1），告警策略全局无 `camera_id`

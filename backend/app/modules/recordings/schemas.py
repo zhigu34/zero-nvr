@@ -236,6 +236,34 @@ class RecordingSegmentPage(BaseModel):
     next_cursor: str | None = None
 
 
+class RecordingDayStatView(BaseModel):
+    """
+    One calendar day of recorded material, in the requested timezone.
+
+    `day` is a **local** date: with `time_zone=Asia/Shanghai` the bucket
+    labelled `2026-10-02` covers that local midnight to the next local
+    midnight, which is 16:00Z the previous day. Bucketing in UTC would put the
+    same footage under two different days for most of the world, and the hour
+    axis of a day heatmap would be shifted by the offset.
+
+    A segment belongs to the day it **started** on. A segment straddling local
+    midnight is counted entirely on the earlier day rather than split, because
+    splitting one file across two days is a worse lie than a small boundary
+    error.
+
+    Only columns that live on `recording_segments` are aggregated. There is
+    deliberately no cloud/remote count here: availability is decided by
+    `PlaybackTimelineService._availability` across segment integrity, location
+    state and storage target type, and a second SQL approximation of that rule
+    would be a second source of truth that could disagree with playback.
+    """
+
+    day: str
+    count: int
+    duration_sec: int
+    size_bytes: int
+
+
 
 class PlaybackResolveRequest(BaseModel):
     at: datetime

@@ -65,10 +65,15 @@ from .schemas import (
     RecordingProtectionView,
     RecordingPolicyView,
     RecordingRuntimeView,
+    RecordingDayStatView,
     RecordingSegmentPage,
     RecordingSegmentView,
     RecordingTriggerCreate,
     RecordingTriggerView,
+)
+from .daily_query import (
+    RecordingDailyQueryService,
+    resolve_timezone,
 )
 from .timeline import PlaybackTimelineService
 from .triggers import RecordingTriggerService
@@ -80,6 +85,10 @@ router = APIRouter()
 # The strict UTC normaliser is shared with the other routers. The local name is
 # kept so the call sites read unchanged; the body lives in app.core.time.
 _normalized_utc = require_utc
+
+# One bounded aggregate query runs per local day, so the range is capped rather
+# than left to a client that asks for a decade.
+_DAILY_RANGE_MAX_DAYS = 366
 
 
 def _policy_view(
@@ -1118,6 +1127,66 @@ def stop_recording_trigger(
         settings=request.app.state.settings,
     )
 
+
+
+@router.get(
+    "/cameras/{camera_id}/recordings/daily",
+    response_model=list[RecordingDayStatView],
+)
+def list_camera_recordings_daily(
+    camera_id: uuid.UUID,
+    from_at: datetime = Query(alias="from"),
+    to_at: datetime = Query(alias="to"),
+    time_zone: str = Query(default="UTC"),
+    _context: AuthContext = Depends(
+        require_camera_permission("recording.view")
+    ),
+    session: Session = Depends(get_db_session),
+) -> list[RecordingDayStatView]:
+    """
+    Per-day recorded-material totals, bucketed by **local** calendar day.
+
+    The range is capped at 366 days: the implementation runs one bounded
+    aggregate query per local day, and an uncapped range would turn a single
+    request into thousands of them.
+    """
+    start_at = _normalized_utc(from_at, field_name="from")
+    end_at = _normalized_utc(to_at, field_name="to")
+    if end_at <= start_at:
+        raise ApiError(
+            status_code=422,
+            code="invalid_time_range",
+            message="Daily range end must be after range start.",
+        )
+    if (end_at - start_at) > timedelta(days=_DAILY_RANGE_MAX_DAYS):
+        raise ApiError(
+            status_code=422,
+            code="recording_daily_range_too_large",
+            message=(
+                "Daily recording range exceeds "
+                f"{_DAILY_RANGE_MAX_DAYS} days."
+            ),
+            details={"max_days": _DAILY_RANGE_MAX_DAYS},
+        )
+
+    CameraService.get_camera(session, camera_id)
+    zone = resolve_timezone(time_zone)
+    stats = RecordingDailyQueryService.list_camera_days(
+        session,
+        camera_id=camera_id,
+        start_at=start_at,
+        end_at=end_at,
+        zone=zone,
+    )
+    return [
+        RecordingDayStatView(
+            day=item.day,
+            count=item.count,
+            duration_sec=item.duration_sec,
+            size_bytes=item.size_bytes,
+        )
+        for item in stats
+    ]
 
 
 @router.get(

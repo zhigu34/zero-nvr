@@ -2,7 +2,14 @@ import { useMemo, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { Download, Film, FolderTree, Info, RefreshCw, Search } from "lucide-react"
 
-import { useCameraRecordings, useCameraProtections, useCameras, useExports, useSystemSettings } from "../lib/queries"
+import {
+  useCameraRecordings,
+  useCameraProtections,
+  useCameras,
+  useExports,
+  useRecordingDaily,
+  useSystemSettings,
+} from "../lib/queries"
 import { useCancelExport, useCreateExport } from "../lib/exportMutations"
 import { formatSpan } from "../lib/format"
 import {
@@ -17,7 +24,7 @@ import {
   utcIsoToLocalInput,
   validateExportForm,
 } from "../lib/exportValidation"
-import type { RecordingSegmentView } from "../api/playback"
+import type { RecordingDayStat, RecordingSegmentView } from "../api/playback"
 import { Badge, Button, Input, Select } from "../components/ui/primitives"
 import {
   Callout,
@@ -28,6 +35,12 @@ import {
   Tabs,
 } from "../components/ui/display"
 import { SegmentTable } from "../components/files/SegmentTable"
+import {
+  DayDensityStrip,
+  DayHeatmap,
+  bucketByLocalHour,
+  type DayCell,
+} from "../components/files/RecordingDensity"
 import { ExportJobList, ExportJobListSkeleton } from "../components/files/ExportJobList"
 
 /**
@@ -70,6 +83,58 @@ function defaultRange(timeZone: string) {
   return { start: `${day}T00:00`, end: nowLocal || `${day}T23:59` }
 }
 
+/** The `datetime-local` value floored to the start of its own local day. */
+function localDayStart(local: string): string {
+  return `${(local || "").slice(0, 10)}T00:00`
+}
+
+/**
+ * The `datetime-local` value ceiled to the end of its own local day.
+ *
+ * Ceiled rather than used as typed: the density strip answers "how much is on
+ * this day", and asking for a day up to 09:00 would report that day as
+ * mostly empty when the operator simply had not scrolled the range out.
+ */
+function localDayEnd(local: string): string {
+  return `${(local || "").slice(0, 10)}T23:59`
+}
+
+/**
+ * Every local day the range touches, paired with its aggregate if there is one.
+ *
+ * The range is walked day by day **in local terms**, so the strip's labels are
+ * the same day labels the operator sees on the range inputs above it. Days
+ * without material are still emitted with `stat: null` — a gap in the calendar
+ * is information.
+ *
+ * The walk is bounded at 62 days. A wider range is a typing accident, and
+ * rendering 400 cells to answer "which day do I want" is not a useful answer.
+ */
+const MAX_DENSITY_DAYS = 62
+
+function buildDayCells(
+  from: string,
+  to: string,
+  stats: readonly RecordingDayStat[],
+): DayCell[] {
+  const byDay = new Map(stats.map((stat) => [stat.day, stat]))
+  const fromDay = (from || "").slice(0, 10)
+  const toDay = (to || "").slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(fromDay) || !/^\d{4}-\d{2}-\d{2}$/.test(toDay)) {
+    return []
+  }
+
+  const cells: DayCell[] = []
+  const cursor = new Date(`${fromDay}T00:00:00Z`)
+  const end = new Date(`${toDay}T00:00:00Z`)
+  while (cursor <= end && cells.length < MAX_DENSITY_DAYS) {
+    const day = cursor.toISOString().slice(0, 10)
+    cells.push({ day, stat: byDay.get(day) ?? null, inRange: true })
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return cells
+}
+
 export function FilesView() {
   const navigate = useNavigate()
   const settings = useSystemSettings()
@@ -87,6 +152,10 @@ export function FilesView() {
   const [codecMode, setCodecMode] = useState<"auto" | "copy" | "h264">("auto")
   const [gapPolicy, setGapPolicy] = useState<"skip" | "fail">("skip")
   const [stateFilter, setStateFilter] = useState("")
+  // The day the density strip has focused. Null = "no specific day", which is
+  // the default: the page is range-first, and picking a day is a shortcut into
+  // the range rather than a mode the page is trapped in.
+  const [focusDay, setFocusDay] = useState<string | null>(null)
 
   const activeCamera = cameraId ?? cameras.data?.[0]?.id ?? null
 
@@ -112,6 +181,19 @@ export function FilesView() {
   const createExport = useCreateExport()
   const cancelExport = useCancelExport()
 
+  /**
+   * The density strip covers the selected range's own extent in local days —
+   * the same days the browse list is already scoped to, so the two can never
+   * disagree about what is being shown.
+   */
+  const dailyRange = useMemo(() => {
+    const from = localInputToUtcIso(localDayStart(range.start), timeZone)
+    const to = localInputToUtcIso(localDayEnd(range.end), timeZone)
+    return from && to ? { from, to, timeZone } : null
+  }, [range.start, range.end, timeZone])
+
+  const daily = useRecordingDaily(activeCamera, dailyRange ?? { from: "", to: "", timeZone })
+
   const validation = validateExportForm({
     start: range.start,
     end: range.end,
@@ -130,6 +212,26 @@ export function FilesView() {
   const [lastStranded, setLastStranded] = useState<string | null>(null)
 
   const rows = segments.data?.pages.flatMap((page) => page.items) ?? []
+
+  /** Every local day the selected range touches, whether or not it has material. */
+  const densityDays = useMemo(
+    () => buildDayCells(range.start, range.end, daily.data ?? []),
+    [range.start, range.end, daily.data],
+  )
+
+  /**
+   * The heatmap buckets the segments the browse list already holds, not a
+   * second request: those rows carry exact bounds, and the first page alone is
+   * an honest sample of *what was loaded* rather than a claim about the day.
+   * When more pages exist the panel says so instead of implying it is whole.
+   */
+  const focusBuckets = useMemo(
+    () =>
+      focusDay
+        ? bucketByLocalHour(rows, timeZone, focusDay)
+        : [],
+    [rows, timeZone, focusDay],
+  )
 
   function submit() {
     if (!activeCamera || !validation.ok) return
@@ -279,6 +381,16 @@ export function FilesView() {
       <div className="flex min-h-0 flex-1 flex-col">
         {tab === "browse" ? (
           <>
+            <div className="shrink-0 space-y-3 border-b border-border px-4 py-3">
+              <DayDensityStrip
+                days={densityDays}
+                selectedDay={focusDay}
+                onSelect={setFocusDay}
+                isPending={daily.isPending}
+                error={daily.error}
+              />
+              {focusDay && <DayHeatmap buckets={focusBuckets} timeZone={timeZone} />}
+            </div>
             <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/40 px-4 py-1.5">
               <Search className="size-3.5 text-muted-foreground" />
               <span className="text-xs text-muted-foreground">

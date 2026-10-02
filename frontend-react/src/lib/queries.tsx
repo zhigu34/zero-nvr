@@ -258,6 +258,35 @@ export const FILES = {
   protections: (cameraId: string) => ["files", "protections", cameraId] as const,
   exports: (state: string) => ["files", "exports", state] as const,
   shares: (exportId: string) => ["files", "shares", exportId] as const,
+  daily: (cameraId: string, from: string, to: string, timeZone: string) =>
+    ["files", "daily", cameraId, from, to, timeZone] as const,
+}
+
+/**
+ * Per-day recording totals for a density strip.
+ *
+ * One aggregate query per local day server-side, so a month is one request
+ * rather than the ~86,000 rows a month-long timeline would return. The
+ * timezone is part of the key: the same UTC window bucketed in two zones
+ * produces two different sets of day labels, and a cached strip from the
+ * wrong zone would label footage under the wrong days.
+ */
+export function useRecordingDaily(
+  cameraId: string | null,
+  range: { from: string; to: string; timeZone: string },
+) {
+  return useQuery({
+    queryKey: FILES.daily(
+      cameraId ?? "",
+      range.from,
+      range.to,
+      range.timeZone,
+    ),
+    queryFn: ({ signal }) =>
+      playbackApi.listCameraRecordingsDaily(cameraId!, range, signal),
+    enabled: Boolean(cameraId) && Boolean(range.from) && Boolean(range.to),
+    staleTime: 60_000,
+  })
 }
 
 /**
