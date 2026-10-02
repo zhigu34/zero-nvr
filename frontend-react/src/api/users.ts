@@ -126,6 +126,66 @@ export function listPermissions(signal?: AbortSignal) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Custom roles                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Roles are not a three-item enum, and the built-in three are not editable.
+ *
+ * The backend re-syncs Administrator / Operator / Viewer to their exact
+ * permission sets on every start and force-marks them `built_in`
+ * (`auth/service.py:71-97`), then refuses `PATCH /roles/{id}` on any `built_in`
+ * role with 409 `builtin_role_immutable` (`auth/admin_service.py:293-298`).
+ * Even an Administrator cannot widen or narrow them.
+ *
+ * So the only thing this screen can change is a **custom** role
+ * (`built_in: false`), and the three built-ins are listed as a fixed reference
+ * rather than as three rows of editable checkboxes. Offering disabled
+ * checkboxes for them would invite an operator to try.
+ */
+
+export type RoleCreate = {
+  /** 1–64. Conflicting names return 409 `role_name_conflict`. */
+  name: string
+  description?: string | null
+  permissions?: string[]
+}
+
+export type RoleUpdate = {
+  name?: string
+  description?: string | null
+  /**
+   * **Replace**, not merge — the whole set is written
+   * (`auth/admin_service.py:306-314`). Omitting the key leaves the set alone;
+   * sending `[]` strips every permission.
+   */
+  permissions?: string[]
+}
+
+export function createRole(body: RoleCreate) {
+  return api.post<RoleView>("/roles", body)
+}
+
+export function updateRole(roleId: string, body: RoleUpdate) {
+  return api.patch<RoleView>(`/roles/${roleId}`, body)
+}
+
+/**
+ * There is no `DELETE /roles/{id}`. A custom role can be emptied of
+ * permissions and left unassigned, but it stays in the list forever.
+ *
+ * (G-44: the endpoint should exist, and refuse while users still hold the role.)
+ */
+
+export function getRoleCameraScope(roleId: string, signal?: AbortSignal) {
+  return api.get<CameraScopeView>(`/roles/${roleId}/camera-scope`, signal)
+}
+
+export function setRoleCameraScope(roleId: string, body: CameraScopeUpdate) {
+  return api.put<CameraScopeView>(`/roles/${roleId}/camera-scope`, body)
+}
+
+/* -------------------------------------------------------------------------- */
 /* Presentation                                                               */
 /* -------------------------------------------------------------------------- */
 
@@ -198,6 +258,107 @@ export function validateUser(
 
 export function hasErrors(errors: UserFieldErrors): boolean {
   return Object.keys(errors).length > 0
+}
+
+/* -------------------------------------------------------------------------- */
+/* Permissions                                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The 19 permissions, grouped by their domain prefix for display.
+ *
+ * Grouping is presentation only. There is deliberately **no** "select the whole
+ * domain" affordance: the permissions inside a domain are not a set that is
+ * meaningful all-or-nothing (`recording.export` and `recording.delete` are not
+ * switches that travel together), so a group-level toggle would only ever
+ * manufacture partial states and a second way to be wrong.
+ */
+export const PERMISSION_LABEL: Record<string, string> = {
+  "camera.view": "查看机位",
+  "camera.control": "控制机位（PTZ、快照）",
+  "camera.configure": "配置机位",
+  "recording.view": "查看录像",
+  "recording.export": "导出录像",
+  "recording.protect": "保护录像",
+  "recording.delete": "删除录像",
+  "event.view": "查看事件",
+  "alert.view": "查看告警",
+  "alert.acknowledge": "确认告警",
+  "alert.manage": "管理告警规则",
+  "notification.view": "查看通知",
+  "notification.manage": "管理通知渠道",
+  "storage.manage": "管理存储",
+  "system.view": "查看系统状态",
+  "system.manage": "管理系统设置",
+  "user.manage": "管理用户与角色",
+  "integration.manage": "管理外部集成",
+  "audit.view": "查看审计日志",
+}
+
+const PERMISSION_DOMAIN_LABEL: Record<string, string> = {
+  camera: "摄像机",
+  recording: "录像",
+  event: "事件",
+  alert: "告警",
+  notification: "通知",
+  storage: "存储",
+  system: "系统",
+  user: "用户",
+  integration: "集成",
+  audit: "审计",
+}
+
+export type PermissionGroup = {
+  domain: string
+  label: string
+  items: { permission: string; label: string }[]
+}
+
+/**
+ * Group the catalogue by domain. The catalogue comes from the server, so an
+ * unknown permission renders with its raw code rather than disappearing — a new
+ * backend permission is information, and a checkbox that is missing is not.
+ */
+export function groupPermissions(catalogue: readonly string[]): PermissionGroup[] {
+  const byDomain = new Map<string, string[]>()
+  for (const permission of catalogue) {
+    const domain = permission.split(".", 1)[0] || "other"
+    const bucket = byDomain.get(domain)
+    if (bucket) bucket.push(permission)
+    else byDomain.set(domain, [permission])
+  }
+  return Array.from(byDomain.entries())
+    .map(([domain, items]) => ({
+      domain,
+      label: PERMISSION_DOMAIN_LABEL[domain] ?? domain,
+      items: items
+        .slice()
+        .sort()
+        .map((permission) => ({
+          permission,
+          label: PERMISSION_LABEL[permission] ?? permission,
+        })),
+    }))
+    .sort((a, b) => a.domain.localeCompare(b.domain))
+}
+
+export type RoleFieldErrors = Partial<Record<"name", string>>
+
+/**
+ * Client-side pre-check, reproduced from the schema
+ * (`auth/schemas.py:80-89`) rather than guessed.
+ *
+ * There is deliberately no "permissions required" rule. An **empty permission
+ * set is legal** — it is how an operator stages a role before assigning it — so
+ * it is not blocked here, and the UI says what such a role does rather than
+ * pretending the form is incomplete.
+ */
+export function validateRole(values: { name?: string }): RoleFieldErrors {
+  const errors: RoleFieldErrors = {}
+  const name = values.name?.trim() ?? ""
+  if (!name) errors.name = "请填写角色名"
+  else if (name.length > 64) errors.name = "角色名最长 64 字符"
+  return errors
 }
 
 /* -------------------------------------------------------------------------- */

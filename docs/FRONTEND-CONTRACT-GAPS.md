@@ -888,6 +888,31 @@ profile 并在偏差时记录审计。纯前端无法区分「服务端正在自
 **建议修法**：接入 ZLM 观测钩子后，为这三层补 healthy 分支（后端注释里已经
 预留了这个方向）。在那之前，UI 侧不要改。
 
+## G-44 角色只能创建、不能删除 🟡
+
+**事实**：`auth/admin_api.py` 有 `GET/POST /roles`、`GET/PATCH /roles/{id}`、
+`GET/PUT /roles/{id}/camera-scope`，**没有 `DELETE /roles/{id}`**。
+
+**影响**：自定义角色一旦创建就永久留在角色列表里。建错了名字只能改名，
+建错了权限只能清空，但**不能删除**——它会一直出现在新建用户的角色下拉里，
+一个什么都不授予的空角色混在里面，操作员很可能误选。
+
+**当前处理**：创建成功的提示里明写「角色本身无法删除，只能清空权限后不再
+分配」；角色列表里不提供任何看起来像删除的控件。
+
+**附带确认（不是缺口，是事实，写下来免得再查一遍）**：三个内置角色
+Administrator / Operator / Viewer 在每次启动时按 `BUILTIN_ROLE_PERMISSIONS`
+重新同步权限集并强制 `built_in=True`（`auth/service.py:71-97`），且
+`update_role` 对 `built_in` 角色直接 409 `builtin_role_immutable`
+（`auth/admin_service.py:293-298`）。**管理员自己也改不了它们**，所以前端
+不提供这三个角色的编辑入口，只作为固定参照列出。
+
+**建议修法**：`DELETE /roles/{id}`，在仍有用户持有该角色时返回 409
+`role_in_use` 并带上持有者列表。`Role` 上已有 `ondelete` 语义可循
+（`auth/models.py:46-60` 的关联关系决定了必须先解绑）。
+
+---
+
 ## 与 ADR-0014 的关系
 
 ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-16 / G-19 需要改后端，因此**不能在 PR-3 到 PR-6 之间顺手改**——那会让「契约冻结」失效。

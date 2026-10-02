@@ -353,6 +353,8 @@ export const ADMIN = {
   roles: ["admin", "roles"] as const,
   cameraGroups: ["admin", "camera-groups"] as const,
   userScope: (userId: string) => ["admin", "user-scope", userId] as const,
+  roleScope: (roleId: string) => ["admin", "role-scope", roleId] as const,
+  permissions: ["admin", "permissions"] as const,
   audit: (filters: Record<string, string | undefined>) =>
     ["admin", "audit", filters] as const,
 }
@@ -384,6 +386,36 @@ export function useRoles() {
     queryKey: ADMIN.roles,
     queryFn: ({ signal }) => usersApi.listRoles(signal),
     staleTime: 300_000,
+  })
+}
+
+/**
+ * The permission catalogue. Long stale time: it is a compile-time constant on
+ * the server (`auth/permissions.py:3-25`), so it only changes on a deployment.
+ */
+export function usePermissions() {
+  return useQuery({
+    queryKey: ADMIN.permissions,
+    queryFn: ({ signal }) => usersApi.listPermissions(signal),
+    staleTime: 600_000,
+  })
+}
+
+/**
+ * A role's camera scope — the **second dimension** of a role, separate from its
+ * permission set. It has its own endpoint, its own cache key and its own save,
+ * because the two change on completely different schedules: permissions maybe
+ * yearly, camera scope weekly. Merging them into one "Save" button would let one
+ * half succeed while the other silently did not.
+ *
+ * Only fetched for the role whose scope sheet is open.
+ */
+export function useRoleCameraScope(roleId: string | null) {
+  return useQuery({
+    queryKey: ADMIN.roleScope(roleId ?? ""),
+    queryFn: ({ signal }) => usersApi.getRoleCameraScope(roleId!, signal),
+    enabled: Boolean(roleId),
+    staleTime: 60_000,
   })
 }
 

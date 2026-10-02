@@ -141,6 +141,28 @@ export function Input({
   )
 }
 
+/* -------------------------------------------------------------- Textarea */
+
+/**
+ * Same border, focus ring and tokens as `Input` — deliberately the same class
+ * string minus the fixed height, so a form that mixes the two does not show two
+ * different borders.
+ */
+export function Textarea({
+  className,
+  ...props
+}: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      className={cn(
+        "w-full rounded-lg border border-input bg-background px-2.5 py-1.5 text-sm shadow-xs transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
 /* ------------------------------------------------------- Select (native) */
 
 export function Select({

@@ -1,10 +1,15 @@
 import {
+  createRole,
   createUser,
   issueUserPasswordReset,
+  setRoleCameraScope,
   setUserCameraScope,
   setUserEnabled,
+  updateRole,
   updateUser,
   type CameraScopeUpdate,
+  type RoleCreate,
+  type RoleUpdate,
   type UserCreate,
   type UserUpdate,
 } from "../api/users"
@@ -109,6 +114,72 @@ export function useSetUserCameraScope(userId: string) {
     success: () => ({ title: "机位范围已保存" }),
     failure: (error) => ({
       title: "保存机位范围失败",
+      detail: error instanceof Error ? error.message : String(error),
+    }),
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Custom roles                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Roles invalidate the **user** list, not just the role list.
+ *
+ * A user's effective permissions are the union of their roles', so a role edit
+ * changes what every holder of that role may do — while the user rows
+ * themselves look untouched. Invalidating only `ADMIN.roles` would leave the
+ * user table showing a role whose permission set no longer exists.
+ */
+export function useCreateRole() {
+  return useSave<RoleCreate, unknown>({
+    mutationFn: (body) => createRole(body),
+    invalidates: [ADMIN.roles, ADMIN.users],
+    success: () => ({
+      title: "角色已创建",
+      detail: "可以分配给用户了。角色本身无法删除，只能清空权限后不再分配。",
+    }),
+    failure: (error) => ({
+      title: "创建角色失败",
+      detail: error instanceof Error ? error.message : String(error),
+    }),
+  })
+}
+
+export function useUpdateRole(roleId: string) {
+  return useSave<RoleUpdate, unknown>({
+    mutationFn: (body) => updateRole(roleId, body),
+    invalidates: [ADMIN.roles, ADMIN.users, ADMIN.roleScope(roleId)],
+    success: () => ({ title: "角色已更新" }),
+    failure: (error) => ({
+      // 409 `builtin_role_immutable` is the server refusing an edit to one of
+      // the three seeded roles. It should be unreachable from this screen — the
+      // editor is never opened for them — so if it surfaces, say what happened
+      // rather than showing an English code.
+      title:
+        error instanceof Error && error.message.includes("built-in")
+          ? "内置角色不可修改"
+          : "更新角色失败",
+      detail:
+        error instanceof Error
+          ? error.message
+          : "内置角色由系统固定，无法编辑。",
+    }),
+  })
+}
+
+/**
+ * A role's camera scope is a separate save from its permissions, for the same
+ * reason the user's is (`useSetUserCameraScope`): the two resources can succeed
+ * independently and one button for both hides which half landed.
+ */
+export function useSetRoleCameraScope(roleId: string) {
+  return useSave<CameraScopeUpdate, unknown>({
+    mutationFn: (body) => setRoleCameraScope(roleId, body),
+    invalidates: [ADMIN.roleScope(roleId)],
+    success: () => ({ title: "角色机位范围已保存" }),
+    failure: (error) => ({
+      title: "保存角色机位范围失败",
       detail: error instanceof Error ? error.message : String(error),
     }),
   })

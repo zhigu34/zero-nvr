@@ -7,23 +7,29 @@ import {
   hasErrors,
   validateUser,
   type CameraScopeMode,
+  type RoleView,
   type UserAdminView,
   type UserPasswordResetIssue,
 } from "../api/users"
 import {
   useCameraGroups,
+  usePermissions,
   useRoles,
   useUserCameraScope,
   useUsers,
   useCameras,
 } from "../lib/queries"
 import {
+  useCreateRole,
   useCreateUser,
   useIssueUserPasswordReset,
   useSetUserCameraScope,
   useSetUserEnabled,
+  useUpdateRole,
   useUpdateUser,
 } from "../lib/userMutations"
+import { CameraScopeEditor } from "../components/system/CameraScopeEditor"
+import { RoleEditor, RoleScopeSection } from "../components/system/RoleEditor"
 import { useAuthStore } from "../stores/auth"
 import { formatClock } from "../lib/format"
 import { Badge, Button, Input, Select } from "../components/ui/primitives"
@@ -64,6 +70,12 @@ import {
 
 type Panel = "none" | "create" | UserAdminView
 
+type RolePanelState =
+  | { mode: "none" }
+  | { mode: "create" }
+  | { mode: "edit"; role: RoleView }
+  | { mode: "scope"; role: RoleView }
+
 export function UsersView() {
   const users = useUsers()
   const roles = useRoles()
@@ -71,6 +83,10 @@ export function UsersView() {
   const setEnabled = useSetUserEnabled()
   const issueReset = useIssueUserPasswordReset()
   const [panel, setPanel] = useState<Panel>("none")
+  const [rolePanel, setRolePanel] = useState<RolePanelState>({ mode: "none" })
+  const permissions = usePermissions()
+  const createRole = useCreateRole()
+  const updateRole = useUpdateRole(rolePanel.mode === "edit" ? rolePanel.role.id : "")
   const [issued, setIssued] = useState<Record<string, UserPasswordResetIssue>>({})
   const me = useAuthStore((s) => s.user)
 
@@ -210,28 +226,71 @@ export function UsersView() {
             </PrototypeNote>
             {roles.data && roles.data.length > 0 && (
               <div className="rounded-lg border border-border p-3">
-                <p className="flex items-center gap-1.5 text-xs font-medium">
-                  <Lock className="size-3.5 text-muted-foreground" />
-                  系统角色
-                </p>
-                <ul className="mt-2 space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-xs font-medium">
+                    <Lock className="size-3.5 text-muted-foreground" />
+                    角色
+                  </p>
+                  <Button
+                    size="sm"
+                    onClick={() => setRolePanel({ mode: "create" })}
+                  >
+                    <Plus /> 新建角色
+                  </Button>
+                </div>
+
+                <ul className="mt-2 space-y-1.5">
                   {roles.data.map((role) => (
-                    <li key={role.id} className="text-[11px]">
+                    <li
+                      key={role.id}
+                      className="flex items-center gap-2 text-[11px]"
+                    >
                       <span className="font-medium">{role.name}</span>
                       {role.built_in && (
-                        <span className="ml-1.5 text-muted-foreground">内置</span>
+                        <span className="text-muted-foreground">内置 · 不可改</span>
                       )}
                       {role.description && (
-                        <span className="ml-1.5 text-muted-foreground">
+                        <span className="min-w-0 flex-1 truncate text-muted-foreground">
                           {role.description}
                         </span>
                       )}
-                      <span className="ml-1.5 tabular-nums text-muted-foreground">
+                      <span className="tabular-nums text-muted-foreground">
                         {role.permissions.length} 项权限
                       </span>
+                      {/* Only custom roles are offered an editor: the built-in
+                          three return 409 `builtin_role_immutable` for any
+                          change, so a button here would be a dead control. */}
+                      {!role.built_in && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="编辑权限"
+                            onClick={() => setRolePanel({ mode: "edit", role })}
+                          >
+                            <Shield className="size-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            title="可见机位范围"
+                            onClick={() => setRolePanel({ mode: "scope", role })}
+                          >
+                            <Lock className="size-3.5" />
+                          </Button>
+                        </>
+                      )}
                     </li>
                   ))}
                 </ul>
+
+                <PrototypeNote>
+                  Administrator / Operator / Viewer 的权限由后端在每次启动时按
+                  <code>BUILTIN_ROLE_PERMISSIONS</code> 重新同步，并对任何修改返回
+                  409 <code>builtin_role_immutable</code>——包括管理员自己。所以
+                  这里只读。能改的只有自定义角色。自定义角色也**无法删除**（没有
+                  <code> DELETE /roles</code> 端点），建错了只能清空权限后不再分配。
+                </PrototypeNote>
               </div>
             )}
           </div>
@@ -253,6 +312,50 @@ export function UsersView() {
             roleIds={(roles.data ?? []).map((r) => r.id)}
             onClose={() => setPanel("none")}
           />
+        )}
+
+        {rolePanel.mode === "create" && (
+          <RoleEditor
+            role={null}
+            catalogue={permissions.data ?? []}
+            busy={createRole.isPending}
+            onClose={() => setRolePanel({ mode: "none" })}
+            onSubmit={(body) =>
+              createRole.mutate(body, {
+                onSuccess: () => setRolePanel({ mode: "none" }),
+              })
+            }
+          />
+        )}
+        {rolePanel.mode === "edit" && (
+          <RoleEditor
+            role={rolePanel.role}
+            catalogue={permissions.data ?? []}
+            busy={updateRole.isPending}
+            onClose={() => setRolePanel({ mode: "none" })}
+            onSubmit={(body) =>
+              updateRole.mutate(body, {
+                onSuccess: () => setRolePanel({ mode: "none" }),
+              })
+            }
+          />
+        )}
+        {rolePanel.mode === "scope" && (
+          <aside className="w-[26rem] shrink-0 overflow-y-auto border-l border-border bg-card p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="truncate text-sm font-medium">
+                机位范围 · {rolePanel.role.name}
+              </h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setRolePanel({ mode: "none" })}
+              >
+                关闭
+              </Button>
+            </div>
+            <RoleScopeSection role={rolePanel.role} />
+          </aside>
         )}
       </div>
     </div>
@@ -532,153 +635,26 @@ function ScopeSection({ user }: { user: UserAdminView }) {
   const save = useSetUserCameraScope(user.id)
   const cameras = useCameras()
   const groups = useCameraGroups()
-  const [mode, setMode] = useState<CameraScopeMode>("inherit")
-  const [picked, setPicked] = useState<string[]>([])
-  const [pickedGroups, setPickedGroups] = useState<string[]>([])
-  const [loaded, setLoaded] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!scope.data || loaded === user.id) return
-    setMode(scope.data.mode)
-    setPicked(scope.data.camera_ids)
-    setPickedGroups(scope.data.camera_group_ids)
-    setLoaded(user.id)
-  }, [scope.data, loaded, user.id])
-
-  const baseline = useMemo(
-    () =>
-      JSON.stringify([
-        scope.data?.mode,
-        scope.data?.camera_ids,
-        scope.data?.camera_group_ids,
-      ]),
-    [scope.data],
-  )
-  const dirty =
-    loaded === user.id &&
-    JSON.stringify([mode, picked, pickedGroups]) !== baseline
-
-  const isSelected = mode === "selected"
 
   return (
     <section className="border-t border-border p-4">
-      <div className="flex items-center justify-between">
-        <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-          <Lock className="size-3.5 text-muted-foreground" />
-          可见机位范围
-        </h3>
-        {dirty && (
-          <span className="text-[11px] text-status-degraded">范围未保存</span>
-        )}
-      </div>
-
-      {scope.isPending ? (
-        <p className="mt-2 text-xs text-muted-foreground">读取中…</p>
-      ) : scope.error ? (
-        <p className="mt-2 text-xs text-status-offline">{scope.error.message}</p>
-      ) : (
-        <>
-          <Segmented
-            className="mt-2"
-            value={mode}
-            onChange={(v) => setMode(v as CameraScopeMode)}
-            options={(["inherit", "all", "selected", "none"] as const).map(
-              (m) => ({ value: m, label: CAMERA_SCOPE_LABEL[m] }),
-            )}
-          />
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            {CAMERA_SCOPE_HINT[mode]}
-          </p>
-
-          {isSelected && (
-            <div className="mt-2 space-y-2">
-              {(groups.data ?? []).length > 0 && (
-                <div className="rounded-md border border-border p-2">
-                  <p className="mb-1 text-[11px] text-muted-foreground">
-                    机位组（与下面的机位合并生效）
-                  </p>
-                  <div className="max-h-32 space-y-1 overflow-y-auto">
-                    {(groups.data ?? []).map((group) => (
-                      <label
-                        key={group.id}
-                        className="flex items-center gap-2 text-xs"
-                      >
-                        <Checkbox
-                          aria-label={`机位组 ${group.name}`}
-                          checked={pickedGroups.includes(group.id)}
-                          onChange={(e) =>
-                            setPickedGroups((prev) =>
-                              e.target.checked
-                                ? [...prev, group.id]
-                                : prev.filter((x) => x !== group.id),
-                            )
-                          }
-                        />
-                        <span className="min-w-0 flex-1 truncate">
-                          {group.name}
-                        </span>
-                        <span className="tabular-nums text-[10px] text-muted-foreground">
-                          {group.camera_ids.length} 台
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border border-border p-2">
-                <p className="text-[11px] text-muted-foreground">单个机位</p>
-                {(cameras.data ?? []).map((camera) => (
-                  <label
-                    key={camera.id}
-                    className="flex items-center gap-2 text-xs"
-                  >
-                    <Checkbox
-                      aria-label={`机位 ${camera.name}`}
-                      checked={picked.includes(camera.id)}
-                      onChange={(e) =>
-                        setPicked((prev) =>
-                          e.target.checked
-                            ? [...prev, camera.id]
-                            : prev.filter((x) => x !== camera.id),
-                        )
-                      }
-                    />
-                    <span className="min-w-0 flex-1 truncate">{camera.name}</span>
-                  </label>
-                ))}
-                {picked.length === 0 && pickedGroups.length === 0 && (
-                  <p className="text-[11px] text-status-degraded">
-                    两者都不选 = 该用户看不到任何机位。
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-3 flex justify-end">
-            <Button
-              size="sm"
-              disabled={!dirty || save.isPending}
-              onClick={() =>
-                save.mutate(
-                  {
-                    mode,
-                    // `inherit` and `all` carry no list; sending a stale
-                    // selection alongside them would store ids the scope
-                    // never reads.
-                    camera_ids: isSelected ? picked : [],
-                    camera_group_ids: isSelected ? pickedGroups : [],
-                  },
-                  { onSuccess: () => setLoaded(null) },
-                )
-              }
-            >
-              {save.isPending ? "保存中…" : "保存范围"}
-            </Button>
-          </div>
-        </>
-      )}
+      <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+        <Lock className="size-3.5 text-muted-foreground" />
+        可见机位范围
+      </h3>
+      {/* Shared with the role scope editor: the payload, the four modes and the
+          `inherit` / `all` list-clearing rule are identical, and a fix to any of
+          them has to land on both owners. */}
+      <CameraScopeEditor
+        scope={scope.data}
+        isPending={scope.isPending}
+        error={scope.error}
+        cameras={cameras.data ?? []}
+        groups={groups.data ?? []}
+        busy={save.isPending}
+        subject="该用户"
+        onSave={(body) => save.mutate(body)}
+      />
     </section>
   )
 }

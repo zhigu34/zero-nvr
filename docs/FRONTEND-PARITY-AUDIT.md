@@ -54,7 +54,7 @@ Vue 的 `SystemTab` 定义在 `SystemView.vue:93-103`。
 | overview | SystemOverviewTab (223) | `/system/health` `/info` | SystemView 状态条 | ✅ |
 | general | SystemGeneralTab (277) | `PATCH /system/settings` | SystemView | ✅ |
 | time | SystemTimeTab (417) | 同上 + `/camera-clock-health` | SystemView | ✅ |
-| users | SystemAccessControlPanel (1305) | `/users` `/roles` `/permissions` | UsersView | 🟡 见 §3.1 |
+| users | SystemAccessControlPanel (1305) | `/users` `/roles` `/permissions` `/roles/{id}/camera-scope` | UsersView + RoleEditor + RoleScopeSection | ✅ 已补齐 |
 | alerts | SystemAlertRulesPanel (969) | `/alert-policies` | AlertsView | ✅ |
 | audit | SystemAuditTab (269) | `/audit` | AuditView | ✅ |
 | **tokens** | SystemApiTokensPanel (376) | `/api-tokens` | — | ❌ |
@@ -144,8 +144,8 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 分类 | 组件数 | Vue 行数 | 受影响的 Vue spec |
 |---|---|---|---|
 | ✅ 已被 React 取代 | 19 | 8,373 | 0（都有 React 对应测试） |
-| ✅ 本轮补齐 | 17 | 11,498 | 24 |
-| ❌ **仍然完全缺失** | **7** | **307** | **4** |
+| ✅ 本轮补齐 | 18 | 12,833 | 26 |
+| ❌ **仍然完全缺失** | **6** | **272** | **3** |
 | 🟡 部分覆盖 / 形态不同 | 5 | 2,578 | 3 |
 | ⚪ 两侧都是死代码 | 2 | — | 0 |
 
@@ -587,7 +587,53 @@ G-41（`auto` 静默丢弃显式选择 🔴）/ G-42（时钟无按通道刷新�
 （会话租约、编解码协商、兼容性回退），在摄像机页重建一份会立刻产生第二套
 真相源。直播仍然只在直播页。
 
-## 16. 待裁决
+## 16. 补齐 10/13：角色 → 权限矩阵
+
+### 先纠正一个此前的错误说法
+
+我此前把「RBAC 收敛成三角色」当成一个待裁决项。**它不是** —— 后端已经把三个
+内置角色焊死了：`auth/service.py:71-97` 每次启动按 `BUILTIN_ROLE_PERMISSIONS`
+重新同步权限集并强制 `built_in=True`，`auth/admin_service.py:293-298` 对
+`built_in` 角色一律 409 `builtin_role_immutable`，**管理员自己也改不了**。
+
+所以真正开放的只有**自定义角色**，需要定的也只是「做不做」。裁决：做。
+
+### 落点
+
+| 文件 | 行数 | 测试 | 职责 |
+|---|---|---|---|
+| `api/users.ts` | +130 | — | `RoleCreate`/`RoleUpdate`、4 个端点、19 条权限标签与分组、`validateRole` |
+| `lib/userMutations.ts` | +70 | — | `useCreateRole` / `useUpdateRole` / `useSetRoleCameraScope` |
+| `lib/queries.tsx` | +26 | — | `usePermissions` / `useRoleCameraScope` |
+| `components/system/RoleEditor.tsx` | 300 | 11 | 权限矩阵编辑器 + `RoleScopeSection` |
+| `components/system/CameraScopeEditor.tsx` | 185 | 3 | 范围编辑器（**从 `UsersView` 抽出，用户与角色共用**） |
+| `components/ui/primitives.tsx` | +17 | — | `Textarea` |
+
+### 四个决定
+
+1. **内置三角色不给编辑入口。** 三个按钮会返回 409。列为固定参照。
+2. **不提供「全选本组」。** `recording.export` 与 `recording.delete` 不是
+   一起开关的东西，整组勾选只会制造部分选中态和第二种出错方式。19 条平铺，
+   按域分组显示。
+3. **权限与机位范围分两步保存。** 一个角色有两个独立资源、两个端点，变更频率
+   差一个数量级（权限一年一次，范围每周）。一个「保存」会让操作员分不清哪半
+   落库了。
+4. **空权限集合法。** 它是先建角色、后分配的标准用法，不拦；但界面要说清
+   后果，而不是把表单标成「没填完」。
+
+### 顺带的去重与诚实性
+
+- 用户侧 `ScopeSection` 与角色范围逻辑完全相同（约 120 行），抽成
+  `CameraScopeEditor`。这样 `inherit`/`all` 清空 id 列表这条规则只存在于一处，
+  不会只修好一个 owner 类型。`UsersView` 净减约 4.7 KB。
+- `PATCH /roles/{id}` 是**整体替换**（`admin_service.py:306-314`），所以矩阵
+  永远提交完整集合。已 granted 但目录里已不存在的权限会**显式提示**，而不是
+  随保存被静默丢弃。
+- 角色写入同时失效 `ADMIN.users`：用户的有效权限是所有角色的并集，改角色会
+  改变每个持有者的能力，而用户行本身看起来没变。
+- 新增缺口 **G-44**（角色不能删除 🟡）。
+
+## 17. 待裁决
 
 1. **i18n**：React 侧是否重建多语言？这决定 13 项之外是否还有第 14 项。
 2. **文件页形态**：日历 + 热力图是否保留，还是接受 PR-5e 的「浏览并导出」？
