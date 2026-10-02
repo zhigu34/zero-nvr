@@ -220,3 +220,135 @@ export function fromSchedulePayload(
     return [{ days, start: raw.start, end: raw.end }]
   })
 }
+
+/* -------------------------------------------------------------------------- */
+/* Event filter                                                               */
+/* -------------------------------------------------------------------------- */
+
+/** `recordings/policy.py:211-262` — the three keys it accepts, and their limits. */
+export const EVENT_FILTER_KEYS = [
+  "labels",
+  "zones",
+  "min_confidence",
+] as const
+export type EventFilterKey = (typeof EVENT_FILTER_KEYS)[number]
+
+/** `len(raw) > 64` is rejected (`policy.py:229`). */
+export const MAX_EVENT_FILTER_ITEMS = 64
+/** `0 < len(item.strip()) <= 128` (`policy.py:232`). */
+export const MAX_EVENT_FILTER_ITEM_LENGTH = 128
+
+export type EventFilterDraft = {
+  labels: string[]
+  zones: string[]
+  /** `undefined` means "no threshold", which is what the key's absence means. */
+  minConfidence: number | undefined
+  eventRecordingEnabled: boolean
+}
+
+export function toEventFilter(draft: EventFilterDraft): Record<string, unknown> {
+  const filter: Record<string, unknown> = {}
+  if (draft.labels.length) filter.labels = [...draft.labels].sort()
+  if (draft.zones.length) filter.zones = [...draft.zones].sort()
+  if (draft.minConfidence !== undefined) {
+    filter.min_confidence = draft.minConfidence
+  }
+  return filter
+}
+
+export function fromEventFilter(
+  value: Record<string, unknown> | null | undefined,
+): EventFilterDraft {
+  const readList = (key: "labels" | "zones"): string[] => {
+    const raw = value?.[key]
+    if (!Array.isArray(raw)) return []
+    return raw.filter((item): item is string => typeof item === "string")
+  }
+  const rawMin = value?.min_confidence
+  return {
+    labels: readList("labels"),
+    zones: readList("zones"),
+    minConfidence:
+      typeof rawMin === "number" && Number.isFinite(rawMin) ? rawMin : undefined,
+    // A filter with nothing in it is inert, so a stored filter implies the
+    // switch was on. Defaulting the other way would hide an existing filter
+    // behind an unchecked box, which is the exact failure this form exists
+    // to stop.
+    eventRecordingEnabled:
+      typeof value?.event_recording_enabled === "boolean"
+        ? value.event_recording_enabled
+        : readList("labels").length + readList("zones").length > 0 ||
+          typeof rawMin === "number",
+  }
+}
+
+/**
+ * Mirrors `RecordingPolicyService.validate_event_filter`.
+ *
+ * The backend is the authority; this exists so the form does not have to
+ * learn the rules by getting a 400 back.
+ */
+export function validateEventFilter(draft: EventFilterDraft): PolicyFieldError[] {
+  const errors: PolicyFieldError[] = []
+
+  for (const key of ["labels", "zones"] as const) {
+    const items = draft[key]
+    if (items.length > MAX_EVENT_FILTER_ITEMS) {
+      errors.push({
+        field: `event_filter.${key}`,
+        message: `最多 ${MAX_EVENT_FILTER_ITEMS} 项，当前 ${items.length} 项`,
+      })
+    }
+    const blank = items.find((item) => !item.trim())
+    if (blank !== undefined) {
+      errors.push({
+        field: `event_filter.${key}`,
+        message: "存在空项",
+      })
+    }
+    const tooLong = items.find(
+      (item) => item.trim().length > MAX_EVENT_FILTER_ITEM_LENGTH,
+    )
+    if (tooLong !== undefined) {
+      errors.push({
+        field: `event_filter.${key}`,
+        message: `单项最长 ${MAX_EVENT_FILTER_ITEM_LENGTH} 字符`,
+      })
+    }
+  }
+
+  const min = draft.minConfidence
+  if (min !== undefined && !(min >= 0 && min <= 1)) {
+    errors.push({
+      field: "event_filter.min_confidence",
+      message: "置信度阈值在 0 到 1 之间",
+    })
+  }
+
+  if (draft.eventRecordingEnabled) {
+    const empty =
+      draft.labels.length === 0 && draft.zones.length === 0 && min === undefined
+    if (empty) {
+      // Not a rejection — an empty filter legitimately means "record every
+      // event". Saying so beats letting the operator assume it is broken.
+      errors.push({
+        field: "event_filter.empty",
+        message: "未设置任何条件：事件触发录像将记录全部事件",
+      })
+    }
+  }
+
+  return errors
+}
+
+/** Comma / newline / Chinese-comma separated text into a de-duplicated list. */
+export function parseFilterList(text: string): string[] {
+  return Array.from(
+    new Set(
+      text
+        .split(/[,，、\n]/)
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0),
+    ),
+  )
+}

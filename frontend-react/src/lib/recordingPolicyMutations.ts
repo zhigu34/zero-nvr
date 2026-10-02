@@ -1,6 +1,7 @@
 import {
   putCameraRecordingPolicy,
   type RecordingPolicyPut,
+  type RecordingPolicyView,
 } from "../api/recordingPolicies"
 import { POLICIES } from "./queries"
 import { useSave } from "./save"
@@ -19,33 +20,54 @@ import { wasPersisted } from "./cameraMutations"
  * camera is offline, the request still returns 200 and the outcome is only in
  * `runtime`. That is handled where it is read, in `judgeRuntime`.
  *
- * ## `event_filter` is carried, never rebuilt
+ * ## Four fields are carried, never rebuilt
  *
- * This endpoint is a whole-resource PUT and the schema types `event_filter`
- * with `Field(default_factory=dict)` (`recordings/schemas.py:128`) — so
- * omitting the key does not mean "leave it alone", it means "write an empty
- * filter". The service then stores `{}`
- * (`recordings/policy.py:375-379`). A form that submitted only the fields it
- * renders would therefore **silently clear the operator's event filter on
- * every save**, with a 200 in response.
+ * This endpoint is a whole-resource PUT whose schema gives **every** optional
+ * field a non-nullable default (`recordings/schemas.py:123-134`), so omitting
+ * a key does not mean "leave it alone" — the server writes the default:
  *
- * The recording screen has no event-filter UI at all, so there is nothing to
- * merge: the correct semantic is to carry the loaded value through unchanged.
- * This hook takes the existing filter and puts it back if a caller omits it,
- * so the destructive path is closed at the layer every write goes through —
- * the same shape as `useUpdateAlertPolicy` for the alert `match`.
+ * | field | default | what a save would do |
+ * |---|---|---|
+ * | `event_recording_enabled` | `False` | silently switch event-triggered recording off |
+ * | `event_filter` | `{}` | silently clear the operator's event filter |
+ * | `storage_target_id` | `null` | unpin a pinned target; writes fall back to the default |
+ * | `retention_policy_id` | `null` | unbind the retention policy |
+ *
+ * A form that submitted only the fields it renders would do all four with a
+ * 200 in response. The recording screen has no UI for three of them, so there
+ * is nothing to merge: the correct semantic is to carry the loaded values
+ * through unchanged.
+ *
+ * This hook takes the loaded policy and puts every one of the four back if a
+ * caller omits it, so the destructive path is closed at the layer every write
+ * goes through — the same shape as `useUpdateAlertPolicy` for the alert
+ * `match`.
  */
 export function useSaveRecordingPolicy(
   cameraId: string,
-  existingEventFilter: Record<string, unknown> = {},
+  existing?: Partial<
+    Pick<
+      RecordingPolicyView,
+      | "event_recording_enabled"
+      | "event_filter"
+      | "storage_target_id"
+      | "retention_policy_id"
+    >
+  > | null,
 ) {
+  const carried = existing ?? {}
   return useSave<RecordingPolicyPut, unknown>({
     mutationFn: (body) =>
       putCameraRecordingPolicy(cameraId, {
         ...body,
-        // `undefined` here would still become `{}` server-side, so the
-        // fallback is unconditional rather than a spread-when-present.
-        event_filter: body.event_filter ?? existingEventFilter ?? {},
+        // `undefined` here would still become the default server-side, so
+        // each fallback is unconditional rather than a spread-when-present.
+        event_recording_enabled:
+          body.event_recording_enabled ?? carried.event_recording_enabled ?? false,
+        event_filter: body.event_filter ?? carried.event_filter ?? {},
+        storage_target_id: body.storage_target_id ?? carried.storage_target_id ?? null,
+        retention_policy_id:
+          body.retention_policy_id ?? carried.retention_policy_id ?? null,
       }),
     invalidates: [POLICIES.list, POLICIES.forCamera(cameraId)],
     success: () => ({

@@ -965,60 +965,68 @@ GET /cameras/{id}/recordings/daily?from=&to=&time_zone=
 
 ---
 
-## G-46 保存录制计划会静默清空事件过滤 ✅ 已修
+## G-46 保存录制计划会静默重置 4 个字段 ✅ 已修
 
-**这是 React 重写自己引入的回退**，与 G-45 不同——G-45 是原代码的缺陷，本条是
-重写时**没有**把 Vue 的「原样回写」带过来。
+**这不是一个 bug，是四个**，而且只有把 11 个字段全列出来比才看得见。
 
 **事实**：`PUT /cameras/{id}/recording-policy`（`recordings/api.py:490`）是整体
-替换，handler 无条件把 body 摊到模型上：
+替换，handler 把 body 的 **11 个字段**无条件摊到模型上。而
+`RecordingPolicyPut`（`schemas.py:123-134`）里**每一个可选字段都有非空默认值**：
 
-```text
-event_filter_json=body.event_filter          # api.py
-policy.event_filter_json = validate_event_filter(
-    event_filter if isinstance(event_filter, dict) else {}
-)                                              # policy.py:375-379
-```
+| 字段 | 省略时写入 | `PolicyEditor` 发送？ | 一次保存的后果 |
+|---|---|---|---|
+| `event_recording_enabled` | `False` | ❌ | **事件触发录像被关闭** |
+| `event_filter` | `{}` | ❌ | 操作员的事件过滤被清空 |
+| `storage_target_id` | `null` | ❌ | 钉住的存储目标被解绑，写入回落默认目标 |
+| `retention_policy_id` | `null` | ❌ | 保留策略被解绑 |
+| 其余 7 个 | — | ✅ | — |
 
-而 `RecordingPolicyPut.event_filter` 的 schema 是
-`dict[str, object] = Field(default_factory=dict)`（`schemas.py:128`）。**省略这个
-key 不会变成「不修改」，而是变成「写入空过滤」。** 这是与 PATCH 端点的决定性
-区别——所有 PATCH 都用 `model_dump(exclude_unset=True)`，省略即不触碰；PUT +
-`default_factory` 则省略即清空。
+**省略 key 不等于「不修改」，等于「写入默认值」。** 这与 PATCH 端点的决定性区别
+在于：全部 7 个 PATCH 都用 `model_dump(exclude_unset=True)`，省略即不触碰；
+PUT + 具体默认值则省略即重置。
 
-`PolicyEditor.submit`（`components/schedules/PolicyEditor.tsx`）构造的提交体
-只含它渲染的字段，**不含 `event_filter`**，且这是该页唯一的保存路径。
+`PolicyEditor.submit` 构造的提交体只含它渲染的字段，**且这是该页唯一的保存路径**。
 
-**影响**：操作员在录制页打开任意机位、点一次保存，该机位配置的事件过滤就被
-清空，接口返回 **HTTP 200**。这不是「不生效」而是**静默破坏已有配置**，而且
-没有任何 UI 迹象——因为录制侧**根本没有事件过滤 UI**，用户连自己有过滤都不知道。
+**影响**：操作员在录制页打开任意机位、点一次保存，事件触发录像关闭、事件过滤
+清空、存储目标解绑、保留策略解绑，接口返回 **HTTP 200**。没有任何 UI 迹象——
+因为其中 4 个字段**根本没有 UI**，用户连自己有配置都不知道。
 
-与 **G-33 是同一类缺陷**（`PATCH /alert-policies` 整体替换 `match`）。当时用
-`mergeMatch()` 修掉了告警侧，**录制侧的同构漏洞没被一起修**。
+两个后果会立刻冒到别处：`recordingTriggers` 与 `PlaybackActionPanel` 都显式检查
+`event_recording_enabled`，关掉之后手动触发录像直接 409。
 
-**已修**：与告警侧同形——`useSaveRecordingPolicy(cameraId, existingEventFilter)`
-在 mutation 层兜底回填，`PolicyEditor` 再显式带上 `policy?.event_filter`。
-语义与告警侧不同：告警是「UI 编辑子集、合并保留其余」，录制侧**没有 UI**，因此
-是**原样透传**而非合并。
+与 **G-33 是同一类缺陷**（`PATCH /alert-policies` 整体替换 `match`）。告警侧当时
+用 `mergeMatch()` 修掉了，录制侧的同构漏洞没被一起修。
 
-两条回归测试，其中夹具**故意用非空过滤**（默认夹具 `event_filter: {}` 会让这个
-bug 隐形）。两条测试在修复前均失败。
+**已修**：与告警侧同形但语义不同——告警是「UI 编辑子集、合并保留其余」，录制侧
+**没有 UI**，因此是**原样透传**而非合并。`useSaveRecordingPolicy(cameraId, policy)`
+在 mutation 层兜底回填这 4 个字段，`PolicyEditor` 再显式带上。
 
-### 46.1 同类缺陷的检测方法（不要只靠个案）
+两条回归测试，夹具**故意把 4 个字段都设成非默认值**。默认 `policy()` 夹具里
+`event_filter` 已经是 `{}`、其余 3 个已在默认值上——用它做夹具，这 4 个 bug
+**一个都测不出来**。
 
-本条是第二次出现的同一类缺陷，因此把排查方法记下来：
+### 46.1 同类缺陷的检测方法
+
+本条是同一类缺陷的第三次出现（继 G-33 之后）。**第一次的清扫方法写错了**：
+只按「端点」查、不按「字段」查，结论「录制策略是唯一实例」是错的——端点对了，
+但一个端点里藏着四个。正确的做法：
 
 | 步骤 | 做法 |
 |---|---|
-| 1 | 列出全部**整体替换**端点：`@router.put`（5 个）+ 确认是否为替换语义的 `@router.patch`（7 个） |
-| 2 | 对 PATCH，看是否 `model_dump(exclude_unset=True)` —— 有则省略=不动，**安全** |
-| 3 | 对 PUT，看 schema 里每个字段**省略时的默认值**：有 `default_factory` / 具体默认值 = 省略即写入该值，**危险** |
-| 4 | 找到前端调用方，比对「后端落库的字段」与「提交体里的字段」，差集即丢失字段 |
-| 5 | 只读字段（`SecretStr` 凭据）另查：是否有显式的 `keep`/`replace` 三态 |
+| 1 | 列出全部**整体替换**端点：全部 `@router.put`，加上确认过是替换语义的 `@router.patch` |
+| 2 | 对每个 PATCH 看是否 `model_dump(exclude_unset=True)`——有则省略=不动，**安全** |
+| 3 | **对每个 PUT，把「后端从 body 落库的字段」逐个列出**（不要看端点，看字段） |
+| 4 | 同样逐个列出该 PUT schema 里每个字段**省略时的默认值** |
+| 5 | 找出前端调用方实际发送的字段，与第 3 步取差集——**每一个差集项都是一次静默损坏** |
+| 6 | 只读字段（`SecretStr` 凭据）另查：有没有显式 `keep`/`replace` 三态 |
 
-本轮按此方法扫完全部 12 个端点，**录制策略是这一类里唯一的实例**。
-Frigate 凭据（`credentials_action: keep`/`replace`）与 stream-bindings
-（`collectBindings` 以已加载列表为基线发全量）经查均为正确处理。
+第 3~5 步是逐**字段**做的，不是逐端点。差别就是 G-46 本身：端点级结论「唯一
+实例」掩盖了字段级的 4 个损坏。
+
+按此方法扫完全部 12 个端点：7 个 PATCH 安全（全部 `exclude_unset=True`）；
+5 个 PUT 中 Frigate（`keep`/`replace` 三态）、stream-bindings（以已加载列表为基线
+发全量）、security-email-default（单字段）、recording-protections（提交类型与后端
+消费字段一一对应）均安全；**只有 recording-policy 中招**。
 
 ---
 

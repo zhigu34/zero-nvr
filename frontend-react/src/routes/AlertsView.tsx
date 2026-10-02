@@ -72,11 +72,12 @@ import { cn } from "../lib/utils"
  * only). For a multi-region provider, copying it produces two rules that look
  * identical and behave differently — the recording exists and no alert fires.
  *
- * That is D-2, and it is undecided. So this page does not resolve it. It
- * shows the recording filter read-only, offers a per-key copy **only for the
- * two keys whose meaning is identical** (`labels`, `min_confidence`), and
- * prints the reason beside every other one. That shape is correct whichever
- * way D-2 goes, because it changes no backend behaviour on its own.
+ * D-2 was decided on 2026-10-03 (`docs/D-2-DECISION-MATERIAL.md` §10): the two
+ * filters are **not** merged, because merging would delete the multi-region
+ * behaviour described above. This page therefore keeps the recording filter
+ * read-only, offers a per-key copy **only for the two keys whose meaning is
+ * identical** (`labels`, `min_confidence`), and prints the reason beside every
+ * other one. The decision makes this shape final rather than provisional.
  *
  * ## The bug this rewrite is really about
  *

@@ -8,7 +8,7 @@
   "compatibility": {
     "database_schema": {
       "accepted_heads": [
-        "0017_camera_maintenance"
+        "0018_drop_external_identities"
       ],
       "migration_policy": "explicit"
     },

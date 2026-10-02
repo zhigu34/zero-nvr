@@ -294,27 +294,44 @@ describe("SchedulesView", () => {
   })
 
   /**
-   * The regression this guards is silent: the endpoint is a whole-resource
-   * PUT, `event_filter` is typed `Field(default_factory=dict)`, and the
-   * screen has no event-filter UI — so a body built from the rendered fields
-   * alone used to clear the operator's filter on every save, answered 200.
+   * The regression this guards is silent and it is **four fields wide**.
    *
-   * The fixture below carries a **non-empty** filter on purpose. The default
-   * `event_filter: {}` would let the bug pass.
+   * `PUT /cameras/{id}/recording-policy` replaces the whole policy, and every
+   * optional field in `RecordingPolicyPut` has a non-nullable default
+   * (`recordings/schemas.py:123-134`). Omitting a key therefore does not mean
+   * "leave it alone" — the server writes the default. A body built from the
+   * fields the form renders would, in one save:
+   *
+   * | field | default | effect |
+   * |---|---|---|
+   * | `event_recording_enabled` | `False` | event-triggered recording switched off |
+   * | `event_filter` | `{}` | the operator's filter cleared |
+   * | `storage_target_id` | `null` | a pinned target unpinned |
+   * | `retention_policy_id` | `null` | the retention policy unbound |
+   *
+   * …all of it answered with HTTP 200. The fixture below sets **all four** to
+   * non-default values on purpose: the default `policy()` fixture has
+   * `event_filter: {}` and the rest already at their defaults, which would let
+   * every one of these bugs pass.
    */
-  it("carries a non-empty event filter through a save the screen never edited", async () => {
-    const saved: unknown[] = []
+  it("carries all four non-rendered policy fields through a save", async () => {
+    const saved: Record<string, unknown>[] = []
+    const carrying = policy({
+      event_recording_enabled: true,
+      event_filter: { labels: ["person", "car"], min_confidence: 0.6 },
+      storage_target_id: "3f1c0a2e-6b6d-4a1f-9c33-2b0d5e7a1c44",
+      retention_policy_id: "8d2e1b7a-4c5f-4e6a-b8d9-1a2b3c4d5e6f",
+    })
+
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         if (init?.method === "PUT" && String(input).includes("recording-policy")) {
           saved.push(JSON.parse(String(init.body)))
-          return new Response(
-            JSON.stringify(
-              policy({ event_filter: { labels: ["person", "car"] } }),
-            ),
-            { status: 200, headers: { "Content-Type": "application/json" } },
-          )
+          return new Response(JSON.stringify(carrying), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
         }
         return new Response("[]", {
           status: 200,
@@ -324,36 +341,41 @@ describe("SchedulesView", () => {
     )
 
     renderWithProviders(<SchedulesView />, {
-      client: seed(
-        [camera("cam-1", "前门")],
-        [
-          policy({
-            event_filter: { labels: ["person", "car"] },
-            segment_target_seconds: 600,
-          }),
-        ],
-      ),
+      client: seed([camera("cam-1", "前门")], [carrying]),
     })
 
     fireEvent.click(await screen.findByText("前门"))
-    const target = await screen.findByLabelText("目标分段（秒）")
     // Touch one field the form *does* own, so the save is a real delta.
-    fireEvent.change(target, { target: { value: "450" } })
+    fireEvent.change(await screen.findByLabelText("目标分段（秒）"), {
+      target: { value: "450" },
+    })
     fireEvent.click(screen.getByRole("button", { name: "保存" }))
 
     await waitFor(() => {
       expect(saved).toHaveLength(1)
     })
+    // `labels` arrives sorted: the form normalises on the way out and
+    // `validate_event_filter` sorts again server-side
+    // (`recordings/policy.py:238-241`), so order is not a meaningful
+    // difference — but the count and the members are.
     expect(saved[0]).toMatchObject({
+      // the field the form owns
       segment_target_seconds: 450,
-      event_filter: { labels: ["person", "car"] },
+      // the two the event-filter form now owns, round-tripped
+      event_recording_enabled: true,
+      storage_target_id: "3f1c0a2e-6b6d-4a1f-9c33-2b0d5e7a1c44",
+      retention_policy_id: "8d2e1b7a-4c5f-4e6a-b8d9-1a2b3c4d5e6f",
+    })
+    expect(saved[0].event_filter).toEqual({
+      labels: ["car", "person"],
+      min_confidence: 0.6,
     })
   })
 
-  it("sends an empty event filter only when the policy never had one", async () => {
-    // The other half of the contract: the fallback must not invent a filter
-    // for a camera that has none, and must not resurrect a cleared one.
-    const saved: unknown[] = []
+  it("sends the schema defaults for a policy that never set them", async () => {
+    // The other half of the contract: the fallback must not invent values for
+    // a camera that has none, and must not resurrect a cleared one.
+    const saved: Record<string, unknown>[] = []
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -382,6 +404,150 @@ describe("SchedulesView", () => {
     await waitFor(() => {
       expect(saved).toHaveLength(1)
     })
-    expect(saved[0]).toMatchObject({ event_filter: {} })
+    expect(saved[0]).toMatchObject({
+      event_recording_enabled: false,
+      event_filter: {},
+      storage_target_id: null,
+      retention_policy_id: null,
+    })
+  })
+
+  it("exposes the event filter, which had no UI at all", async () => {
+    // G-46: before the fix this page submitted a body with no `event_filter`
+    // and no `event_recording_enabled`, so the operator could neither see nor
+    // keep what was configured.
+    renderWithProviders(<SchedulesView />, {
+      client: seed(
+        [camera("cam-1", "前门")],
+        [
+          policy({
+            event_recording_enabled: true,
+            event_filter: { labels: ["person", "car"], zones: ["driveway"] },
+          }),
+        ],
+      ),
+    })
+
+    fireEvent.click(await screen.findByText("前门"))
+    const toggle = await screen.findByLabelText("按事件触发录像")
+    expect((toggle as HTMLInputElement).checked).toBe(true)
+    // The stored values come back verbatim — the form shows what is on the
+    // policy rather than a re-ordered version of it. Normalising to sorted
+    // happens on the way out, and the server sorts again.
+    expect(
+      (screen.getByLabelText("事件标签") as HTMLInputElement).value,
+    ).toBe("person, car")
+    expect(
+      (screen.getByLabelText("区域") as HTMLInputElement).value,
+    ).toBe("driveway")
+  })
+
+  it("states the zones divergence instead of leaving the operator to guess", async () => {
+    // D-2. "录了但没告警" looks like a bug and is not one; the form says so
+    // where the zone field actually is.
+    renderWithProviders(<SchedulesView />, {
+      client: seed(
+        [camera("cam-1", "前门")],
+        [policy({ event_recording_enabled: true })],
+      ),
+    })
+
+    fireEvent.click(await screen.findByText("前门"))
+    await screen.findByLabelText("区域")
+    expect(screen.getByText(/只匹配/)).toBeTruthy()
+    expect(screen.getByText(/主区域/)).toBeTruthy()
+  })
+
+  it("edits the filter and saves the result", async () => {
+    const saved: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT" && String(input).includes("recording-policy")) {
+          saved.push(JSON.parse(String(init.body)))
+          return new Response(
+            JSON.stringify(
+              policy({
+                event_recording_enabled: true,
+                event_filter: { labels: ["truck"], min_confidence: 0.4 },
+              }),
+            ),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+
+    renderWithProviders(<SchedulesView />, {
+      client: seed([camera("cam-1", "前门")], [policy()]),
+    })
+
+    fireEvent.click(await screen.findByText("前门"))
+    fireEvent.click(await screen.findByLabelText("按事件触发录像"))
+    fireEvent.change(screen.getByLabelText("事件标签"), {
+      target: { value: "truck, bus" },
+    })
+    fireEvent.change(screen.getByLabelText("最低置信度"), {
+      target: { value: "0.4" },
+    })
+    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+
+    await waitFor(() => {
+      expect(saved).toHaveLength(1)
+    })
+    expect(saved[0]).toMatchObject({
+      event_recording_enabled: true,
+      event_filter: { labels: ["bus", "truck"], min_confidence: 0.4 },
+    })
+    // Untouched keys must not appear — the backend rejects unknown keys.
+    expect(saved[0].event_filter).not.toHaveProperty("zones")
+  })
+
+  it("lets an empty filter be saved, because it means record-everything", async () => {
+    const saved: Record<string, unknown>[] = []
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (init?.method === "PUT" && String(input).includes("recording-policy")) {
+          saved.push(JSON.parse(String(init.body)))
+          return new Response(
+            JSON.stringify(policy({ event_recording_enabled: true })),
+            { status: 200, headers: { "Content-Type": "application/json" } },
+          )
+        }
+        return new Response("[]", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+
+    renderWithProviders(<SchedulesView />, {
+      client: seed([camera("cam-1", "前门")], [policy()]),
+    })
+
+    fireEvent.click(await screen.findByText("前门"))
+    fireEvent.click(await screen.findByLabelText("按事件触发录像"))
+
+    // The empty-filter note appears…
+    await waitFor(() => {
+      expect(screen.getByText("未设置任何条件：事件触发录像将记录全部事件")).toBeTruthy()
+    })
+    // …and does not block the save.
+    const save = screen.getByRole("button", { name: "保存" }) as HTMLButtonElement
+    expect(save.disabled).toBe(false)
+    fireEvent.click(save)
+
+    await waitFor(() => {
+      expect(saved).toHaveLength(1)
+    })
+    expect(saved[0]).toMatchObject({
+      event_recording_enabled: true,
+      event_filter: {},
+    })
   })
 })

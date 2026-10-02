@@ -285,8 +285,9 @@ export const MATCH_KEY_META: Record<MatchKey, MatchKeyMeta> = {
     maxItems: 128,
     recordingMaxItems: 64,
     importable: false,
-    // The decisive D-2 fact. Not a policy preference: the two sides read
-    // different fields for the same event.
+    // The decisive D-2 fact, and the reason the filters stay unmerged
+    // (decided 2026-10-03, `docs/D-2-DECISION-MATERIAL.md` §10.1). Not a policy
+    // preference: the two sides read different fields for the same event.
     importNote:
       "不可直接复制：录制侧读事件的 metadata_json['zones']（全部区域），告警侧读 Event.zone（主区域）。同一事件会出现「录了但没告警」。",
   },

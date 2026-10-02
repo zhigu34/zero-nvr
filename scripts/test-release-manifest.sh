@@ -18,7 +18,7 @@ assert manifest["format"] == "zero-nvr.release-manifest"
 assert manifest["format_version"] == 1
 assert manifest["application"]["version"] == "0.1.0"
 assert manifest["compatibility"]["database_schema"]["accepted_heads"] == [
-    "0017_camera_maintenance"
+    "0018_drop_external_identities"
 ]
 assert manifest["compatibility"]["backup_manifest"] == {
     "format": "zero-nvr.backup-manifest",

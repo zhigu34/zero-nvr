@@ -16,10 +16,15 @@ import {
   runtimeTone,
 } from "../../lib/recordingRuntime"
 import {
+  fromEventFilter,
   fromSchedulePayload,
+  parseFilterList,
+  toEventFilter,
   toSchedulePayload,
+  validateEventFilter,
   validatePolicyForm,
   WEEKDAY_LABEL,
+  type EventFilterDraft,
   type PolicyFieldError,
 } from "../../lib/recordingPolicyValidation"
 import { useSaveRecordingPolicy } from "../../lib/recordingPolicyMutations"
@@ -62,15 +67,18 @@ export function PolicyEditor({
   )
   const [preRoll, setPreRoll] = useState(policy?.pre_roll_seconds ?? 10)
   const [postRoll, setPostRoll] = useState(policy?.post_roll_seconds ?? 10)
-
-  const save = useSaveRecordingPolicy(
-    cameraId,
-    policy?.event_filter ?? {},
+  const [eventFilter, setEventFilter] = useState<EventFilterDraft>(() =>
+    fromEventFilter({
+      ...(policy?.event_filter ?? {}),
+      event_recording_enabled: policy?.event_recording_enabled,
+    }),
   )
 
+  const save = useSaveRecordingPolicy(cameraId, policy)
+
   const errors: PolicyFieldError[] = useMemo(
-    () =>
-      validatePolicyForm({
+    () => [
+      ...validatePolicyForm({
         baselineMode,
         enabled,
         scheduleWindows,
@@ -79,6 +87,8 @@ export function PolicyEditor({
         preRollSeconds: preRoll,
         postRollSeconds: postRoll,
       }),
+      ...validateEventFilter(eventFilter),
+    ],
     [
       baselineMode,
       enabled,
@@ -87,8 +97,14 @@ export function PolicyEditor({
       segmentTarget,
       preRoll,
       postRoll,
+      eventFilter,
     ],
   )
+  /**
+   * An empty filter is legitimate — it means "record every event" — so the
+   * message is shown but does not block the save. Only structural problems do.
+   */
+  const blocking = errors.filter((error) => error.field !== "event_filter.empty")
   const errorFor = (field: string) =>
     errors.find((error) => error.field === field)?.message ?? null
 
@@ -100,7 +116,7 @@ export function PolicyEditor({
 
   const submit = (event: React.FormEvent) => {
     event.preventDefault()
-    if (errors.length) return
+    if (blocking.length) return
 
     const schedule =
       baselineMode === "schedule" ? toSchedulePayload(scheduleWindows) : undefined
@@ -108,10 +124,14 @@ export function PolicyEditor({
     save.mutate({
       baseline_mode: baselineMode,
       enabled,
-      // Carried through unchanged: this screen has no event-filter UI, and the
-      // endpoint replaces the whole policy. Omitting the key would clear the
-      // operator's filter (the schema default is `{}`, not "unset").
-      event_filter: policy?.event_filter ?? {},
+      // Now owned by this form. The switch gates `triggers.py:166`, and the
+      // filter itself gates `_event_matches`; both are only consulted for
+      // events that do not already have a trigger.
+      event_recording_enabled: eventFilter.eventRecordingEnabled,
+      event_filter: toEventFilter(eventFilter),
+      // Still carried through unchanged — this form has no UI for either.
+      storage_target_id: policy?.storage_target_id ?? null,
+      retention_policy_id: policy?.retention_policy_id ?? null,
       // Both keys are sent as null rather than omitted in the wrong mode:
       // the backend rejects a non-empty schedule alongside a non-schedule
       // mode, and an explicit null is what clears a previously saved one.
@@ -343,6 +363,12 @@ export function PolicyEditor({
           />
         </div>
 
+        <EventFilterFields
+          value={eventFilter}
+          onChange={setEventFilter}
+          errorFor={errorFor}
+        />
+
         {/*
           G-20: the policy carries only a `retention_policy_id` foreign key.
           The day counts live in the storage module, so this page must not
@@ -368,7 +394,7 @@ export function PolicyEditor({
         <Button
           size="sm"
           onClick={submit}
-          disabled={save.isPending || errors.length > 0}
+          disabled={save.isPending || blocking.length > 0}
         >
           {save.isPending ? "保存中…" : "保存"}
         </Button>
@@ -405,6 +431,157 @@ function NumberField({
         aria-invalid={Boolean(error)}
       />
       <p className="text-[11px] text-muted-foreground">{hint}</p>
+      {error ? (
+        <p className="text-xs text-status-offline">{error}</p>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * The three-key event filter: `labels`, `zones`, `min_confidence`.
+ *
+ * ## Why `zones` carries a warning the other two do not
+ *
+ * This is D-2, and the warning is the point. The recording side tests
+ * `set(required).intersection(metadata_json["zones"])`
+ * (`recordings/triggers.py:106-109`) — **every** region the event touched. The
+ * alert side tests membership of `Event.zone` (`alerts/service.py:643`) — the
+ * **primary** region only. An event crossing `driveway` and `sidewalk`
+ * therefore records under `sidewalk` here but does not alert there, and both
+ * configurations look identical.
+ *
+ * The two filters are deliberately not merged; the alert screen refuses to
+ * copy `zones` across for exactly this reason
+ * (`alerts.ts` `MATCH_KEY_META.zones.importable = false`). This hint exists so
+ * an operator reading one screen does not conclude the other is broken.
+ */
+function EventFilterFields({
+  value,
+  onChange,
+  errorFor,
+}: {
+  value: EventFilterDraft
+  onChange: (next: EventFilterDraft) => void
+  errorFor: (field: string) => string | null
+}) {
+  const patch = (part: Partial<EventFilterDraft>) =>
+    onChange({ ...value, ...part })
+
+  const note = errorFor("event_filter.empty")
+
+  return (
+    <section className="space-y-3 rounded-lg border border-border p-3">
+      <label className="flex items-start gap-2 text-xs font-medium">
+        <input
+          type="checkbox"
+          className="mt-0.5"
+          checked={value.eventRecordingEnabled}
+          onChange={(event) =>
+            patch({ eventRecordingEnabled: event.target.checked })
+          }
+        />
+        <span>按事件触发录像</span>
+      </label>
+
+      {value.eventRecordingEnabled ? (
+        <div className="space-y-3 pl-6">
+          <Callout tone="degraded" title="条件留空 = 记录全部事件">
+            三项都不填时，任何被识别出的事件都会触发录像。
+          </Callout>
+
+          <ListField
+            id="policy-event-labels"
+            label="事件标签"
+            placeholder="person, car"
+            items={value.labels}
+            onChange={(labels) => patch({ labels })}
+            error={errorFor("event_filter.labels")}
+          />
+
+          <ListField
+            id="policy-event-zones"
+            label="区域"
+            placeholder="driveway, sidewalk"
+            items={value.zones}
+            onChange={(zones) => patch({ zones })}
+            error={errorFor("event_filter.zones")}
+          />
+
+          <p className="text-[11px] text-muted-foreground">
+            区域匹配事件的**全部**区域；告警规则只匹配**主区域**。同一事件
+            触发了录像却没触发告警，是这两条规则本就不同，不是配置错了。
+          </p>
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="policy-event-confidence"
+              className="text-xs font-medium"
+            >
+              最低置信度
+            </label>
+            <Input
+              id="policy-event-confidence"
+              type="number"
+              min={0}
+              max={1}
+              step={0.05}
+              placeholder="不限制"
+              value={value.minConfidence ?? ""}
+              onChange={(event) => {
+                const raw = event.target.value
+                patch({
+                  minConfidence:
+                    raw === "" ? undefined : Number(raw),
+                })
+              }}
+              aria-invalid={Boolean(
+                errorFor("event_filter.min_confidence"),
+              )}
+            />
+            {errorFor("event_filter.min_confidence") ? (
+              <p className="text-xs text-status-offline">
+                {errorFor("event_filter.min_confidence")}
+              </p>
+            ) : null}
+          </div>
+
+          {note ? (
+            <p className="text-[11px] text-muted-foreground">{note}</p>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
+  )
+}
+
+function ListField({
+  id,
+  label,
+  placeholder,
+  items,
+  onChange,
+  error,
+}: {
+  id: string
+  label: string
+  placeholder: string
+  items: string[]
+  onChange: (next: string[]) => void
+  error: string | null
+}) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-xs font-medium">
+        {label}
+      </label>
+      <Input
+        id={id}
+        value={items.join(", ")}
+        placeholder={placeholder}
+        onChange={(event) => onChange(parseFilterList(event.target.value))}
+        aria-invalid={Boolean(error)}
+      />
       {error ? (
         <p className="text-xs text-status-offline">{error}</p>
       ) : null}
