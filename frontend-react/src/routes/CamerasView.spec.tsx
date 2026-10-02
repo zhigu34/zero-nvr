@@ -1,9 +1,10 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
-import { render, screen, waitFor } from "@testing-library/react"
+import { QueryClient } from "@tanstack/react-query"
+import { renderWithProviders } from "../test-utils"
+import { fireEvent, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { CamerasView } from "./CamerasView"
 import { CAMS } from "../lib/queries"
-import type { CameraSummary } from "../api/cameras"
+import type { CameraDetail, CameraSummary } from "../api/cameras"
 
 /**
  * Page-level rendering with the query cache pre-seeded.
@@ -51,11 +52,7 @@ function renderWithCache(setup: (q: QueryClient) => void) {
     defaultOptions: { queries: { retry: false } },
   })
   setup(qc)
-  return render(
-    <QueryClientProvider client={qc}>
-      <CamerasView />
-    </QueryClientProvider>,
-  )
+  return renderWithProviders(<CamerasView />, { client: qc })
 }
 
 afterEach(() => {
@@ -68,11 +65,7 @@ describe("CamerasView states", () => {
     // which is exactly the loading branch.
     const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
     qc.setQueryDefaults(CAMS.list(false), { enabled: false })
-    render(
-      <QueryClientProvider client={qc}>
-        <CamerasView />
-      </QueryClientProvider>,
-    )
+    renderWithProviders(<CamerasView />, { client: qc })
     expect(screen.getAllByText("").length).toBeGreaterThanOrEqual(0)
     // Header is present while loading.
     expect(screen.getByText("摄像机")).toBeTruthy()
@@ -146,15 +139,7 @@ describe("CamerasView states", () => {
       ),
     )
     try {
-      render(
-        <QueryClientProvider
-          client={
-            new QueryClient({ defaultOptions: { queries: { retry: false } } })
-          }
-        >
-          <CamerasView />
-        </QueryClientProvider>,
-      )
+      renderWithProviders(<CamerasView />)
       await waitFor(() => expect(screen.getByText("加载失败")).toBeTruthy())
       expect(screen.getByText("Internal server error.")).toBeTruthy()
       // Critically: not the empty state.
@@ -182,5 +167,82 @@ describe("CamerasView states", () => {
     })
     await screen.findByText("前门人行入口")
     expect(screen.getByText("后院周界")).toBeTruthy()
+  })
+})
+
+describe("CamerasView writes", () => {
+  function detail(over: Partial<CameraSummary> = {}): CameraDetail {
+    return {
+      ...camera({ name: "前门人行入口" }),
+      streams: [],
+      bindings: [],
+      ...over,
+    }
+  }
+
+  function renderSeeded() {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    qc.setQueryData(CAMS.list(false), [camera({ name: "前门人行入口" })])
+    qc.setQueryData(CAMS.detail("cam-1"), detail())
+    return renderWithProviders(<CamerasView />, { client: qc })
+  }
+
+  it("opens the editor for a row and fetches its detail", async () => {
+    renderSeeded()
+    fireEvent.click(await screen.findByText("前门人行入口"))
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("名称")).toBeTruthy()
+    })
+    // The list endpoint has no streams or bindings; the editor must be fed
+    // from the detail endpoint rather than from the row.
+    expect(screen.getByText("RTSP 地址不可在此修改")).toBeTruthy()
+  })
+
+  it("offers restore for a retired camera once retired ones are shown", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    qc.setQueryData(CAMS.list(false), [
+      camera({ name: "在用机位" }),
+    ])
+    qc.setQueryData(CAMS.list(true), [
+      camera({ name: "在用机位" }),
+      camera({
+        name: "已退役机位",
+        retired_at: new Date().toISOString(),
+        enabled: false,
+      }),
+    ])
+    renderWithProviders(<CamerasView />, { client: qc })
+
+    // The list endpoint filters retired cameras by default, so the row is not
+    // even fetched until the operator asks for it.
+    expect(screen.queryByText("已退役机位")).toBeNull()
+
+    fireEvent.click(screen.getByRole("switch"))
+
+    await waitFor(() => {
+      expect(screen.getByText("已退役机位")).toBeTruthy()
+    })
+    expect(screen.getByRole("button", { name: "恢复" })).toBeTruthy()
+  })
+
+  it("labels the lifecycle action from the camera's own state", async () => {
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    qc.setQueryData(CAMS.list(false), [
+      camera({ name: "已停用机位", enabled: false }),
+    ])
+    renderWithProviders(<CamerasView />, { client: qc })
+
+    // A disabled camera offers "启用", not "停用" — the label comes from the
+    // row's own lifecycle state, never from the column header.
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "启用" })).toBeTruthy()
+    })
   })
 })

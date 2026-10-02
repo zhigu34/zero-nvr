@@ -121,3 +121,134 @@ export function getCamera(id: string, signal?: AbortSignal) {
 export function getCameraClock(id: string, signal?: AbortSignal) {
   return api.get<CameraClock>(`/cameras/${id}/clock`, signal)
 }
+
+/* -------------------------------------------------------------------------- */
+/* Writes                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `mode` is accepted by the schema but has exactly one legal value today, so
+ * it is not offered as a choice anywhere in the UI.
+ */
+export type ManualRtspStreamInput = {
+  name: string
+  rtsp_url: string
+}
+
+export type CameraCreate = {
+  name: string
+  primary_stream: ManualRtspStreamInput
+  location?: string | null
+  storage_label?: string | null
+  secondary_stream?: ManualRtspStreamInput | null
+}
+
+/**
+ * Every field is optional and the backend applies `exclude_unset`, so a field
+ * left out here is genuinely untouched. Sending `null` clears it — which is
+ * the only way to remove a location, and the reason the form must track
+ * "changed" separately from "present".
+ */
+export type CameraUpdate = {
+  name?: string | null
+  location?: string | null
+  storage_label?: string | null
+  maintenance?: boolean | null
+  time_sync_mode?: TimeSyncMode | null
+  manufacturer?: string | null
+  model?: string | null
+  form_factor?: FormFactor | null
+}
+
+export type TimeSyncMode = "monitor" | "manage_ntp" | "ignore"
+
+export type FormFactor =
+  | "box"
+  | "dome"
+  | "bullet"
+  | "ptz"
+  | "fisheye"
+  | "multi_sensor"
+  | "encoder"
+  | "nvr"
+  | "unknown"
+
+export type CameraStreamBindingInput = {
+  purpose: StreamPurpose
+  stream_profile_id: string
+  selection_mode?: "auto" | "manual"
+}
+
+export function createCamera(body: CameraCreate, signal?: AbortSignal) {
+  return api.post<CameraDetail>("/cameras", body, signal)
+}
+
+export function updateCamera(
+  id: string,
+  body: CameraUpdate,
+  signal?: AbortSignal,
+) {
+  return api.patch<CameraDetail>(`/cameras/${id}`, body)
+}
+
+export function enableCamera(id: string, signal?: AbortSignal) {
+  return api.post<CameraDetail>(`/cameras/${id}/enable`, undefined, signal)
+}
+
+export function disableCamera(id: string, signal?: AbortSignal) {
+  return api.post<CameraDetail>(`/cameras/${id}/disable`, undefined, signal)
+}
+
+/** Retiring also forces `enabled = false` and stops manual recording triggers. */
+export function retireCamera(id: string, signal?: AbortSignal) {
+  return api.post<CameraDetail>(`/cameras/${id}/retire`, undefined, signal)
+}
+
+/** Restoring returns the camera to the inventory but leaves it disabled. */
+export function restoreCamera(id: string, signal?: AbortSignal) {
+  return api.post<CameraDetail>(`/cameras/${id}/restore`, undefined, signal)
+}
+
+export function probeCamera(id: string, signal?: AbortSignal) {
+  return api.post<CameraDetail>(`/cameras/${id}/probe`, undefined, signal)
+}
+
+export function listStreamBindings(id: string, signal?: AbortSignal) {
+  return api.get<CameraStreamBinding[]>(
+    `/cameras/${id}/stream-bindings`,
+    signal,
+  )
+}
+
+/**
+ * Replaces every binding at once. Anything omitted is cleared, so the caller
+ * must send the full desired set rather than a delta.
+ */
+export function replaceStreamBindings(
+  id: string,
+  bindings: CameraStreamBindingInput[],
+) {
+  return api.put<CameraStreamBinding[]>(
+    `/cameras/${id}/stream-bindings`,
+    { bindings },
+  )
+}
+
+export type CameraProbeResult = {
+  ok: true
+  reachable: boolean
+  width: number | null
+  height: number | null
+  fps: number | null
+  video_codec: string | null
+  audio_codec: string | null
+  latency_ms: number | null
+}
+
+/** Probes without persisting; used to validate a URL before offering to save. */
+export function testCameraStreams(
+  body: CameraCreate,
+  signal?: AbortSignal,
+) {
+  return api.post<CameraProbeResult>("/cameras/test", body, signal)
+}

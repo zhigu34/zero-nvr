@@ -229,9 +229,170 @@ spec 0006 的 tolerant 模式要求「所有轨道保持同一绝对时间区间
 
 ---
 
+# 写操作页（PR-5）新增缺口
+
+写操作与只读页的风险完全不同：只读页缺字段，最坏是界面上少一列；写操作缺语义，最坏是**用户以为保存成功了**。因此本节以「会不会让用户误判」排序。
+
+## G-16 写操作没有乐观锁，并发编辑静默覆盖 🔴
+
+**事实**：四个模块的视图 schema 都**没有** `version` / `updated_at` / `ETag`：
+`CameraDetail`（`cameras/schemas.py:182`）、`RecordingPolicyView`（`recordings/schemas.py:155`）、
+`SystemSettingsView`、`ExportView` 均如此。服务端内部确实有 `Camera.config_revision`
+与 `fence_config_revision`（`cameras/service.py:60,67`，冲突抛 409 `camera_configuration_changed`），
+但**它只用于服务端自身的长耗时操作防竞态，不出现在任何响应里**，客户端既读不到也传不了。
+
+**影响**：两个浏览器同时编辑机位或录制计划，后保存的**静默覆盖**先保存的，没有任何冲突提示。
+对「设置了什么录制计划」这种配置，静默覆盖的代价是排查很久的「录像怎么没按我设的跑」。
+
+**当前处理**：前端无法解决。已在 `lib/save.ts` 的注释里写明这是**后端待办**而非前端妥协。
+在修好之前，前端不做任何「假装有冲突检测」的 UI。
+
+**建议修法**：在四个视图上补 `version: int`（或 `updated_at`），写接口接受 `expected_version`
+不匹配即 409。这是独立的后端变更，走 ADR-0014 决策 4 的例外流程。
+
+---
+
+## G-17 写入可能「已保存但后续失败」，HTTP 503 🔴
+
+**事实**：多个写端点在**数据库已提交之后**的异步动作失败时，返回 **503** 并在
+`details` 里带一个 `*_persisted: true` 标志：
+
+| 端点 | code | details 标志 |
+|---|---|---|
+| `POST /cameras/{id}/enable\|disable\|retire` | `camera_runtime_queue_unavailable` | `camera_persisted` |
+| `PUT /cameras/{id}/stream-bindings` | `camera_runtime_queue_unavailable` | `configuration_persisted` |
+| `PUT /cameras/{id}/recording-policy` | `recording_task_queue_unavailable` | `policy_persisted` |
+| `PATCH /system/settings` | `recording_task_queue_unavailable` | `settings_persisted` |
+| `POST /exports` | `export_task_queue_unavailable` | `export_persisted` |
+
+**影响**：一个只会看 HTTP 状态码的客户端会把这些当成「保存失败」，于是重试——
+但配置**已经写进去了**，重试是重复写入。反过来，如果客户端一律按成功处理，
+用户看到的会是「保存成功」而运行时（媒体流/转码/录制协调）根本没跟着变。
+
+**当前处理**：`lib/save.ts` 的 `failure` 回调可读取 `ApiError.details`，
+写操作页据此区分「什么都没存」与「已存但运行时没跟上」，后者必须**明确告知用户**，
+措辞不能是「操作失败」。
+
+**建议修法**：这不是缺口而是可用但少见的契约。前端必须显式支持，建议在
+`client.ts` 的 `ApiError` 上加一个 `persisted` 判定属性，避免每个写页各写一遍。
+
+---
+
+## G-18 录制「没生效」完全不报错，只能从 `runtime` 读出来 🔴
+
+**事实**：`PUT /cameras/{id}/recording-policy` 会吞掉 `recording_stream_offline` 与
+ZLM 的 `camera_stream_start_timeout`（`recordings/api.py:648,672`），**不抛错、不改状态码**，
+改为在响应的 `runtime` 字段里体现：
+
+```text
+runtime.recording: bool | null      # null = 媒体运行时完全不可观测，不等于 false
+runtime.stream_online: bool | null
+runtime.blockers: list[str]         # 阻塞原因的错误码数组
+```
+
+**影响**：这是最容易产生「我明明设了连续录制却没有录像」的一类。HTTP 200、
+保存成功提示、页面一切正常——但 `runtime.recording` 是 `false` 或 `blockers` 非空。
+**只看 HTTP 状态码的实现会完全错过。**
+
+**当前处理**：录制计划页必须把 `runtime` 当作一等公民渲染。`recording === null` 要显示
+「不可观测」而不是「未录制」——把不可观测画成「未录制」会让用户去查一个不存在的问题。
+
+**另注**：`runtime.blockers` 里的 `recording_storage_capacity_critical` 等错误码
+与 G-1 的容量缺口相关：容量不探测就不知道是否已到临界。
+
+---
+
+## G-19 分享链接是公开可下载的凭证 🔴
+
+**事实**：`GET /shared/exports/{token}/download` **没有 `require_permission`、没有 session 校验**
+（`exports/api.py:532`）。token 是 `secrets.token_urlsafe(32)`，库里只存 sha256，
+但**明文 token 本身就是凭证**。密码保护走 HTTP Basic，不是登录流程。
+
+**影响**：把导出链接贴进任何聊天工具等于把录像公开。任何把它描述为「内部分享」的
+界面文案都是错的。
+
+**当前处理**：导出页的分享区必须**明说该链接对任何持有者公开**，并提示有效期。
+另外 `expires_in_hours` 上限声明 720 小时，但实际取 `min(export.expires_at, ...)`，
+而导出 24 小时就过期——**分享实际最长 24 小时**，界面不能承诺更长。
+
+**建议修法**：若要真正的内部分享，需要分享端点也走 session 校验，或引入
+「必须登录 + 归属校验」。这是安全设计变更，不是 bug 修复。
+
+---
+
+## G-20 保留天数不在录制计划里 🔴
+
+**事实**：`RecordingPolicyPut` 只有 `retention_policy_id` 外键（`recordings/schemas.py:133`），
+**没有天数字段**。实际天数在 storage 模块的 `ordinary_keep_days` / `alarm_keep_days`
+（`storage/schemas.py:85–110`，0–36500 天）。
+
+**影响**：录制计划页天然要显示「这段录像保留多久」，但按现有契约拿不到。要显示就得
+再发一次 storage 请求并做 join，而 G-1 已经说明 storage 连容量都要靠主动探测。
+
+**当前处理**：计划页显示保留策略的**名称/ID**，并明确提示天数在「存储与保留策略」中配置，
+不在此处修改。**不编造天数。**
+
+---
+
+## G-21 `time_sync_mode` 与 `manufacturer`/`model` 有静默失效路径 🟡
+
+**事实**：
+
+1. `time_sync_mode != "ignore"` 时，所属 Device 的 `adapter_type` **必须为 `onvif`**，
+   否则 400 `camera_time_sync_unsupported`（`cameras/service.py:405`）。
+   也就是说 **manual_rtsp 机位只能设 `ignore`**，而 schema 允许三个值。
+2. `manufacturer` / `model` / `form_factor` 在 `camera.device_id` 为 null 时
+   **静默丢弃**（`cameras/service.py:438`）——不报错、不提示、返回 200。
+
+**影响**：第 2 条尤其恶劣：用户填了厂商型号，保存成功，刷新后没了，没有任何痕迹。
+
+**当前处理**：客户端预校验。编辑面板在 `adapter_type` 不是 onvif 时只提供 `ignore` 选项；
+`device_id` 为空的机位直接不展示厂商/型号/形态字段，而不是提供一个会被静默丢弃的输入框。
+**前端预校验不是妥协**：这里的 400 与静默丢弃都是后端在替前端做它不该做的判断。
+
+**另注**：`retire` 会强制 `enabled=false`；`restore` **不会**恢复 enabled
+（`cameras/service.py:494`），恢复后需要再点一次启用。界面必须说明这一点，
+否则用户会以为恢复完就能用了。
+
+### G-22 `CameraDetail` 不返回 `device_id`，厂商/型号无法安全编辑 🟡
+
+**事实**：`CameraDetail` 只有两个额外字段——`streams` 与 `bindings`
+（`cameras/schemas.py:182-185`），**没有 `device_id`**。而 G-21 的第 2 条说
+`manufacturer` / `model` / `form_factor` 在 `camera.device_id` 为 null 时被静默丢弃
+（`cameras/service.py:438`）。
+
+**影响**：前端拿不到判断依据。一台没有关联设备记录的机位（例如手动 RTSP 接入），
+填了厂商型号、点保存、返回 200、刷新后字段消失，**全程没有任何提示**。
+提供一个「可能保存也可能不保存」的输入框，比不提供更糟。
+
+**当前处理**：编辑面板**不提供**这三个字段，并在界面上说明原因。
+`lib/cameraValidation.ts` 里的 `acceptsDeviceFields()` 已写好判定逻辑并有测试，
+等后端在 `CameraDetail` 上补出 `device_id`（或一个 `device_linked: bool`）
+就能直接接上。
+
+**建议修法**：在 `CameraDetail` 上加 `device_id: uuid | null`。
+更好的做法是让 `PATCH` 在会丢弃字段时返回 4xx 而不是 200——静默丢弃本身
+就是应当修掉的契约问题（G-21 第 2 条）。
+
+---
+
+## 写操作的标度陷阱
+
+同一批接口里「时长」有**三套单位**，混用会产生量级错误：
+
+| 单位 | 字段 |
+|---|---|
+| **秒** | `segment_target_seconds` / `pre_roll_seconds` / `post_roll_seconds` / `prebuffer_fragment_seconds` / `gop_seconds`(float) |
+| **毫秒** | `requested_duration_ms` / `actual_duration_ms` / `offset_ms` / `duration_ms` / `rtt_ms` |
+| **小时** | `expire_in_hours`（分享有效期），而同模块的 TTL 用 `_seconds` |
+
+注意 `segment_target_seconds` 是**秒**，而它最终落库的 `RecordingSegment.duration_ms`
+是**毫秒**——**后端不做换算，换算发生在展示层**。同一份录制计划页上会同时出现
+「目标分段 300 秒」和「本段实际 300000 毫秒」，必须分别格式化。
+
 ## 与 ADR-0014 的关系
 
-ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-1 / G-2 / G-3 都需要改后端，因此**不能在 PR-3 到 PR-6 之间顺手改**——那会让「契约冻结」失效。
+ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-16 / G-19 需要改后端，因此**不能在 PR-3 到 PR-6 之间顺手改**——那会让「契约冻结」失效。
 
 处理方式：
 

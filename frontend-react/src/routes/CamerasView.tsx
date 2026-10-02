@@ -11,7 +11,14 @@ import {
   type HealthTone,
 } from "../components/ui/display"
 import { type CameraSummary, normalizeConnectivity } from "../api/cameras"
-import { useCameras } from "../lib/queries"
+import { useCameras, useCamera } from "../lib/queries"
+import { useProbeCamera, useRetireCamera, useSetCameraEnabled } from "../lib/cameraMutations"
+import { CameraEditor } from "../components/cameras/CameraEditor"
+import {
+  ROW_ACTION_LABEL,
+  rowActionFor,
+  useCameraRowActions,
+} from "../lib/cameraRowActions"
 import { formatRelative } from "../lib/format"
 
 const TONE_BY_STATUS: Record<string, HealthTone> = {
@@ -42,6 +49,11 @@ export function CamerasView() {
   const [selected, setSelected] = useState<string | null>(null)
 
   const { data, isLoading, error, refetch } = useCameras(includeRetired)
+  // The list returns `CameraSummary`, which has no streams or bindings — the
+  // editor needs the detail, and fetching it only when a row is opened keeps
+  // the list at one request instead of one per row.
+  const detailQuery = useCamera(selected)
+  const actions = useCameraRowActions(selected)
 
   // Guard the shape before deriving from it. `CameraSummary[]` is what the
   // endpoint promises, but a cached value from an older build (or a
@@ -183,12 +195,58 @@ export function CamerasView() {
           </span>
         ),
       },
+      {
+        id: "actions",
+        header: "",
+        enableSorting: false,
+        cell: ({ row }) => {
+          const camera = row.original
+          const action = rowActionFor(camera)
+          const busy =
+            selected === camera.id &&
+            (actions.setEnabled.isPending ||
+              actions.retire.isPending ||
+              actions.probe.isPending)
+
+          return (
+            <div
+              className="flex items-center justify-end gap-1"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => actions.probe.mutate(undefined)}
+                title="重新探测码流"
+              >
+                探测
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  if (action.kind === "enable") actions.setEnabled.enable()
+                  else if (action.kind === "disable")
+                    actions.setEnabled.disable()
+                  else if (action.kind === "restore") actions.retire.restore()
+                  else actions.retire.retire()
+                }}
+              >
+                {ROW_ACTION_LABEL[action.kind]}
+              </Button>
+            </div>
+          )
+        },
+      },
     ],
-    [],
+    [selected, actions],
   )
 
   return (
-    <div className="space-y-4 p-5">
+    <div className="flex h-full">
+      <div className="flex-1 space-y-4 overflow-auto p-5">
       <PageHeader
         title="摄像机"
         description="设备接入与在线状态。码流绑定与时钟偏差不在列表接口里，见下方说明。"
@@ -271,6 +329,16 @@ export function CamerasView() {
         SDK、局域网能力只覆盖手机端，事件只经公网 HTTPS WebHook 到达，因此它被归为
         「事件源」配置，不在本页出现。
       </Callout>
+      </div>
+
+      {selected && detailQuery.data ? (
+        <div className="w-[26rem] shrink-0">
+          <CameraEditor
+            camera={detailQuery.data}
+            onClose={() => setSelected(null)}
+          />
+        </div>
+      ) : null}
     </div>
   )
 }
