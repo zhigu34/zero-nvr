@@ -23,8 +23,14 @@ export function formatRelative(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString("zh-CN")
 }
 
-export function formatClock(iso: string | null | undefined): string {
-  if (!iso) return "—"
+/**
+ * Accepts an ISO string or epoch milliseconds. Both are in circulation — the
+ * API speaks ISO while the timeline and clock maths work in ms — and the two
+ * used to need separate helpers, which is how a `formatClock(1740000000000)`
+ * call site ends up rendering `Invalid Date` next to a working one.
+ */
+export function formatClock(iso: string | number | null | undefined): string {
+  if (iso === null || iso === undefined || iso === "") return "—"
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return "—"
   return d.toLocaleString("zh-CN", { hour12: false })
@@ -60,4 +66,20 @@ export function formatFraction(value: number | null | undefined): string {
 export function formatPercent(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—"
   return `${value.toFixed(0)}%`
+}
+
+/**
+ * A duration in ms, phrased the way an operator would say it. Lives here
+ * rather than in the screen that first needed it because three modules now
+ * render spans (export ranges, timeline widths, recording lengths) and they
+ * must not drift into three different roundings.
+ */
+export function formatSpan(ms: number): string {
+  const totalMinutes = Math.round(ms / 60000)
+  const days = Math.floor(totalMinutes / 1440)
+  const hours = Math.floor((totalMinutes % 1440) / 60)
+  const minutes = totalMinutes % 60
+  if (days > 0) return `${days} 天 ${hours} 小时`
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`
+  return `${minutes} 分钟`
 }

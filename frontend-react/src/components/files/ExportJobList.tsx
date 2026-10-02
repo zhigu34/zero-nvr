@@ -17,7 +17,7 @@ import {
 } from "../../api/exports"
 import { formatBytes } from "../../api/storage"
 import { formatClock, formatRelative } from "../../lib/format"
-import { formatSpan } from "../../lib/exportValidation"
+import { formatSpan } from "../../lib/format"
 import { Badge, Button } from "../ui/primitives"
 import { Callout, EmptyState, StatusDot, StatusLabel } from "../ui/display"
 import { SharePanel } from "./SharePanel"

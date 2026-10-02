@@ -9,7 +9,7 @@ import {
 } from "../../api/playback"
 import { overlapsProtection, type RecordingProtectionView } from "../../api/protections"
 import { formatBytes } from "../../api/storage"
-import { formatSpan } from "../../lib/exportValidation"
+import { formatSpan } from "../../lib/format"
 import { formatClock } from "../../lib/format"
 import { Button, Table, TBody, TD, TH, THead, TR } from "../ui/primitives"
 import { EmptyState, StatusDot, StatusLabel } from "../ui/display"

@@ -4,8 +4,10 @@ import {
   GAP_REASON_LABEL,
   type PlaybackTimelineView,
   type SegmentAvailability,
+  type TimelineEventMarker,
   type TimelineGapReason,
 } from "../../api/playback"
+import { categoryLabel } from "../../api/events"
 import { instantMs } from "../../playback/session"
 import { cn } from "../../lib/utils"
 
@@ -44,6 +46,41 @@ const GAP_FILL: Record<TimelineGapReason, string> = {
   unknown: "bg-muted-foreground/20",
 }
 
+/**
+ * Event categories reuse the events vocabulary (`CATEGORY_LABEL`), so the
+ * same category reads the same colour here as it does in the event list —
+ * otherwise an operator comparing the two has to learn the mapping twice.
+ *
+ * Only four tones are used on purpose: a track that distinguishes eight
+ * categories by hue stops being readable at track height, and the category
+ * is in the tooltip and the side panel where detail belongs.
+ */
+const CATEGORY_TONE: Record<string, "online" | "degraded" | "offline" | "unknown"> = {
+  person: "online",
+  vehicle: "online",
+  animal: "degraded",
+  motion: "unknown",
+  intrusion: "offline",
+  line: "degraded",
+}
+
+const CATEGORY_BAR: Record<string, string> = {
+  online: "bg-status-online",
+  degraded: "bg-status-degraded",
+  offline: "bg-status-offline",
+  unknown: "bg-muted-foreground",
+}
+
+function eventTitle(event: TimelineEventMarker): string {
+  const when = new Date(event.start_at).toLocaleString("zh-CN", { hour12: false })
+  const what = event.label ? `${categoryLabel(event.category)} · ${event.label}` : categoryLabel(event.category)
+  // An aggregate marker stands for a bucket of events, so it says how many
+  // rather than implying a single occurrence.
+  return event.marker_type === "aggregate"
+    ? `${when} 起 ${event.count} 个事件（${what}）`
+    : `${when} ${what}`
+}
+
 export interface TimelineTrackProps {
   timeline: PlaybackTimelineView | null
   rangeStartMs: number
@@ -52,6 +89,13 @@ export interface TimelineTrackProps {
   onSeek?: (atMs: number) => void
   className?: string
   height?: number
+  /**
+   * Draw the event markers above the record track. Off in the playback
+   * screen, where the events are already listed below the stage and a second
+   * layer on the same track is noise; on in the timeline screen, where the
+   * events are most of what is being compared.
+   */
+  showEvents?: boolean
 }
 
 export function TimelineTrack({
@@ -62,6 +106,7 @@ export function TimelineTrack({
   onSeek,
   className,
   height = 44,
+  showEvents = false,
 }: TimelineTrackProps) {
   const span = Math.max(1, rangeEndMs - rangeStartMs)
   const toPercent = (ms: number) =>
@@ -73,6 +118,7 @@ export function TimelineTrack({
   // on a frame that happens to be the first one to touch it.
   const segments = Array.isArray(timeline?.segments) ? timeline.segments : []
   const gaps = Array.isArray(timeline?.gaps) ? timeline.gaps : []
+  const events = Array.isArray(timeline?.events) ? timeline.events : []
 
   const handleClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeek) return
@@ -139,6 +185,35 @@ export function TimelineTrack({
           />
         ))}
       </div>
+
+      {showEvents &&
+        events.map((event) => {
+          // A point marker has no `end_at`; a range or aggregate does, and a
+          // missing end on those would otherwise render as zero width and
+          // look like a rendering bug rather than a payload problem.
+          const start = instantMs(event.start_at)
+          const end = event.end_at ? instantMs(event.end_at) : start
+          const width =
+            event.marker_type === "point"
+              ? 0
+              : Math.max(0.5, toPercent(end) - toPercent(start))
+          const tone = CATEGORY_TONE[event.category] ?? "unknown"
+          return (
+            <div
+              key={event.id}
+              className={cn(
+                "pointer-events-none absolute bottom-0 z-[5] h-1.5 rounded-full",
+                CATEGORY_BAR[tone],
+              )}
+              style={{
+                left: `${toPercent(start)}%`,
+                width: `${width}%`,
+              }}
+              data-event-category={event.category}
+              title={eventTitle(event)}
+            />
+          )
+        })}
 
       <div
         className="pointer-events-none absolute inset-y-0 z-10 w-px bg-foreground"

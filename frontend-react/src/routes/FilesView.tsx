@@ -4,6 +4,7 @@ import { Download, Film, FolderTree, Info, RefreshCw, Search } from "lucide-reac
 
 import { useCameraRecordings, useCameraProtections, useCameras, useExports, useSystemSettings } from "../lib/queries"
 import { useCancelExport, useCreateExport } from "../lib/exportMutations"
+import { formatSpan } from "../lib/format"
 import {
   ensureIntent,
   retryIsSafe,
@@ -12,7 +13,6 @@ import {
 } from "../lib/exportIntent"
 import {
   EXPORT_MAX_RANGE_MS,
-  formatSpan,
   localInputToUtcIso,
   utcIsoToLocalInput,
   validateExportForm,

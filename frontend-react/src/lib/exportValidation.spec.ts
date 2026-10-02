@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest"
 
 import {
   EXPORT_MAX_RANGE_MS,
-  formatSpan,
   isValidTimeZone,
   localInputToUtcIso,
   utcIsoToLocalInput,
@@ -10,6 +9,7 @@ import {
   validateMaxDownloads,
   validateShareTtl,
 } from "./exportValidation"
+import { formatSpan } from "./format"
 
 /**
  * The conversion under test is the one thing on this screen that can be wrong

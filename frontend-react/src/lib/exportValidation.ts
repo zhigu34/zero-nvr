@@ -1,3 +1,5 @@
+import { formatSpan } from "./format"
+
 /**
  * Turning the operator's wall-clock choice into what the backend will accept.
  *
@@ -153,16 +155,6 @@ export function validateExportForm(values: ExportFormValues): ExportValidation {
     }
   }
   return { ok: true, startUtc, endUtc, durationMs }
-}
-
-export function formatSpan(ms: number): string {
-  const totalMinutes = Math.round(ms / 60000)
-  const days = Math.floor(totalMinutes / 1440)
-  const hours = Math.floor((totalMinutes % 1440) / 60)
-  const minutes = totalMinutes % 60
-  if (days > 0) return `${days} 天 ${hours} 小时`
-  if (hours > 0) return `${hours} 小时 ${minutes} 分`
-  return `${minutes} 分钟`
 }
 
 /** 1–720, backend-enforced (`schemas.py:49-53`). */

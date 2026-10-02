@@ -483,6 +483,54 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
+### G-28 时间轴接口对范围与事件数都没有上限 🟡
+
+**事实**：`PlaybackTimelineService.build()`（`recordings/timeline.py:554-590`）
+对区间内的 `RecordingSegment` 与 `Event` 都是**全量 select，没有 `LIMIT`**，
+`camera_timeline` 端点也没有对 `from`/`to` 的跨度做校验
+（`recordings/api.py:1463-1497` 只校验 `end > start`）。
+
+`detail` 只影响**事件标记的分桶方式**，不影响取多少事件：
+
+| `detail` | 实际分桶 | `recording_ranges` |
+|---|---|---|
+| `minute` | 不分桶，每个事件一个标记 | 恒定 |
+| `hour` | 5 分钟 | 恒定 |
+| `day` | **1 小时** | 恒定 |
+
+**影响**：一次「最近 7 天 + 逐个事件」的请求会带回该区间内**所有**事件。
+量级取决于部署的事件密度——高事件率机位一天数千条很常见，七天就是几万条标记，
+页面会明显卡顿，而且**这是从服务端返回就已经很大的响应**，不是渲染慢。
+
+**注意命名**：三个档位叫 `minute` / `hour` / `day`，但 `day` 实际按小时分桶、
+`hour` 实际按 5 分钟分桶（`timeline.py:414-418`）。按名字理解会选错档位，
+因此前端按分桶大小标注（`lib/timelineRange.ts` 的 `DETAIL_OPTIONS`）。
+
+**当前处理**：`lib/timelineRange.ts` 里范围变更时默认粒度随跨度加粗
+（≤6h → 逐个，≤48h → 5 分钟，更宽 → 1 小时），并对「逐个事件 + 宽范围」
+给出提示而非硬拦——操作员可能确实要一天内每个事件，硬拦是另一种不诚实。
+
+**建议修法**：给 `camera_timeline` / `aligned_playback_timeline` 加跨度上限
+（按 `detail` 分档，例如 `minute` 档限制在 24 小时内），超出返回 4xx 并说明
+可用的档位。这比让前端猜一个阈值可靠。
+
+### G-29 对齐时间轴硬性限制 2–9 台，无「全部机位」形态 🟡
+
+**事实**：`PlaybackAlignedTimelineRequest.camera_ids` 是
+`min_length=2, max_length=9`（`recordings/schemas.py:96-98`），且
+`camera_ids` 必须唯一。契约里没有「取所有我有权限的机位」这种形态。
+
+**影响**：一个 20 台机位的部署无法在时间轴页做全局对照，只能手工挑最多 9 台。
+这是端点的限制，不是前端的取舍。
+
+**当前处理**：侧栏在选满 9 台后禁用其余项并明示上限；选 1 台时改走
+`GET /cameras/{id}/timeline`（对齐接口会拒绝少于 2 台）。
+
+**建议修法**：把 `max_length` 提高，或增加一个「按机位组/标签」的选择参数，
+让常见部署（门口一片、停车场一片）不必手工点名。
+
+---
+
 ## 写操作的标度陷阱
 
 同一批接口里「时长」有**三套单位**，混用会产生量级错误：
