@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react"
 
+import { useConfirm } from "../components/ui/Confirm"
+
 import {
   MATCH_KEYS,
   MATCH_KEY_META,
@@ -212,13 +214,26 @@ function DeletePolicyButton({
   onDone: () => void
 }) {
   const remove = useDeleteAlertPolicy()
+  const confirm = useConfirm()
   return (
     <Button
       variant="ghost"
       size="icon-sm"
       title="删除该规则"
       disabled={remove.isPending}
-      onClick={() => remove.mutate(policy.id, { onSuccess: onDone })}
+      onClick={async () => {
+        // A delete here is permanent and takes the rule's whole match
+        // configuration with it, so it is confirmed rather than fired on the
+        // first click.
+        const ok = await confirm({
+          title: "删除告警规则",
+          message: `确定删除「${policy.name}」？该规则会立即停止匹配，其配置无法恢复。`,
+          confirmLabel: "删除",
+          danger: true,
+        })
+        if (!ok) return
+        remove.mutate(policy.id, { onSuccess: onDone })
+      }}
     >
       <Trash2 className="size-3.5" />
     </Button>

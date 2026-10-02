@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router"
 
 import { ToastProvider } from "./components/ui/Toast"
+import { ConfirmProvider } from "./components/ui/Confirm"
 
 /**
  * The same wrapper the app uses around every route, so a component tested in
@@ -39,7 +40,9 @@ export function renderWithProviders(
 
   const result = render(
     <QueryClientProvider client={client}>
-      <ToastProvider>{ui}</ToastProvider>
+      <ToastProvider>
+        <ConfirmProvider>{ui}</ConfirmProvider>
+      </ToastProvider>
     </QueryClientProvider>,
     renderOptions,
   )
@@ -84,7 +87,9 @@ export function renderWithRouter(
   const result = render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <RouterProvider router={router} />
+        <ConfirmProvider>
+          <RouterProvider router={router} />
+        </ConfirmProvider>
       </ToastProvider>
     </QueryClientProvider>,
     rest,

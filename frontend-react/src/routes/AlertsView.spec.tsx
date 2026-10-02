@@ -387,3 +387,36 @@ describe("告警列表", () => {
     expect(screen.getAllByRole("button", { name: /标记解决/ }).length).toBe(1)
   })
 })
+
+describe("删除需要确认", () => {
+  it("does not delete when the operator cancels", async () => {
+    const calls = stubApi()
+    renderView()
+    fireEvent.click(await screen.findByTitle("删除该规则"))
+    // A delete takes the whole match configuration with it and cannot be
+    // undone, so the first click must not fire the request.
+    fireEvent.click(await screen.findByRole("button", { name: "取消" }))
+    await waitFor(() =>
+      expect(screen.queryByRole("alertdialog")).toBeNull(),
+    )
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false)
+  })
+
+  it("deletes once the operator confirms", async () => {
+    const calls = stubApi()
+    renderView()
+    fireEvent.click(await screen.findByTitle("删除该规则"))
+    fireEvent.click(await screen.findByRole("button", { name: "删除" }))
+    await waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true))
+  })
+
+  it("does not delete when the prompt is dismissed with the backdrop", async () => {
+    const calls = stubApi()
+    renderView()
+    fireEvent.click(await screen.findByTitle("删除该规则"))
+    const backdrop = (await screen.findByRole("alertdialog")).parentElement!
+    fireEvent.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull())
+    expect(calls.some((c) => c.method === "DELETE")).toBe(false)
+  })
+})

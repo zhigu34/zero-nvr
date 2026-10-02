@@ -21,6 +21,7 @@ import { formatSpan } from "../../lib/format"
 import { Badge, Button } from "../ui/primitives"
 import { Callout, EmptyState, StatusDot, StatusLabel } from "../ui/display"
 import { SharePanel } from "./SharePanel"
+import { useConfirm } from "../ui/Confirm"
 import { cn } from "../../lib/utils"
 
 /**
@@ -49,6 +50,7 @@ export function ExportJobList({
   cancelling: string | null
 }) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const confirm = useConfirm()
 
   if (jobs.length === 0) {
     return (
@@ -127,7 +129,19 @@ export function ExportJobList({
                     size="icon-sm"
                     title="取消该导出"
                     disabled={cancelling === job.id}
-                    onClick={() => onCancel(job.id)}
+                    onClick={async () => {
+                      // Cancelling also unlinks the output file, so a
+                      // half-finished export is destroyed rather than
+                      // paused. Named explicitly so the operator is not
+                      // cancelling the wrong row of a long list.
+                      const ok = await confirm({
+                        title: "取消导出",
+                        message: `确定取消 ${cameraNames.get(job.camera_id) ?? job.camera_id} 在 ${formatClock(job.start_at)} 开始的导出？已生成的文件会被删除。`,
+                        confirmLabel: "取消导出",
+                        danger: true,
+                      })
+                      if (ok) onCancel(job.id)
+                    }}
                   >
                     <Ban className="size-3.5" />
                   </Button>

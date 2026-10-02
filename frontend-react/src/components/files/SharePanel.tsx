@@ -11,6 +11,7 @@ import {
 import { formatClock } from "../../lib/format"
 import { Button, Input, Separator } from "../ui/primitives"
 import { Callout, EmptyState, StatusDot } from "../ui/display"
+import { useConfirm } from "../ui/Confirm"
 
 /**
  * Share links on a completed export.
@@ -37,6 +38,7 @@ export function SharePanel({ job }: { job: ExportView }) {
   const shares = useExportShares(job.id)
   const create = useCreateExportShare(job.id)
   const revoke = useRevokeExportShare(job.id)
+  const confirm = useConfirm()
 
   const [password, setPassword] = useState("")
   const [ttl, setTtl] = useState("24")
@@ -222,7 +224,20 @@ export function SharePanel({ job }: { job: ExportView }) {
                       size="icon-sm"
                       title="撤销该链接"
                       disabled={revoke.isPending}
-                      onClick={() => revoke.mutate(share.id)}
+                      onClick={async () => {
+                        // Revoking is what makes a leaked link safe again, so
+                        // it is deliberately easy — but it is still a
+                        // destructive act on something already sent out, and
+                        // the operator may be clicking the wrong row.
+                        const ok = await confirm({
+                          title: "撤销分享链接",
+                          message:
+                            "撤销后该链接立即失效，已经拿到链接的人将无法再下载。",
+                          confirmLabel: "撤销",
+                          danger: true,
+                        })
+                        if (ok) revoke.mutate(share.id)
+                      }}
                     >
                       <Trash2 className="size-3.5" />
                     </Button>

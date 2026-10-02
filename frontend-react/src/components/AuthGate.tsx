@@ -2,6 +2,7 @@ import { useEffect, useState } from "react"
 import { RouterProvider } from "@tanstack/react-router"
 import { QueryProvider } from "../lib/queries"
 import { ToastProvider } from "./ui/Toast"
+import { ConfirmProvider } from "./ui/Confirm"
 import { createAppRouter, type AppRouter } from "../routes/router"
 import { useAuthStore } from "../stores/auth"
 
@@ -65,7 +66,9 @@ export function AuthGate({ router: injected }: { router?: AppRouter } = {}) {
   return (
     <QueryProvider>
       <ToastProvider>
-        <RouterProvider router={router} />
+        <ConfirmProvider>
+          <RouterProvider router={router} />
+        </ConfirmProvider>
       </ToastProvider>
     </QueryProvider>
   )

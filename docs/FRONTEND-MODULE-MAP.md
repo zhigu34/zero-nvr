@@ -689,7 +689,7 @@ GET /auth/me
 | **PR-3** | 只读页：事件 / 摄像机列表 / 存储列表（验证 TanStack Table 模式） | 已完成 |
 | **PR-4** | 媒体页：实时监控 / 录像回放（传输层 + 容错 + 补测试） | 已完成 |
 | **PR-5** | 写操作页：机位编辑 / 录制计划 / 告警规则 / 系统设置 / 文件导出 / 时间轴 / 用户 / 审计 | **已完成** |
-| **PR-6** | 切换：删除 `frontend/`，`frontend-react/` 升为唯一前端 | PR-5 |
+| **PR-6** | 切换：删除 `frontend/`，`frontend-react/` 升为唯一前端。**应拆为「补齐 23 项缺失功能」+「切换」两段**，前置见 [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md) | PR-5 |
 
 迁移期间 Vue 应用必须保持可运行，两套前端由不同路径服务（`/` → Vue，`/next/*` → React）。
 
