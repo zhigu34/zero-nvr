@@ -6,6 +6,15 @@
 
 状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞
 
+**当前合计 35 条**（🔴 11 · 🟡 19 · ⚪ 5）。全部来自 PR-3 至 PR-5 逐模块核对
+真实契约与原型假设的差异，按 ADR-0014 决策 4 一律**不在本迁移中修改后端**，
+修复走独立流程。
+
+🔴 中有三条已经在本迁移里被前端绕开并留下了实现注释，缺口本身仍在：
+**G-17**（写入「已存未生效」）与 **G-33**（`match` 整体替换）各有对应的
+`wasPersisted` / `mergeMatch`；**G-19**（分享链接公开可达）在界面上以警告
+呈现，但端点本身仍然免鉴权。
+
 ---
 
 ## G-1 存储目标没有只读容量接口 🔴
@@ -354,7 +363,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 （`cameras/service.py:494`），恢复后需要再点一次启用。界面必须说明这一点，
 否则用户会以为恢复完就能用了。
 
-### G-22 `CameraDetail` 不返回 `device_id`，厂商/型号无法安全编辑 🟡
+## G-22 `CameraDetail` 不返回 `device_id`，厂商/型号无法安全编辑 🟡
 
 **事实**：`CameraDetail` 只有两个额外字段——`streams` 与 `bindings`
 （`cameras/schemas.py:182-185`），**没有 `device_id`**。而 G-21 的第 2 条说
@@ -376,7 +385,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
-### G-23 导出排队失败会留下一条永远不会被执行的记录，且重试会骗过操作者 🔴
+## G-23 导出排队失败会留下一条永远不会被执行的记录，且重试会骗过操作者 🔴
 
 **事实**：`POST /exports` 先提交事务再入队，且**只在 `created` 为真时入队**
 （`exports/api.py:195-225`）。因此任务队列不可用时：
@@ -411,7 +420,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 第 1 条最好：它同时解决了 G-24。
 
-### G-24 `ExportView` 没有进度，也没有「是否已入队」 🔴
+## G-24 `ExportView` 没有进度，也没有「是否已入队」 🔴
 
 **事实**：`ExportView`（`exports/schemas.py:19-38`）有 `state` / `started_at`
 / `completed_at`，**没有进度百分比**，也**没有 `queued_at`**（只有 `created_at`）。
@@ -428,7 +437,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 **建议修法**：`ExportView` 增加 `queued_at: datetime | null` 与
 `progress_percent: int | null`（worker 自己报，不让前端外推）。
 
-### G-25 没有跨机位的录像片段列表接口 🟡
+## G-25 没有跨机位的录像片段列表接口 🟡
 
 **事实**：`GET /cameras/{camera_id}/recordings` 是**唯一**的片段列表端点
 （`recordings/api.py:1123`），必须带 `camera_id`。契约里没有
@@ -444,7 +453,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 复用 `RecordingCatalogQueryService.list_camera` 的过滤逻辑即可，
 前端筛选逻辑不用动。
 
-### G-26 片段没有分辨率，存储位置要 N+1 才能拿到 🟡
+## G-26 片段没有分辨率，存储位置要 N+1 才能拿到 🟡
 
 **事实**：`RecordingSegmentView`（`recordings/schemas.py:200-215`）有 `codec` /
 `container` / `size_bytes`，**没有分辨率**。而「本地 / 已归档 / 备份」这个位置
@@ -464,7 +473,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 `locations: [{storage_type, storage_role, state}]` 摘要数组——
 同一次查询 LEFT JOIN 出来，不增加往返。
 
-### G-27 保护没有片段维度，只能靠时间重叠推导 🟡
+## G-27 保护没有片段维度，只能靠时间重叠推导 🟡
 
 **事实**：`RecordingProtectionCreate`（`recordings/schemas.py:284-288`）是
 `{started_at, ended_at, reason, expires_at}`，作用域是**机位**，模型里
@@ -483,7 +492,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
-### G-28 时间轴接口对范围与事件数都没有上限 🟡
+## G-28 时间轴接口对范围与事件数都没有上限 🟡
 
 **事实**：`PlaybackTimelineService.build()`（`recordings/timeline.py:554-590`）
 对区间内的 `RecordingSegment` 与 `Event` 都是**全量 select，没有 `LIMIT`**，
@@ -514,7 +523,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 （按 `detail` 分档，例如 `minute` 档限制在 24 小时内），超出返回 4xx 并说明
 可用的档位。这比让前端猜一个阈值可靠。
 
-### G-29 对齐时间轴硬性限制 2–9 台，无「全部机位」形态 🟡
+## G-29 对齐时间轴硬性限制 2–9 台，无「全部机位」形态 🟡
 
 **事实**：`PlaybackAlignedTimelineRequest.camera_ids` 是
 `min_length=2, max_length=9`（`recordings/schemas.py:96-98`），且
@@ -531,7 +540,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
-### G-30 审计事件只给 UUID，「谁做的」要跨资源拼 🟡
+## G-30 审计事件只给 UUID，「谁做的」要跨资源拼 🟡
 
 **事实**：`AuditEventView`（`audit/schemas.py:10-30`）的 `actor_id` 是
 `uuid.UUID | None`，`actor_type` 是裸字符串（无枚举）。用户名在
@@ -550,7 +559,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 （服务端 join，成本极低），或提供一个按 id 批量查用户的端点，避免审计页为了
 显示名字而加载整个用户表。
 
-### G-31 `before` / `after` 是尽力而为，没有「是否记录」的标志 🟡
+## G-31 `before` / `after` 是尽力而为，没有「是否记录」的标志 🟡
 
 **事实**：`AuditEventView.before` / `after` 是
 `dict[str, Any] | None`，部分 `append_audit_event` 调用点传了快照，
@@ -567,7 +576,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 **建议修法**：加 `diff_recorded: bool`，或者约定「没记快照时 `before`/`after`
 显式为 `{}` 而非 `null`」，让调用方不必靠猜。
 
-### G-32 没有「某用户的 API 令牌 / 会话」管理端点 ⚪
+## G-32 没有「某用户的 API 令牌 / 会话」管理端点 ⚪
 
 **事实**：`/api-tokens` 与 `/sessions`（`auth/api.py`）都是**当前登录用户
 自己**的资源：没有 `/users/{id}/tokens` 或 `/users/{id}/sessions`。
@@ -585,7 +594,7 @@ runtime.blockers: list[str]         # 阻塞原因的错误码数组
 
 ---
 
-### G-33 `PATCH /alert-policies/{id}` 整体替换 `match`，无字段级合并 🔴
+## G-33 `PATCH /alert-policies/{id}` 整体替换 `match`，无字段级合并 🔴
 
 **事实**：`AlertPolicyUpdate.match` 是 `dict[str, object] | None`
 （`alerts/schemas.py:25-34`），`alerts/service.py` 里**没有任何按字段合并的逻辑**
@@ -610,7 +619,7 @@ key，而且返回 200。这不是理论问题：旧 Vue 页面
 **建议修法**：把 `match` 改成 PATCH 语义（只更新提交的 key），或在
 `AlertPolicyUpdate` 里加 `match_patch` 字段与 `match` 二选一。
 
-### G-34 告警策略没有 `camera_id` 列，摄像机范围藏在 `match` 里 🟡
+## G-34 告警策略没有 `camera_id` 列，摄像机范围藏在 `match` 里 🟡
 
 **事实**：`AlertPolicyView`（`alerts/schemas.py:36-45`）没有 `camera_id`，
 摄像机范围只能写在 `match.camera_ids`（≤256，`service.py:195-211` 会校验存在性）。
@@ -628,7 +637,7 @@ key，而且返回 200。这不是理论问题：旧 Vue 页面
 **建议修法**：与 D-2 一并裁决。若最终选择合并，需要先给 `alert_policies`
 加 `camera_id` 或引入分组维度。
 
-### G-35 告警动作里的录像保护与录制策略互不知情 ⚪
+## G-35 告警动作里的录像保护与录制策略互不知情 ⚪
 
 **事实**：`AlertPolicy.actions` 支持 `protect_recording` 与
 `protect_before_seconds` / `protect_after_seconds` / `protect_expires_days`
