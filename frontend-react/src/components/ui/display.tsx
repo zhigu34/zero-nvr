@@ -341,14 +341,24 @@ export function Segmented({
   value,
   onChange,
   className,
+  ariaLabel,
 }: {
   options: { value: string; label: React.ReactNode }[]
   value: string
   onChange: (value: string) => void
   className?: string
+  /**
+   * Names the group. A row of mutually exclusive buttons is one control, and
+   * without a name a screen reader announces three unrelated buttons — which
+   * matters most where two of them share labels, as the notification secret
+   * fields do.
+   */
+  ariaLabel?: string
 }) {
   return (
     <div
+      role={ariaLabel ? "group" : undefined}
+      aria-label={ariaLabel}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-lg border border-border bg-background p-0.5",
         className,

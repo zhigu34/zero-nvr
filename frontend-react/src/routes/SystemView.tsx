@@ -6,10 +6,13 @@ import {
   PageHeader,
   Section,
   StatusDot,
+  Tabs,
   type HealthTone,
 } from "../components/ui/display"
+import { NotificationsPanel } from "../components/system/NotificationsPanel"
 import {
   useCameraClockHealth,
+  useNotificationTargets,
   useSystemHealth,
   useSystemSettings,
 } from "../lib/queries"
@@ -62,7 +65,52 @@ const COMPONENT_TONE: Record<HealthComponent["status"], HealthTone> = {
   DISABLED: "unknown",
 }
 
+type SystemTab = "settings" | "notifications"
+
+/**
+ * System settings and notification channels.
+ *
+ * The tab shell sits **outside** the settings loading and error guards, and
+ * that placement is the point rather than an accident of layout. Settings are
+ * three nested groups read as one payload, so a partial or failing response
+ * takes down everything that depends on it — but the notification targets, the
+ * security-email pointer and the delivery log are separate endpoints with
+ * separate failure modes. Hoisting the shell means "system settings is broken"
+ * never also means "you cannot see that alerts are failing to send", which is
+ * exactly the moment somebody needs to read the delivery log.
+ */
 export function SystemView() {
+  const [tab, setTab] = useState<SystemTab>("settings")
+  // Fetched here only for the tab badge, so the operator can see that there are
+  // no targets at all without switching tabs first. A plain GET, no side effect.
+  const targets = useNotificationTargets()
+
+  return (
+    <div className="space-y-4 p-5">
+      <PageHeader
+        title="系统设置"
+        description="系统参数与通知渠道。"
+      />
+
+      <Tabs
+        active={tab}
+        onChange={(key) => setTab(key as SystemTab)}
+        tabs={[
+          { key: "settings", label: "系统设置" },
+          {
+            key: "notifications",
+            label: "通知渠道",
+            count: targets.data?.length,
+          },
+        ]}
+      />
+
+      {tab === "settings" ? <SystemSettingsTab /> : <NotificationsPanel />}
+    </div>
+  )
+}
+
+function SystemSettingsTab() {
   const settingsQuery = useSystemSettings()
   const healthQuery = useSystemHealth()
   const clockQuery = useCameraClockHealth()
@@ -91,11 +139,7 @@ export function SystemView() {
     runtimeErrors.find((error) => error.field === key)?.message ?? null
 
   if (settingsQuery.isPending) {
-    return (
-      <div className="p-6">
-        <PageHeader title="系统设置" description="正在加载…" />
-      </div>
-    )
+    return <p className="text-xs text-muted-foreground">读取中…</p>
   }
 
   // Settings are three nested groups. A partial payload — a group missing
@@ -108,14 +152,11 @@ export function SystemView() {
 
   if (settingsQuery.isError || !settings || !runtime || !groupsIntact) {
     return (
-      <div className="p-6">
-        <PageHeader title="系统设置" />
-        <Callout tone="offline" title="无法加载系统设置">
-          {settingsQuery.error instanceof Error
-            ? settingsQuery.error.message
-            : "响应结构不符合预期：缺少 general / time / runtime 分组"}
-        </Callout>
-      </div>
+      <Callout tone="offline" title="无法加载系统设置">
+        {settingsQuery.error instanceof Error
+          ? settingsQuery.error.message
+          : "响应结构不符合预期：缺少 general / time / runtime 分组"}
+      </Callout>
     )
   }
 
@@ -153,20 +194,19 @@ export function SystemView() {
     Object.keys(runtimeChanged).length > 0
 
   return (
-    <div className="space-y-4 p-5">
-      <PageHeader
-        title="系统设置"
-        description="分组配置：通用 / 时间 / 运行时调优。"
-        actions={
-          <Button
-            size="sm"
-            onClick={submit}
-            disabled={!dirty || save.isPending || runtimeErrors.length > 0}
-          >
-            {save.isPending ? "保存中…" : "保存"}
-          </Button>
-        }
-      />
+    <div className="space-y-4">
+      {/* The save action lives inside the tab rather than in the page header:
+          the header is shared, and a 保存 button that does nothing on the
+          notification tab would be a lie about what the click will do. */}
+      <div className="flex justify-end">
+        <Button
+          size="sm"
+          onClick={submit}
+          disabled={!dirty || save.isPending || runtimeErrors.length > 0}
+        >
+          {save.isPending ? "保存中…" : "保存"}
+        </Button>
+      </div>
 
       {healthQuery.data ? (
         <Section title="服务状态">

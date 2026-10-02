@@ -497,6 +497,20 @@ GET               /shared/exports/{token}/download      (免登录)
 
 **保留的诊断类端点**（供本页顶部状态条使用，不单独成 tab）：`GET /system/health`、`GET /system/info`、`GET /system/update-info`、`GET /system/events/stream`。
 
+**实现进度**（PR-5d 建立了平铺的 4 组表单；PR-6 补齐阶段按上表逐个转成 tab）：
+
+| tab | 状态 |
+|---|---|
+| 系统设置（通用 / 时钟与 NTP / 运行时调优） | ✅ PR-5d |
+| 通知渠道 | ✅ PR-6 补齐 1 |
+| AI 引擎（Frigate） | ⬜ 补齐 4 |
+| 密钥与安全（SecretStore） | ⬜ 补齐 3 |
+| 配置导入导出 | ⬜ 未列入 13 项补齐清单，需确认是否保留 |
+
+> tab 外壳放在「系统设置加载失败」的 guard **之外**：设置是三个嵌套分组一次读出，
+> 部分响应会拖垮所有依赖它的分组，而通知目标、安全邮件指针、投递记录是三个
+> 独立端点。「系统设置坏了」不应该同时意味着「看不到告警发不出去」。
+
 **时区已知缺陷**：`display_timezone` 默认值是 `UTC` 而非 `Asia/Shanghai`，且 `recordings/reconciliation.py:276` 把 `tzinfo=UTC` 写死。UI 上暴露的时区设置目前不生效。**迁移时不要试图用前端时区转换来掩盖它**——应先修后端，修不好就在 UI 上如实标注该设置当前不生效。
 
 **权限**：管理员。Operator 可见但只读。

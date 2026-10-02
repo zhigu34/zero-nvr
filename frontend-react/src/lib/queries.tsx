@@ -11,6 +11,7 @@ import * as protectionsApi from "../api/protections"
 import * as usersApi from "../api/users"
 import * as auditApi from "../api/audit"
 import * as alertsApi from "../api/alerts"
+import * as notificationsApi from "../api/notifications"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -456,6 +457,56 @@ export function useAlerts(filters: alertsApi.AlertFilters) {
         page.items.some((alert) => alert.state !== "RESOLVED"),
       )
       return live ? 10_000 : false
+    },
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Notifications                                                              */
+/* -------------------------------------------------------------------------- */
+
+export const NOTIFICATIONS = {
+  targets: ["notifications", "targets"] as const,
+  securityEmail: ["notifications", "security-email"] as const,
+  deliveries: (filters: Record<string, string | undefined>) =>
+    ["notifications", "deliveries", filters] as const,
+}
+
+export function useNotificationTargets() {
+  return useQuery({
+    queryKey: NOTIFICATIONS.targets,
+    queryFn: ({ signal }) => notificationsApi.listNotificationTargets(signal),
+    staleTime: 60_000,
+  })
+}
+
+export function useSecurityEmailTarget() {
+  return useQuery({
+    queryKey: NOTIFICATIONS.securityEmail,
+    queryFn: ({ signal }) => notificationsApi.getSecurityEmailTarget(signal),
+    staleTime: 60_000,
+  })
+}
+
+/**
+ * Deliveries change on their own — a queued message moves through
+ * PENDING → SENDING → SENT/FAILED without the operator doing anything — so
+ * this polls while anything is in flight and stops once the log has settled.
+ */
+export function useNotificationDeliveries(
+  filters: notificationsApi.DeliveryFilters = {},
+) {
+  return useQuery({
+    queryKey: NOTIFICATIONS.deliveries({
+      targetId: filters.targetId,
+      alertId: filters.alertId,
+    }),
+    queryFn: ({ signal }) => notificationsApi.listNotificationDeliveries(filters, signal),
+    staleTime: 5_000,
+    refetchInterval: (query) => {
+      const items = query.state.data ?? []
+      const inFlight = items.some((d) => d.state === "PENDING" || d.state === "SENDING")
+      return inFlight ? 4_000 : false
     },
   })
 }
