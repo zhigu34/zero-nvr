@@ -1160,6 +1160,11 @@ case "$command" in
     #
     # The script names do not all follow the command names (`soak` is `soak.sh`
     # but `small-host-soak` is `small_host_soak.py`), so the mapping is explicit.
+    #
+    # Only `resource-bounds-check` takes no arguments. Deciding that here rather
+    # than from a blanket rule is deliberate: an earlier version assumed every
+    # command needs arguments and rejected a bare `resource-bounds-check`, which
+    # broke the clean-install gate that calls exactly that.
     case "$command" in
       benchmark) script="benchmark.sh" ;;
       soak) script="soak.sh" ;;
@@ -1170,7 +1175,7 @@ case "$command" in
       camera-acceptance) script="camera-acceptance.sh" ;;
     esac
 
-    if [[ "$#" -eq 0 ]]; then
+    if [[ "$#" -eq 0 && "$command" != "resource-bounds-check" ]]; then
       # These commands all require arguments, and not all of them can print
       # their own help before reading the environment
       # (`resource_bounds_check.py` needs `.env` first), so the usage shown here
