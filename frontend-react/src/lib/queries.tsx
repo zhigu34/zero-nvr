@@ -17,6 +17,7 @@ import * as secretStoreApi from "../api/secretStore"
 import * as frigateApi from "../api/frigate"
 import * as accountApi from "../api/account"
 import * as backupsApi from "../api/backups"
+import * as triggersApi from "../api/recordingTriggers"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -661,5 +662,32 @@ export function useRecoveryKitStatus(policyId: string | null) {
     // query parameter, so there is nothing to ask about.
     enabled: Boolean(policyId),
     staleTime: 60_000,
+  })
+}
+
+/* -------------------------------------------------------------------------- */
+/* Recording triggers                                                         */
+/* -------------------------------------------------------------------------- */
+
+export const RECORDINGS = {
+  triggers: (cameraId: string) => ["recordings", "triggers", cameraId] as const,
+  /** Prefix for invalidation across cameras. */
+  triggersPrefix: ["recordings", "triggers"] as const,
+}
+
+/**
+ * A camera's manual and event triggers, newest first.
+ *
+ * **Server-capped at 100 rows** with neither `limit` nor a cursor
+ * (`triggers.py:51-64`), so this is "the recent 100", not "all of them". No
+ * polling: a trigger's state only moves when the recorder acts, and the panel
+ * refetches on demand.
+ */
+export function useRecordingTriggers(cameraId: string | null) {
+  return useQuery({
+    queryKey: RECORDINGS.triggers(cameraId ?? ""),
+    queryFn: ({ signal }) => triggersApi.listRecordingTriggers(cameraId as string, signal),
+    enabled: Boolean(cameraId),
+    staleTime: 15_000,
   })
 }
