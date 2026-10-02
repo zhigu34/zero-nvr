@@ -78,7 +78,7 @@ React 只用到了后者的一半——`MATCH_KEY_META` 之外没有渲染任何
 | Vue 组件（行数） | 说明 | React | 状态 |
 |---|---|---|---|
 | CameraOnboardingPanel (1248) + 5 个步骤 (960) | ONVIF 探测 / 手动接入 / CSV 批量，**6 个 spec** | — | ❌ **最大单项** |
-| CameraDetailPanel (1147) + General/Streams 两个 tab (888) | 详情抽屉：基本 / 码流与绑定 / 健康与时钟 | CameraEditor（仅编辑表单） | 🟡 缺只读详情与**码流用途绑定**（RECORD/LIVE_HIGH/AI_DETECT/… 的绑定是核心能力） |
+| CameraDetailPanel (1147) + General/Streams 两个 tab (888) | `CameraDetailDrawer` + `CameraStreamsPanel` / `CameraHealthPanel` / `CameraClockPanel` | — | ✅ 已补齐 |
 | CameraGroupsPanel (595) | 机位分组 CRUD | 仅在用户范围面板里只读列出 | ❌ |
 | CameraDeviceGlyph (92) | 设备图标 | lucide 图标 | ✅ |
 
@@ -128,7 +128,7 @@ React 目前只有「看」没有「做」。
 | LiveCameraTile (2591) | PR-4 拆为传输层 + `useLiveTile` + 9 个 spec | ✅ 已被取代 |
 | **AccountPanel (531)** | — | ❌ 个人账号设置：改密码、邮箱、语言 |
 | ConfirmDialog (57) + useConfirm | — | ❌ **本轮已补**，见 §9 |
-| DrawerDialog (81) | — | ❌（部分页面用侧栏代替，未统一） |
+| DrawerDialog (81) | `components/ui/Drawer.tsx` | ✅ 已补齐 |
 | **LanguageControl (189) + i18n** | 无 i18n | ❌ 全应用硬编码中文 |
 | ThemeControl (190) | `use-theme.ts` | ✅ |
 | NoticeBanner / StatusPill / EmptyState / ToastHost | Callout / StatusDot / EmptyState / Toast | ✅ |
@@ -144,8 +144,8 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 分类 | 组件数 | Vue 行数 | 受影响的 Vue spec |
 |---|---|---|---|
 | ✅ 已被 React 取代 | 19 | 8,373 | 0（都有 React 对应测试） |
-| ✅ 本轮补齐 | 13 | 8,293 | 12 |
-| ❌ **仍然完全缺失** | **10** | **492** | **6** |
+| ✅ 本轮补齐 | 17 | 11,498 | 24 |
+| ❌ **仍然完全缺失** | **7** | **307** | **4** |
 | 🟡 部分覆盖 / 形态不同 | 5 | 2,578 | 3 |
 | ⚪ 两侧都是死代码 | 2 | — | 0 |
 
@@ -532,7 +532,62 @@ context、没有 DOM 标记把它发布出来，只给 `cameraId` 的面板拿�
 
 ---
 
-## 15. 待裁决
+## 15. 补齐 11/13：摄像机详情抽屉
+
+一行一台摄像机，一个抽屉四个页签。替换掉了原先表格右侧的停靠编辑面板——
+同一台摄像机有两个入口，就是名称在一处改、绑定在另一处改的起点。
+
+| 文件 | 行数 | 测试 | 职责 |
+|---|---|---|---|
+| `components/ui/Drawer.tsx` | 205 | 8 | 抽屉原语：焦点进入 / 焦点陷阱 / 焦点归还 / Esc / 背景滚动锁 |
+| `components/cameras/CameraDetailDrawer.tsx` | 210 | 7 | 外壳与四页签，概览页含只读事实 + 编辑表单 |
+| `components/cameras/CameraStreamsPanel.tsx` | 445 | 19 | 码流列表、单条检测与轨道回显、六用途绑定编辑 |
+| `components/cameras/CameraHealthPanel.tsx` | 250 | 21 | 六层能力健康 |
+| `components/cameras/CameraClockPanel.tsx` | 260 | 17 | 时钟偏差与四类「没有读数」的区分 |
+| `components/cameras/CameraEditor.tsx`（改造） | 180 | 10 | 去掉外壳后成为纯表单，嵌入概览页 |
+
+### 契约层修正（先于 UI）
+
+1. **`CameraStreamProfile.codec` 被写成了 `video_codec`**。那是 `CameraSummary`
+   上的另一个字段；按错误的名字读，每台摄像机的码流编码都会静默变成 `undefined`。
+2. **`CameraStreamBinding.stream_profile_id` 标成了可空**。后端是 `uuid.UUID`
+   非空且外键 `ondelete="RESTRICT"`，悬空绑定走 API 不可达。原来的 `: "未绑定"`
+   分支因此是死代码，且把 `auto` 误画成「没绑定」——`auto` 的 profile 是真实
+   存在的，只是由服务端挑。
+3. **补齐 `CameraCapabilityHealth` / `CameraStreamDiagnostic` / `verifyStreamProfile`**
+   三个此前不存在的契约。`getCameraClock` 早就有定义但零调用方。
+
+### 移植时修掉的 Vue 缺陷（4 个）
+
+1. **Vue 详情面板根本没有健康面板**——`GET /cameras/{id}/health` 在整个 Vue
+   前端零调用方。这一块是新增能力，不是移植。
+2. **Vue 把四种「没有时钟读数」的原因塌缩成一句话**（`CamerasView.vue:481-497`
+   只看 `offset_ms === null`），`unsupported`（设备不支持）与「尚未测量」对
+   操作员是完全不同的两件事。前者永远不会好，后者等一下会。
+3. **Vue 的健康判定是 `health === "healthy" || |offset| < 200 || |offset| < 1000`
+   的或运算**（`:488-496`）——两个来源互相覆盖。React 侧只用 `health`。
+4. **Vue 的码流用途绑定会丢 `selection_mode`**：只读 `stream_profile_id`、
+   硬编码 `"manual"`，导入期建的 `auto` 绑定在操作员第一次保存时被静默改写。
+
+### Vue 丢弃的检测结果
+
+`POST /streams/{profile_id}/verify` 的响应体在 Vue 侧**整个被丢掉**，
+只弹一句硬编码的「已更新最新状态与分辨率」（`CameraDetailStreamsTab.vue:199`）。
+而 `ready: false`（轨道在、探测读不到）正好是这类面板最容易骗过操作员的地方。
+React 侧把 video / audio 两条轨道和 `verified_at` 都渲染出来，三态分开。
+
+### 新增契约缺口
+
+G-41（`auto` 静默丢弃显式选择 🔴）/ G-42（时钟无按通道刷新入口，且一个 GET
+在写库 🟡）/ G-43（三层健康永远无法报告 healthy ⚪）。
+
+### 明确没做的
+
+**实时预览**。Vue 详情面板有 `LiveCameraTile`，但那是一整套独立的播放栈
+（会话租约、编解码协商、兼容性回退），在摄像机页重建一份会立刻产生第二套
+真相源。直播仍然只在直播页。
+
+## 16. 待裁决
 
 1. **i18n**：React 侧是否重建多语言？这决定 13 项之外是否还有第 14 项。
 2. **文件页形态**：日历 + 热力图是否保留，还是接受 PR-5e 的「浏览并导出」？

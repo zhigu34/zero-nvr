@@ -22,7 +22,10 @@ import {
   restoreCamera,
   retireCamera,
   updateCamera,
+  verifyStreamProfile,
+  type CameraStreamBinding,
   type CameraStreamBindingInput,
+  type CameraStreamDiagnostic,
   type CameraUpdate,
 } from "../api/cameras"
 import { CAMS } from "./queries"
@@ -145,11 +148,60 @@ export function useProbeCamera() {
   })
 }
 
+/**
+ * Replace the whole binding set for one camera.
+ *
+ * `PUT /cameras/{id}/stream-bindings` is **replace, not merge**
+ * (`cameras/service.py:569-583` deletes every row for the camera and rebuilds
+ * from the payload). A purpose missing from the body is therefore unbound, so
+ * this takes the full desired set rather than a patch — there is no
+ * "leave this one alone" request shape.
+ *
+ * `selection_mode` is sent for every entry, taken from what is currently
+ * stored. The Vue panel seeded its form from `stream_profile_id` only and
+ * hardcoded `"manual"` (`CameraDetailStreamsTab.vue:96-120`), so an `auto`
+ * binding created at import time was silently rewritten to `manual` the first
+ * time an operator saved *any* purpose on that camera. Selection mode is a
+ * server-side decision this form does not own, so it round-trips untouched.
+ */
 export function useSaveStreamBindings(cameraId: string) {
-  return useSave<CameraStreamBindingInput[], unknown>({
+  const queryClient = useQueryClient()
+  return useSave<CameraStreamBindingInput[], CameraStreamBinding[]>({
     mutationFn: (bindings) => replaceStreamBindings(cameraId, bindings),
     invalidates: [CAMS.detail(cameraId)],
     success: () => ({ title: "码流绑定已保存" }),
+    // A RECORD change re-queues the recorder; if that queue is down the bindings
+    // are already committed and the server says so with
+    // `details.configuration_persisted = true` (`cameras/api.py:2167-2179`).
     failure: partialFailure("码流绑定"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CAMS.detail(cameraId) })
+    },
+  })
+}
+
+/**
+ * Probe one profile and keep the result for display.
+ *
+ * The response carries what the media path actually read (codec, dimensions,
+ * fps, GOP, audio readiness). It is returned rather than discarded, and unlike
+ * the Vue panel it is not a "please refetch" hint — the caller shows it.
+ */
+export function useVerifyStream(cameraId: string) {
+  const queryClient = useQueryClient()
+  return useSave<string, CameraStreamDiagnostic>({
+    mutationFn: (profileId) => verifyStreamProfile(cameraId, profileId),
+    // Verify writes: it updates codec / dimensions / status / last_verified_at
+    // on the profile row (`cameras/api.py:1994-2018`). The detail must be
+    // refetched or the list keeps showing the pre-probe state — the exact
+    // staleness the Vue drawer suffered from.
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: CAMS.detail(cameraId) })
+    },
+    success: () => ({ title: "检测完成" }),
+    failure: (error) => ({
+      title: "码流检测失败",
+      detail: error instanceof Error ? error.message : String(error),
+    }),
   })
 }

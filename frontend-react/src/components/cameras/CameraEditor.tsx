@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import { X } from "lucide-react"
 
 import type {
   CameraDetail,
@@ -13,7 +12,7 @@ import {
   type FieldError,
 } from "../../lib/cameraValidation"
 import { useSaveCamera } from "../../lib/cameraMutations"
-import { STREAM_PURPOSE_LABEL } from "../../api/cameras"
+import { boundStreamName, STREAM_PURPOSE_LABEL } from "../../api/cameras"
 
 /**
  * Editing one camera.
@@ -24,12 +23,21 @@ import { STREAM_PURPOSE_LABEL } from "../../api/cameras"
  * - **RTSP address is not editable.** `CameraUpdate` has no stream fields at
  *   all; changing a camera's source means recreating it. Showing a field that
  *   cannot be saved is worse than not showing it.
- * - **Manufacturer / model / form factor are hidden** unless the camera has a
- *   `device_id`. With no device the backend drops them silently and returns
- *   200, so the values would vanish on the next reload with no trace
- *   (`cameras/service.py:438`).
+ * - **Manufacturer / model / form factor are never offered.** They are written
+ *   to the *device*, not the camera (`cameras/service.py:437-448`). With no
+ *   device the backend drops them and returns 200; on a multi-channel NVR the
+ *   write succeeds and changes every channel at once while the audit records one
+ *   camera. Both outcomes are wrong enough that the honest move is to not offer
+ *   the inputs. ADR-0015 moves them to the channel, which is the real fix.
  *
  * Time sync is offered only for adapters the server can actually manage.
+ *
+ * ## Chrome-free on purpose
+ *
+ * This renders a form and nothing else — no panel, no header, no footer. The
+ * drawer owns all of that, so a channel has exactly one surface: its facts, its
+ * edit form, and its stream / health / clock tabs. Two panels for one camera is
+ * how a name gets edited in one place and a binding in another.
  */
 
 const TIME_SYNC_LABEL: Record<TimeSyncMode, string> = {
@@ -40,10 +48,9 @@ const TIME_SYNC_LABEL: Record<TimeSyncMode, string> = {
 
 export interface CameraEditorProps {
   camera: CameraDetail
-  onClose: () => void
 }
 
-export function CameraEditor({ camera, onClose }: CameraEditorProps) {
+export function CameraEditor({ camera }: CameraEditorProps) {
   const [name, setName] = useState(camera.name)
   const [location, setLocation] = useState(camera.location ?? "")
   const [storageLabel, setStorageLabel] = useState(camera.storage_label ?? "")
@@ -95,20 +102,7 @@ export function CameraEditor({ camera, onClose }: CameraEditorProps) {
   }
 
   return (
-    <aside className="flex h-full w-full flex-col border-l border-border bg-card">
-      <header className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-medium">编辑机位</h2>
-          <p className="truncate text-xs text-muted-foreground">
-            {camera.name} · {camera.adapter_type ?? "未知接入"}
-          </p>
-        </div>
-        <Button variant="ghost" size="sm" onClick={onClose} aria-label="关闭">
-          <X className="h-4 w-4" />
-        </Button>
-      </header>
-
-      <form className="flex-1 space-y-4 overflow-auto p-4" onSubmit={submit}>
+    <form className="space-y-4" onSubmit={submit}>
         <div className="space-y-1.5">
           <label htmlFor="camera-name" className="text-xs font-medium">
             名称
@@ -204,37 +198,15 @@ export function CameraEditor({ camera, onClose }: CameraEditorProps) {
           审计里却只记成这一个机位变了。所以这里不提供输入框。
         </Callout>
 
-        {camera.bindings?.length ? (
-          <div className="space-y-1.5">
-            <p className="text-xs font-medium">当前码流用途绑定</p>
-            <ul className="space-y-1 text-xs text-muted-foreground">
-              {camera.bindings.map((binding) => (
-                <li key={binding.purpose} className="flex justify-between">
-                  <span>
-                    {STREAM_PURPOSE_LABEL[binding.purpose] ?? binding.purpose}
-                  </span>
-                  <span>
-                    {binding.stream_profile_id
-                      ? binding.selection_mode === "auto"
-                        ? "自动"
-                        : "手动"
-                      : "未绑定"}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-      </form>
-
-      <footer className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
-        <Button variant="outline" size="sm" onClick={onClose}>
-          取消
-        </Button>
-        <Button size="sm" onClick={submit} disabled={save.isPending || errors.length > 0}>
-          {save.isPending ? "保存中…" : "保存"}
-        </Button>
-      </footer>
-    </aside>
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <Button
+            type="submit"
+            size="sm"
+            disabled={save.isPending || errors.length > 0}
+          >
+            {save.isPending ? "保存中…" : "保存机位信息"}
+          </Button>
+        </div>
+    </form>
   )
 }

@@ -818,6 +818,76 @@ CSV 的列名与格式只存在于 `frontend/src/cameraBatchCsv.ts` 与面板的
 是**毫秒**——**后端不做换算，换算发生在展示层**。同一份录制计划页上会同时出现
 「目标分段 300 秒」和「本段实际 300000 毫秒」，必须分别格式化。
 
+## G-41 码流用途的 `auto` 会静默丢弃操作员的显式选择 🔴
+
+**事实**：`CameraStreamBinding.selection_mode` 取 `auto` 时，直播路径**不读
+`stream_profile_id`**，而是在每次请求时重新按 H.264 可用性与 `_live_profile_score`
+挑一条（`cameras/api.py:2331-2345`）。
+
+**影响**：操作员在「用途绑定」里把某个用途改成某条具体码流，如果该行仍是
+`auto`，保存返回成功，而直播照旧按评分挑另一条——**看起来什么都没发生**。
+契约里没有任何字段能表达「自动，但锁定在我选的那条」。
+
+Vue 侧没有这个入口（它硬编码 `selection_mode: "manual"`，见
+`CameraDetailStreamsTab.vue:120`），所以问题是 React 侧新增编辑能力时暴露的。
+
+**当前处理**：契约层 `bindingSelectionMode(existing, touched)`（`api/cameras.ts`）
+按「动过 / 没动过」区分：
+
+- 操作员**动过**该用途的下拉 → 存 `manual`。他刚点过，那就是一次手动选择。
+- **没动过** → 原样回传已存的 mode。这个表单不替服务端做主。
+
+`CameraStreamBindingInput.selection_mode` 同时从可选改为必填，让「忘了带这个
+字段」从静默数据损坏变成类型错误。
+
+**建议修法**：给 `auto` 加一个可持久化的锚点（例如
+`auto_anchor_profile_id`），或者让直播路径在 `auto` 行上优先尊重一个显式指定的
+profile 并在偏差时记录审计。纯前端无法区分「服务端正在自动挑选」与
+「服务端接受了但结果不同」。
+
+---
+
+## G-42 时钟读数没有按通道刷新入口，且一个 GET 端点在写库 🟡
+
+**事实**：`GET /cameras/{id}/clock` 是纯读——它返回 `CameraClockProjection`
+表里已存的值（`cameras/api.py:1408-1472`）。能刷新这个投影的只有两处：
+
+- `POST /system/settings/camera-ntp/apply`（`system/api.py:1296`）——系统级，
+  会重测全部通道
+- `GET /system/camera-clock-health`（`system/api.py:1571`）——**这是一个 GET，
+  却在写 `CameraClockProjection`**（`:1606, :1663, :1691, :1712`）
+
+**影响**：抽屉里的时钟面板显示的数值可能已经很旧，而唯一的新鲜度信号是
+`measured_at`。操作员没有任何办法针对单台设备「重新测一次」。
+
+**当前处理**：`CameraClockPanel` 把 `measured_at` 显式渲染出来，并在无读数时
+如实区分四种原因（不支持 / 已忽略 / 尚未测量 / 读取失败），不给陈旧读数加
+「实时」的暗示。
+
+**建议修法**：`POST /cameras/{id}/clock/verify`（复用现有测量逻辑），
+以及把 `GET /system/camera-clock-health` 改成 `POST`——一个 GET 写库会让
+浏览器预取、代理缓存和爬虫行为都变成意外的写入触发器。
+
+---
+
+## G-43 能力健康的三层永远无法报告 healthy ⚪
+
+**事实**：`CameraCapabilityHealthService` 的六个投影里，`control` / `ptz` /
+`clock` **没有 healthy 分支**（`cameras/health` 实现在
+`cameras/capability_health.py:91-138, 621-669, 670-755`）。这是后端自己在
+`:45-49` 的注释里承认的设计：投影只从已存的配置事实推导状态，没有实时观测源，
+所以无法证明这三层健康。只有 `media` / `recording` / `events` 有 healthy 分支。
+
+**影响**：不是缺陷，是契约的事实。但如果前端把 `unknown` 画成灰色并暗示
+「正在观察、很快会好」，就是在承诺一个后端产不出的结果。
+
+**当前处理**：契约层导出 `HEALTHY_POSSIBLE_LAYERS`，`CameraHealthPanel` 在这三层
+处于 `unknown` 时明写「该层不采集实时观测，永远不会显示为『正常』」。判据基于
+集合而非 reason 名单，后端新增 `awaiting_*` reason 时不会失效。
+
+**建议修法**：接入 ZLM 观测钩子后，为这三层补 healthy 分支（后端注释里已经
+预留了这个方向）。在那之前，UI 侧不要改。
+
 ## 与 ADR-0014 的关系
 
 ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-16 / G-19 需要改后端，因此**不能在 PR-3 到 PR-6 之间顺手改**——那会让「契约冻结」失效。

@@ -295,7 +295,9 @@ export function Tabs({
   onChange,
   className,
 }: {
-  tabs: { key: string; label: string; count?: number }[]
+  // `readonly` so a caller can declare its tab list `as const` — the keys
+  // are used for comparison, never mutated.
+  tabs: readonly { key: string; label: string; count?: number }[]
   active: string
   onChange: (key: string) => void
   className?: string

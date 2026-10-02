@@ -76,7 +76,7 @@ function renderEditor(camera: CameraDetail = BASE) {
   return render(
     <QueryClientProvider client={client}>
       <ToastProvider>
-        <CameraEditor camera={camera} onClose={() => {}} />
+        <CameraEditor camera={camera} />
       </ToastProvider>
     </QueryClientProvider>,
   )
@@ -133,7 +133,7 @@ describe("CameraEditor", () => {
     fireEvent.change(screen.getByLabelText("名称"), {
       target: { value: "前门（改）" },
     })
-    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    fireEvent.click(screen.getByRole("button", { name: "保存机位信息" }))
 
     await waitFor(() => {
       expect(patched).not.toBeNull()
@@ -148,7 +148,7 @@ describe("CameraEditor", () => {
   it("sends an explicit null to clear a field", async () => {
     renderEditor()
     fireEvent.change(screen.getByLabelText("位置"), { target: { value: "" } })
-    fireEvent.click(screen.getByRole("button", { name: "保存" }))
+    fireEvent.click(screen.getByRole("button", { name: "保存机位信息" }))
 
     await waitFor(() => {
       expect(patched).not.toBeNull()
@@ -162,7 +162,7 @@ describe("CameraEditor", () => {
     renderEditor()
     fireEvent.change(screen.getByLabelText("名称"), { target: { value: "  " } })
 
-    const save = screen.getByRole("button", { name: "保存" }) as HTMLButtonElement
+    const save = screen.getByRole("button", { name: "保存机位信息" }) as HTMLButtonElement
     expect(save.disabled).toBe(true)
     expect(screen.getByText("机位名称不能为空")).toBeTruthy()
   })
@@ -176,18 +176,6 @@ describe("CameraEditor", () => {
     expect(screen.getByText(/不会解开背后的设备/)).toBeTruthy()
   })
 
-  it("lists existing stream bindings read-only", () => {
-    renderEditor({
-      ...BASE,
-      bindings: [
-        { purpose: "RECORD", stream_profile_id: "p1", selection_mode: "manual" },
-        { purpose: "LIVE_LOW", stream_profile_id: null, selection_mode: "auto" },
-      ],
-    })
-    expect(screen.getByText("当前码流用途绑定")).toBeTruthy()
-    expect(screen.getByText("未绑定")).toBeTruthy()
-  })
-
   it("re-seeds when a different camera is shown", () => {
     const { rerender } = renderEditor()
     rerender(
@@ -195,7 +183,6 @@ describe("CameraEditor", () => {
         <ToastProvider>
           <CameraEditor
             camera={{ ...BASE, id: "cam-2", name: "后院周界", location: null }}
-            onClose={() => {}}
           />
         </ToastProvider>
       </QueryClientProvider>,

@@ -15,7 +15,7 @@ import {
 import { type CameraSummary, normalizeConnectivity } from "../api/cameras"
 import { useCameras, useCamera, useCameraGroups } from "../lib/queries"
 import { useProbeCamera, useRetireCamera, useSetCameraEnabled } from "../lib/cameraMutations"
-import { CameraEditor } from "../components/cameras/CameraEditor"
+import { CameraDetailDrawer } from "../components/cameras/CameraDetailDrawer"
 import { BindingSummary } from "../components/cameras/BindingSummary"
 import { CameraGroupsPanel } from "../components/cameras/CameraGroupsPanel"
 import { OnboardingWizard } from "../components/cameras/OnboardingWizard"
@@ -418,13 +418,14 @@ export function CamerasView() {
       </Callout>
       </div>
 
+      {/* One surface per channel. The drawer carries the facts, the edit form
+          and the stream / health / clock tabs; a docked editor beside the table
+          would be a second place to change the same camera. */}
       {selected && detailQuery.data ? (
-        <div className="w-[26rem] shrink-0">
-          <CameraEditor
-            camera={detailQuery.data}
-            onClose={() => setSelected(null)}
-          />
-        </div>
+        <CameraDetailDrawer
+          camera={detailQuery.data}
+          onClose={() => setSelected(null)}
+        />
       ) : null}
       </div>
       )}
