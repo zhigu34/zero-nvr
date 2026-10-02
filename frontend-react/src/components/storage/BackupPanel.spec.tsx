@@ -151,8 +151,15 @@ function renderPanel(policies: BackupPolicyView[] = [POLICY]) {
           )
         }
         // The recovery kit answers with the archive itself.
+        //
+        // The body is a `Uint8Array`, not a `Blob`: under vitest's jsdom
+        // environment on Node 22, undici's `Response` does not recognise the
+        // jsdom `Blob` as a `BodyInit` and stringifies it instead — the
+        // download then receives the bytes of `"[object Blob]"`. `Uint8Array`
+        // is a `BodyInit` in every realm. This bit CI only, because the local
+        // Node was a newer major.
         if (url.includes("/backups/recovery-kit")) {
-          return new Response(new Blob([new Uint8Array([1, 2, 3])]), {
+          return new Response(new Uint8Array([1, 2, 3]), {
             status: 200,
             headers: {
               "Content-Type": "application/octet-stream",
@@ -615,7 +622,16 @@ describe("备份 · 恢复包", () => {
     await waitFor(() => {
       expect(createObjectURL).toHaveBeenCalledTimes(1)
     })
-    expect(createObjectURL.mock.calls[0][0]).toBeInstanceOf(Blob)
+    // Asserted through `size`/`type` rather than `toBeInstanceOf(Blob)` or
+    // `await blob.arrayBuffer()`. Which realm owns the global `Blob` — and
+    // whether it is a jsdom Blob (no `text()`/`arrayBuffer()`) or the runtime's
+    // own — depends on the Node major, so every one of those assertions passes
+    // on one major and fails on another. `size` and `type` exist in both, and
+    // the size is what actually catches the failure: the three archive bytes
+    // are 3, whereas the stringified-Blob bug delivers 12 (`"[object Blob]"`).
+    const blob = createObjectURL.mock.calls[0][0] as Blob
+    expect(blob.type).toBe("application/octet-stream")
+    expect(blob.size).toBe(3)
     // The synthetic anchor is removed and the object URL handed back.
     expect(revokeObjectURL).toHaveBeenCalledWith("blob:recovery-kit")
     expect(document.querySelector("a[download]")).toBeNull()

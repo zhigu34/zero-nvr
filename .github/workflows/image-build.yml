@@ -1,0 +1,105 @@
+name: Image Build
+
+# Focused verification of the container image and of which frontend is baked
+# into it. `deployment.yml` builds the same image, but that workflow is a
+# broader contract check whose first steps gate it; this one answers exactly
+# one question — does `docker build` succeed, and does the resulting image
+# serve the React app?
+#
+# The React/Vue marker matters: ADR-0014's PR-6 deleted `frontend/` and pointed
+# the Dockerfile at `frontend-react/`. An image that still built would be a
+# silent regression, because both stacks produce a `dist/` with an index.html.
+
+on:
+  push:
+    paths:
+      - "backend/Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "frontend-react/**"
+      - "package.json"
+      - ".github/workflows/image-build.yml"
+  pull_request:
+    paths:
+      - "backend/Dockerfile"
+      - ".dockerignore"
+      - "docker-compose.yml"
+      - "frontend-react/**"
+      - "package.json"
+      - ".github/workflows/image-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build zero-nvr image
+        run: |
+          docker build \
+            --file backend/Dockerfile \
+            --tag zero-nvr:image-build \
+            .
+
+      - name: The image serves the React app, not the deleted Vue one
+        run: |
+          set -euo pipefail
+
+          # The built app lands at /app/frontend inside the image
+          # (`backend/Dockerfile:94`); `app/frontend.py:29` mounts it.
+          index="$(docker run --rm --entrypoint /bin/sh zero-nvr:image-build \
+            -c 'cat /app/frontend/index.html')"
+
+          # React mounts into #root; the removed Vue app mounted into #app.
+          grep -Fq '<div id="root">' <<<"$index"
+          if grep -Fq '<div id="app">' <<<"$index"; then
+            echo "::error::image serves the Vue app — Dockerfile still points at the deleted frontend/"
+            exit 1
+          fi
+
+          # A real bundle has to be there too, not just a placeholder shell.
+          assets="$(docker run --rm --entrypoint /bin/sh zero-nvr:image-build \
+            -c 'ls /app/frontend/assets')"
+          grep -Eq '\.js$' <<<"$assets"
+          grep -Eq '\.css$' <<<"$assets"
+
+          echo "assets: $(tr '\n' ' ' <<<"$assets")"
+
+      - name: The Python side can find the packaged frontend
+        run: |
+          set -euo pipefail
+          # `packaged_frontend_dir()` resolves to `<parents[1]>/frontend`; if the
+          # COPY target or the layout ever moves, this is where it shows up.
+          docker run --rm --entrypoint /usr/local/bin/python zero-nvr:image-build -c '
+          from app.frontend import packaged_frontend_dir
+          target = packaged_frontend_dir()
+          assert (target / "index.html").is_file(), target
+          print("packaged_frontend_dir ->", target)
+          '
+
+      - name: The API starts and mounts the SPA without masking API 404s
+        run: |
+          set -euo pipefail
+          # `Settings` validates `secret_key` at import, so the process needs
+          # one even though nothing here talks to a database or signs a token.
+          # `TestClient(app)` is deliberately not used as a context manager:
+          # that would run the lifespan, and the lifespan is not what is under
+          # test — the static mount is.
+          docker run --rm \
+            --entrypoint /usr/local/bin/python \
+            -e ZERO_NVR_SECRET_KEY=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            zero-nvr:image-build -c '
+          from fastapi.testclient import TestClient
+          from app.main import app
+
+          client = TestClient(app)
+          assert client.get("/").status_code == 200, "SPA root"
+          body = client.get("/cameras").text
+          assert "<div id=\"root\">" in body, "deep link must serve the SPA"
+          missing = client.get("/api/v1/definitely-missing")
+          assert missing.status_code == 404, "API 404 must not be masked by the SPA"
+          print("SPA root, deep link and API 404 all behave")
+          '
