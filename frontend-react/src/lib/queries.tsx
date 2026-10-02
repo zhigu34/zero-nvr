@@ -4,6 +4,7 @@ import * as camerasApi from "../api/cameras"
 import * as eventsApi from "../api/events"
 import * as storageApi from "../api/storage"
 import * as playbackApi from "../api/playback"
+import * as policyApi from "../api/recordingPolicies"
 
 /**
  * Query defaults tuned for this product rather than copied from a default
@@ -167,4 +168,32 @@ export function useAlignedTimelines(
 
 export function QueryProvider({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+}
+
+/* -------------------------------------------------------------------------- */
+/* Recording policies                                                         */
+/* -------------------------------------------------------------------------- */
+
+export const POLICIES = {
+  list: ["recording-policies", "list"] as const,
+  forCamera: (cameraId: string) =>
+    ["recording-policies", "camera", cameraId] as const,
+}
+
+/**
+ * Every configured policy, with its observed runtime.
+ *
+ * The list only contains cameras that *have* a policy — there is no implicit
+ * default row — so a camera missing from here has no policy, which is a
+ * normal state rather than a gap in the data.
+ */
+export function useRecordingPolicies() {
+  return useQuery({
+    queryKey: POLICIES.list,
+    queryFn: ({ signal }) =>
+      policyApi.listRecordingPolicies(signal).then((page) =>
+        Array.isArray(page?.items) ? page.items : [],
+      ),
+    staleTime: 30_000,
+  })
 }
