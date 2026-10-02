@@ -913,6 +913,32 @@ Administrator / Operator / Viewer 在每次启动时按 `BUILTIN_ROLE_PERMISSION
 
 ---
 
+## G-45 时间线端点不返回体积，月视图的「占用空间」是编造的 🟡
+
+**事实**：`TimelineSegmentView` 只有
+`id / playback_ref / start_at / end_at / availability`（`recordings/schemas.py:54-60`），
+**没有 `size_bytes`**。真实体积在 `RecordingSegmentView.size_bytes`
+（`:200-227`），但那只是 `GET /cameras/{id}/recordings` 的单片段/分页响应。
+
+Vue 的月视图因此自己编了一个数字：`const bytes = dur * 450_000`
+（`FilesView.vue:262`，450 kB/s 写死），并把它喂给日历的「本月占用」汇总
+（`FilesMonthCalendar.vue` 的 `monthTotalBytes`）。
+
+**影响**：月历上显示的「占用空间」是**按固定码率反推的估算值**，不是磁盘上
+的真实占用。一个 H.265 高码率通道会被系统性低估，一个低码率通道被高估。拿它
+做容量判断会得出错误结论。
+
+**当前处理**：React 侧的文件页没有月历（PR-5e 的形态是「浏览并导出」），因此
+**从不显示任何编造的体积**。若后续补齐月历，只能按「段数 / 时长 / 是否有云端
+片段」三个真实维度着色，**不画体积**。
+
+**建议修法**：给 `TimelineSegmentView` 加 `size_bytes: int | None`（segment 表上
+已有 `size_bytes` 列，聚合时求和即可），或者新增一个按天的聚合端点
+`GET /cameras/{id}/recordings/daily?from=&to=`。前者改动更小，且时间线、回放、
+文件页三处可以共用同一份体积口径。
+
+---
+
 ## 与 ADR-0014 的关系
 
 ADR-0014 决策 4 冻结了 API 契约，本迁移不改后端。上面 G-16 / G-19 需要改后端，因此**不能在 PR-3 到 PR-6 之间顺手改**——那会让「契约冻结」失效。
