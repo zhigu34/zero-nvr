@@ -148,11 +148,25 @@ React 前端复用现有 `backend/app/api/v1` 的全部 161 个端点（AST 统�
 3. **PR-3 只读页**：Dashboard / Cameras 列表 / Events / Storage 列表（TanStack Table 模式验证）—— **已完成**（三页接真实 API、游标分页、容量探测入口；TanStack Table 模式定版）
 4. **PR-4 媒体页**：Live / Playback（hls.js 传输层 + 播放容错 + 补测试）—— **已完成**（回放与直播均接真实媒体链路；原 Vue 侧 5400+ 行组件中零覆盖的纯逻辑拆为 11 个可测模块）
 5. **PR-5 写操作页**：机位编辑 / 录制计划 / 告警规则 / 系统设置 / 文件导出 / 时间轴 / 用户 / 审计 —— **已完成**（12 个模块页全部接真实数据，`lib/mock.ts` 已删除）
-6. **PR-6 切换**：删除 `frontend/`，`frontend-react/` 升为唯一前端 —— **未开始，且应拆成两段**
-   （「补齐」与「切换」）。前置不是 D-2，而是一份功能对等审计：
-   [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md) 清点出 **23 个组件、
-   7,784 行 Vue 功能在 React 侧完全缺失**，其中 16 个带测试，对应的后端端点
-   全部已实现。D-2 只影响告警页形态，不影响其中任何一项。
+6. **PR-6 切换**：删除 `frontend/`，`frontend-react/` 升为唯一前端 —— **已完成**
+   （2026-10-03）。实际拆成两段：
+   - **补齐段**：先做功能对等审计
+     [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md)。清点出 **23 个组件、
+     7,784 行 Vue 功能在 React 侧完全缺失**，其中 16 个带测试，对应的后端端点
+     全部已实现。13 项补齐全部落地后重算：**50 个 `.vue` 组件全部归位，
+     「仍然完全缺失」为 0**，剩下 2 处是明确决定不做并附理由的
+     （文件页内联片段预览、i18n）。D-2 只影响告警页形态，不影响其中任何一项，
+     且至今**仍未裁决**。
+   - **切换段**：删除 `frontend/`（160 文件 / 56,041 行 / 54 spec，可恢复），
+     并把 `backend/Dockerfile`、`scripts/release-manifest.sh`、
+     `.github/workflows/frontend.yml` 与 `deployment.yml` 的路径切到
+     `frontend-react/`。镜像内产物路径 `/app/frontend` 与 Python 模块
+     `app.frontend` **不变**。
+
+   **后端契约有一处有意例外**：补齐文件页密度条时需要真实的按日体积，Vue 的
+   `dur * 450_000` 是编造的（见 `FRONTEND-CONTRACT-GAPS.md` G-45），因此新增了
+   `GET /cameras/{id}/recordings/daily`。这是决策 4「零后端改动」的**唯一**例外，
+   经明确批准，且为纯新增、不改动任何既有端点行为。
 
 ### PR-2 的两个既定事实
 

@@ -11,7 +11,7 @@ WORKDIR /frontend
 RUN npm config set registry "${NPM_REGISTRY}" \
     && npm config set audit false \
     && npm config set fund false
-COPY frontend/package.json /frontend/package.json
+COPY frontend-react/package.json /frontend/package.json
 RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     set -eux; \
     if npm install --prefer-offline --no-audit --no-fund; then \
@@ -25,7 +25,7 @@ RUN --mount=type=cache,target=/root/.npm,sharing=locked \
     else \
       exit 1; \
     fi
-COPY frontend /frontend
+COPY frontend-react /frontend
 RUN npm run build
 
 

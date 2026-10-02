@@ -159,7 +159,8 @@ GET /api/v1/cameras/{id}/live          api.py:2794
   └ 返回 { transports, hls_url, ice_servers }   :2895
 ```
 
-**没有 HTTP-FLV 播放路径。** 前端选路逻辑在 `frontend/src/live/playback.ts`：
+**没有 HTTP-FLV 播放路径。** 前端选路逻辑原在 `frontend/src/live/playback.ts`
+（Vue 版，2026-10-03 随 PR-6 切换删除；React 侧为 `frontend-react/src/live/`）：
 
 | 场景 | 优先协议 | 依据 |
 |---|---|---|
@@ -379,7 +380,7 @@ TimelineService.build()                        timeline.py:553-612
 | `runtime_restart` | 运行态重建造成的空洞 | `:335-342` |
 | `storage_failure` / `missing_media` / `purged` / `unknown` | 另有分支 | — |
 
-> **踩过的坑**：`reasonMap` 曾只映射 7 个码，漏了 `not_scheduled` 等，前端兜底 `replaceAll("_"," ")` 导致中文界面直接显示英文 "not scheduled"。已补齐 8 码并加守卫测试 `frontend/src/i18n.spec.ts`。
+> **踩过的坑**：`reasonMap` 曾只映射 7 个码，漏了 `not_scheduled` 等，前端兜底 `replaceAll("_"," ")` 导致中文界面直接显示英文 "not scheduled"。已补齐 8 码并加守卫测试 `frontend/src/i18n.spec.ts`（随 Vue 前端一并删除；React 侧不重建 i18n 体系，此守卫由 `frontend-react` 的中文硬编码约定承担）。
 
 ### 4.8 回放：直读盘，不经过 ZLM
 

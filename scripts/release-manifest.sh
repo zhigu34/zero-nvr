@@ -41,7 +41,7 @@ backend = tomllib.loads(
     (root / "backend/pyproject.toml").read_text(encoding="utf-8")
 )
 frontend = json.loads(
-    (root / "frontend/package.json").read_text(encoding="utf-8")
+    (root / "frontend-react/package.json").read_text(encoding="utf-8")
 )
 if backend["project"]["version"] != version:
     raise SystemExit("release manifest/backend version mismatch")

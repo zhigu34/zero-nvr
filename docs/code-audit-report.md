@@ -1,5 +1,11 @@
 # zero-nvr 代码审计报告 — 非必要内容与可抽取组件
 
+> **⚠️ 审计基线 `87d586c` 的时点记录。** 本文统计的 `frontend/src` 41,183 LOC
+> 属于 **Vue 3 版前端**，该目录已于 2026-10-03 随 [ADR-0014](adr/0014-frontend-react-shadcn-admin-migration.md)
+> 的 PR-6 切换**整体删除**。下文所有指向 `frontend/src` 的行号
+> （`FilesView.vue:875-893`、`router.ts:104-111` 等）指向**已不存在的文件**。
+> 审计**结论**（死代码、假实现、孤儿模块）仍然成立，路径与行数一律失效。
+
 - 审计对象：`zero-nvr` @ `87d586c`（工作树干净）
 - 规模：backend/app 67,561 LOC（198 模块）· backend/tests 43,572 LOC（114 文件）· frontend/src 41,183 LOC（36 个 `.vue`）· styles.css 5,259 行 · scripts 8,406 LOC · docs 25,683 LOC
 - 方法：`git ls-files` / `du` 定量，AST 重复函数检测 + `difflib` 相似度聚类，全仓 anchored grep 验证引用关系；**所有 line number 均已实读复核**，结论标注置信度

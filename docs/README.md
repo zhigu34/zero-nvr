@@ -36,7 +36,7 @@ A conflict should be fixed rather than left as permanent dual truth.
 - [adr/0014-frontend-react-shadcn-admin-migration.md](adr/0014-frontend-react-shadcn-admin-migration.md) — 前端栈迁移到 React 19 + shadcn-admin（取代 ADR-0013 的第 1、4 条）
 - [FRONTEND-MODULE-MAP.md](FRONTEND-MODULE-MAP.md) — 12 个模块逐页功能定义、路由表、Vue 页面映射、待裁决问题
 - [FRONTEND-CONTRACT-GAPS.md](FRONTEND-CONTRACT-GAPS.md) — 迁移中发现的接口契约缺口（存储无只读容量、事件无机位名、机位列表缺绑定与时钟偏差等）
-- [FRONTEND-PARITY-AUDIT.md](FRONTEND-PARITY-AUDIT.md) — **PR-6 前置**：删除 `frontend/` 会失去什么——23 个组件、7,784 行功能在 React 侧完全缺失
+- [FRONTEND-PARITY-AUDIT.md](FRONTEND-PARITY-AUDIT.md) — PR-6 前置审计：删除 `frontend/` 会失去什么。**结论：13 项补齐全部落地，50 个 Vue 组件已全部归位**（已补齐 / 已被取代 / 形态不同 / 有理由的不做），仅 2 处是有意不补
 - [D-2-DECISION-MATERIAL.md](D-2-DECISION-MATERIAL.md) — **待裁决**：录制事件过滤与告警匹配是两套真相源，合并前必须先定夺的事实与三方案代价
 
 ## Design-freeze plan

@@ -608,12 +608,17 @@ Optional/non-blocking operational extensions:
 
 Everything here is **non-blocking**: it does not gate the first production release and
 does not change the V1 execution-order guard above. These are the parts of the retired
-`docs/refactor_plan.md` UI vision that are still genuinely absent from `frontend/src`;
+`docs/refactor_plan.md` UI vision that are still genuinely absent from the frontend;
 the rest of that plan is already implemented.
+
+> These items were raised against the **Vue 3** frontend (`frontend/`, deleted
+> 2026-10-03 in the PR-6 switch). They are **not** verified to still hold in
+> `frontend-react/` — re-check each against the React code before picking one up.
+> Entry points below are named by Vue component for traceability only.
 
 - [ ] ONVIF PTZ preset slots — save/call/overwrite named pan-tilt-zoom positions. `GET /api/v1/cameras/{id}/ptz/presets` and `POST /api/v1/cameras/{id}/ptz/presets/{preset}/goto` are listed in the accepted [API module freeze](plans/03-v1-api-module-freeze.md) but are not implemented; the PTZ dialog only renders placeholder preset cards behind a `TODO(phase-ptz-presets)`.
 - [ ] PTZ guard tour / cruise patrol — automatically cycle one camera through its presets with a configurable dwell time; no cruise/guard/patrol code exists in frontend or backend (also tracked as a POST-V1 candidate in Phase 10).
-- [ ] Real batch operations for files and events — batch export, batch protect/lock, batch archive push, and batch delete are frontend toast-only stubs (`FilesView.vue`, `EventsView.vue`) and no backend batch endpoints exist; either add the endpoints or remove the buttons.
+- [ ] Real batch operations for files and events — batch export, batch protect/lock, batch archive push, and batch delete were frontend toast-only stubs in Vue (`FilesView.vue`, `EventsView.vue`) and no backend batch endpoints exist; either add the endpoints or remove the buttons. The React rewrite ships **no batch buttons at all** rather than buttons that lie — re-add only after the endpoints exist.
 - [ ] Live matrix "1+5" master/slave layout — `LiveLayoutSlots` supports only 1/4/9/16, so the primary-plus-five-thumbnails arrangement is unavailable.
 - [ ] Manual live quality override — the Live View quality popover exposes only the automatic strategy; there is no explicit "force main stream (4K/2K)" or "force sub stream (720p)" switch.
 - [ ] WebDAV archive-target latency/throughput probe — `POST /api/v1/storage/targets/{id}/test` reports reachability and capacity only, with no round-trip latency or streamed bandwidth measurement.

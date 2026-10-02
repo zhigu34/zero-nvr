@@ -9,8 +9,8 @@
 **/.ruff_cache
 backend/tests
 docs
-frontend/node_modules
-frontend/dist
+frontend-react/node_modules
+frontend-react/dist
 poc
 data
 deploy/zlm/config.ini

@@ -1,5 +1,13 @@
 # Frontend Refactor Audit — `frontend/src/` (Vue 3 + TS + Pinia)
 
+> **⚠️ 历史记录，勿按其中的路径操作。** 本文审计的是 **Vue 3 版 `frontend/src/`**。
+> 该目录已于 2026-10-03 随 [ADR-0014](adr/0014-frontend-react-shadcn-admin-migration.md)
+> 的 PR-6 切换**整体删除**，改由 `frontend-react/`（React 19 + shadcn-admin）承担。
+> 下文所有行号（`CameraOnboardingPanel.vue:…` 等）指向**已不存在的文件**。
+> 结论与教训仍然有效，路径与行数一律失效——需要当前状态请看
+> [`FRONTEND-MODULE-MAP.md`](FRONTEND-MODULE-MAP.md) 与
+> [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md)。
+
 Scope: `frontend/src/` only. All line numbers verified by reading files. Repo root `/Users/zhi/Documents/ChatGPT/zero-nvr`.
 
 ## Corpus baseline (measured)

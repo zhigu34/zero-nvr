@@ -28,8 +28,8 @@ build/
 # Node
 node_modules/
 package-lock.json
-frontend/dist/
-frontend/.vite/
+frontend-react/dist/
+frontend-react/.vite/
 coverage/
 *.tsbuildinfo
 

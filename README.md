@@ -156,11 +156,11 @@ The web/API container does not require unrestricted Docker-socket access.
 ## Repository layout
 
 ~~~text
-backend/       FastAPI modular-monolith control plane
-frontend/      Vue 3 management/playback UI
-deploy/        deploy.sh / Compose deployment definitions
-poc/           disposable design-freeze validation harnesses
-docs/          architecture, ADRs, specs and freeze plans
+backend/        FastAPI modular-monolith control plane
+frontend-react/ React 19 + shadcn-admin management/playback UI
+deploy/         deploy.sh / Compose deployment definitions
+poc/            disposable design-freeze validation harnesses
+docs/           architecture, ADRs, specs and freeze plans
 ~~~
 
 ## Current status

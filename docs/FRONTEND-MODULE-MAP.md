@@ -725,7 +725,18 @@ GET /auth/me
 | **PR-3** | 只读页：事件 / 摄像机列表 / 存储列表（验证 TanStack Table 模式） | 已完成 |
 | **PR-4** | 媒体页：实时监控 / 录像回放（传输层 + 容错 + 补测试） | 已完成 |
 | **PR-5** | 写操作页：机位编辑 / 录制计划 / 告警规则 / 系统设置 / 文件导出 / 时间轴 / 用户 / 审计 | **已完成** |
-| **PR-6** | 切换：删除 `frontend/`，`frontend-react/` 升为唯一前端。**应拆为「补齐 23 项缺失功能」+「切换」两段**，前置见 [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md) | PR-5 |
+| **PR-6** | 切换：删除 `frontend/`，`frontend-react/` 升为唯一前端。拆为「补齐 23 项缺失功能」+「切换」两段，见 [`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md) | PR-5 |
+
+**当前状态（2026-10-03）**：PR-0 ~ PR-6 全部完成。`frontend/` 已删除，
+`frontend-react/` 是唯一前端。13 项补齐全部落地，审计口径见
+[`FRONTEND-PARITY-AUDIT.md`](FRONTEND-PARITY-AUDIT.md) §8——其中两项是**明确决定
+不做**并附理由的（文件页内联片段预览、i18n），不是遗漏。
+
+构建链路已切到 React：`backend/Dockerfile` 的 `frontend-builder` 阶段、
+`scripts/release-manifest.sh` 的版本交叉校验、`.github/workflows/frontend.yml`
+与 `deployment.yml` 的触发路径，全部指向 `frontend-react/`。镜像内输出路径
+`/app/frontend` 与 Python 模块 `app.frontend` **保持不变**——那是产物路径，
+不是仓库路径。
 
 迁移期间 Vue 应用必须保持可运行，两套前端由不同路径服务（`/` → Vue，`/next/*` → React）。
 

@@ -1,5 +1,12 @@
 # 修复执行状态 — 按 `code-audit-report.md` 实施
 
+> **⚠️ 时点记录。** 本文件记录的是 **Vue 3 版 `frontend/`** 的一次修复执行，
+> 该目录已于 2026-10-03 随 [ADR-0014](adr/0014-frontend-react-shadcn-admin-migration.md)
+> 的 PR-6 切换**整体删除**。下文的验证数字（前端 274 passed / 54 files、
+> `vue-tsc` clean 等）与全部 `frontend/src` 行号、恢复指令
+> （`git show HEAD:frontend/src/…`）**均已失效**——`vue-tsc` 不再存在，
+> 被删文件也无法按原路径取回。教训与决策理由仍然有效。
+
 对应审计：[code-audit-report.md](code-audit-report.md)（审计基线 `87d586c`）。
 本文件记录**已实际落地的修复**、**刻意未做的项及原因**、以及**下一步建议**。
 
