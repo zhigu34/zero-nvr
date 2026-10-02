@@ -6,7 +6,7 @@
 
 状态：🔴 阻塞或高影响 · 🟡 影响体验 · ⚪ 已记录不阻塞
 
-**当前合计 35 条**（🔴 11 · 🟡 19 · ⚪ 5）。全部来自 PR-3 至 PR-5 逐模块核对
+**当前合计 37 条**（🔴 12 · 🟡 20 · ⚪ 5）。全部来自 PR-3 至 PR-6 逐模块核对
 真实契约与原型假设的差异，按 ADR-0014 决策 4 一律**不在本迁移中修改后端**，
 修复走独立流程。
 
@@ -650,6 +650,65 @@ key，而且返回 200。这不是理论问题：旧 Vue 页面
 
 **当前处理**：告警规则编辑器的动作区按契约原样呈现，界面说明其语义是
 「保护已有录像」而非「触发录制」。
+
+---
+
+## G-36 Frigate `configured` 字段恒为 true，404 抢先发生 🟡
+
+**事实**：`FrigateProviderView` 有一个 `configured: bool = True` 字段
+（`system/schemas.py:51`），看起来正是用来表达「是否已配置」的。但
+`GET /system/integrations/frigate` 在没有配置行时**先抛 404
+`frigate_not_configured`**（`system/api.py:316-324`），根本走不到构造响应那一步。
+
+结果是**这个字段在任何一次成功响应里都必然是 true**，没有任何路径能让它为
+false。
+
+**影响**：任何按 `configured` 分支的客户端会得到「永远已配置」，于是从未配置过
+Frigate 的操作员看到的是一个**报错横幅**而不是配置表单——而报错内容是
+「Frigate integration is not configured.」这句话本身就在说他没配过。
+这是最不该出错的一类状态：首次使用。
+
+**当前处理**：前端 `api/frigate.ts` 的 `isNotConfigured(error)` 只按 **code**
+匹配 404，把「未配置」当**数据**处理，渲染首次配置表单；`configured` 字段
+不使用。与 `isNotEnabled`（409，同为正常状态）分开，因为两者需要的文案不同。
+
+**建议修法**：删掉 `configured` 字段，文档写清「未配置 = 404」；或者反过来，
+让 GET 在未配置时返回 `200 {"configured": false, ...}`。两者都行，现状最坏——
+留着一个骗人的字段。
+
+---
+
+## G-37 密钥环有不可解密记录时，轮换抛未处理异常且无处可查 🔴
+
+**事实**：`SecretStore.rotate_records` **先解密全部记录再写任何东西**
+（`core/security/secret_store.py:474-485`），`decrypt_bytes` 对读不出来的记录
+抛 `KeyError` / `ValueError`（`:130-139`）。这个异常不是 `ApiError`，于是落到
+兜底处理器，变成 **500 `internal_error` / "Internal server error."，`details`
+为空**（`core/errors/api_error.py:50-64`）。
+
+同时 `GET /system/secret-store` 只返回**计数**：`unreadable_records: int`，
+没有任何端点能说出**是哪几条、为什么读不出来**（`system/schemas.py:229-241`）。
+
+**影响**：`status == "ERROR"` 时操作员陷在一个**没有出口**的状态里——
+按钮必须禁用（否则就是一次中途抛错的写入），而禁用理由只能写成
+「先恢复密钥环配置」，但**没有任何接口告诉他要恢复哪一条**。只能去翻服务端日志。
+
+这不是可以靠前端绕过的：`rotation_ready` 已经诚实地返回 false
+（`secret_store.py:455-458`），前端照做是对的；缺的是**把 `unreadable > 0`
+本身变成一个带错误码、可定位的响应**。
+
+**当前处理**：`api/secretStore.ts` 的 `rotationBlockedReason()` 以
+`unreadable_records` 为最高优先级禁用轮换，并把数量写进禁用理由；矛盾载荷
+（`unreadable > 0` 且 `rotation_ready: true`）同样以 unreadable 为准。
+
+**建议修法**（任一即可，都需要后端改动）：
+1. `POST /secret-store/rotate` 在 `unreadable_records > 0` 时直接返回 409
+   `secret_store_unreadable_records`，`details` 带上不可解密的记录 id 列表，
+   而不是让它抛到 500；
+2. `GET /system/secret-store` 补一个受限的不可解密记录列表（id、模块、key_id、
+   失败原因），让操作员知道该处理什么。
+
+第 1 条更小且能立刻消除 500；第 2 条才能真正让人走出来。
 
 ---
 

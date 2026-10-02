@@ -212,6 +212,16 @@ export function validateFrigateForm(form: FrigateForm): FrigateFormError[] {
       message: `Frigate 侧机位名重复：${[...new Set(duplicates)].join("、")}`,
     })
   }
+  // `camera_id` is a required UUID (`schemas.py:11-15`) and the service
+  // rejects one that names no camera here (`frigate.py:99-128`). Checking only
+  // the Frigate-side name leaves a guaranteed 422 for the server to find.
+  const unmapped = form.cameraMap.filter((m) => !m.camera_id).length
+  if (unmapped > 0) {
+    errors.push({
+      field: "cameraMap",
+      message: `还有 ${unmapped} 条映射没有选择本系统的摄像机`,
+    })
+  }
 
   if (form.mqttEnabled) {
     if (form.mqttHost.trim() === "") {

@@ -125,6 +125,35 @@ describe("presentation", () => {
   })
 })
 
+describe("the count fields", () => {
+  it("current + stale always equals total, because unreadable is not a third bucket", () => {
+    // `inspect_records` counts current/stale per record and *independently*
+    // tries a decrypt on the same record (`secret_store.py:418-435`). A panel
+    // that adds unreadable into the total would show more records than exist.
+    const report = health({
+      total_records: 12,
+      current_records: 8,
+      stale_records: 4,
+      unreadable_records: 3,
+      status: "ERROR",
+    })
+    expect(report.current_records + report.stale_records).toBe(
+      report.total_records,
+    )
+  })
+
+  it("previous_key_count survives a rotation, because rotation moves records not keys", () => {
+    // The number staying put after a successful rotation is correct.
+    const before = health({ stale_records: 4, rotation_ready: true })
+    const after: SecretStoreHealth = {
+      ...health({ stale_records: 0, current_records: 12 }),
+      previous_key_count: before.previous_key_count,
+    }
+    expect(after.stale_records).toBe(0)
+    expect(after.previous_key_count).toBe(before.previous_key_count)
+  })
+})
+
 describe("describeRotation", () => {
   const result = (overrides: Partial<SecretStoreRotation>): SecretStoreRotation => ({
     total_records: 12,

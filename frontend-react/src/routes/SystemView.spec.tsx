@@ -290,3 +290,55 @@ describe("SystemView", () => {
     })
   })
 })
+
+describe("SystemView 的 tab 外壳", () => {
+  it("设置读取失败时，通知渠道仍然可达", async () => {
+    // 这是 tab 外壳放在 guard 之外的全部理由：「系统设置坏了」不应该同时意味着
+    // 「看不到告警发不出去」——而投递记录恰恰是操作员最需要读的东西。
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    })
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input).includes("/system/settings")) {
+          return new Response(
+            JSON.stringify({ error: { code: "x", message: "内部错误" } }),
+            { status: 500, headers: { "Content-Type": "application/json" } },
+          )
+        }
+        if (String(input).includes("/notification-targets")) {
+          return new Response("[]", {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        }
+        return new Response("{}", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      }),
+    )
+
+    renderWithProviders(<SystemView />, { client })
+    await waitFor(() => {
+      expect(screen.getByText("无法加载系统设置")).toBeTruthy()
+    })
+
+    fireEvent.click(screen.getByRole("tab", { name: /通知渠道/ }))
+    expect(await screen.findByText("还没有通知目标")).toBeTruthy()
+  })
+
+  it("五个 tab 都在，且设置表单不因为切走再回来而丢状态以外的东西", async () => {
+    renderView()
+    await waitFor(() => {
+      expect(screen.getByText("系统名称")).toBeTruthy()
+    })
+    for (const name of ["系统设置", "通知渠道", "密钥环", "Frigate 集成"]) {
+      expect(screen.getByRole("tab", { name: new RegExp(name) })).toBeTruthy()
+    }
+    // Named "我的" because the endpoints are the signed-in account's own
+    // resources — an admin cannot manage anyone else's token (G-32).
+    expect(screen.getByRole("tab", { name: /我的/ })).toBeTruthy()
+  })
+})

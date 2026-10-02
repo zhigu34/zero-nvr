@@ -140,3 +140,26 @@ export const useAuthStore = create<AuthState>()((set, get) => ({
 
 /** Non-hook access for the router and guards. */
 export const authState = () => useAuthStore.getState()
+
+/**
+ * Stable empty array.
+ *
+ * Module-level on purpose. A selector written as
+ * `s.user?.permissions ?? []` returns a **fresh** array on every call whenever
+ * `user` is null, and `useSyncExternalStore` compares with `Object.is` — so the
+ * snapshot never matches, the component re-renders, and React throws
+ * "Maximum update depth exceeded". The fallback has to be a constant.
+ */
+const NO_PERMISSIONS: readonly string[] = []
+
+/**
+ * The signed-in user's own permissions, as a reference that only changes when
+ * the user does.
+ *
+ * This is also the ceiling for anything a personal API token may be granted:
+ * the server rejects a token whose permissions exceed the creator's
+ * (`auth/api_tokens.py:128-136`).
+ */
+export function useMyPermissions(): readonly string[] {
+  return useAuthStore((s) => s.user?.permissions ?? NO_PERMISSIONS)
+}

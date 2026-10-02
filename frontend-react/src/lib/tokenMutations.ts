@@ -2,6 +2,7 @@ import {
   createApiToken,
   revokeApiToken,
   type ApiTokenCreate,
+  type ApiTokenCreated,
   type ApiTokenForm,
 } from "../api/apiTokens"
 import { localExpiryToIso } from "../api/apiTokens"
@@ -18,8 +19,15 @@ import { useSave } from "./save"
  * be left to a form to express.
  */
 
+/**
+ * Typed as `ApiTokenCreated` rather than `unknown` on purpose: the plaintext
+ * only exists in this one response, so the panel has to read it off the
+ * mutation result. Leaving it `unknown` would push a cast to the call site —
+ * and a cast there is exactly the kind of thing that survives long after the
+ * reason for it has been forgotten.
+ */
 export function useCreateApiToken() {
-  return useSave<ApiTokenCreate, unknown>({
+  return useSave<ApiTokenCreate, ApiTokenCreated>({
     mutationFn: (body) => createApiToken(body),
     invalidates: [TOKENS.list],
     // No detail line: the panel has to show the plaintext itself, and a toast

@@ -144,8 +144,8 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | 分类 | 组件数 | Vue 行数 | 受影响的 Vue spec |
 |---|---|---|---|
 | ✅ 已被 React 取代 | 19 | 8,373 | 0（都有 React 对应测试） |
-| ✅ 本轮补齐 | 1 | 237 | 1（`SystemNotificationsTab.spec.ts`） |
-| ❌ **仍然完全缺失** | **22** | **7,547** | **15** |
+| ✅ 本轮补齐 | 4 | 1,266 | 2（`SystemNotificationsTab` / `SystemAiTab`） |
+| ❌ **仍然完全缺失** | **19** | **6,518** | **14** |
 | 🟡 部分覆盖 / 形态不同 | 5 | 2,578 | 3 |
 | ⚪ 两侧都是死代码 | 2 | — | 0 |
 
@@ -162,9 +162,9 @@ React 侧目前全部硬编码中文。删掉 `frontend/` 等于**永久放弃�
 | # | 项目 | Vue 行数 | 依赖 | 状态 |
 |---|---|---|---|---|
 | 1 | 通知渠道（targets + deliveries + 测试发送） | 237 | 无 | ✅ 已补齐 |
-| 2 | API 令牌（自己的账号） | 376 | 无 | ⬜ |
-| 3 | 密钥环查看与轮换 | 435 | 无 | ⬜ |
-| 4 | Frigate 集成（配置/连通性/回填） | 218 | 无 | ⬜ |
+| 2 | API 令牌（自己的账号） | 376 | 无 | ✅ 已补齐 |
+| 3 | 密钥环查看与轮换 | 435 | 无 | ✅ 已补齐 |
+| 4 | Frigate 集成（配置/连通性/回填） | 218 | 无 | ✅ 已补齐 |
 | 5 | 备份策略 + 恢复包 | 1,213 | 1 个 spec | ⬜ |
 | 6 | 机位分组 CRUD | 595 | 无 | ⬜ |
 | 7 | 个人账号设置（改密码/邮箱） | 531 | 无 | ⬜ |
@@ -270,7 +270,99 @@ Vue 侧能用的写法在这里会**静默**做错事，所以没有照搬：
 
 ---
 
-## 11. PR-6 切换还需要改什么
+## 11. 补齐 2–4/13：API 令牌 / 密钥环 / Frigate
+
+三个面板一起做，零后端改动，挂在系统设置的新增 tab 上。
+
+### 分工
+
+契约层（`api/*.ts` + `lib/*Mutations.ts` + `queries.tsx`）自己写——这三块的
+精度要求最高，且跨模块必须一致。三个面板并行委派，文件所有权互不重叠
+（各一个 `.tsx` + 一个 `.spec.tsx`），契约层不交给子任务。
+`SystemView` 的 tab 接线最后由我统一做。
+
+**并行的一个副作用值得记**：两个子任务各自报出了契约层的问题，而它们都没权限
+改，只能在面板层绕过。其中一个是我在任务书里**直接给错的选择器**：
+
+```ts
+useAuthStore((s) => s.user?.permissions ?? [])   // ← 错
+```
+
+`user` 为 null 时每次调用都返回**新的**数组引用，而 `useSyncExternalStore` 用
+`Object.is` 比较快照，于是永远不相等 → 无限重渲染 → React 抛
+*Maximum update depth exceeded*。已修成 `stores/auth.ts` 里的 `useMyPermissions()`，
+并把「fallback 必须是常量」写进注释——**陷阱留在出问题的源头，而不是每个调用点**。
+
+另一个是 `validateFrigateForm` 只校验 Frigate 侧机位名，漏了 `camera_id` 是必填
+UUID（`frigate.py:99-128` 会拒），等于把一个必然的 422 留给服务端发现。已补进
+契约层，并加了断言。
+
+### 三处最容易写错的契约
+
+**1. `permissions: null` 不是「没有权限」**（`auth/api.py:514-518`）
+
+```python
+requested = frozenset(body.permissions) if body.permissions is not None
+            else context.permissions
+```
+
+`null` = 继承创建者的权限，`[]` = 一个什么都做不了的令牌。两者都是合法请求，
+且 `[]` 不会在任何地方被当成假值处理。表单因此把「同我当前权限」做成一个
+**独立选项**，绝不用 `[]` 当简写。
+
+**2. 密钥环的 `unreadable` 是重叠轴，不是第三个桶**（`secret_store.py:418-435`）
+
+`inspect_records` 对每条记录**一边**归入 current/stale，**一边独立**试一次解密。
+所以恒有 `current + stale == total`，而 `current + stale + unreadable`
+描述的是任何一种都不存在的存储。面板把 total 显示成一行 `current + stale`，
+unreadable 单独一行并明说「这 N 条已经算在上面了」。
+
+`ERROR` 态**不提供轮换按钮**，且禁用理由直接用 `rotationBlockedReason()` 的
+返回值——它以 `unreadable > 0` 为最高优先级，即使服务端同时说
+`rotation_ready: true` 也照样禁用，因为那正是会让写入中途抛错的组合。
+测试里专门有一条守住这个矛盾载荷。
+
+**3. Frigate 的 PUT 是整对象替换，且 404 是首次配置的正常状态**
+
+`FrigateProviderView` 有个 `configured: bool = True` 字段，但 GET 在没配置时
+**先抛 404**，这个字段在任何成功响应里都必然是 true（G-36）。按它分支会让
+从未配置过的操作员看到**报错横幅**而不是配置表单——而报错内容本身就是
+「Frigate integration is not configured.」。
+
+另外两处：PUT 每次必须带全量字段（无「保持不变」的字段），以及
+**凭据 `replace` 会让服务端在 PUT 过程中真的去连 Frigate**，凭据错就直接把
+保存打失败（`frigate.py:421-429`）——这个副作用写在界面上了。
+还有 `replace` 是**整体替换五个字段**（`frigate.py:411-435`），不像通知那边
+只替换一个，所以编辑器五个一起显示并说明这一点。
+
+### 顺带修的一处无障碍缺陷
+
+`Segmented` 是字符串值控件，同屏两个秘密字段各有三个同名按钮
+（保持不变 / 替换 / 清空），屏幕阅读器会读成六个无关按钮。整块字段改为
+`role="group"` + `aria-label`（而不只是按钮行），两个目标列表也各加了名字。
+测试因此可以用 `getByRole("group", {name})` 精确定位，而不是靠按钮序号。
+
+### 验收
+
+| 项 | 结果 |
+|---|---|
+| `npx tsc --noEmit` | 干净 |
+| `npx vitest run` | **808 passed / 56 files**（本轮 +169） |
+| `npm run build` | 通过 |
+| `git diff main...HEAD -- backend/` | 空 |
+
+新增测试：`api/apiTokens.spec.ts`(18) + `api/secretStore.spec.ts`(11) +
+`api/frigate.spec.ts`(20) + `ApiTokensPanel.spec.tsx`(24) +
+`SecretStorePanel.spec.tsx`(17) + `FrigatePanel.spec.tsx`(23) +
+`SystemView.spec.tsx` 追加 2 条（tab 外壳在 guard 之外）。
+
+**测试不是摆设**：子任务对三个面板都做了变异检查——把实现改回天真写法
+（明文缓存进模块变量、`[]` 当继承、裸 datetime、去掉确认弹窗、只用
+`rotation_ready` 门控），确认对应用例会红，再还原。
+
+---
+
+## 12. PR-6 切换还需要改什么
 
 即使 13 项全部补齐，切换本身还要动这些：
 
@@ -288,7 +380,7 @@ Vue 侧能用的写法在这里会**静默**做错事，所以没有照搬：
 
 ---
 
-## 12. 待裁决
+## 13. 待裁决
 
 1. **i18n**：React 侧是否重建多语言？这决定 13 项之外是否还有第 14 项。
 2. **文件页形态**：日历 + 热力图是否保留，还是接受 PR-5e 的「浏览并导出」？

@@ -10,6 +10,9 @@ import {
   type HealthTone,
 } from "../components/ui/display"
 import { NotificationsPanel } from "../components/system/NotificationsPanel"
+import { SecretStorePanel } from "../components/system/SecretStorePanel"
+import { FrigatePanel } from "../components/system/FrigatePanel"
+import { ApiTokensPanel } from "../components/system/ApiTokensPanel"
 import {
   useCameraClockHealth,
   useNotificationTargets,
@@ -65,19 +68,25 @@ const COMPONENT_TONE: Record<HealthComponent["status"], HealthTone> = {
   DISABLED: "unknown",
 }
 
-type SystemTab = "settings" | "notifications"
+type SystemTab =
+  | "settings"
+  | "notifications"
+  | "secrets"
+  | "frigate"
+  | "tokens"
 
 /**
- * System settings and notification channels.
+ * System settings, notification channels, key ring, Frigate and API tokens.
  *
  * The tab shell sits **outside** the settings loading and error guards, and
  * that placement is the point rather than an accident of layout. Settings are
  * three nested groups read as one payload, so a partial or failing response
  * takes down everything that depends on it — but the notification targets, the
- * security-email pointer and the delivery log are separate endpoints with
- * separate failure modes. Hoisting the shell means "system settings is broken"
- * never also means "you cannot see that alerts are failing to send", which is
- * exactly the moment somebody needs to read the delivery log.
+ * key ring report, the Frigate config and the token list are separate
+ * endpoints with separate failure modes. Hoisting the shell means "system
+ * settings is broken" never also means "you cannot see that alerts are failing
+ * to send", which is exactly the moment somebody needs to read the delivery
+ * log.
  */
 export function SystemView() {
   const [tab, setTab] = useState<SystemTab>("settings")
@@ -87,10 +96,7 @@ export function SystemView() {
 
   return (
     <div className="space-y-4 p-5">
-      <PageHeader
-        title="系统设置"
-        description="系统参数与通知渠道。"
-      />
+      <PageHeader title="系统设置" description="系统参数、通知渠道与集成。" />
 
       <Tabs
         active={tab}
@@ -102,10 +108,21 @@ export function SystemView() {
             label: "通知渠道",
             count: targets.data?.length,
           },
+          { key: "secrets", label: "密钥环" },
+          { key: "frigate", label: "Frigate 集成" },
+          // Named "我的" because the endpoints are the signed-in account's own
+          // resources: there is no `/users/{id}/tokens`, so an admin cannot
+          // manage anybody else's token from here (G-32). The tab will move to
+          // the personal account page when that page exists.
+          { key: "tokens", label: "API 令牌（我的）" },
         ]}
       />
 
-      {tab === "settings" ? <SystemSettingsTab /> : <NotificationsPanel />}
+      {tab === "settings" ? <SystemSettingsTab /> : null}
+      {tab === "notifications" ? <NotificationsPanel /> : null}
+      {tab === "secrets" ? <SecretStorePanel /> : null}
+      {tab === "frigate" ? <FrigatePanel /> : null}
+      {tab === "tokens" ? <ApiTokensPanel /> : null}
     </div>
   )
 }

@@ -201,6 +201,17 @@ describe("validateFrigateForm", () => {
     expect(errors[0].message).toContain("front")
   })
 
+  it("rejects a mapping with no camera chosen on this system", () => {
+    // `camera_id` is a required UUID and the service rejects an unknown one
+    // (`frigate.py:99-128`) — checking only the Frigate-side name leaves a
+    // guaranteed 422 for the server to find.
+    const errors = validateFrigateForm(
+      form({ cameraMap: [{ frigate_camera: "front", camera_id: "" }] }),
+    )
+    expect(errors.map((e) => e.field)).toContain("cameraMap")
+    expect(errors[0].message).toContain("1")
+  })
+
   it("only demands MQTT details when MQTT is on", () => {
     expect(
       validateFrigateForm(form({ mqttEnabled: false, mqttHost: "", mqttPort: 0 })),

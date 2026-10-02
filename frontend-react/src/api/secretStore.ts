@@ -50,10 +50,26 @@ export type SecretStoreHealth = {
   current_records: number
   /** Records still on a superseded key. These are what rotation re-writes. */
   stale_records: number
-  /** Records whose ciphertext cannot be decrypted with any known key. */
+  /**
+   * Records whose ciphertext cannot be decrypted with any known key.
+   *
+   * **This is an overlapping axis, not a third bucket.** `inspect_records`
+   * counts `current`/`stale` per record and *independently* attempts a decrypt
+   * on the same record (`secret_store.py:418-435`), so `current + stale` always
+   * equals `total`, while `current + stale + unreadable` describes no store at
+   * all. A value of 2 means "2 of the 12 cannot be decrypted", and those 2 are
+   * already counted in `current` or `stale`.
+   */
   unreadable_records: number
   /** Superseded keys still loaded, excluding the primary. */
   previous_key_count: number
+  /**
+   * A key id, not key material — safe to display.
+   *
+   * Note that `previous_key_count` does **not** drop after a rotation: rotation
+   * re-encrypts records, it does not unload the superseded keys. A number that
+   * stays put after a successful rotation is correct, not a stale read.
+   */
   primary_key_id: string
   rotation_ready: boolean
 }
